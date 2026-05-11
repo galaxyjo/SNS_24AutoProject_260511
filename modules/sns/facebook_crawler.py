@@ -5,6 +5,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
+from modules.sns.caption_generator import generate_caption
 
 CHROMEDRIVER_PATH = r"C:\Users\admin\AppData\Roaming\adspower_global\cwd_global\chrome_144\chromedriver.exe"
 MAX_POSTS = 5
@@ -35,7 +36,7 @@ def extract_image_url(post_element):
     return ""
 
 
-def save_to_airtable(image_url, source_url):
+def save_to_airtable(image_url, source_url, text=""):
     if not image_url:
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
         return
@@ -45,10 +46,14 @@ def save_to_airtable(image_url, source_url):
     if existing:
         print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return
+    caption, hashtags = generate_caption(text)
+    print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
     table.create({
         "image_url": image_url,
         "source_url": source_url,
         "post_status": "ready",
+        "caption": caption,
+        "hashtag": hashtags,
     })
     print(f"[AIRTABLE] 저장 완료: {image_url[:80]}...")
 
@@ -72,7 +77,7 @@ def run(target_url, max_posts=MAX_POSTS):
         image_url = extract_image_url(post)
         text = post.text
         print(f"[POST {i}] image={image_url[:60] if image_url else '없음'}")
-        save_to_airtable(image_url, target_url)
+        save_to_airtable(image_url, target_url, text)
         results.append({"target_url": target_url, "content": text, "image_url": image_url})
 
     print(f"[DONE] {len(results)}개 처리 완료")
