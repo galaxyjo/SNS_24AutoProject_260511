@@ -7,6 +7,7 @@ from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
 
 CHROMEDRIVER_PATH = r"C:\Users\admin\AppData\Roaming\adspower_global\cwd_global\chrome_144\chromedriver.exe"
+MAX_POSTS = 5
 
 
 def start_browser():
@@ -52,8 +53,8 @@ def save_to_airtable(image_url, source_url):
     print(f"[AIRTABLE] 저장 완료: {image_url[:80]}...")
 
 
-def run(target_url):
-    print("🟢 시작: run_facebook_crawler")
+def run(target_url, max_posts=MAX_POSTS):
+    print(f"🟢 시작: run_facebook_crawler (최대 {max_posts}개)")
     driver = get_driver()
     print(f"[CRAWL] {target_url}")
     driver.get(target_url)
@@ -62,15 +63,17 @@ def run(target_url):
     feed = driver.find_element(By.CSS_SELECTOR, "div[role='feed']")
     posts = feed.find_elements(By.XPATH, ".//div[@role='article']")
 
-    if posts:
-        post = posts[0]
-        text = post.text
-        image_url = extract_image_url(post)
-        print("[SUCCESS] POST TEXT")
-        print(text)
-        print(f"[IMAGE] {image_url or '없음'}")
-        save_to_airtable(image_url, target_url)
-        return {"target_url": target_url, "content": text, "image_url": image_url}
-    else:
+    if not posts:
         print("[FAIL] No posts found")
-        return {"target_url": target_url, "content": "", "image_url": ""}
+        return []
+
+    results = []
+    for i, post in enumerate(posts[:max_posts], start=1):
+        image_url = extract_image_url(post)
+        text = post.text
+        print(f"[POST {i}] image={image_url[:60] if image_url else '없음'}")
+        save_to_airtable(image_url, target_url)
+        results.append({"target_url": target_url, "content": text, "image_url": image_url})
+
+    print(f"[DONE] {len(results)}개 처리 완료")
+    return results

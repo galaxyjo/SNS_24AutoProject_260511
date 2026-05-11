@@ -80,11 +80,9 @@ def crawl_and_store():
     for url in CRAWL_TARGET_URLS:
         logger.info(f"[크롤링] 시작: {url}")
         try:
-            result = fb_crawl(url)
-            if result.get("image_url"):
-                logger.info(f"[크롤링] 완료 → 이미지 저장: {result['image_url'][:60]}...")
-            else:
-                logger.warning(f"[크롤링] 완료 → 이미지 없음: {url}")
+            results = fb_crawl(url)
+            saved = [r for r in results if r.get("image_url")]
+            logger.info(f"[크롤링] 완료 → {len(results)}개 중 이미지 {len(saved)}개 저장: {url}")
         except Exception as e:
             logger.error(f"[크롤링] 실패: {url} | {e}")
             notify_telegram(f"⚠️ <b>[크롤링 실패]</b>\n{url}\n{e}")
