@@ -39,6 +39,11 @@ def save_to_airtable(image_url, source_url):
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
         return
     table = get_table("Instagram_Posts")
+    escaped = image_url.replace("'", "\\'")
+    existing = table.all(formula=f"{{image_url}}='{escaped}'")
+    if existing:
+        print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
+        return
     table.create({
         "image_url": image_url,
         "source_url": source_url,
