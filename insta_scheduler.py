@@ -22,12 +22,28 @@ logger = logging.getLogger(__name__)
 
 PAGE_TOKEN = os.getenv("INSTA_ACCESS_TOKEN")
 IG_USER_ID = os.getenv("INSTA_IG_USER_ID", "").strip()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 CRAWL_TARGET_URL = "https://www.facebook.com/groups/3393946167372584"
 CRAWL_INTERVAL_MINUTES = 30
 POLL_INTERVAL_MINUTES = 5
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 10
+
+
+def notify_telegram(message: str) -> None:
+    """Telegram 메시지 전송. 토큰/채팅 ID 미설정 시 조용히 스킵."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning(f"[Telegram] 전송 실패 (무시): {e}")
 
 
 def _upload(image_url: str, caption: str) -> str:
@@ -65,6 +81,7 @@ def crawl_and_store():
             logger.warning("[크롤링] 완료 → 이미지 없음 (Airtable 저장 생략)")
     except Exception as e:
         logger.error(f"[크롤링] 실패: {e}")
+        notify_telegram(f"⚠️ <b>[크롤링 실패]</b>\n{e}")
 
 
 def poll_and_upload():
@@ -97,6 +114,11 @@ def poll_and_upload():
                     "retry_count": 0,
                 },
             )
+            notify_telegram(
+                f"❌ <b>[업로드 실패]</b>\n"
+                f"Record: <code>{record_id}</code>\n"
+                f"사유: image_url 없음"
+            )
             continue
 
         last_error = None
@@ -114,6 +136,12 @@ def poll_and_upload():
                 logger.info(
                     f"[업로드] [{record_id}] 성공 (시도 {attempt}/{MAX_RETRIES})"
                     f" → post_id: {post_id}"
+                )
+                notify_telegram(
+                    f"✅ <b>[업로드 성공]</b>\n"
+                    f"Record: <code>{record_id}</code>\n"
+                    f"post_id: <code>{post_id}</code>"
+                    + (f"\n재시도: {attempt - 1}회" if attempt > 1 else "")
                 )
                 last_error = None
                 break
@@ -136,6 +164,12 @@ def poll_and_upload():
             )
             logger.error(
                 f"[업로드] [{record_id}] {MAX_RETRIES}회 재시도 모두 실패 → failed 마킹"
+            )
+            notify_telegram(
+                f"❌ <b>[업로드 실패]</b>\n"
+                f"Record: <code>{record_id}</code>\n"
+                f"재시도: {MAX_RETRIES}회 모두 실패\n"
+                f"에러: {str(last_error)[:300]}"
             )
 
 
@@ -161,6 +195,11 @@ def main():
     logger.info(
         f"파이프라인 시작 | 크롤링: {CRAWL_INTERVAL_MINUTES}분 간격"
         f" | 업로드 폴링: {POLL_INTERVAL_MINUTES}분 간격"
+    )
+    notify_telegram(
+        f"🚀 <b>[스케줄러 시작]</b>\n"
+        f"크롤링: {CRAWL_INTERVAL_MINUTES}분 간격\n"
+        f"업로드 폴링: {POLL_INTERVAL_MINUTES}분 간격"
     )
     try:
         scheduler.start()
