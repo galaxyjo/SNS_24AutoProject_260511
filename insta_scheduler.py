@@ -25,7 +25,11 @@ IG_USER_ID = os.getenv("INSTA_IG_USER_ID", "").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-CRAWL_TARGET_URL = "https://www.facebook.com/groups/3393946167372584"
+CRAWL_TARGET_URLS = [
+    "https://www.facebook.com/groups/3393946167372584",
+    # 추가 크롤링 대상 URL을 여기에 추가하세요
+    # "https://www.facebook.com/groups/XXXXXXXXXXXXXXXXX",
+]
 CRAWL_INTERVAL_MINUTES = 30
 POLL_INTERVAL_MINUTES = 5
 MAX_RETRIES = 3
@@ -72,16 +76,18 @@ def _upload(image_url: str, caption: str) -> str:
 
 
 def crawl_and_store():
-    logger.info(f"[크롤링] 시작: {CRAWL_TARGET_URL}")
-    try:
-        result = fb_crawl(CRAWL_TARGET_URL)
-        if result.get("image_url"):
-            logger.info(f"[크롤링] 완료 → 이미지 저장: {result['image_url'][:60]}...")
-        else:
-            logger.warning("[크롤링] 완료 → 이미지 없음 (Airtable 저장 생략)")
-    except Exception as e:
-        logger.error(f"[크롤링] 실패: {e}")
-        notify_telegram(f"⚠️ <b>[크롤링 실패]</b>\n{e}")
+    logger.info(f"[크롤링] 대상 {len(CRAWL_TARGET_URLS)}개 순회 시작")
+    for url in CRAWL_TARGET_URLS:
+        logger.info(f"[크롤링] 시작: {url}")
+        try:
+            result = fb_crawl(url)
+            if result.get("image_url"):
+                logger.info(f"[크롤링] 완료 → 이미지 저장: {result['image_url'][:60]}...")
+            else:
+                logger.warning(f"[크롤링] 완료 → 이미지 없음: {url}")
+        except Exception as e:
+            logger.error(f"[크롤링] 실패: {url} | {e}")
+            notify_telegram(f"⚠️ <b>[크롤링 실패]</b>\n{url}\n{e}")
 
 
 def poll_and_upload():
@@ -193,12 +199,12 @@ def main():
     )
 
     logger.info(
-        f"파이프라인 시작 | 크롤링: {CRAWL_INTERVAL_MINUTES}분 간격"
-        f" | 업로드 폴링: {POLL_INTERVAL_MINUTES}분 간격"
+        f"파이프라인 시작 | 크롤링 대상: {len(CRAWL_TARGET_URLS)}개"
+        f" {CRAWL_INTERVAL_MINUTES}분 간격 | 업로드 폴링: {POLL_INTERVAL_MINUTES}분 간격"
     )
     notify_telegram(
         f"🚀 <b>[스케줄러 시작]</b>\n"
-        f"크롤링: {CRAWL_INTERVAL_MINUTES}분 간격\n"
+        f"크롤링 대상: {len(CRAWL_TARGET_URLS)}개 ({CRAWL_INTERVAL_MINUTES}분 간격)\n"
         f"업로드 폴링: {POLL_INTERVAL_MINUTES}분 간격"
     )
     try:
