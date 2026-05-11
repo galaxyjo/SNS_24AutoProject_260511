@@ -29,8 +29,8 @@
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>cmd.exe</Command>
-      <Arguments>/c "C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe" "C:\SNS_24AutoProject_260511\insta_scheduler.py" >> "C:\SNS_24AutoProject_260511\logs\scheduler.log" 2>&amp;1</Arguments>
+      <Command>C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe</Command>
+      <Arguments>"C:\SNS_24AutoProject_260511\insta_scheduler.py"</Arguments>
       <WorkingDirectory>C:\SNS_24AutoProject_260511</WorkingDirectory>
     </Exec>
   </Actions>

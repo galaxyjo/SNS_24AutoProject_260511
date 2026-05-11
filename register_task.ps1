@@ -16,10 +16,10 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Write-Host "[INFO] 기존 태스크 제거 완료"
 }
 
-# 액션: python insta_scheduler.py (stdout/stderr → log 파일)
+# 액션: python insta_scheduler.py (로그는 RotatingFileHandler가 직접 관리)
 $Action = New-ScheduledTaskAction `
-    -Execute "cmd.exe" `
-    -Argument "/c `"$PythonExe`" `"$Script`" >> `"$LogFile`" 2>&1" `
+    -Execute $PythonExe `
+    -Argument "`"$Script`"" `
     -WorkingDirectory $WorkingDir
 
 # 트리거: 시스템 시작 시 + 1분 지연

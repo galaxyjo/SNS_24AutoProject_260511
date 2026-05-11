@@ -5,7 +5,9 @@ load_dotenv(override=True)  # airtable_bridge import 전에 반드시 먼저 실
 
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -13,11 +15,16 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from modules.common.airtable_bridge import get_table
 from modules.sns.facebook_crawler import run as fb_crawl
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+LOG_FILE = Path(__file__).parent / "logs" / "scheduler.log"
+LOG_FILE.parent.mkdir(exist_ok=True)
+
+_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+_file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")
+_file_handler.setFormatter(_fmt)
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler])
 logger = logging.getLogger(__name__)
 
 PAGE_TOKEN = os.getenv("INSTA_ACCESS_TOKEN")
