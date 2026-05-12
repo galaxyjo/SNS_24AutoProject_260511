@@ -54,24 +54,25 @@ python dashboard.py       # Streamlit 대시보드
 
 ```
 C:\SNS_24AutoProject_260511\
-├── launcher\                        ▶ 전체 실행 진입점 ✅ (main.py 구현 완료)
+├── launcher\                        ▶ 전체 실행 진입점               ✅ main.py 구현 완료
 │   └── scheduler\
-├── core\                            ▶ 실행 컨트롤러 / 태스크 라우터 (구현 예정)
+├── core\                            ▶ 실행 컨트롤러 / 태스크 라우터  ✅ 구현 완료
 ├── modules\
-│   ├── sns\         [F-01~F-04]     ▶ FB 크롤링 / Instagram 업로드  ✅ 구현됨
-│   ├── dm\          [F-05~F-06]     ▶ DM 수신 / 자동응답 / 팔로업   ✅ 구현됨
-│   ├── comment\                     ▶ 자동 댓글 관리                 ✅ 구현됨
-│   ├── crm\                         ▶ Lead CRM / 주문감지 / 리포트   ✅ 구현됨
-│   ├── common\                      ▶ Airtable 브릿지 / 중앙 로거 / 공통 유틸   ✅ 구현됨
-│   ├── trade\       [F-07]          ▶ 거래/상품 견적 엔진            🔲 폴더만 생성
-│   ├── avatar\      [F-08]          ▶ 아바타 AI 반응                 🔲 폴더만 생성
-│   ├── metrics\     [F-10]          ▶ 통계 수집                      🔲 폴더만 생성
-│   └── interaction_engine\ [F-11]  ▶ 좋아요·댓글·공유 자동화        🔲 폴더만 생성
-├── services\                        ▶ GPT / SMTP / Slack / 번역      🔲 폴더만 생성
+│   ├── sns\         [F-01~F-04]     ▶ FB 크롤링 / Instagram 업로드   ✅ 구현됨
+│   ├── dm\          [F-05~F-06]     ▶ DM 수신 / 자동응답 / 팔로업    ✅ 구현됨
+│   ├── comment\                     ▶ 자동 댓글 관리                  ✅ 구현됨
+│   ├── crm\                         ▶ Lead CRM / 주문감지 / 리포트    ✅ 구현됨
+│   ├── common\                      ▶ Airtable 브릿지 / 중앙 로거 / 공통 유틸  ✅ 구현됨
+│   ├── metrics\     [F-10]          ▶ KPI 통계 수집기                 ✅ 구현됨
+│   ├── interaction_engine\ [F-11]  ▶ 좋아요·댓글·공유 자동화         ✅ 구현됨
+│   ├── trade\       [F-07]          ▶ 거래/상품 견적 엔진             ⏸ 보류 (Phase 3 이후)
+│   └── avatar\      [F-08]          ▶ 아바타 AI 반응                  ⏸ 보류 (Phase 3 이후)
+├── services\                        ▶ Slack 알림 구현됨               ✅ slack_notifier
+│                                      smtp_mailer / gpt_connector      ⏸ 보류
 ├── configs\                         ▶ YAML/JSON 설정 파일
 ├── data\
 │   └── exported_data\
-├── db\                              ▶ SQLite 스키마 / 마이그레이션
+├── db\                              ▶ SQLite (retry_queue / kpi_snapshots / liked_comments)
 ├── docs\                            ▶ MASTER_TREE.md 등 문서
 ├── logs\
 │   ├── summary\
