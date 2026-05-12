@@ -101,6 +101,7 @@ C:\SNS_24AutoProject_260511\
 | — | 중앙 로거 (modules/common/logger.py) | ✅ |
 | — | retry queue (modules/common/retry_queue.py) | ✅ |
 | — | health monitor (modules/common/health_monitor.py) | ✅ |
+| — | dm/crm 모듈 중앙 로거 + retry queue 연동 | ✅ |
 
 ### 검증 완료 항목
 
@@ -140,7 +141,7 @@ C:\SNS_24AutoProject_260511\
 | Phase | 목표 |
 |-------|------|
 | Phase 1 | ~~watchdog~~ ✅ / ~~auto restart~~ ✅ / ~~centralized logging~~ ✅ / ~~retry queue~~ ✅ / ~~monitoring~~ ✅ |
-| Phase 2 | CRM 자동화 (auto reply / follow-up / lead qualification / revenue tracking) |
+| Phase 2 | ~~auto reply~~ ✅ / ~~follow-up~~ ✅ / ~~lead qualification~~ ✅ / ~~revenue tracking~~ ✅ / ~~중앙 로거·retry queue 연동~~ ✅ |
 | Phase 3 | 다계정 확장 / proxy scaling / distributed queue / AI 응답 최적화 |
 
 ---
