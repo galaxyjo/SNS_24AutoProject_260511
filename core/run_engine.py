@@ -90,7 +90,12 @@ def _job_insta_upload():
                 c2 = r2.json()
                 if "id" not in c2:
                     raise RuntimeError(f"게시 실패: {c2}")
-                table.update(rid, {"post_status": "posted", "retry_count": attempt - 1, "last_error_msg": ""})
+                table.update(rid, {
+                    "post_status":   "posted",
+                    "ig_media_id":   c2["id"],
+                    "retry_count":   attempt - 1,
+                    "last_error_msg": "",
+                })
                 logger.info(f"[RunEngine] 업로드 성공 | {rid} | post_id={c2['id']}")
                 success = True
                 break
@@ -129,6 +134,18 @@ def _job_kpi_snapshot():
     run_hourly_snapshot()
 
 
+@handle_errors(task="engagement_update", reraise=False)
+def _job_engagement_update():
+    from modules.interaction_engine.interaction_scheduler import run_engagement_update
+    run_engagement_update()
+
+
+@handle_errors(task="auto_like", reraise=False)
+def _job_auto_like():
+    from modules.interaction_engine.interaction_scheduler import run_auto_like
+    run_auto_like()
+
+
 # ── RunEngine ─────────────────────────────────────────────────────────────────
 
 class RunEngine:
@@ -145,7 +162,9 @@ class RunEngine:
         self.router.register("followup_poll", _job_followup_poll)
         self.router.register("comment_poll",  _job_comment_poll)
         self.router.register("daily_report",  _job_daily_report)
-        self.router.register("kpi_snapshot",  _job_kpi_snapshot)
+        self.router.register("kpi_snapshot",      _job_kpi_snapshot)
+        self.router.register("engagement_update", _job_engagement_update)
+        self.router.register("auto_like",         _job_auto_like)
 
     def _register_jobs(self):
         now = datetime.now()
@@ -172,6 +191,14 @@ class RunEngine:
         self.scheduler.add_job(
             _job_kpi_snapshot, "interval", hours=1,
             id="kpi_snapshot", next_run_time=now + timedelta(seconds=50),
+        )
+        self.scheduler.add_job(
+            _job_engagement_update, "interval", minutes=30,
+            id="engagement_update", next_run_time=now + timedelta(seconds=60),
+        )
+        self.scheduler.add_job(
+            _job_auto_like, "interval", minutes=15,
+            id="auto_like", next_run_time=now + timedelta(seconds=70),
         )
 
     def start(self):

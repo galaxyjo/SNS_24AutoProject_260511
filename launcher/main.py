@@ -60,6 +60,18 @@ def _job_kpi_snapshot():
     run_hourly_snapshot()
 
 
+@handle_errors(task="engagement_update")
+def _job_engagement_update():
+    from modules.interaction_engine.interaction_scheduler import run_engagement_update
+    run_engagement_update()
+
+
+@handle_errors(task="auto_like")
+def _job_auto_like():
+    from modules.interaction_engine.interaction_scheduler import run_auto_like
+    run_auto_like()
+
+
 @handle_errors(task="insta_upload")
 def _job_insta_upload():
     import time, requests as _req
@@ -106,8 +118,13 @@ def _job_insta_upload():
                 c2 = r2.json()
                 if "id" not in c2:
                     raise RuntimeError(f"게시 실패: {c2}")
-                table.update(rid, {"post_status": "posted", "retry_count": attempt - 1, "last_error_msg": ""})
-                logger.info(f"[Main] 업로드 성공 | {rid}")
+                table.update(rid, {
+                    "post_status":   "posted",
+                    "ig_media_id":   c2["id"],
+                    "retry_count":   attempt - 1,
+                    "last_error_msg": "",
+                })
+                logger.info(f"[Main] 업로드 성공 | {rid} | post_id={c2['id']}")
                 success = True
                 break
             except Exception as exc:
@@ -131,6 +148,10 @@ def _build_scheduler() -> BackgroundScheduler:
                   id="insta_upload", next_run_time=now + timedelta(seconds=20))
     sched.add_job(_job_kpi_snapshot, "interval", hours=1,
                   id="kpi_snapshot", next_run_time=now + timedelta(seconds=50))
+    sched.add_job(_job_engagement_update, "interval", minutes=30,
+                  id="engagement_update", next_run_time=now + timedelta(seconds=60))
+    sched.add_job(_job_auto_like, "interval", minutes=15,
+                  id="auto_like", next_run_time=now + timedelta(seconds=70))
     return sched
 
 

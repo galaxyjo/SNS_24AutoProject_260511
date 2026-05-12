@@ -35,14 +35,16 @@ def load_posts() -> pd.DataFrame:
     for r in records:
         f = r["fields"]
         rows.append({
-            "ID":       r["id"],
-            "상태":     f.get("post_status", ""),
+            "ID":        r["id"],
+            "상태":      f.get("post_status", ""),
             "이미지 URL": f.get("image_url", ""),
-            "캡션":     f.get("caption", ""),
-            "해시태그": f.get("hashtag", ""),
-            "재시도":   f.get("retry_count", 0),
-            "오류":     f.get("last_error_msg", ""),
-            "소스 URL": f.get("source_url", ""),
+            "캡션":      f.get("caption", ""),
+            "해시태그":  f.get("hashtag", ""),
+            "재시도":    f.get("retry_count", 0),
+            "오류":      f.get("last_error_msg", ""),
+            "소스 URL":  f.get("source_url", ""),
+            "좋아요":    f.get("like_count", 0),
+            "댓글 수":   f.get("comments_count", 0),
         })
     return pd.DataFrame(rows)
 
@@ -151,6 +153,20 @@ with tab1:
         use_container_width=True,
         height=380,
     )
+
+    st.divider()
+    st.subheader("\U0001f4ca Engagement 현황 (posted 게시물)")
+    eng_df = posts_df[posts_df["상태"] == "posted"].copy() if total else pd.DataFrame()
+    if not eng_df.empty and {"좋아요", "댓글 수"}.issubset(eng_df.columns):
+        avg_likes    = eng_df["좋아요"].mean()
+        avg_comments = eng_df["댓글 수"].mean()
+        total_likes  = int(eng_df["좋아요"].sum())
+        eg1, eg2, eg3 = st.columns(3)
+        eg1.metric("총 좋아요", total_likes)
+        eg2.metric("평균 좋아요", f"{avg_likes:.1f}")
+        eg3.metric("평균 댓글 수", f"{avg_comments:.1f}")
+    else:
+        st.caption("ig_media_id / like_count / comments_count 필드가 Airtable에 추가되면 표시됩니다.")
 
     st.divider()
     st.subheader("\U0001f5bc️ 이미지 미리보기 (최근 posted 5건)")
