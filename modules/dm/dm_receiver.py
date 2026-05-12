@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from flask import Flask, request, jsonify, abort
 
 from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry
+from modules.dm.dm_followup_scheduler import start_scheduler
 
 PAGE_TOKEN        = os.getenv("INSTA_ACCESS_TOKEN")
 IG_USER_ID        = os.getenv("INSTA_IG_USER_ID")
@@ -166,4 +167,5 @@ def health():
 if __name__ == "__main__":
     logger.info(f"[Webhook] 서버 시작 | port={WEBHOOK_PORT}")
     logger.info("[Webhook] ngrok: https://danuta-overdramatic-whirly.ngrok-free.dev/webhook")
+    start_scheduler()
     app.run(host="0.0.0.0", port=WEBHOOK_PORT, debug=False)

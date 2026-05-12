@@ -176,7 +176,9 @@ def handle_price_inquiry(
     inquiry_text: str,
     received_at: datetime,
 ) -> None:
-    """단가 문의 감지 → 10% 마진 가격으로 자동 응답 → Lead 업데이트 → Telegram 알림."""
+    """단가 문의 감지 → 10% 마진 가격으로 자동 응답 → Lead 업데이트 → 팔로업 예약 → Telegram 알림."""
+    from modules.dm.dm_followup_scheduler import set_followup_schedule
+
     base_price = get_base_price()
     if base_price is None:
         logger.warning("[AutoReply] 기준 가격 없음 — 자동 응답 생략")
@@ -189,6 +191,12 @@ def handle_price_inquiry(
 
     delay_sec = int((datetime.now(timezone.utc) - received_at).total_seconds())
     update_lead_replied(record_id, delay_sec)
+
+    # 팔로업 DM 시각 예약 (relay_scheduled_at = now + FOLLOWUP_DELAY_MINUTES)
+    try:
+        set_followup_schedule(record_id)
+    except Exception as exc:
+        logger.warning(f"[AutoReply] 팔로업 예약 실패 | {exc}")
 
     if sent:
         send_telegram_autoreply(sender_igsid, inquiry_text, reply_price)
