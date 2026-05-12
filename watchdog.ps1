@@ -1,4 +1,4 @@
-# watchdog.ps1 — Flask / Streamlit / ngrok 프로세스 감시 및 자동 재시작
+# watchdog.ps1 — Flask / Streamlit / ngrok / insta_scheduler 프로세스 감시 및 자동 재시작
 # 사용법: .\watchdog.ps1
 # run_scheduler.ps1로 서버를 먼저 띄운 뒤 이 스크립트를 별도 터미널에서 실행.
 
@@ -56,6 +56,19 @@ function Start-Ngrok {
     Start-Sleep -Seconds $RESTART_WAIT
 }
 
+function Test-InstaScheduler {
+    $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue
+    return ($procs | Where-Object { $_.CommandLine -like "*insta_scheduler.py*" }) -ne $null
+}
+
+function Start-InstaScheduler {
+    Start-Process -FilePath $python -ArgumentList "insta_scheduler.py" `
+        -RedirectStandardOutput "$logDir\scheduler.log" `
+        -RedirectStandardError  "$logDir\scheduler_err.log" `
+        -WindowStyle Hidden
+    Start-Sleep -Seconds $RESTART_WAIT
+}
+
 Write-Log "===== watchdog 시작 (주기: ${POLL_SEC}초) ====="
 
 while ($true) {
@@ -90,6 +103,17 @@ while ($true) {
             Write-Log "[OK]   ngrok 재시작 성공"
         } else {
             Write-Log "[ERROR] ngrok 재시작 실패 — ngrok PATH 확인 필요"
+        }
+    }
+
+    # --- insta_scheduler 감시 (커맨드라인 검사) ---
+    if (-not (Test-InstaScheduler)) {
+        Write-Log "[WARN] insta_scheduler.py 프로세스 없음 — 재시작 시도"
+        Start-InstaScheduler
+        if (Test-InstaScheduler) {
+            Write-Log "[OK]   insta_scheduler.py 재시작 성공"
+        } else {
+            Write-Log "[ERROR] insta_scheduler.py 재시작 실패 — scheduler_err.log 확인 필요"
         }
     }
 
