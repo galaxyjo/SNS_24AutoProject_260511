@@ -121,12 +121,14 @@ C:\SNS_24AutoProject_260511\
 - Lead_Interactions Logging / State Machine Structure
 - CRM Base Structure / Architecture Lock
 
-### 미구현 (MasterTree 기준 예정)
+### 보류 항목 (Phase 3 이후 — 현재 구현 대상 아님)
 
-- `modules/trade/` — 견적 엔진 / 상품 DB
-- `modules/avatar/` — AI 아바타 반응
-- `services/smtp_mailer` — 이메일 알림
-- `services/gpt_connector` — GPT 연동
+| 항목 | 내용 | 사유 |
+|------|------|------|
+| `modules/trade/` | 견적 엔진 / 상품 DB | Phase 3 이후 별도 기획 필요 |
+| `modules/avatar/` | AI 아바타 반응 | Phase 3 이후 별도 기획 필요 |
+| `services/smtp_mailer` | 이메일 알림 | Telegram + Slack으로 운영 알림 충분 |
+| `services/gpt_connector` | GPT 연동 | Gemini로 현재 충족, 필요 시 추가 |
 
 
 ---
