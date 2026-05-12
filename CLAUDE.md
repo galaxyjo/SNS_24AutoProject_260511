@@ -106,6 +106,7 @@ C:\SNS_24AutoProject_260511\
 | — | proxy scaling (계정별 proxy 설정 + Selenium 적용) | ✅ |
 | — | parallel runner (ThreadPoolExecutor 다계정 병렬 실행) | ✅ |
 | — | AI 응답 최적화 (Gemini 문맥 인식 응답 + 템플릿 폴백) | ✅ |
+| — | core/ 모듈 (log_initializer / error_handler / task_router / run_engine) | ✅ |
 
 ### 검증 완료 항목
 
@@ -122,7 +123,6 @@ C:\SNS_24AutoProject_260511\
 - `modules/avatar/` — AI 아바타 반응
 - `modules/metrics/` — 통계 수집기
 - `modules/interaction_engine/` — 좋아요·댓글·공유 자동화 (F-11)
-- `core/` — run_engine, task_router, error_handler
 - `services/` — gpt_connector, smtp_mailer, slack_notifier
 - `launcher/main.py` — 통합 실행 진입점
 
@@ -187,3 +187,9 @@ C:\SNS_24AutoProject_260511\
 - AI 응답: `from modules.dm.ai_reply_generator import generate_reply`
   - Gemini 문맥 인식 개인화 응답, 실패 시 템플릿 자동 폴백
   - `dm_auto_reply.py`에서 자동 사용 (별도 설정 불필요)
+- core/ 실행 구조:
+  - `core/log_initializer.py` — 시작 시 중앙 로거 1회 초기화
+  - `core/error_handler.py` — `@handle_errors` 데코레이터 / `safe_run()` 헬퍼
+  - `core/task_router.py` — 태스크 이름 → 핸들러 분기 (register/dispatch)
+  - `core/run_engine.py` — APScheduler 오케스트레이터, retry_queue 연동
+    - `python -m core.run_engine` 으로 `insta_scheduler.py` 대체 실행 가능
