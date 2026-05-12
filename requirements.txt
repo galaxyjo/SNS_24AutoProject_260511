@@ -5,3 +5,4 @@ python-dotenv>=1.0.0
 selenium>=4.0.0
 google-genai>=0.7.0
 streamlit>=1.32.0
+flask>=3.0.0
