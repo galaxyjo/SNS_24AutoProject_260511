@@ -109,6 +109,7 @@ C:\SNS_24AutoProject_260511\
 | — | core/ 모듈 (log_initializer / error_handler / task_router / run_engine) | ✅ |
 | — | launcher/main.py (통합 진입점: BackgroundScheduler + Flask + retry_queue) | ✅ |
 | — | modules/metrics/ KPI 수집기 (kpi_collector: 집계 + SQLite 스냅샷 + 대시보드 탭) | ✅ |
+| — | modules/interaction_engine/ F-11 (engagement_tracker / auto_liker / interaction_scheduler) | ✅ |
 
 ### 검증 완료 항목
 
@@ -123,8 +124,6 @@ C:\SNS_24AutoProject_260511\
 
 - `modules/trade/` — 견적 엔진 / 상품 DB
 - `modules/avatar/` — AI 아바타 반응
-
-- `modules/interaction_engine/` — 좋아요·댓글·공유 자동화 (F-11)
 - `services/` — gpt_connector, smtp_mailer, slack_notifier
 
 
@@ -195,6 +194,12 @@ C:\SNS_24AutoProject_260511\
   - `core/task_router.py` — 태스크 이름 → 핸들러 분기 (register/dispatch)
   - `core/run_engine.py` — APScheduler 오케스트레이터, retry_queue 연동
     - `python -m core.run_engine` 으로 `insta_scheduler.py` 대체 실행 가능
+- interaction_engine (F-11):
+  - `engagement_tracker.py` — Graph API로 like_count / comments_count 갱신 (30분 간격)
+  - `auto_liker.py` — 게시물 댓글 자동 좋아요 (15분 간격), 중복 방지: `db/liked_comments.db`
+  - 업로드 성공 시 `ig_media_id` Airtable 저장 (engagement 조회 전제)
+  - Airtable Instagram_Posts 필드 추가 필요: `ig_media_id`, `like_count`, `comments_count`
+  - `AUTO_LIKE_MAX_POSTS` env로 처리 게시물 수 제어 (기본 10)
 - KPI 수집: `from modules.metrics.kpi_collector import collect_kpi, run_hourly_snapshot`
   - `collect_kpi(period)` — period: 'today' / '7d' / '30d' / 'all'
   - 반환: {upload, lead, followup, comment, queue} 각 지표 dict
