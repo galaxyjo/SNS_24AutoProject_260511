@@ -23,7 +23,15 @@ if (-not $ngrokRunning) {
     Write-Host "[NGROK] 이미 실행 중 (유지)"
 }
 
-# 3. Flask + APScheduler 시작
+# 3. 콘텐츠 파이프라인 시작 (크롤링 + 업로드, 1~10단계)
+Write-Host "[START] 콘텐츠 파이프라인 시작 (insta_scheduler)..."
+Start-Process -FilePath $python -ArgumentList "insta_scheduler.py" `
+    -RedirectStandardOutput "$logDir\scheduler.log" `
+    -RedirectStandardError  "$logDir\scheduler_err.log" `
+    -WindowStyle Hidden
+Start-Sleep -Seconds 2
+
+# 4. Flask + APScheduler 시작
 Write-Host "[START] Flask 서버 시작 (port 5000)..."
 Start-Process -FilePath $python -ArgumentList "-m modules.dm.dm_receiver" `
     -RedirectStandardOutput "$logDir\webhook_stdout.log" `
@@ -31,7 +39,7 @@ Start-Process -FilePath $python -ArgumentList "-m modules.dm.dm_receiver" `
     -WindowStyle Hidden
 Start-Sleep -Seconds 3
 
-# 4. 헬스체크
+# 5. 헬스체크
 try {
     $health = Invoke-RestMethod -Uri "http://localhost:5000/health" -TimeoutSec 5
     Write-Host "[OK] Flask 정상 응답: status=$($health.status)"
@@ -39,7 +47,7 @@ try {
     Write-Host "[ERROR] Flask 응답 없음 — logs\webhook_stderr.log 확인"
 }
 
-# 5. Streamlit 대시보드 시작
+# 6. Streamlit 대시보드 시작
 Write-Host "[START] Streamlit 대시보드 시작 (port 8501)..."
 Start-Process -FilePath $streamlit -ArgumentList "run dashboard.py --server.port 8501" `
     -RedirectStandardOutput "$logDir\dashboard.log" `
@@ -55,6 +63,7 @@ try {
 }
 
 Write-Host "`n[DONE] 서버 재시작 완료"
-Write-Host "  Flask    : http://localhost:5000/health"
-Write-Host "  Dashboard: http://localhost:8501"
-Write-Host "  Webhook  : https://danuta-overdramatic-whirly.ngrok-free.dev/webhook"
+Write-Host "  콘텐츠 파이프라인 : logs\scheduler.log"
+Write-Host "  Flask             : http://localhost:5000/health"
+Write-Host "  Dashboard         : http://localhost:8501"
+Write-Host "  Webhook           : https://danuta-overdramatic-whirly.ngrok-free.dev/webhook"
