@@ -6,7 +6,8 @@ import json as _json
 import logging
 import requests
 
-logger = logging.getLogger(__name__)
+from modules.common.logger import get_logger
+logger = get_logger(__name__)
 
 # ── 가중치 ────────────────────────────────────────────────────────────────────
 SCORE_REPEAT     = 10   # 동일 IGSID 재문의

@@ -7,7 +7,8 @@ import logging
 import requests
 from datetime import datetime, timezone
 
-logger = logging.getLogger(__name__)
+from modules.common.logger import get_logger
+logger = get_logger(__name__)
 
 MARGIN_RATE = 0.10
 
@@ -170,6 +171,12 @@ def send_telegram_autoreply(sender_igsid: str, inquiry: str, reply_price: float)
         logger.warning(f"[AutoReply] Telegram 알림 실패 | {exc}")
 
 
+def _retry_send_ig_reply(payload: dict) -> None:
+    """retry_queue 핸들러 — IG DM 재전송."""
+    if not send_ig_reply(payload["sender_igsid"], payload["message"]):
+        raise RuntimeError("IG DM send failed")
+
+
 def handle_price_inquiry(
     record_id: str,
     sender_igsid: str,
@@ -178,6 +185,7 @@ def handle_price_inquiry(
 ) -> None:
     """단가 문의 감지 → 10% 마진 가격으로 자동 응답 → Lead 업데이트 → 팔로업 예약 → Telegram 알림."""
     from modules.dm.dm_followup_scheduler import set_followup_schedule
+    from modules.common.retry_queue import get_retry_queue
 
     base_price = get_base_price()
     if base_price is None:
@@ -189,10 +197,16 @@ def handle_price_inquiry(
 
     sent = send_ig_reply(sender_igsid, reply_msg)
 
+    if not sent:
+        rq = get_retry_queue()
+        rq.register("ig_auto_reply", _retry_send_ig_reply)
+        rq.start()
+        rq.enqueue("ig_auto_reply", {"sender_igsid": sender_igsid, "message": reply_msg})
+        logger.warning(f"[AutoReply] DM 발송 실패 → retry queue 등록 | to={sender_igsid}")
+
     delay_sec = int((datetime.now(timezone.utc) - received_at).total_seconds())
     update_lead_replied(record_id, delay_sec)
 
-    # 팔로업 DM 시각 예약 (relay_scheduled_at = now + FOLLOWUP_DELAY_MINUTES)
     try:
         set_followup_schedule(record_id)
     except Exception as exc:

@@ -7,7 +7,8 @@ import logging
 import requests
 from datetime import datetime, timezone
 
-logger = logging.getLogger(__name__)
+from modules.common.logger import get_logger
+logger = get_logger(__name__)
 
 ORDER_KEYWORDS = [
     "주문", "구매", "결제", "오더", "발주", "구입",

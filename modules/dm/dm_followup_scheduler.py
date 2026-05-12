@@ -12,7 +12,8 @@ from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-logger = logging.getLogger(__name__)
+from modules.common.logger import get_logger
+logger = get_logger(__name__)
 
 # 단계별 딜레이 (분) — 모든 단계 동일 간격 사용
 STAGE_DELAY_MINUTES = int(os.getenv("FOLLOWUP_STAGE_DELAY_MINUTES",
@@ -207,6 +208,17 @@ def process_due_followups() -> None:
             next_status, next_status
         )
         sent = _send_ig_dm(igsid, template)
+
+        if not sent:
+            from modules.common.retry_queue import get_retry_queue
+            def _retry_followup(payload: dict) -> None:
+                if not _send_ig_dm(payload["igsid"], payload["text"]):
+                    raise RuntimeError("followup DM send failed")
+            rq = get_retry_queue()
+            rq.register("ig_followup", _retry_followup)
+            rq.start()
+            rq.enqueue("ig_followup", {"igsid": igsid, "text": template})
+            logger.warning(f"[Followup] DM 발송 실패 → retry queue 등록 | to={igsid}")
 
         update: dict = {
             "bridge_status": next_status if sent else "followup_error",
