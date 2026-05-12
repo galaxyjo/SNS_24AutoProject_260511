@@ -54,7 +54,7 @@ python dashboard.py       # Streamlit 대시보드
 
 ```
 C:\SNS_24AutoProject_260511\
-├── launcher\                        ▶ 전체 실행 진입점 (main.py 예정)
+├── launcher\                        ▶ 전체 실행 진입점 ✅ (main.py 구현 완료)
 │   └── scheduler\
 ├── core\                            ▶ 실행 컨트롤러 / 태스크 라우터 (구현 예정)
 ├── modules\
@@ -107,6 +107,7 @@ C:\SNS_24AutoProject_260511\
 | — | parallel runner (ThreadPoolExecutor 다계정 병렬 실행) | ✅ |
 | — | AI 응답 최적화 (Gemini 문맥 인식 응답 + 템플릿 폴백) | ✅ |
 | — | core/ 모듈 (log_initializer / error_handler / task_router / run_engine) | ✅ |
+| — | launcher/main.py (통합 진입점: BackgroundScheduler + Flask + retry_queue) | ✅ |
 
 ### 검증 완료 항목
 
@@ -124,7 +125,7 @@ C:\SNS_24AutoProject_260511\
 - `modules/metrics/` — 통계 수집기
 - `modules/interaction_engine/` — 좋아요·댓글·공유 자동화 (F-11)
 - `services/` — gpt_connector, smtp_mailer, slack_notifier
-- `launcher/main.py` — 통합 실행 진입점
+
 
 ---
 
