@@ -1,0 +1,15 @@
+[
+  {
+    "name": "account1",
+    "active": true,
+    "adspower_user_id": "k1bto3j4",
+    "ig_user_id": "",
+    "ig_access_token": "",
+    "fb_page_id": "",
+    "airtable_base_id": "",
+    "crawl_urls": [
+      "https://www.facebook.com/groups/3393946167372584"
+    ],
+    "telegram_chat_id": ""
+  }
+]

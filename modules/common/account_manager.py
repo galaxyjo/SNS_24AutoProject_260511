@@ -1,0 +1,153 @@
+"""
+account_manager.py — 다계정 설정 관리
+
+계정 설정 우선순위:
+  1. configs/accounts.json  (다계정 운영 시 사용)
+  2. .env 환경변수           (단일 계정 하위 호환)
+
+accounts.json 형식:
+  [
+    {
+      "name": "account1",
+      "active": true,
+      "adspower_user_id": "k1bto3j4",
+      "ig_user_id": "123456789",
+      "ig_access_token": "EAA...",
+      "fb_page_id": "987654321",
+      "facebook_page_id": "987654321",
+      "airtable_base_id": "appXXXXXXXXXXXXXX",
+      "crawl_urls": ["https://www.facebook.com/groups/XXXXXXXX"],
+      "telegram_chat_id": ""
+    }
+  ]
+
+사용법:
+    from modules.common.account_manager import get_active_accounts, get_account
+
+    for acct in get_active_accounts():
+        print(acct.name, acct.ig_user_id)
+
+    acct = get_account("account1")
+"""
+
+import json
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from modules.common.logger import get_logger
+
+logger = get_logger(__name__)
+
+_ACCOUNTS_JSON = Path(__file__).resolve().parents[2] / "configs" / "accounts.json"
+
+
+# ── 계정 데이터 클래스 ────────────────────────────────────────────────────────
+
+@dataclass
+class Account:
+    name: str
+    active: bool
+    adspower_user_id: str
+    ig_user_id: str
+    ig_access_token: str
+    fb_page_id: str
+    airtable_base_id: str
+    crawl_urls: list[str] = field(default_factory=list)
+    telegram_chat_id: str = ""
+
+    def as_env(self) -> dict:
+        """계정 설정을 환경변수 딕셔너리로 반환 (기존 코드와 호환)."""
+        return {
+            "INSTA_ACCESS_TOKEN":   self.ig_access_token,
+            "INSTA_IG_USER_ID":     self.ig_user_id,
+            "FACEBOOK_PAGE_ID":     self.fb_page_id,
+            "AIRTABLE_BASE_ID":     self.airtable_base_id,
+            "TELEGRAM_CHAT_ID":     self.telegram_chat_id,
+        }
+
+
+# ── 로더 ─────────────────────────────────────────────────────────────────────
+
+def _load_from_json() -> list[Account]:
+    if not _ACCOUNTS_JSON.exists():
+        return []
+    try:
+        data = json.loads(_ACCOUNTS_JSON.read_text(encoding="utf-8"))
+        accounts = []
+        for item in data:
+            accounts.append(Account(
+                name             = item.get("name", ""),
+                active           = item.get("active", True),
+                adspower_user_id = item.get("adspower_user_id", ""),
+                ig_user_id       = item.get("ig_user_id", ""),
+                ig_access_token  = item.get("ig_access_token", ""),
+                fb_page_id       = item.get("fb_page_id") or item.get("facebook_page_id", ""),
+                airtable_base_id = item.get("airtable_base_id", ""),
+                crawl_urls       = item.get("crawl_urls", []),
+                telegram_chat_id = item.get("telegram_chat_id", ""),
+            ))
+        logger.info(f"[AccountManager] accounts.json 로드 | {len(accounts)}개 계정")
+        return accounts
+    except Exception as exc:
+        logger.error(f"[AccountManager] accounts.json 파싱 실패 | {exc}")
+        return []
+
+
+def _load_from_env() -> list[Account]:
+    """환경변수 기반 단일 계정 (하위 호환)."""
+    ig_user_id = os.getenv("INSTA_IG_USER_ID", "").strip()
+    if not ig_user_id:
+        return []
+    acct = Account(
+        name             = "default",
+        active           = True,
+        adspower_user_id = os.getenv("ADSPOWER_USER_ID", "k1bto3j4"),
+        ig_user_id       = ig_user_id,
+        ig_access_token  = os.getenv("INSTA_ACCESS_TOKEN", ""),
+        fb_page_id       = os.getenv("FACEBOOK_PAGE_ID", ""),
+        airtable_base_id = os.getenv("AIRTABLE_BASE_ID", ""),
+        crawl_urls       = [],
+        telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", ""),
+    )
+    logger.info("[AccountManager] 환경변수 기반 단일 계정 사용")
+    return [acct]
+
+
+# ── 캐시 ─────────────────────────────────────────────────────────────────────
+_cache: list[Account] | None = None
+
+
+def _get_all() -> list[Account]:
+    global _cache
+    if _cache is None:
+        _cache = _load_from_json() or _load_from_env()
+        if not _cache:
+            logger.warning("[AccountManager] 계정 설정 없음 — accounts.json 또는 .env 확인 필요")
+    return _cache
+
+
+def reload() -> None:
+    """캐시를 초기화하고 재로드한다 (런타임 계정 추가 시 사용)."""
+    global _cache
+    _cache = None
+    _get_all()
+
+
+# ── 공개 API ──────────────────────────────────────────────────────────────────
+
+def get_active_accounts() -> list[Account]:
+    """활성화된 계정 목록을 반환한다."""
+    return [a for a in _get_all() if a.active]
+
+
+def get_account(name: str) -> Optional[Account]:
+    """이름으로 특정 계정을 반환한다. 없으면 None."""
+    return next((a for a in _get_all() if a.name == name), None)
+
+
+def get_default_account() -> Optional[Account]:
+    """첫 번째 활성 계정을 반환한다 (단일 계정 코드 호환용)."""
+    accounts = get_active_accounts()
+    return accounts[0] if accounts else None
