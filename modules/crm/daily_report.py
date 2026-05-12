@@ -2,11 +2,11 @@
 # 매일 18:00 KST(09:00 UTC) Telegram으로 Lead 일일 현황 리포트 발송
 
 import os
-import logging
 import requests
 from datetime import datetime, timezone, timedelta
 
-logger = logging.getLogger(__name__)
+from modules.common.logger import get_logger
+logger = get_logger(__name__)
 
 
 def _fetch_today_leads() -> dict:
@@ -85,3 +85,12 @@ def send_daily_report() -> None:
         logger.info("[Report] 일일 리포트 전송 완료")
     except Exception as exc:
         logger.warning(f"[Report] 전송 실패 | {exc}")
+
+    # Slack 백업 발송 (SLACK_WEBHOOK_URL 설정 시)
+    try:
+        from services.slack_notifier import notify_daily_kpi
+        from modules.metrics.kpi_collector import collect_kpi
+        kpi = collect_kpi("today")
+        notify_daily_kpi(kpi)
+    except Exception as exc:
+        logger.debug(f"[Report] Slack 백업 생략 | {exc}")

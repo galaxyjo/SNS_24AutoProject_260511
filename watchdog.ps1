@@ -25,6 +25,25 @@ function Write-Log {
     Add-Content -Path $watchdogLog -Value $line -Encoding UTF8
 }
 
+function Send-SlackAlert {
+    param([string]$message, [string]$level = "warning")
+    $webhookUrl = $env:SLACK_WEBHOOK_URL
+    if (-not $webhookUrl) { return }
+    $emoji = if ($level -eq "error") { ":red_circle:" } elseif ($level -eq "success") { ":white_check_mark:" } else { ":warning:" }
+    $color = if ($level -eq "error") { "#cc0000" } elseif ($level -eq "success") { "#2eb886" } else { "#ffcc00" }
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss KST"
+    $body = @{
+        attachments = @(@{
+            color  = $color
+            title  = "$emoji [Watchdog] $message"
+            footer = "SNS_24AutoProject | $ts"
+        })
+    } | ConvertTo-Json -Depth 4
+    try {
+        Invoke-RestMethod -Uri $webhookUrl -Method Post -Body $body -ContentType "application/json" | Out-Null
+    } catch {}
+}
+
 function Test-Http {
     param([string]$url)
     try {
@@ -76,44 +95,56 @@ while ($true) {
     # --- Flask 감시 ---
     if (-not (Test-Http $FLASK_URL)) {
         Write-Log "[WARN] Flask 응답 없음 — 재시작 시도"
+        Send-SlackAlert "Flask 응답 없음 — 재시작 시도" "warning"
         Start-Flask
         if (Test-Http $FLASK_URL) {
             Write-Log "[OK]   Flask 재시작 성공"
+            Send-SlackAlert "Flask 재시작 성공" "success"
         } else {
             Write-Log "[ERROR] Flask 재시작 후에도 응답 없음 — webhook_stderr.log 확인 필요"
+            Send-SlackAlert "Flask 재시작 실패 — webhook_stderr.log 확인 필요" "error"
         }
     }
 
     # --- Streamlit 감시 ---
     if (-not (Test-Http $STREAMLIT_URL)) {
         Write-Log "[WARN] Streamlit 응답 없음 — 재시작 시도"
+        Send-SlackAlert "Streamlit 응답 없음 — 재시작 시도" "warning"
         Start-Streamlit
         if (Test-Http $STREAMLIT_URL) {
             Write-Log "[OK]   Streamlit 재시작 성공"
+            Send-SlackAlert "Streamlit 재시작 성공" "success"
         } else {
             Write-Log "[ERROR] Streamlit 재시작 후에도 응답 없음 — dashboard_err.log 확인 필요"
+            Send-SlackAlert "Streamlit 재시작 실패 — dashboard_err.log 확인 필요" "error"
         }
     }
 
     # --- ngrok 감시 (프로세스 존재 여부) ---
     if (-not (Get-Process -Name ngrok -ErrorAction SilentlyContinue)) {
         Write-Log "[WARN] ngrok 프로세스 없음 — 재시작 시도"
+        Send-SlackAlert "ngrok 프로세스 없음 — 재시작 시도" "warning"
         Start-Ngrok
         if (Get-Process -Name ngrok -ErrorAction SilentlyContinue) {
             Write-Log "[OK]   ngrok 재시작 성공"
+            Send-SlackAlert "ngrok 재시작 성공" "success"
         } else {
             Write-Log "[ERROR] ngrok 재시작 실패 — ngrok PATH 확인 필요"
+            Send-SlackAlert "ngrok 재시작 실패 — ngrok PATH 확인 필요" "error"
         }
     }
 
     # --- insta_scheduler 감시 (커맨드라인 검사) ---
     if (-not (Test-InstaScheduler)) {
         Write-Log "[WARN] insta_scheduler.py 프로세스 없음 — 재시작 시도"
+        Send-SlackAlert "insta_scheduler.py 프로세스 없음 — 재시작 시도" "warning"
         Start-InstaScheduler
         if (Test-InstaScheduler) {
             Write-Log "[OK]   insta_scheduler.py 재시작 성공"
+            Send-SlackAlert "insta_scheduler.py 재시작 성공" "success"
         } else {
             Write-Log "[ERROR] insta_scheduler.py 재시작 실패 — scheduler_err.log 확인 필요"
+            Send-SlackAlert "insta_scheduler.py 재시작 실패 — scheduler_err.log 확인 필요" "error"
         }
     }
 

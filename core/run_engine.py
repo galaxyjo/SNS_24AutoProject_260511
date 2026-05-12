@@ -32,17 +32,24 @@ CRAWL_INTERVAL_MIN  = int(os.getenv("CRAWL_INTERVAL_MINUTES", "30"))
 UPLOAD_POLL_MIN     = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
 FOLLOWUP_POLL_MIN   = 5
 
+# Slack 알림 (SLACK_WEBHOOK_URL 미설정 시 None → 알림 생략)
+try:
+    from services.slack_notifier import get_notify_fn as _get_notify_fn
+    _slack = _get_notify_fn()
+except Exception:
+    _slack = None
+
 
 # ── 잡 함수 ──────────────────────────────────────────────────────────────────
 
-@handle_errors(task="fb_crawl", reraise=False)
+@handle_errors(task="fb_crawl", reraise=False, notify_fn=_slack)
 def _job_fb_crawl():
     from modules.sns.facebook_crawler import run_all_accounts
     summary = run_all_accounts()
     logger.info(f"[RunEngine] fb_crawl 완료 | {summary}")
 
 
-@handle_errors(task="insta_upload", reraise=False)
+@handle_errors(task="insta_upload", reraise=False, notify_fn=_slack)
 def _job_insta_upload():
     import time, requests
     from modules.common.airtable_bridge import get_table
@@ -110,37 +117,37 @@ def _job_insta_upload():
             logger.error(f"[RunEngine] 업로드 최종 실패 | {rid}")
 
 
-@handle_errors(task="followup_poll", reraise=False)
+@handle_errors(task="followup_poll", reraise=False, notify_fn=_slack)
 def _job_followup_poll():
     from modules.dm.dm_followup_scheduler import process_due_followups
     process_due_followups()
 
 
-@handle_errors(task="comment_poll", reraise=False)
+@handle_errors(task="comment_poll", reraise=False, notify_fn=_slack)
 def _job_comment_poll():
     from modules.comment.comment_poller import poll_new_comments
     poll_new_comments()
 
 
-@handle_errors(task="daily_report", reraise=False)
+@handle_errors(task="daily_report", reraise=False, notify_fn=_slack)
 def _job_daily_report():
     from modules.crm.daily_report import send_daily_report
     send_daily_report()
 
 
-@handle_errors(task="kpi_snapshot", reraise=False)
+@handle_errors(task="kpi_snapshot", reraise=False, notify_fn=_slack)
 def _job_kpi_snapshot():
     from modules.metrics.kpi_collector import run_hourly_snapshot
     run_hourly_snapshot()
 
 
-@handle_errors(task="engagement_update", reraise=False)
+@handle_errors(task="engagement_update", reraise=False, notify_fn=_slack)
 def _job_engagement_update():
     from modules.interaction_engine.interaction_scheduler import run_engagement_update
     run_engagement_update()
 
 
-@handle_errors(task="auto_like", reraise=False)
+@handle_errors(task="auto_like", reraise=False, notify_fn=_slack)
 def _job_auto_like():
     from modules.interaction_engine.interaction_scheduler import run_auto_like
     run_auto_like()
