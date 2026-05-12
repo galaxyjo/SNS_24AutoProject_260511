@@ -18,6 +18,8 @@ from flask import Flask, request, jsonify, abort
 
 from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry
 from modules.dm.dm_followup_scheduler import start_scheduler
+from modules.crm.lead_scorer import is_repeat_inquiry, calc_score, update_lead_score
+from modules.crm.order_detector import detect_order, handle_order_conversion
 
 PAGE_TOKEN        = os.getenv("INSTA_ACCESS_TOKEN")
 IG_USER_ID        = os.getenv("INSTA_IG_USER_ID")
@@ -146,8 +148,31 @@ def receive_webhook():
                 logger.error(f"[Airtable] 기록 실패 | sender_id={sender_id} | {exc}")
                 continue
 
-            # 단가 문의 감지 → 자동 응답
-            if detect_price_inquiry(text):
+            # Lead 스코어링
+            try:
+                repeat    = is_repeat_inquiry(sender_id)
+                has_order = detect_order(text)
+                has_price = detect_price_inquiry(text)
+                score, grade = calc_score(
+                    is_repeat=repeat,
+                    has_order_keyword=has_order,
+                    has_price_keyword=has_price,
+                )
+                update_lead_score(record_id, score, grade)
+                logger.info(f"[Scorer] score={score} grade={grade} | from={sender_id}")
+            except Exception as exc:
+                logger.warning(f"[Scorer] 스코어링 실패 | {exc}")
+
+            # 주문 전환 감지 (단가 자동응답보다 우선)
+            if detect_order(text):
+                logger.info(f"[Order] 주문 의사 감지 | from={sender_id}")
+                try:
+                    handle_order_conversion(record_id, sender_id, text)
+                except Exception as exc:
+                    logger.error(f"[Order] 전환 처리 실패 | sender_id={sender_id} | {exc}")
+
+            # 단가 문의 감지 → 자동 응답 (주문이 아닌 경우)
+            elif detect_price_inquiry(text):
                 logger.info(f"[AutoReply] 단가 문의 감지 | from={sender_id}")
                 try:
                     handle_price_inquiry(record_id, sender_id, text, received_at)
