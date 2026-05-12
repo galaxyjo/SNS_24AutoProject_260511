@@ -20,6 +20,7 @@ from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry
 from modules.dm.dm_followup_scheduler import start_scheduler
 from modules.crm.lead_scorer import is_repeat_inquiry, calc_score, update_lead_score
 from modules.crm.order_detector import detect_order, handle_order_conversion
+from modules.comment.comment_auto_reply import handle_comment
 
 PAGE_TOKEN        = os.getenv("INSTA_ACCESS_TOKEN")
 IG_USER_ID        = os.getenv("INSTA_IG_USER_ID")
@@ -130,6 +131,23 @@ def receive_webhook():
         return jsonify({"status": "ignored"}), 200
 
     for entry in data.get("entry", []):
+        # ── comments webhook 이벤트 처리 ──────────────────────────────────────
+        for change in entry.get("changes", []):
+            if change.get("field") != "comments":
+                continue
+            val      = change.get("value", {})
+            cid      = val.get("id", "")
+            ctext    = val.get("text", "").strip()
+            cusername = val.get("from", {}).get("username", val.get("from", {}).get("id", ""))
+            cmedia   = val.get("media", {}).get("id", "")
+            if not cid or not ctext:
+                continue
+            logger.info(f"[Comment/WH] from=@{cusername} | text={ctext[:100]}")
+            try:
+                handle_comment(cid, cusername, ctext, cmedia)
+            except Exception as exc:
+                logger.error(f"[Comment/WH] 처리 실패 | cid={cid} | {exc}")
+
         for messaging in entry.get("messaging", []):
             sender_id  = messaging.get("sender", {}).get("id")
             message    = messaging.get("message", {})

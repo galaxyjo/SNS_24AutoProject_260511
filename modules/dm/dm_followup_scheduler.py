@@ -244,6 +244,16 @@ def start_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    # 댓글 폴링 — 5분 간격
+    from modules.comment.comment_poller import poll_new_comments
+    _scheduler.add_job(
+        poll_new_comments,
+        trigger="interval",
+        minutes=5,
+        id="comment_poll",
+        replace_existing=True,
+    )
+
     # 일일 Lead 리포트 — 매일 09:00 UTC (18:00 KST)
     from modules.crm.daily_report import send_daily_report
     _scheduler.add_job(
@@ -255,7 +265,7 @@ def start_scheduler() -> BackgroundScheduler:
 
     _scheduler.start()
     logger.info(
-        f"[Followup] 스케줄러 시작 | 팔로업 폴링=5분 | 단계 간격={STAGE_DELAY_MINUTES}분 | "
-        f"일일 리포트=09:00 UTC"
+        f"[Followup] 스케줄러 시작 | 팔로업 폴링=5분 | 댓글 폴링=5분 | "
+        f"단계 간격={STAGE_DELAY_MINUTES}분 | 일일 리포트=09:00 UTC"
     )
     return _scheduler
