@@ -35,6 +35,7 @@ cp .env.example .env
 **실행:**
 ```powershell
 .\run_scheduler.ps1       # 전체 스케줄러 실행
+.\watchdog.ps1            # 프로세스 감시 / 자동 재시작 (별도 터미널)
 python insta_scheduler.py # 직접 실행
 python dashboard.py       # Streamlit 대시보드
 ```
@@ -61,7 +62,7 @@ C:\SNS_24AutoProject_260511\
 │   ├── dm\          [F-05~F-06]     ▶ DM 수신 / 자동응답 / 팔로업   ✅ 구현됨
 │   ├── comment\                     ▶ 자동 댓글 관리                 ✅ 구현됨
 │   ├── crm\                         ▶ Lead CRM / 주문감지 / 리포트   ✅ 구현됨
-│   ├── common\                      ▶ Airtable 브릿지 / 공통 유틸   ✅ 구현됨
+│   ├── common\                      ▶ Airtable 브릿지 / 중앙 로거 / 공통 유틸   ✅ 구현됨
 │   ├── trade\       [F-07]          ▶ 거래/상품 견적 엔진            🔲 폴더만 생성
 │   ├── avatar\      [F-08]          ▶ 아바타 AI 반응                 🔲 폴더만 생성
 │   ├── metrics\     [F-10]          ▶ 통계 수집                      🔲 폴더만 생성
@@ -96,6 +97,8 @@ C:\SNS_24AutoProject_260511\
 | 14 | Lead CRM 고도화 (lead_scorer, order_detector) | ✅ |
 | 15 | 자동 댓글 관리 (comment_poller, comment_auto_reply) | ✅ |
 | 16 | Streamlit 대시보드 고도화 | ✅ |
+| — | watchdog.ps1 (Flask/Streamlit/ngrok/insta_scheduler 자동 재시작) | ✅ |
+| — | 중앙 로거 (modules/common/logger.py) | ✅ |
 
 ### 검증 완료 항목
 
@@ -134,7 +137,7 @@ C:\SNS_24AutoProject_260511\
 
 | Phase | 목표 |
 |-------|------|
-| Phase 1 | watchdog / auto restart / retry queue / centralized logging / monitoring |
+| Phase 1 | ~~watchdog~~ ✅ / ~~auto restart~~ ✅ / ~~centralized logging~~ ✅ / retry queue / monitoring |
 | Phase 2 | CRM 자동화 (auto reply / follow-up / lead qualification / revenue tracking) |
 | Phase 3 | 다계정 확장 / proxy scaling / distributed queue / AI 응답 최적화 |
 
@@ -157,3 +160,7 @@ C:\SNS_24AutoProject_260511\
 - Gemini API 호출은 429 에러 시 재시도 + 스로틀 적용
 - 250723 참조 저장소 코드는 manual review 없이 자동 이식 금지
 - `db/`, `logs/`, `backup/` 폴더는 gitignore 대상 (빈 폴더는 git 미추적)
+- 모든 모듈 로거는 `from modules.common.logger import get_logger` 사용
+  - `logs/summary/app.log` — INFO+ 통합
+  - `logs/error/error.log` — ERROR+ 전용
+  - `logs/function/{모듈명}.log` — DEBUG+ 모듈별 상세
