@@ -99,6 +99,8 @@ C:\SNS_24AutoProject_260511\
 | 16 | Streamlit 대시보드 고도화 | ✅ |
 | — | watchdog.ps1 (Flask/Streamlit/ngrok/insta_scheduler 자동 재시작) | ✅ |
 | — | 중앙 로거 (modules/common/logger.py) | ✅ |
+| — | retry queue (modules/common/retry_queue.py) | ✅ |
+| — | health monitor (modules/common/health_monitor.py) | ✅ |
 
 ### 검증 완료 항목
 
@@ -137,7 +139,7 @@ C:\SNS_24AutoProject_260511\
 
 | Phase | 목표 |
 |-------|------|
-| Phase 1 | ~~watchdog~~ ✅ / ~~auto restart~~ ✅ / ~~centralized logging~~ ✅ / retry queue / monitoring |
+| Phase 1 | ~~watchdog~~ ✅ / ~~auto restart~~ ✅ / ~~centralized logging~~ ✅ / ~~retry queue~~ ✅ / ~~monitoring~~ ✅ |
 | Phase 2 | CRM 자동화 (auto reply / follow-up / lead qualification / revenue tracking) |
 | Phase 3 | 다계정 확장 / proxy scaling / distributed queue / AI 응답 최적화 |
 
@@ -164,3 +166,8 @@ C:\SNS_24AutoProject_260511\
   - `logs/summary/app.log` — INFO+ 통합
   - `logs/error/error.log` — ERROR+ 전용
   - `logs/function/{모듈명}.log` — DEBUG+ 모듈별 상세
+- retry queue: `from modules.common.retry_queue import get_retry_queue`
+  - 실패 태스크 `db/retry_queue.db` 에 영속 저장, 백오프 10s/60s/300s
+- health monitor: `from modules.common.health_monitor import get_health`
+  - 단독 실행: `python -m modules.common.health_monitor`
+  - 반환: services(Flask/Streamlit/ngrok/insta_scheduler) / retry_queue 통계 / 최근 에러
