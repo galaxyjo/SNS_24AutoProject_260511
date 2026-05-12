@@ -123,6 +123,12 @@ def _job_daily_report():
     send_daily_report()
 
 
+@handle_errors(task="kpi_snapshot", reraise=False)
+def _job_kpi_snapshot():
+    from modules.metrics.kpi_collector import run_hourly_snapshot
+    run_hourly_snapshot()
+
+
 # ── RunEngine ─────────────────────────────────────────────────────────────────
 
 class RunEngine:
@@ -139,6 +145,7 @@ class RunEngine:
         self.router.register("followup_poll", _job_followup_poll)
         self.router.register("comment_poll",  _job_comment_poll)
         self.router.register("daily_report",  _job_daily_report)
+        self.router.register("kpi_snapshot",  _job_kpi_snapshot)
 
     def _register_jobs(self):
         now = datetime.now()
@@ -161,6 +168,10 @@ class RunEngine:
         self.scheduler.add_job(
             _job_daily_report, "cron", hour=9, minute=0,
             id="daily_report",
+        )
+        self.scheduler.add_job(
+            _job_kpi_snapshot, "interval", hours=1,
+            id="kpi_snapshot", next_run_time=now + timedelta(seconds=50),
         )
 
     def start(self):

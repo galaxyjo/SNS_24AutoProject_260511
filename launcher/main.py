@@ -54,6 +54,12 @@ def _job_fb_crawl():
     logger.info(f"[Main] fb_crawl 완료 | {summary}")
 
 
+@handle_errors(task="kpi_snapshot")
+def _job_kpi_snapshot():
+    from modules.metrics.kpi_collector import run_hourly_snapshot
+    run_hourly_snapshot()
+
+
 @handle_errors(task="insta_upload")
 def _job_insta_upload():
     import time, requests as _req
@@ -123,6 +129,8 @@ def _build_scheduler() -> BackgroundScheduler:
                   id="fb_crawl",     next_run_time=now)
     sched.add_job(_job_insta_upload, "interval", minutes=UPLOAD_POLL_MIN,
                   id="insta_upload", next_run_time=now + timedelta(seconds=20))
+    sched.add_job(_job_kpi_snapshot, "interval", hours=1,
+                  id="kpi_snapshot", next_run_time=now + timedelta(seconds=50))
     return sched
 
 

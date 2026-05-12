@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import streamlit as st
 import pandas as pd
@@ -99,8 +99,8 @@ comment_df = leads_df[leads_df["채널"] == "instagram_comment"] if not leads_df
 
 # ── 탭 ───────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그", "\U0001f4ca KPI"]
 )
 
 
@@ -267,3 +267,118 @@ with tab4:
     )
     log_path = LOG_SCHEDULER if "스케줄러" in log_choice else LOG_WEBHOOK
     st.text_area("로그", load_log(log_path), height=420)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Tab 5: KPI 대시보드
+# ════════════════════════════════════════════════════════════════════════════
+with tab5:
+    @st.cache_data(ttl=300)
+    def load_kpi(period: str) -> dict:
+        from modules.metrics.kpi_collector import collect_kpi
+        return collect_kpi(period)
+
+    @st.cache_data(ttl=300)
+    def load_kpi_history() -> list:
+        from modules.metrics.kpi_collector import load_snapshots
+        return load_snapshots(limit=48)
+
+    kpi_period = st.radio(
+        "조회 기간",
+        ["today", "7d", "30d", "all"],
+        format_func=lambda x: {"today": "오늘", "7d": "최근 7일", "30d": "최근 30일", "all": "전체"}[x],
+        horizontal=True,
+        key="kpi_period",
+    )
+
+    with st.spinner("KPI 집계 중..."):
+        try:
+            kpi = load_kpi(kpi_period)
+        except Exception as e:
+            st.error(f"KPI 조회 실패: {e}")
+            kpi = None
+
+    if kpi:
+        up   = kpi.get("upload", {})
+        lead = kpi.get("lead", {})
+        fup  = kpi.get("followup", {})
+        com  = kpi.get("comment", {})
+        q    = kpi.get("queue", {})
+
+        st.subheader("핵심 지표")
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("\U0001f4e5 DM 문의",      lead.get("total", 0))
+        k2.metric("\U00002705 전환율",         f"{lead.get('conversion_rate', 0)}%")
+        k3.metric("\U0001f525 Hot 리드",      lead.get("hot", 0))
+        k4.metric("\U0001f4f8 업로드 성공률", f"{up.get('success_rate', 0)}%")
+        k5.metric("\U0001f504 Queue 대기",    q.get("pending", 0) if q else 0)
+
+        st.divider()
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            st.subheader("Lead 등급 분포")
+            grade_data = pd.Series({
+                "cold": lead.get("cold", 0),
+                "warm": lead.get("warm", 0),
+                "hot":  lead.get("hot", 0),
+            }, name="건수")
+            st.bar_chart(grade_data)
+
+        with col_b:
+            st.subheader("팔로업 파이프라인")
+            pipe = fup.get("pipeline", {})
+            if pipe:
+                pipe_data = pd.Series(pipe, name="건수")
+                st.bar_chart(pipe_data)
+            else:
+                st.info("팔로업 데이터 없음")
+
+        st.divider()
+        st.subheader("업로드 현황")
+        u1, u2, u3, u4 = st.columns(4)
+        u1.metric("전체",      up.get("total", 0))
+        u2.metric("게시 완료", up.get("posted", 0))
+        u3.metric("대기",      up.get("ready", 0))
+        u4.metric("실패",      up.get("failed", 0))
+
+        st.divider()
+        st.subheader("시간별 KPI 추이 (SQLite 스냅샷)")
+        history = load_kpi_history()
+        if history:
+            trend_rows = []
+            for snap in reversed(history):
+                ts = snap.get("collected_at", "")[:16].replace("T", " ")
+                trend_rows.append({
+                    "시각":     ts,
+                    "DM 문의":  snap.get("lead", {}).get("total", 0),
+                    "전환(주문)": snap.get("lead", {}).get("converted", 0),
+                    "업로드 성공률": snap.get("upload", {}).get("success_rate", 0),
+                })
+            trend_df = pd.DataFrame(trend_rows).set_index("시각")
+            st.line_chart(trend_df[["DM 문의", "전환(주문)"]])
+            st.caption("업로드 성공률 추이")
+            st.line_chart(trend_df[["업로드 성공률"]])
+        else:
+            st.info("스냅샷 없음 — 스케줄러 실행 후 1시간 뒤 데이터가 누적됩니다.")
+
+        col_q1, col_q2 = st.columns(2)
+        with col_q1:
+            st.subheader("댓글 현황")
+            st.metric("총 댓글",   com.get("total", 0))
+            st.metric("단가 문의", com.get("price_inquiry", 0))
+            st.metric("부정 댓글", com.get("negative", 0))
+        with col_q2:
+            st.subheader("Retry Queue")
+            if q:
+                st.metric("대기",    q.get("pending", 0))
+                st.metric("완료",    q.get("completed", 0))
+                st.metric("실패",    q.get("failed", 0))
+            else:
+                st.info("Queue 통계 조회 불가")
+
+        collected_kst = (
+            datetime.fromisoformat(kpi["collected_at"].replace("Z", "+00:00"))
+            + timedelta(hours=9)
+        ).strftime("%Y-%m-%d %H:%M:%S KST")
+        st.caption(f"수집 시각: {collected_kst}")
