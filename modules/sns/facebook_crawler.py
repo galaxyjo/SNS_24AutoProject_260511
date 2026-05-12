@@ -21,10 +21,13 @@ def start_browser(adspower_user_id: str = "k1bto3j4"):
     return data["data"]["debug_port"]
 
 
-def get_driver(adspower_user_id: str = "k1bto3j4"):
+def get_driver(adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
     port = start_browser(adspower_user_id)
     options = Options()
     options.add_experimental_option("debuggerAddress", f"127.0.0.1:{port}")
+    if proxy_opts and proxy_opts.get("proxy_server"):
+        options.add_argument(f'--proxy-server={proxy_opts["proxy_server"]}')
+        logger.info(f"[FB Crawler] proxy 적용 | {proxy_opts['proxy_server']}")
     service = Service(executable_path=CHROMEDRIVER_PATH)
     driver = webdriver.Chrome(service=service, options=options)
     return driver
@@ -61,9 +64,9 @@ def save_to_airtable(image_url, source_url, text=""):
     print(f"[AIRTABLE] 저장 완료: {image_url[:80]}...")
 
 
-def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4"):
+def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
     logger.info(f"[FB Crawler] 시작 | user={adspower_user_id} | url={target_url}")
-    driver = get_driver(adspower_user_id)
+    driver = get_driver(adspower_user_id, proxy_opts)
     driver.get(target_url)
     time.sleep(7)
 
@@ -95,9 +98,10 @@ def run_all_accounts(max_posts=MAX_POSTS) -> dict:
             logger.warning(f"[FB Crawler] crawl_urls 없음 — skip | account={acct.name}")
             continue
         acct_results = []
+        proxy_opts = acct.selenium_proxy_options()
         for url in acct.crawl_urls:
             try:
-                acct_results.extend(run(url, max_posts, acct.adspower_user_id))
+                acct_results.extend(run(url, max_posts, acct.adspower_user_id, proxy_opts))
             except Exception as exc:
                 logger.error(f"[FB Crawler] 크롤링 실패 | account={acct.name} | url={url} | {exc}")
         summary[acct.name] = len(acct_results)

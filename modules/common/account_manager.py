@@ -14,10 +14,17 @@ accounts.json 형식:
       "ig_user_id": "123456789",
       "ig_access_token": "EAA...",
       "fb_page_id": "987654321",
-      "facebook_page_id": "987654321",
       "airtable_base_id": "appXXXXXXXXXXXXXX",
       "crawl_urls": ["https://www.facebook.com/groups/XXXXXXXX"],
-      "telegram_chat_id": ""
+      "telegram_chat_id": "",
+      "proxy": {
+        "enabled": false,
+        "scheme": "http",
+        "host": "proxy.example.com",
+        "port": 8080,
+        "username": "",
+        "password": ""
+      }
     }
   ]
 
@@ -26,15 +33,14 @@ accounts.json 형식:
 
     for acct in get_active_accounts():
         print(acct.name, acct.ig_user_id)
-
-    acct = get_account("account1")
+        opts = acct.selenium_proxy_options()  # Selenium ChromeOptions에 적용
 """
 
 import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from modules.common.logger import get_logger
 
@@ -56,6 +62,7 @@ class Account:
     airtable_base_id: str
     crawl_urls: list[str] = field(default_factory=list)
     telegram_chat_id: str = ""
+    proxy: dict = field(default_factory=dict)
 
     def as_env(self) -> dict:
         """계정 설정을 환경변수 딕셔너리로 반환 (기존 코드와 호환)."""
@@ -66,6 +73,28 @@ class Account:
             "AIRTABLE_BASE_ID":     self.airtable_base_id,
             "TELEGRAM_CHAT_ID":     self.telegram_chat_id,
         }
+
+    def selenium_proxy_options(self) -> dict[str, Any]:
+        """Selenium ChromeOptions에 추가할 proxy 설정을 반환한다.
+
+        사용 예:
+            opts = acct.selenium_proxy_options()
+            if opts:
+                options.add_argument(f'--proxy-server={opts["proxy_server"]}')
+        """
+        p = self.proxy
+        if not p or not p.get("enabled") or not p.get("host"):
+            return {}
+        host = p["host"]
+        port = p.get("port", 8080)
+        scheme = p.get("scheme", "http")
+        user = p.get("username", "")
+        pwd  = p.get("password", "")
+        server = f"{scheme}://{host}:{port}"
+        result: dict[str, Any] = {"proxy_server": server}
+        if user and pwd:
+            result["proxy_auth"] = f"{user}:{pwd}"
+        return result
 
 
 # ── 로더 ─────────────────────────────────────────────────────────────────────
@@ -87,6 +116,7 @@ def _load_from_json() -> list[Account]:
                 airtable_base_id = item.get("airtable_base_id", ""),
                 crawl_urls       = item.get("crawl_urls", []),
                 telegram_chat_id = item.get("telegram_chat_id", ""),
+                proxy            = item.get("proxy", {}),
             ))
         logger.info(f"[AccountManager] accounts.json 로드 | {len(accounts)}개 계정")
         return accounts

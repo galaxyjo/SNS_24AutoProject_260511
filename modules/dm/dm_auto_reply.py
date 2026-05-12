@@ -193,7 +193,13 @@ def handle_price_inquiry(
         return
 
     reply_price = round(base_price * (1 + MARGIN_RATE))
-    reply_msg   = REPLY_TEMPLATE.format(price=reply_price)
+    try:
+        from modules.dm.ai_reply_generator import generate_reply
+        reply_msg = generate_reply(inquiry_text, base_price, MARGIN_RATE)
+        logger.info("[AutoReply] AI 응답 생성 사용")
+    except Exception as exc:
+        logger.warning(f"[AutoReply] AI 응답 실패 — 템플릿 폴백 | {exc}")
+        reply_msg = REPLY_TEMPLATE.format(price=reply_price)
 
     sent = send_ig_reply(sender_igsid, reply_msg)
 
