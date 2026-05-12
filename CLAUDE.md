@@ -110,6 +110,7 @@ C:\SNS_24AutoProject_260511\
 | — | launcher/main.py (통합 진입점: BackgroundScheduler + Flask + retry_queue) | ✅ |
 | — | modules/metrics/ KPI 수집기 (kpi_collector: 집계 + SQLite 스냅샷 + 대시보드 탭) | ✅ |
 | — | modules/interaction_engine/ F-11 (engagement_tracker / auto_liker / interaction_scheduler) | ✅ |
+| — | services/slack_notifier (Incoming Webhook: 운영 알림 + error_handler + watchdog 연동) | ✅ |
 
 ### 검증 완료 항목
 
@@ -124,7 +125,8 @@ C:\SNS_24AutoProject_260511\
 
 - `modules/trade/` — 견적 엔진 / 상품 DB
 - `modules/avatar/` — AI 아바타 반응
-- `services/` — gpt_connector, smtp_mailer, slack_notifier
+- `services/smtp_mailer` — 이메일 알림
+- `services/gpt_connector` — GPT 연동
 
 
 ---
@@ -200,6 +202,13 @@ C:\SNS_24AutoProject_260511\
   - 업로드 성공 시 `ig_media_id` Airtable 저장 (engagement 조회 전제)
   - Airtable Instagram_Posts 필드 추가 필요: `ig_media_id`, `like_count`, `comments_count`
   - `AUTO_LIKE_MAX_POSTS` env로 처리 게시물 수 제어 (기본 10)
+- Slack 알림: `from services.slack_notifier import notify_error, notify_info, get_notify_fn`
+  - `SLACK_WEBHOOK_URL` env 필수 (미설정 시 모든 알림 자동 생략)
+  - `get_notify_fn()` — error_handler.notify_fn 연동용 callable (단일 문자열 인자)
+  - `notify_daily_kpi(kpi)` — 일일 KPI 요약 발송
+  - `notify_process_restart(name, status)` — watchdog 재시작 이벤트
+  - watchdog.ps1: `Send-SlackAlert` 함수 추가, `$env:SLACK_WEBHOOK_URL` 참조
+  - run_engine + launcher: 전체 스케줄 잡에 `notify_fn=_slack` 연동
 - KPI 수집: `from modules.metrics.kpi_collector import collect_kpi, run_hourly_snapshot`
   - `collect_kpi(period)` — period: 'today' / '7d' / '30d' / 'all'
   - 반환: {upload, lead, followup, comment, queue} 각 지표 dict
