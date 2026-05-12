@@ -1,0 +1,97 @@
+# watchdog.ps1 — Flask / Streamlit / ngrok 프로세스 감시 및 자동 재시작
+# 사용법: .\watchdog.ps1
+# run_scheduler.ps1로 서버를 먼저 띄운 뒤 이 스크립트를 별도 터미널에서 실행.
+
+Set-Location $PSScriptRoot
+
+$python      = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+$streamlit   = Join-Path $PSScriptRoot ".venv\Scripts\streamlit.exe"
+$logDir      = Join-Path $PSScriptRoot "logs"
+$watchdogLog = Join-Path $logDir "watchdog.log"
+
+$POLL_SEC       = 30   # 감시 주기 (초)
+$RESTART_WAIT   = 5    # 재시작 후 대기 (초)
+$HTTP_TIMEOUT   = 5    # HTTP 헬스체크 타임아웃 (초)
+
+$FLASK_URL      = "http://localhost:5000/health"
+$STREAMLIT_URL  = "http://localhost:8501"
+$NGROK_URL      = "danuta-overdramatic-whirly.ngrok-free.dev"
+$NGROK_ARGS     = "http --url=$NGROK_URL 5000"
+
+function Write-Log {
+    param([string]$msg)
+    $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $msg"
+    Write-Host $line
+    Add-Content -Path $watchdogLog -Value $line -Encoding UTF8
+}
+
+function Test-Http {
+    param([string]$url)
+    try {
+        $null = Invoke-WebRequest -Uri $url -TimeoutSec $HTTP_TIMEOUT -UseBasicParsing -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Start-Flask {
+    Start-Process -FilePath $python -ArgumentList "-m modules.dm.dm_receiver" `
+        -RedirectStandardOutput "$logDir\webhook_stdout.log" `
+        -RedirectStandardError  "$logDir\webhook_stderr.log" `
+        -WindowStyle Hidden
+    Start-Sleep -Seconds $RESTART_WAIT
+}
+
+function Start-Streamlit {
+    Start-Process -FilePath $streamlit -ArgumentList "run dashboard.py --server.port 8501" `
+        -RedirectStandardOutput "$logDir\dashboard.log" `
+        -RedirectStandardError  "$logDir\dashboard_err.log" `
+        -WindowStyle Hidden
+    Start-Sleep -Seconds $RESTART_WAIT
+}
+
+function Start-Ngrok {
+    Start-Process -FilePath "ngrok" -ArgumentList $NGROK_ARGS -WindowStyle Hidden
+    Start-Sleep -Seconds $RESTART_WAIT
+}
+
+Write-Log "===== watchdog 시작 (주기: ${POLL_SEC}초) ====="
+
+while ($true) {
+
+    # --- Flask 감시 ---
+    if (-not (Test-Http $FLASK_URL)) {
+        Write-Log "[WARN] Flask 응답 없음 — 재시작 시도"
+        Start-Flask
+        if (Test-Http $FLASK_URL) {
+            Write-Log "[OK]   Flask 재시작 성공"
+        } else {
+            Write-Log "[ERROR] Flask 재시작 후에도 응답 없음 — webhook_stderr.log 확인 필요"
+        }
+    }
+
+    # --- Streamlit 감시 ---
+    if (-not (Test-Http $STREAMLIT_URL)) {
+        Write-Log "[WARN] Streamlit 응답 없음 — 재시작 시도"
+        Start-Streamlit
+        if (Test-Http $STREAMLIT_URL) {
+            Write-Log "[OK]   Streamlit 재시작 성공"
+        } else {
+            Write-Log "[ERROR] Streamlit 재시작 후에도 응답 없음 — dashboard_err.log 확인 필요"
+        }
+    }
+
+    # --- ngrok 감시 (프로세스 존재 여부) ---
+    if (-not (Get-Process -Name ngrok -ErrorAction SilentlyContinue)) {
+        Write-Log "[WARN] ngrok 프로세스 없음 — 재시작 시도"
+        Start-Ngrok
+        if (Get-Process -Name ngrok -ErrorAction SilentlyContinue) {
+            Write-Log "[OK]   ngrok 재시작 성공"
+        } else {
+            Write-Log "[ERROR] ngrok 재시작 실패 — ngrok PATH 확인 필요"
+        }
+    }
+
+    Start-Sleep -Seconds $POLL_SEC
+}
