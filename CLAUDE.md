@@ -102,6 +102,7 @@ C:\SNS_24AutoProject_260511\
 | — | retry queue (modules/common/retry_queue.py) | ✅ |
 | — | health monitor (modules/common/health_monitor.py) | ✅ |
 | — | dm/crm 모듈 중앙 로거 + retry queue 연동 | ✅ |
+| — | 다계정 확장 (account_manager + facebook_crawler 다계정 지원) | ✅ |
 
 ### 검증 완료 항목
 
@@ -142,7 +143,7 @@ C:\SNS_24AutoProject_260511\
 |-------|------|
 | Phase 1 | ~~watchdog~~ ✅ / ~~auto restart~~ ✅ / ~~centralized logging~~ ✅ / ~~retry queue~~ ✅ / ~~monitoring~~ ✅ |
 | Phase 2 | ~~auto reply~~ ✅ / ~~follow-up~~ ✅ / ~~lead qualification~~ ✅ / ~~revenue tracking~~ ✅ / ~~중앙 로거·retry queue 연동~~ ✅ |
-| Phase 3 | 다계정 확장 / proxy scaling / distributed queue / AI 응답 최적화 |
+| Phase 3 | ~~다계정 확장~~ ✅ / proxy scaling / distributed queue / AI 응답 최적화 |
 
 ---
 
@@ -172,3 +173,7 @@ C:\SNS_24AutoProject_260511\
 - health monitor: `from modules.common.health_monitor import get_health`
   - 단독 실행: `python -m modules.common.health_monitor`
   - 반환: services(Flask/Streamlit/ngrok/insta_scheduler) / retry_queue 통계 / 최근 에러
+- 다계정 관리: `from modules.common.account_manager import get_active_accounts`
+  - 설정 파일: `configs/accounts.json` (없으면 .env 단일 계정 자동 폴백)
+  - 계정 추가 후 `reload()` 또는 프로세스 재시작
+  - `run_all_accounts()` — 전체 계정 일괄 크롤링
