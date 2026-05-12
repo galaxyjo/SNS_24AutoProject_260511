@@ -103,6 +103,9 @@ C:\SNS_24AutoProject_260511\
 | — | health monitor (modules/common/health_monitor.py) | ✅ |
 | — | dm/crm 모듈 중앙 로거 + retry queue 연동 | ✅ |
 | — | 다계정 확장 (account_manager + facebook_crawler 다계정 지원) | ✅ |
+| — | proxy scaling (계정별 proxy 설정 + Selenium 적용) | ✅ |
+| — | parallel runner (ThreadPoolExecutor 다계정 병렬 실행) | ✅ |
+| — | AI 응답 최적화 (Gemini 문맥 인식 응답 + 템플릿 폴백) | ✅ |
 
 ### 검증 완료 항목
 
@@ -143,7 +146,7 @@ C:\SNS_24AutoProject_260511\
 |-------|------|
 | Phase 1 | ~~watchdog~~ ✅ / ~~auto restart~~ ✅ / ~~centralized logging~~ ✅ / ~~retry queue~~ ✅ / ~~monitoring~~ ✅ |
 | Phase 2 | ~~auto reply~~ ✅ / ~~follow-up~~ ✅ / ~~lead qualification~~ ✅ / ~~revenue tracking~~ ✅ / ~~중앙 로거·retry queue 연동~~ ✅ |
-| Phase 3 | ~~다계정 확장~~ ✅ / proxy scaling / distributed queue / AI 응답 최적화 |
+| Phase 3 | ~~다계정 확장~~ ✅ / ~~proxy scaling~~ ✅ / ~~distributed queue~~ ✅ / ~~AI 응답 최적화~~ ✅ |
 
 ---
 
@@ -177,3 +180,10 @@ C:\SNS_24AutoProject_260511\
   - 설정 파일: `configs/accounts.json` (없으면 .env 단일 계정 자동 폴백)
   - 계정 추가 후 `reload()` 또는 프로세스 재시작
   - `run_all_accounts()` — 전체 계정 일괄 크롤링
+  - `acct.selenium_proxy_options()` — 계정별 proxy → Selenium 적용
+- 병렬 실행: `from modules.common.parallel_runner import run_parallel`
+  - `run_parallel(task_fn)` — 활성 계정 전체 병렬 실행, ThreadPoolExecutor 기반
+  - `PARALLEL_MAX_WORKERS` env로 동시 실행 수 제어 (기본 3)
+- AI 응답: `from modules.dm.ai_reply_generator import generate_reply`
+  - Gemini 문맥 인식 개인화 응답, 실패 시 템플릿 자동 폴백
+  - `dm_auto_reply.py`에서 자동 사용 (별도 설정 불필요)
