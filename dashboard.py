@@ -101,8 +101,8 @@ comment_df = leads_df[leads_df["채널"] == "instagram_comment"] if not leads_df
 
 # ── 탭 ───────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그", "\U0001f4ca KPI"]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그", "\U0001f4ca KPI", "\U0001f5a5️ 헬스"]
 )
 
 
@@ -288,16 +288,23 @@ with tab4:
 # ════════════════════════════════════════════════════════════════════════════
 # Tab 5: KPI 대시보드
 # ════════════════════════════════════════════════════════════════════════════
-with tab5:
-    @st.cache_data(ttl=300)
-    def load_kpi(period: str) -> dict:
-        from modules.metrics.kpi_collector import collect_kpi
-        return collect_kpi(period)
+@st.cache_data(ttl=300)
+def load_kpi(period: str) -> dict:
+    from modules.metrics.kpi_collector import collect_kpi
+    return collect_kpi(period)
 
-    @st.cache_data(ttl=300)
-    def load_kpi_history() -> list:
-        from modules.metrics.kpi_collector import load_snapshots
-        return load_snapshots(limit=48)
+@st.cache_data(ttl=300)
+def load_kpi_history() -> list:
+    from modules.metrics.kpi_collector import load_snapshots
+    return load_snapshots(limit=48)
+
+@st.cache_data(ttl=15)
+def load_health() -> dict:
+    from modules.common.health_monitor import get_health
+    return get_health()
+
+
+with tab5:
 
     kpi_period = st.radio(
         "조회 기간",
@@ -321,13 +328,39 @@ with tab5:
         com  = kpi.get("comment", {})
         q    = kpi.get("queue", {})
 
+        # 직전 스냅샷 대비 delta 계산
+        history = load_kpi_history()
+        prev = history[1] if len(history) >= 2 else None
+
+        def _delta(cur, key_path: list, fmt=None):
+            """현재값 - 직전 스냅샷값. prev 없으면 None."""
+            if prev is None:
+                return None
+            d = prev
+            for k in key_path:
+                d = d.get(k, {}) if isinstance(d, dict) else {}
+            cur_v = cur
+            prev_v = d if not isinstance(d, dict) else None
+            if prev_v is None:
+                return None
+            delta = cur_v - prev_v if isinstance(cur_v, (int, float)) else None
+            if delta is None:
+                return None
+            return (f"+{delta:.1f}" if fmt == "f" else f"+{delta}") if delta >= 0 else (f"{delta:.1f}" if fmt == "f" else str(delta))
+
+        d_dm   = _delta(lead.get("total", 0),           ["lead", "total"])
+        d_conv = _delta(lead.get("conversion_rate", 0), ["lead", "conversion_rate"], "f")
+        d_hot  = _delta(lead.get("hot", 0),             ["lead", "hot"])
+        d_up   = _delta(up.get("success_rate", 0),      ["upload", "success_rate"], "f")
+        d_q    = _delta(q.get("pending", 0) if q else 0, ["queue", "pending"])
+
         st.subheader("핵심 지표")
         k1, k2, k3, k4, k5 = st.columns(5)
-        k1.metric("\U0001f4e5 DM 문의",      lead.get("total", 0))
-        k2.metric("\U00002705 전환율",         f"{lead.get('conversion_rate', 0)}%")
-        k3.metric("\U0001f525 Hot 리드",      lead.get("hot", 0))
-        k4.metric("\U0001f4f8 업로드 성공률", f"{up.get('success_rate', 0)}%")
-        k5.metric("\U0001f504 Queue 대기",    q.get("pending", 0) if q else 0)
+        k1.metric("\U0001f4e5 DM 문의",      lead.get("total", 0),           delta=d_dm)
+        k2.metric("\U00002705 전환율",         f"{lead.get('conversion_rate', 0)}%", delta=d_conv)
+        k3.metric("\U0001f525 Hot 리드",      lead.get("hot", 0),             delta=d_hot)
+        k4.metric("\U0001f4f8 업로드 성공률", f"{up.get('success_rate', 0)}%", delta=d_up)
+        k5.metric("\U0001f504 Queue 대기",    q.get("pending", 0) if q else 0, delta=d_q)
 
         st.divider()
         col_a, col_b = st.columns(2)
@@ -397,4 +430,113 @@ with tab5:
             datetime.fromisoformat(kpi["collected_at"].replace("Z", "+00:00"))
             + timedelta(hours=9)
         ).strftime("%Y-%m-%d %H:%M:%S KST")
-        st.caption(f"수집 시각: {collected_kst}")
+        prev_note = "직전 스냅샷 대비 delta 표시" if prev else "스냅샷 2건 이상 누적 시 delta 표시"
+        st.caption(f"수집 시각: {collected_kst} | {prev_note}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Tab 6: 헬스 모니터
+# ════════════════════════════════════════════════════════════════════════════
+with tab6:
+    with st.spinner("시스템 상태 확인 중..."):
+        try:
+            health = load_health()
+        except Exception as e:
+            st.error(f"헬스 체크 실패: {e}")
+            health = None
+
+    if health:
+        overall = health.get("overall", "unknown")
+
+        _BANNER = {
+            "ok":       ("#d4edda", "#155724", "✅", "정상 운영 중"),
+            "degraded": ("#fff3cd", "#856404", "⚠️", "일부 서비스 이상"),
+            "down":     ("#f8d7da", "#721c24", "❌", "서비스 중단"),
+        }
+        bg, fg, icon, label = _BANNER.get(overall, ("#e2e3e5", "#383d41", "❓", "알 수 없음"))
+
+        st.markdown(
+            f"""<div style="background:{bg};color:{fg};padding:14px 22px;
+            border-radius:8px;font-size:1.25em;font-weight:bold;margin-bottom:12px;">
+            {icon}&nbsp; 시스템 상태: {label.upper()}
+            &nbsp;&nbsp;<span style="font-size:0.7em;font-weight:normal;">
+            ({health.get('timestamp','')})</span></div>""",
+            unsafe_allow_html=True,
+        )
+
+        # ── 서비스 카드 ──────────────────────────────────────────────────────
+        st.subheader("서비스 상태")
+        services = health.get("services", {})
+
+        _SVC = {
+            "flask":           ("🌐", "Flask Webhook"),
+            "streamlit":       ("📊", "Streamlit"),
+            "ngrok":           ("🔗", "ngrok"),
+            "insta_scheduler": ("🤖", "insta_scheduler"),
+        }
+        _ST_ICON  = {"ok": "✅", "down": "❌", "error": "⚠️", "unknown": "❓"}
+        _ST_COLOR = {"ok": "#d4edda", "down": "#f8d7da", "error": "#fff3cd", "unknown": "#e9ecef"}
+
+        svc_cols = st.columns(4)
+        for i, (key, (emoji, name)) in enumerate(_SVC.items()):
+            status = services.get(key, "unknown")
+            with svc_cols[i]:
+                st.markdown(
+                    f"""<div style="background:{_ST_COLOR.get(status,'#e9ecef')};
+                    padding:18px 10px;border-radius:8px;text-align:center;min-height:100px;">
+                    <div style="font-size:1.8em">{emoji}</div>
+                    <div style="font-weight:600;margin:4px 0">{name}</div>
+                    <div style="font-size:1.1em">{_ST_ICON.get(status,'❓')} {status.upper()}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        st.divider()
+
+        # ── Retry Queue + 에러 현황 ──────────────────────────────────────────
+        col_rq, col_err = st.columns(2)
+
+        with col_rq:
+            st.subheader("🔄 Retry Queue")
+            rq = health.get("retry_queue", {})
+            if rq:
+                r1, r2, r3 = st.columns(3)
+                r1.metric("대기",   rq.get("pending", 0))
+                r2.metric("완료",   rq.get("done", 0))
+                r3.metric("실패",   rq.get("dead", 0))
+            else:
+                st.info("retry_queue.db 없음 (스케줄러 실행 후 생성)")
+
+        with col_err:
+            st.subheader("🚨 에러 현황 (최근 1시간)")
+            err = health.get("errors", {})
+            err_cnt = err.get("last_1h", 0)
+            if err_cnt == 0:
+                st.success("최근 1시간 에러 없음")
+            else:
+                st.metric("에러 건수", err_cnt)
+                recent = err.get("recent", [])
+                if recent:
+                    st.text_area("최근 에러 로그", "\n".join(recent), height=130)
+
+        st.divider()
+
+        # ── 스케줄 잡 현황 (run_engine 등록 목록) ──────────────────────────
+        st.subheader("⏱️ 등록된 스케줄 잡")
+        job_rows = [
+            ("fb_crawl",           "30분",  "FB 크롤링"),
+            ("insta_upload",       "5분",   "Instagram 업로드"),
+            ("followup_poll",      "5분",   "팔로업 DM"),
+            ("comment_poll",       "5분",   "댓글 수집·자동답변"),
+            ("daily_report",       "매일 09:00", "KPI 일일 리포트"),
+            ("kpi_snapshot",       "1시간", "KPI SQLite 저장"),
+            ("engagement_update",  "30분",  "like/comment 수 갱신"),
+            ("auto_like",          "15분",  "댓글 자동 좋아요"),
+        ]
+        st.dataframe(
+            pd.DataFrame(job_rows, columns=["잡 ID", "주기", "역할"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.caption("15초 캐시 | 새로고침 버튼으로 즉시 갱신")
