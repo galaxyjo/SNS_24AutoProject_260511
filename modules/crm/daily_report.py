@@ -82,15 +82,14 @@ def send_daily_report() -> None:
             json={"chat_id": chat, "text": msg, "parse_mode": "Markdown"},
             timeout=8,
         )
-        logger.info("[Report] 일일 리포트 전송 완료")
+        logger.info("[Report] Telegram 리포트 전송 완료")
     except Exception as exc:
-        logger.warning(f"[Report] 전송 실패 | {exc}")
+        logger.warning(f"[Report] Telegram 전송 실패 | {exc}")
 
-    # Slack 백업 발송 (SLACK_WEBHOOK_URL 설정 시)
+    # Slack 발송 (SLACK_WEBHOOK_URL 설정 시)
     try:
-        from services.slack_notifier import notify_daily_kpi
-        from modules.metrics.kpi_collector import collect_kpi
-        kpi = collect_kpi("today")
-        notify_daily_kpi(kpi)
+        from services.slack_notifier import notify_daily_report
+        notify_daily_report(stats, date_kst)
+        logger.info("[Report] Slack 리포트 전송 완료")
     except Exception as exc:
-        logger.debug(f"[Report] Slack 백업 생략 | {exc}")
+        logger.warning(f"[Report] Slack 전송 실패 | {exc}")

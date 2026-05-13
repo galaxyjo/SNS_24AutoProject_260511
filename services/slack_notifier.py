@@ -152,6 +152,23 @@ def notify_upload_result(success: int, failed: int) -> bool:
     )
 
 
+def notify_daily_report(stats: dict, date_kst: str) -> bool:
+    """일일 Lead 상세 리포트 발송 (hot/warm/cold 포함)."""
+    total     = stats.get("total", 0)
+    converted = stats.get("converted", 0)
+    rate      = f"{converted / total * 100:.1f}%" if total else "0.0%"
+    body = (
+        f"*총 신규 문의*: {total}건\n"
+        f"*전환(주문)*: {converted}건 ({rate})\n"
+        f"─────────────────\n"
+        f":fire: Hot: {stats.get('hot', 0)}건  "
+        f":partly_sunny: Warm: {stats.get('warm', 0)}건  "
+        f":snowflake: Cold: {stats.get('cold', 0)}건\n"
+        f"*Qualified*: {stats.get('qualified', 0)}건"
+    )
+    return send_alert(title=f"일일 Lead 리포트 ({date_kst})", body=body, level="info")
+
+
 def notify_process_restart(process_name: str, status: str) -> bool:
     """watchdog 재시작 이벤트 알림."""
     level = "success" if status == "ok" else "error"
