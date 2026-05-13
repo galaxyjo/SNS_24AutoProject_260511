@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -11,7 +12,7 @@ from modules.common.logger import get_logger
 logger = get_logger(__name__)
 
 CHROMEDRIVER_PATH = r"C:\Users\admin\AppData\Roaming\adspower_global\cwd_global\chrome_144\chromedriver.exe"
-MAX_POSTS = 5
+MAX_POSTS = int(os.getenv("FB_MAX_POSTS", "10"))
 
 
 def start_browser(adspower_user_id: str = "k1bto3j4"):
