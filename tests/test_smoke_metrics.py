@@ -1,7 +1,7 @@
 """
 tests/test_smoke_metrics.py — metrics 모듈 smoke tests
 
-crawl_monitor / kpi_collector._utc_start — 외부 서비스 없이 순수 로직 검증.
+crawl_monitor / kpi_collector._utc_start / airtable_integrity — 외부 서비스 없이 순수 로직 검증.
 """
 
 import pytest
@@ -98,3 +98,58 @@ def test_utc_start_30d_is_before_7d():
     seven  = _utc_start("7d")
     thirty = _utc_start("30d")
     assert thirty < seven
+
+
+# ── airtable_integrity ────────────────────────────────────────────────────────
+
+def test_check_ig_media_id_no_missing(monkeypatch):
+    """Airtable가 빈 목록 반환 → 누락 없음."""
+    import modules.metrics.airtable_integrity as ai_mod
+    monkeypatch.setattr(
+        ai_mod, "check_ig_media_id",
+        lambda: {"missing": 0, "record_ids": []},
+    )
+    result = ai_mod.check_ig_media_id()
+    assert result["missing"] == 0
+    assert result["record_ids"] == []
+
+
+def test_check_ig_media_id_airtable_error(monkeypatch):
+    """Airtable 조회 실패 시 missing=0 반환 (에러 전파 없음)."""
+    from modules.common import airtable_bridge
+    def _bad_get_table(_):
+        raise RuntimeError("connection error")
+    monkeypatch.setattr(airtable_bridge, "get_table", _bad_get_table)
+
+    from modules.metrics.airtable_integrity import check_ig_media_id
+    result = check_ig_media_id()
+    assert result["missing"] == 0
+
+
+def test_check_ig_media_id_with_missing(monkeypatch):
+    """누락 레코드가 있을 때 count와 record_ids 반환."""
+    from modules.common import airtable_bridge
+
+    fake_records = [
+        {"id": "recAAA", "fields": {"post_status": "posted", "ig_media_id": ""}},
+        {"id": "recBBB", "fields": {"post_status": "posted", "ig_media_id": ""}},
+    ]
+
+    class _FakeTable:
+        def all(self, formula=None):
+            return fake_records
+
+    monkeypatch.setattr(airtable_bridge, "get_table", lambda _: _FakeTable())
+
+    # Slack 발송 억제
+    import services.slack_notifier as sn
+    monkeypatch.setattr(sn, "send_alert", lambda **kw: True)
+
+    from modules.metrics import airtable_integrity
+    import importlib
+    importlib.reload(airtable_integrity)
+
+    result = airtable_integrity.check_ig_media_id()
+    assert result["missing"] == 2
+    assert "recAAA" in result["record_ids"]
+    assert "recBBB" in result["record_ids"]

@@ -170,6 +170,14 @@ def _job_crawl_url_check():
         logger.warning(f"[RunEngine] crawl_url_check | 이상 URL {len(problems)}건")
 
 
+@handle_errors(task="airtable_integrity", reraise=False, notify_fn=_slack)
+def _job_airtable_integrity():
+    from modules.metrics.airtable_integrity import check_ig_media_id
+    result = check_ig_media_id()
+    if result["missing"]:
+        logger.warning(f"[RunEngine] airtable_integrity | ig_media_id 누락 {result['missing']}건")
+
+
 # ── RunEngine ─────────────────────────────────────────────────────────────────
 
 class RunEngine:
@@ -190,7 +198,8 @@ class RunEngine:
         self.router.register("engagement_update", _job_engagement_update)
         self.router.register("auto_like",         _job_auto_like)
         self.router.register("ngrok_check",       _job_ngrok_check)
-        self.router.register("crawl_url_check",   _job_crawl_url_check)
+        self.router.register("crawl_url_check",    _job_crawl_url_check)
+        self.router.register("airtable_integrity", _job_airtable_integrity)
 
     def _register_jobs(self):
         now = datetime.now()
@@ -233,6 +242,10 @@ class RunEngine:
         self.scheduler.add_job(
             _job_crawl_url_check, "interval", hours=1,
             id="crawl_url_check", next_run_time=now + timedelta(seconds=90),
+        )
+        self.scheduler.add_job(
+            _job_airtable_integrity, "interval", hours=6,
+            id="airtable_integrity", next_run_time=now + timedelta(seconds=100),
         )
 
     def start(self):

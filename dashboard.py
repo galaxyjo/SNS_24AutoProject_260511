@@ -578,6 +578,7 @@ with tab6:
             ("auto_like",          "15분",       "댓글 자동 좋아요"),
             ("ngrok_check",        "5분",        "ngrok URL 변경 감지"),
             ("crawl_url_check",    "1시간",      "FB 크롤링 URL 유효성"),
+            ("airtable_integrity", "6시간",      "ig_media_id 누락 감지"),
         ]
         st.dataframe(
             pd.DataFrame(job_rows, columns=["잡 ID", "주기", "역할"]),
