@@ -472,7 +472,7 @@ with tab6:
             "flask":           ("🌐", "Flask Webhook"),
             "streamlit":       ("📊", "Streamlit"),
             "ngrok":           ("🔗", "ngrok"),
-            "insta_scheduler": ("🤖", "insta_scheduler"),
+            "launcher":        ("🤖", "launcher/main.py"),
         }
         _ST_ICON  = {"ok": "✅", "down": "❌", "error": "⚠️", "unknown": "❓"}
         _ST_COLOR = {"ok": "#d4edda", "down": "#f8d7da", "error": "#fff3cd", "unknown": "#e9ecef"}

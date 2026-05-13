@@ -36,7 +36,7 @@ cp .env.example .env
 ```powershell
 .\run_scheduler.ps1       # 전체 스케줄러 실행
 .\watchdog.ps1            # 프로세스 감시 / 자동 재시작 (별도 터미널)
-python insta_scheduler.py # 직접 실행
+python launcher/main.py   # 직접 실행 (통합 진입점)
 python dashboard.py       # Streamlit 대시보드
 ```
 
@@ -98,7 +98,7 @@ C:\SNS_24AutoProject_260511\
 | 14 | Lead CRM 고도화 (lead_scorer, order_detector) | ✅ |
 | 15 | 자동 댓글 관리 (comment_poller, comment_auto_reply) | ✅ |
 | 16 | Streamlit 대시보드 고도화 | ✅ |
-| — | watchdog.ps1 (Flask/Streamlit/ngrok/insta_scheduler 자동 재시작) | ✅ |
+| — | watchdog.ps1 (Flask/Streamlit/ngrok/launcher 자동 재시작) | ✅ |
 | — | 중앙 로거 (modules/common/logger.py) | ✅ |
 | — | retry queue (modules/common/retry_queue.py) | ✅ |
 | — | health monitor (modules/common/health_monitor.py) | ✅ |
@@ -190,7 +190,7 @@ C:\SNS_24AutoProject_260511\
   - 실패 태스크 `db/retry_queue.db` 에 영속 저장, 백오프 10s/60s/300s
 - health monitor: `from modules.common.health_monitor import get_health`
   - 단독 실행: `python -m modules.common.health_monitor`
-  - 반환: services(Flask/Streamlit/ngrok/insta_scheduler) / retry_queue 통계 / 최근 에러
+  - 반환: services(Flask/Streamlit/ngrok/launcher) / retry_queue 통계 / 최근 에러
 - 다계정 관리: `from modules.common.account_manager import get_active_accounts`
   - 설정 파일: `configs/accounts.json` (없으면 .env 단일 계정 자동 폴백)
   - 계정 추가 후 `reload()` 또는 프로세스 재시작
@@ -207,7 +207,7 @@ C:\SNS_24AutoProject_260511\
   - `core/error_handler.py` — `@handle_errors` 데코레이터 / `safe_run()` 헬퍼
   - `core/task_router.py` — 태스크 이름 → 핸들러 분기 (register/dispatch)
   - `core/run_engine.py` — APScheduler 오케스트레이터, retry_queue 연동
-    - `python -m core.run_engine` 으로 `insta_scheduler.py` 대체 실행 가능
+    - `python -m core.run_engine` 으로 `launcher/main.py` 대신 단독 실행 가능
 - interaction_engine (F-11):
   - `engagement_tracker.py` — Graph API로 like_count / comments_count 갱신 (30분 간격)
   - `auto_liker.py` — 게시물 댓글 자동 좋아요 (15분 간격), 중복 방지: `db/liked_comments.db`

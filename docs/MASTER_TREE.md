@@ -23,7 +23,6 @@ C:\SNS_24AutoProject_250723\
 │   ├── sns\                                ▶ F-01~F-04 (크롤링·업로드)
 │   │   ├── facebook_crawler.py
 │   │   ├── insta_uploader.py
-│   │   ├── insta_scheduler.py
 │   │   ├── insta_upload_core.py
 │   │   ├── text_cleaner.py
 │   │   ├── image_generator.py

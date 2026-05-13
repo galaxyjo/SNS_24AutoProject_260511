@@ -5,7 +5,7 @@ Facebook 그룹 크롤링 → Instagram 자동 업로드 파이프라인
 ## 구조
 
 ```
-insta_scheduler.py        # 메인 스케줄러 (APScheduler)
+launcher/main.py          # 통합 진입점 (Flask + APScheduler + RetryQueue)
 modules/
   sns/
     facebook_crawler.py   # Facebook 그룹 크롤링 (AdsPower + Selenium)
@@ -35,7 +35,7 @@ cp .env.example .env
 또는 직접:
 
 ```bash
-python insta_scheduler.py
+python launcher/main.py
 ```
 
 ## 스케줄

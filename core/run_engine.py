@@ -1,7 +1,7 @@
 """
 core/run_engine.py — 전체 스케줄 오케스트레이터
 
-기존 insta_scheduler.py의 스케줄 잡을 TaskRouter + 중앙 로거 기반으로 통합.
+launcher/main.py의 스케줄 잡을 TaskRouter + 중앙 로거 기반으로 통합.
 단독 실행 시 모든 잡을 APScheduler로 구동.
 
 사용법:

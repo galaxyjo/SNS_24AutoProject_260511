@@ -7,7 +7,7 @@ health_monitor.py — 시스템 상태 수집기
     snapshot = get_health()
     # {
     #   "timestamp": "2026-05-13 10:00:00",
-    #   "services": {"flask": "ok", "streamlit": "ok", "ngrok": "ok", "insta_scheduler": "ok"},
+    #   "services": {"flask": "ok", "streamlit": "ok", "ngrok": "ok", "launcher": "ok"},
     #   "retry_queue": {"pending": 0, "done": 12, "dead": 1},
     #   "errors": {"last_1h": 3, "recent": ["...", ...]},
     #   "overall": "ok"   # "ok" | "degraded" | "down"
@@ -56,7 +56,7 @@ def _check_process(keyword: str) -> str:
             text=True,
             timeout=5,
         )
-        # insta_scheduler.py 는 python.exe 이므로 wmic 로 확인
+        # launcher/main.py 는 python.exe 이므로 wmic 로 확인
         if keyword == "ngrok":
             return "ok" if "ngrok" in out.lower() else "down"
 
@@ -117,7 +117,7 @@ def get_health() -> dict[str, Any]:
         "flask":           _check_http(_FLASK_URL),
         "streamlit":       _check_http(_STREAMLIT_URL),
         "ngrok":           _check_process("ngrok"),
-        "insta_scheduler": _check_process("insta_scheduler.py"),
+        "launcher":        _check_process("launcher\\main"),
     }
 
     retry_stats = _check_retry_queue()

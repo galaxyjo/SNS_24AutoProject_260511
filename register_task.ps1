@@ -1,9 +1,9 @@
 # SNS Auto Scheduler - Windows Task Scheduler 등록
 # 관리자 권한으로 실행 필요
 
-$TaskName   = "SNS_InstaScheduler"
+$TaskName   = "SNS_Launcher"
 $PythonExe  = "C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe"
-$Script     = "C:\SNS_24AutoProject_260511\insta_scheduler.py"
+$Script     = "C:\SNS_24AutoProject_260511\launcher\main.py"
 $WorkingDir = "C:\SNS_24AutoProject_260511"
 $LogFile    = "C:\SNS_24AutoProject_260511\logs\scheduler.log"
 
@@ -16,7 +16,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Write-Host "[INFO] 기존 태스크 제거 완료"
 }
 
-# 액션: python insta_scheduler.py (로그는 RotatingFileHandler가 직접 관리)
+# 액션: python launcher/main.py (로그는 RotatingFileHandler가 직접 관리)
 $Action = New-ScheduledTaskAction `
     -Execute $PythonExe `
     -Argument "`"$Script`"" `
@@ -46,7 +46,7 @@ Register-ScheduledTask `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "SNS 자동 업로드 스케줄러 (FB 크롤링 → Instagram 게시)" `
+    -Description "SNS 통합 런처 (FB 크롤링 → Instagram 게시 + DM + CRM)" `
     -Force | Out-Null
 
 Write-Host "[OK] 태스크 등록 완료: $TaskName"
