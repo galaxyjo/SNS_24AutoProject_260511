@@ -153,6 +153,14 @@ def _job_auto_like():
     run_auto_like()
 
 
+@handle_errors(task="ngrok_check", reraise=False, notify_fn=_slack)
+def _job_ngrok_check():
+    from modules.common.ngrok_monitor import check_ngrok_url
+    result = check_ngrok_url()
+    if result["status"] != "ok":
+        logger.warning(f"[RunEngine] ngrok_check | {result}")
+
+
 # ── RunEngine ─────────────────────────────────────────────────────────────────
 
 class RunEngine:
@@ -172,6 +180,7 @@ class RunEngine:
         self.router.register("kpi_snapshot",      _job_kpi_snapshot)
         self.router.register("engagement_update", _job_engagement_update)
         self.router.register("auto_like",         _job_auto_like)
+        self.router.register("ngrok_check",       _job_ngrok_check)
 
     def _register_jobs(self):
         now = datetime.now()
@@ -206,6 +215,10 @@ class RunEngine:
         self.scheduler.add_job(
             _job_auto_like, "interval", minutes=15,
             id="auto_like", next_run_time=now + timedelta(seconds=70),
+        )
+        self.scheduler.add_job(
+            _job_ngrok_check, "interval", minutes=5,
+            id="ngrok_check", next_run_time=now + timedelta(seconds=80),
         )
 
     def start(self):
