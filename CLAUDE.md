@@ -112,15 +112,22 @@ C:\SNS_24AutoProject_260511\
 | — | modules/metrics/ KPI 수집기 (kpi_collector: 집계 + SQLite 스냅샷 + 대시보드 탭) | ✅ |
 | — | modules/interaction_engine/ F-11 (engagement_tracker / auto_liker / interaction_scheduler) | ✅ |
 | — | services/slack_notifier (Incoming Webhook: 운영 알림 + error_handler + watchdog 연동) | ✅ |
+| — | Airtable Instagram_Posts 필드 추가 (ig_media_id / like_count / comments_count) | ✅ |
+| — | 전체 파이프라인 운영 투입 검증 (launcher/main.py + watchdog + ngrok + Slack) | ✅ |
+| — | Meta Webhook 등록 확인 (Callback URL / Verify Token / messages·comments 구독) | ✅ |
+| — | FB crawler lazy-load 대응 + MAX_POSTS=10 환경변수화 | ✅ |
 
 ### 검증 완료 항목
 
 - FB Crawling / AdsPower + Selenium Attach
 - Airtable Source_Feeds Pipeline / Content Mapping
 - Instagram Upload (재시도 3회 / 실패 마킹)
-- Meta Webhook Verify / DM Webhook Receive
+- Meta Webhook Verify / DM Webhook Receive ✅ 2026-05-13 운영 확인
 - Lead_Interactions Logging / State Machine Structure
 - CRM Base Structure / Architecture Lock
+- launcher/main.py 통합 기동 (Flask + 8잡 + RetryQueue) ✅ 2026-05-13
+- watchdog.ps1 자동 재시작 + Slack 알림 ✅ 2026-05-13
+- Airtable Meta API 필드 자동 추가 (tools/add_instagram_posts_fields.py) ✅ 2026-05-13
 
 ### 보류 항목 (Phase 3 이후 — 현재 구현 대상 아님)
 
@@ -134,9 +141,11 @@ C:\SNS_24AutoProject_260511\
 
 ---
 
-## 현재 단계: Pre-Production Stabilization
+## 현재 단계: Production ✅
 
-기능 구현보다 **운영 안정성**이 우선.
+**[260512_16단계_운영안정화+문서화] 완료** — 2026-05-13
+
+전체 파이프라인 운영 투입 완료.
 
 ### 핵심 위험 요소
 
