@@ -117,6 +117,13 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
         results.append({"target_url": target_url, "content": text, "image_url": image_url})
 
     logger.info(f"[FB Crawler] 완료 | {len(results)}개 처리 | user={adspower_user_id}")
+
+    try:
+        from modules.metrics.crawl_monitor import record_crawl
+        record_crawl(results, target_url=target_url)
+    except Exception as exc:
+        logger.warning(f"[FB Crawler] 이미지 비율 기록 실패 | {exc}")
+
     return results
 
 

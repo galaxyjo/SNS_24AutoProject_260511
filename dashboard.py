@@ -10,6 +10,7 @@ import streamlit as st
 import pandas as pd
 
 from modules.common.airtable_bridge import get_table
+from modules.metrics.crawl_monitor import get_summary as crawl_summary, get_recent_stats as crawl_recent
 
 st.set_page_config(page_title="SNS 자동화 대시보드", page_icon="\U0001f4ca", layout="wide")
 
@@ -122,6 +123,33 @@ with tab1:
     c3.metric("\U0001f7e1 대기 중", ready)
     c4.metric("\U0001f534 실패", failed)
     c5.metric("성공률", srate)
+
+    st.divider()
+
+    # ── FB 크롤링 이미지 비율 모니터 ─────────────────────────────────────────
+    st.subheader("\U0001f4f7 FB 크롤링 이미지 비율")
+    _cs = crawl_summary(hours=24)
+    cr1, cr2, cr3, cr4 = st.columns(4)
+    cr1.metric("크롤 횟수 (24h)", _cs["runs"])
+    cr2.metric("수집 포스트", _cs["total"])
+    cr3.metric("이미지 있음", _cs["with_image"])
+    cr4.metric(
+        "이미지 비율",
+        f"{_cs['image_rate']}%",
+        delta=f"-{_cs['without_image']}건 미추출" if _cs["without_image"] else None,
+        delta_color="inverse",
+    )
+
+    _recent = crawl_recent(limit=30)
+    if _recent:
+        _chart_df = pd.DataFrame(list(reversed(_recent)))[["crawled_at", "image_rate", "total", "with_image"]]
+        _chart_df["crawled_at"] = pd.to_datetime(_chart_df["crawled_at"]).dt.tz_convert("Asia/Seoul").dt.strftime("%m/%d %H:%M")
+        _chart_df = _chart_df.rename(columns={"crawled_at": "시각", "image_rate": "이미지 비율(%)", "total": "전체", "with_image": "이미지 있음"})
+        st.line_chart(_chart_df.set_index("시각")[["이미지 비율(%)"]], height=160)
+        with st.expander("크롤 이력 상세"):
+            st.dataframe(_chart_df, use_container_width=True, height=240)
+    else:
+        st.caption("크롤 기록 없음 — FB 크롤링 실행 후 데이터가 표시됩니다.")
 
     st.divider()
 
