@@ -30,7 +30,7 @@ Start-Process -FilePath $python -ArgumentList "launcher\main.py" `
     -RedirectStandardOutput "$logDir\scheduler.log" `
     -RedirectStandardError  "$logDir\scheduler_err.log" `
     -WindowStyle Hidden
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 15
 
 # 4. Flask 헬스체크
 try {
