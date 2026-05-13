@@ -75,13 +75,13 @@ function Start-Ngrok {
     Start-Sleep -Seconds $RESTART_WAIT
 }
 
-function Test-InstaScheduler {
+function Test-Launcher {
     $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue
-    return ($procs | Where-Object { $_.CommandLine -like "*insta_scheduler.py*" }) -ne $null
+    return ($procs | Where-Object { $_.CommandLine -like "*launcher*main.py*" -or $_.CommandLine -like "*launcher\main*" }) -ne $null
 }
 
-function Start-InstaScheduler {
-    Start-Process -FilePath $python -ArgumentList "insta_scheduler.py" `
+function Start-Launcher {
+    Start-Process -FilePath $python -ArgumentList "launcher\main.py" `
         -RedirectStandardOutput "$logDir\scheduler.log" `
         -RedirectStandardError  "$logDir\scheduler_err.log" `
         -WindowStyle Hidden
@@ -134,17 +134,17 @@ while ($true) {
         }
     }
 
-    # --- insta_scheduler 감시 (커맨드라인 검사) ---
-    if (-not (Test-InstaScheduler)) {
-        Write-Log "[WARN] insta_scheduler.py 프로세스 없음 — 재시작 시도"
-        Send-SlackAlert "insta_scheduler.py 프로세스 없음 — 재시작 시도" "warning"
-        Start-InstaScheduler
-        if (Test-InstaScheduler) {
-            Write-Log "[OK]   insta_scheduler.py 재시작 성공"
-            Send-SlackAlert "insta_scheduler.py 재시작 성공" "success"
+    # --- launcher/main.py 감시 (커맨드라인 검사) ---
+    if (-not (Test-Launcher)) {
+        Write-Log "[WARN] launcher/main.py 프로세스 없음 — 재시작 시도"
+        Send-SlackAlert "launcher/main.py 프로세스 없음 — 재시작 시도" "warning"
+        Start-Launcher
+        if (Test-Launcher) {
+            Write-Log "[OK]   launcher/main.py 재시작 성공"
+            Send-SlackAlert "launcher/main.py 재시작 성공" "success"
         } else {
-            Write-Log "[ERROR] insta_scheduler.py 재시작 실패 — scheduler_err.log 확인 필요"
-            Send-SlackAlert "insta_scheduler.py 재시작 실패 — scheduler_err.log 확인 필요" "error"
+            Write-Log "[ERROR] launcher/main.py 재시작 실패 — scheduler_err.log 확인 필요"
+            Send-SlackAlert "launcher/main.py 재시작 실패 — scheduler_err.log 확인 필요" "error"
         }
     }
 
