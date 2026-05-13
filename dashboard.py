@@ -549,17 +549,35 @@ with tab6:
 
         st.divider()
 
+        # ── FB 크롤링 URL 유효성 ────────────────────────────────────────────
+        crawl_urls = health.get("crawl_urls", {})
+        if crawl_urls:
+            st.subheader("🔗 FB 크롤링 URL 상태")
+            _URL_COLOR = {"ok": "#d4edda", "invalid": "#f8d7da", "unreachable": "#fff3cd"}
+            _URL_ICON  = {"ok": "✅", "invalid": "❌", "unreachable": "⚠️"}
+            for url, status in crawl_urls.items():
+                label = url[:70] + "..." if len(url) > 70 else url
+                st.markdown(
+                    f'<div style="background:{_URL_COLOR.get(status,"#e9ecef")};'
+                    f'padding:8px 12px;border-radius:6px;margin-bottom:4px;">'
+                    f'{_URL_ICON.get(status,"❓")} <code>{label}</code> — <b>{status.upper()}</b></div>',
+                    unsafe_allow_html=True,
+                )
+            st.divider()
+
         # ── 스케줄 잡 현황 (run_engine 등록 목록) ──────────────────────────
         st.subheader("⏱️ 등록된 스케줄 잡")
         job_rows = [
-            ("fb_crawl",           "30분",  "FB 크롤링"),
-            ("insta_upload",       "5분",   "Instagram 업로드"),
-            ("followup_poll",      "5분",   "팔로업 DM"),
-            ("comment_poll",       "5분",   "댓글 수집·자동답변"),
+            ("fb_crawl",           "30분",       "FB 크롤링"),
+            ("insta_upload",       "5분",        "Instagram 업로드"),
+            ("followup_poll",      "5분",        "팔로업 DM"),
+            ("comment_poll",       "5분",        "댓글 수집·자동답변"),
             ("daily_report",       "매일 09:00", "KPI 일일 리포트"),
-            ("kpi_snapshot",       "1시간", "KPI SQLite 저장"),
-            ("engagement_update",  "30분",  "like/comment 수 갱신"),
-            ("auto_like",          "15분",  "댓글 자동 좋아요"),
+            ("kpi_snapshot",       "1시간",      "KPI SQLite 저장"),
+            ("engagement_update",  "30분",       "like/comment 수 갱신"),
+            ("auto_like",          "15분",       "댓글 자동 좋아요"),
+            ("ngrok_check",        "5분",        "ngrok URL 변경 감지"),
+            ("crawl_url_check",    "1시간",      "FB 크롤링 URL 유효성"),
         ]
         st.dataframe(
             pd.DataFrame(job_rows, columns=["잡 ID", "주기", "역할"]),

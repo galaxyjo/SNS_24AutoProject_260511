@@ -161,6 +161,15 @@ def _job_ngrok_check():
         logger.warning(f"[RunEngine] ngrok_check | {result}")
 
 
+@handle_errors(task="crawl_url_check", reraise=False, notify_fn=_slack)
+def _job_crawl_url_check():
+    from modules.common.crawl_url_checker import check_all
+    results = check_all()
+    problems = {u: s for u, s in results.items() if s != "ok"}
+    if problems:
+        logger.warning(f"[RunEngine] crawl_url_check | 이상 URL {len(problems)}건")
+
+
 # ── RunEngine ─────────────────────────────────────────────────────────────────
 
 class RunEngine:
@@ -181,6 +190,7 @@ class RunEngine:
         self.router.register("engagement_update", _job_engagement_update)
         self.router.register("auto_like",         _job_auto_like)
         self.router.register("ngrok_check",       _job_ngrok_check)
+        self.router.register("crawl_url_check",   _job_crawl_url_check)
 
     def _register_jobs(self):
         now = datetime.now()
@@ -219,6 +229,10 @@ class RunEngine:
         self.scheduler.add_job(
             _job_ngrok_check, "interval", minutes=5,
             id="ngrok_check", next_run_time=now + timedelta(seconds=80),
+        )
+        self.scheduler.add_job(
+            _job_crawl_url_check, "interval", hours=1,
+            id="crawl_url_check", next_run_time=now + timedelta(seconds=90),
         )
 
     def start(self):

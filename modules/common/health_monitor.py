@@ -123,9 +123,17 @@ def get_health() -> dict[str, Any]:
     retry_stats = _check_retry_queue()
     error_stats = _check_errors()
 
+    # FB 크롤링 URL 마지막 체크 결과 (check_all() 잡이 주기적으로 갱신)
+    try:
+        from modules.common.crawl_url_checker import get_last_results
+        crawl_url_stats = get_last_results()
+    except Exception:
+        crawl_url_stats = {}
+
     # overall 상태 결정
     down_count = sum(1 for v in services.values() if v == "down")
-    if down_count == 0:
+    url_problem = any(v != "ok" for v in crawl_url_stats.values())
+    if down_count == 0 and not url_problem:
         overall = "ok"
     elif down_count <= 1:
         overall = "degraded"
@@ -137,6 +145,7 @@ def get_health() -> dict[str, Any]:
         "services":    services,
         "retry_queue": retry_stats,
         "errors":      error_stats,
+        "crawl_urls":  crawl_url_stats,
         "overall":     overall,
     }
 
