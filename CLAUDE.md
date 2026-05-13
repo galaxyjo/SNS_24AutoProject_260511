@@ -151,7 +151,7 @@ C:\SNS_24AutoProject_260511\
 
 - Selenium UI 변경 (Facebook 크롤러 취약)
 - ngrok disconnect
-- Meta access token 만료
+- Meta access token 만료 (무제한 토큰 발급 완료 — 실질적 위험 낮음)
 - queue deadlock / process crash
 - Gemini API 429 (rate limit)
 
