@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 # ── 가중치 ────────────────────────────────────────────────────────────────────
 SCORE_REPEAT     = 10   # 동일 IGSID 재문의
 SCORE_FAST       = 5    # 응답 속도 < 60초
-SCORE_ORDER_KW   = 20   # 주문 키워드 포함
+SCORE_ORDER_KW   = 25   # 주문 키워드 포함
 SCORE_PRICE_KW   = 5    # 단가 키워드만 포함
 
 GRADE_HOT  = 25

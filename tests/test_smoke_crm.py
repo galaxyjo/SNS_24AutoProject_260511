@@ -23,11 +23,11 @@ def test_calc_score_warm_repeat():
     assert grade == "warm"
 
 
-def test_calc_score_warm_order_keyword_alone():
-    # SCORE_ORDER_KW=20 < GRADE_HOT=25 → warm
+def test_calc_score_hot_order_keyword_alone():
+    # SCORE_ORDER_KW=25 >= GRADE_HOT=25 → hot
     score, grade = calc_score(has_order_keyword=True)
-    assert grade == "warm"
-    assert score == 20
+    assert grade == "hot"
+    assert score == 25
 
 
 def test_calc_score_hot_order_plus_repeat():
