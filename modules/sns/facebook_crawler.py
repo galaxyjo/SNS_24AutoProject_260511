@@ -33,12 +33,32 @@ def get_driver(adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
     return driver
 
 
-def extract_image_url(post_element):
+_PROFILE_PATTERNS = ("p40x40", "p50x50", "p75x75", "p100x100", "p160x160",
+                     "s32x32", "s40x40", "s50x50", "s60x60", "s160x160")
+
+
+def extract_image_url(post_element, driver=None):
+    """포스트 내 첫 번째 콘텐츠 이미지 URL 반환.
+    프로필 사진(소형 썸네일) 및 100px 미만 이미지 제외.
+    """
     imgs = post_element.find_elements(By.TAG_NAME, "img")
     for img in imgs:
         src = img.get_attribute("src") or img.get_attribute("data-src") or ""
-        if "scontent" in src and src.startswith("https://"):
-            return src
+        if not (src.startswith("https://") and "scontent" in src):
+            continue
+        # 프로필 사진 URL 패턴 제외
+        if any(p in src for p in _PROFILE_PATTERNS):
+            continue
+        # 렌더링된 이미지 크기 확인 (driver 있을 때) — 100px 미만은 아이콘
+        if driver:
+            try:
+                w = int(driver.execute_script("return arguments[0].naturalWidth || 0", img))
+                h = int(driver.execute_script("return arguments[0].naturalHeight || 0", img))
+                if 0 < w < 100 or 0 < h < 100:
+                    continue
+            except Exception:
+                pass
+        return src
     return ""
 
 
@@ -68,7 +88,13 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
     logger.info(f"[FB Crawler] 시작 | user={adspower_user_id} | url={target_url}")
     driver = get_driver(adspower_user_id, proxy_opts)
     driver.get(target_url)
-    time.sleep(7)
+    time.sleep(12)  # 초기 렌더링 대기 (7 → 12초)
+
+    # 스크롤 다운 → lazy-load 이미지 강제 렌더링 후 상단 복귀
+    driver.execute_script("window.scrollBy(0, 800);")
+    time.sleep(2)
+    driver.execute_script("window.scrollTo(0, 0);")
+    time.sleep(1)
 
     feed = driver.find_element(By.CSS_SELECTOR, "div[role='feed']")
     posts = feed.find_elements(By.XPATH, ".//div[@role='article']")
@@ -79,7 +105,11 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
 
     results = []
     for i, post in enumerate(posts[:max_posts], start=1):
-        image_url = extract_image_url(post)
+        # 각 포스트를 뷰포트 중앙으로 스크롤 → lazy-load 트리거
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post)
+        time.sleep(1.5)
+
+        image_url = extract_image_url(post, driver)
         text = post.text
         logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
         save_to_airtable(image_url, target_url, text)
