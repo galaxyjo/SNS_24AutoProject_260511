@@ -1,6 +1,6 @@
 # SNS 자동화 서버 재시작 스크립트
 # 사용법: .\run_scheduler.ps1
-# 순서: (ngrok은 유지) → 기존 python 종료 → Flask+Scheduler 재시작 → 대시보드 재시작
+# 순서: (ngrok은 유지) → 기존 python 종료 → launcher/main.py 시작 → 대시보드 재시작
 
 Set-Location $PSScriptRoot
 
@@ -23,37 +23,30 @@ if (-not $ngrokRunning) {
     Write-Host "[NGROK] 이미 실행 중 (유지)"
 }
 
-# 3. 콘텐츠 파이프라인 시작 (크롤링 + 업로드, 1~10단계)
-Write-Host "[START] 콘텐츠 파이프라인 시작 (insta_scheduler)..."
-Start-Process -FilePath $python -ArgumentList "insta_scheduler.py" `
+# 3. 통합 서버 시작 (Flask + APScheduler + RetryQueue 통합)
+#    launcher/main.py = Flask(5000) + 8개 스케줄 잡 + RetryQueue 워커
+Write-Host "[START] 통합 서버 시작 (launcher/main.py)..."
+Start-Process -FilePath $python -ArgumentList "launcher\main.py" `
     -RedirectStandardOutput "$logDir\scheduler.log" `
     -RedirectStandardError  "$logDir\scheduler_err.log" `
     -WindowStyle Hidden
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 5
 
-# 4. Flask + APScheduler 시작
-Write-Host "[START] Flask 서버 시작 (port 5000)..."
-Start-Process -FilePath $python -ArgumentList "-m modules.dm.dm_receiver" `
-    -RedirectStandardOutput "$logDir\webhook_stdout.log" `
-    -RedirectStandardError  "$logDir\webhook_stderr.log" `
-    -WindowStyle Hidden
-Start-Sleep -Seconds 3
-
-# 5. 헬스체크
+# 4. Flask 헬스체크
 try {
     $health = Invoke-RestMethod -Uri "http://localhost:5000/health" -TimeoutSec 5
     Write-Host "[OK] Flask 정상 응답: status=$($health.status)"
 } catch {
-    Write-Host "[ERROR] Flask 응답 없음 — logs\webhook_stderr.log 확인"
+    Write-Host "[ERROR] Flask 응답 없음 — logs\scheduler_err.log 확인"
 }
 
-# 6. Streamlit 대시보드 시작
+# 5. Streamlit 대시보드 시작
 Write-Host "[START] Streamlit 대시보드 시작 (port 8501)..."
 Start-Process -FilePath $streamlit -ArgumentList "run dashboard.py --server.port 8501" `
     -RedirectStandardOutput "$logDir\dashboard.log" `
     -RedirectStandardError  "$logDir\dashboard_err.log" `
     -WindowStyle Hidden
-Start-Sleep -Seconds 3
+Start-Sleep -Seconds 4
 
 try {
     $st = Invoke-WebRequest -Uri "http://localhost:8501" -TimeoutSec 5 -UseBasicParsing
@@ -62,8 +55,10 @@ try {
     Write-Host "[ERROR] Streamlit 응답 없음 — logs\dashboard.log 확인"
 }
 
-Write-Host "`n[DONE] 서버 재시작 완료"
-Write-Host "  콘텐츠 파이프라인 : logs\scheduler.log"
-Write-Host "  Flask             : http://localhost:5000/health"
-Write-Host "  Dashboard         : http://localhost:8501"
-Write-Host "  Webhook           : https://danuta-overdramatic-whirly.ngrok-free.dev/webhook"
+Write-Host "`n[DONE] 서버 시작 완료"
+Write-Host "  통합 서버  : logs\scheduler.log / scheduler_err.log"
+Write-Host "  Flask      : http://localhost:5000/health"
+Write-Host "  Dashboard  : http://localhost:8501"
+Write-Host "  Webhook    : https://danuta-overdramatic-whirly.ngrok-free.dev/webhook"
+Write-Host "`n[NEXT] watchdog 별도 터미널에서 실행:"
+Write-Host "  .\watchdog.ps1"
