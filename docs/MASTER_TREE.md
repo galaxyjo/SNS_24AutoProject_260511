@@ -1,166 +1,88 @@
-=&gt;251015_1515pm 
-interaction_engine 폴더는 "계정 간 상호작용 자동화(좋아요·댓글·공유)" 전용 핵심 모듈
-=&gt;13_final_master_tree_0929_1112am.txt 구조에
-신규 모듈 modules/interaction_engine/ 폴더를 추가한 정식 병합 버전입니다.
-(MasterTree 호환 + 태그·각주 포함)
+# MASTER_TREE.md — 전체 파일 구조 기준서
 
-✅ 업데이트된 MasterTree (251015 수정판)
-✅ 업데이트된 MasterTree (251015 수정판)
-C:\SNS_24AutoProject_250723\
-├── launcher\
-│   ├── main.py                             ▶ 전체 실행 진입점
-│   └── scheduler\                          ▶ 스케줄러 전용 폴더
-│       └── __init__.py
+> 기준일: 2026-05-14 | 버전: v1.0
 
-├── core\
-│   ├── run_engine.py                       ▶ 실행 컨트롤러
-│   ├── task_router.py                      ▶ 실행 분기 처리기
-│   ├── log_initializer.py
-│   ├── error_handler.py
-│   └── __init__.py
+---
 
-├── modules\                                ✅ 기능 모듈
-│   ├── sns\                                ▶ F-01~F-04 (크롤링·업로드)
-│   │   ├── facebook_crawler.py
-│   │   ├── insta_uploader.py
-│   │   ├── insta_upload_core.py
-│   │   ├── text_cleaner.py
-│   │   ├── image_generator.py
-│   │   ├── hashtag_builder.py
-│   │   └── __init__.py
-│
-│   ├── dm\                                 ▶ F-05~F-06 (DM·댓글·좋아요)
-│   │   ├── bot.py
-│   │   ├── bot_direct.py
-│   │   ├── bot_comment.py
-│   │   ├── bot_like.py
-│   │   ├── insta_dm_sender.py
-│   │   ├── insta_login.py
-│   │   ├── api_utils.py
-│   │   ├── friend_adder.py
-│   │   ├── dm_scheduler.py
-│   │   └── __init__.py
-│
-│   ├── trade\                              ▶ F-07 (거래/상품)
-│   │   ├── quote_engine.py
-│   │   ├── product_db_manager.py
-│   │   ├── reply_generator.py
-│   │   └── __init__.py
-│
-│   ├── avatar\                             ▶ F-08 (아바타·AI 반응)
-│   │   ├── avatar_dispatcher.py
-│   │   ├── decision_engine.py
-│   │   ├── preset_reactor.py
-│   │   └── __init__.py
-│
-│   ├── metrics\                            ▶ F-10 (통계 수집)
-│   │   └── collector.py
-│
-│   ├── common\                             ▶ 공통 유틸·DB·로거
-│   │   ├── logger.py
-│   │   ├── db.py
-│   │   ├── utils.py
-│   │   ├── contact_replacer.py
-│   │   ├── session_handler.py
-│   │   ├── recovery_manager.py
-│   │   ├── safe_ssl.py
-│   │   ├── safe_os.py
-│   │   ├── queue_util.py
-│   │   ├── my_configparser.py
-│   │   ├── pretty_output.py
-│   │   ├── dt_util.py
-│   │   ├── asyncio_custom.py
-│   │   ├── proj_concurrent.py
-│   │   ├── json_helper.py
-│   │   ├── socket_handler.py
-│   │   └── __init__.py
-│
-│   ├── interaction_engine\                 ⏺ **신규 F-11 상호작용 자동화 모듈**
-│   │   ├── __init__.py                     ▶ 패키지 초기화
-│   │   ├── scheduler.py                    ▶ 상호작용 주기 제어 (async 트리거)
-│   │   ├── executor.py                     ▶ 좋아요·댓글·공유 실행 엔진
-│   │   ├── logger.py                       ▶ 로그/DB 기록 및 SHA256 무결성
-│   │   ├── config_loader.py                ▶ 계정·환경설정 로더(JSON·ENV)
-│   │   └── __main__.py                     ▶ 독립 실행 진입점 (테스트용)
-│
-│   └── __init__.py                         ▶ 상위 모듈 초기화
-│
+## 저장소 구조
+
+```
+C:\SNS_24AutoProject_260511\
+├── launcher\                        ▶ 전체 실행 진입점
+│   ├── main.py                      ✅ BackgroundScheduler + Flask + retry_queue
+│   └── scheduler\
+├── core\                            ▶ 실행 컨트롤러 / 태스크 라우터
+│   ├── log_initializer.py           ✅ 시작 시 중앙 로거 1회 초기화
+│   ├── error_handler.py             ✅ @handle_errors 데코레이터 / safe_run()
+│   ├── task_router.py               ✅ 태스크 이름 → 핸들러 분기
+│   └── run_engine.py                ✅ APScheduler 오케스트레이터
+├── modules\
+│   ├── sns\          [F-01~F-04]    ▶ FB 크롤링 / Instagram 업로드
+│   │   ├── facebook_crawler.py      ✅ Selenium + AdsPower Attach
+│   │   ├── instagram_uploader.py    ✅ Graph API 업로드 (재시도 3회)
+│   │   ├── caption_generator.py     ✅ Gemini 캡션 생성
+│   │   └── pipeline_feed_ingest.py  ✅ Airtable Source_Feeds 파이프라인
+│   ├── dm\           [F-05~F-06]    ▶ DM 수신 / 자동응답 / 팔로업
+│   │   ├── dm_receiver.py           ✅ Meta Webhook DM 수신
+│   │   ├── dm_auto_reply.py         ✅ Gemini 자동응답 (템플릿 폴백)
+│   │   └── dm_followup_scheduler.py ✅ 팔로업 DM 스케줄러
+│   ├── comment\                     ▶ 자동 댓글 관리
+│   │   ├── comment_poller.py        ✅ Graph API 댓글 수집
+│   │   └── comment_auto_reply.py    ✅ 자동 댓글 답글
+│   ├── crm\                         ▶ Lead CRM
+│   │   ├── lead_scorer.py           ✅ 리드 점수 산정
+│   │   ├── order_detector.py        ✅ 주문 의도 감지
+│   │   └── daily_report.py          ✅ 일간 리포트
+│   ├── common\                      ▶ 공통 유틸
+│   │   ├── airtable_bridge.py       ✅ Airtable CRUD 추상화
+│   │   ├── logger.py                ✅ 중앙 로거
+│   │   ├── retry_queue.py           ✅ 실패 태스크 재시도 (SQLite)
+│   │   ├── health_monitor.py        ✅ 서비스 상태 체크
+│   │   ├── account_manager.py       ✅ 다계정 관리
+│   │   └── parallel_runner.py       ✅ ThreadPoolExecutor 병렬 실행
+│   ├── metrics\      [F-10]         ▶ KPI 수집기
+│   │   └── kpi_collector.py         ✅ SQLite 스냅샷 + 대시보드 연동
+│   ├── interaction_engine\ [F-11]   ▶ 좋아요·댓글·공유 자동화
+│   │   ├── engagement_tracker.py    ✅ like_count / comments_count 갱신
+│   │   ├── auto_liker.py            ✅ 댓글 자동 좋아요
+│   │   └── interaction_scheduler.py ✅ 15분 간격 스케줄
+│   ├── trade\        [F-07]         ⏸ 보류 (Phase 3)
+│   └── avatar\       [F-08]         ⏸ 보류 (Phase 3)
 ├── services\
-│   ├── gpt_connector.py
-│   ├── smtp_mailer.py
-│   ├── slack_notifier.py
-│   ├── translator.py
-│   ├── license_manager.py                  ⏺ 판매/라이선스 관리(확장용)
-│   └── __init__.py
-│
+│   └── slack_notifier.py            ✅ Incoming Webhook 알림
 ├── configs\
-│   ├── env.json
-│   ├── avatar_config.yaml
-│   ├── trade_rules.yaml
-│   ├── dm_config.yaml
-│   ├── scheduler_config.json
-│   └── interaction_config.json             ⏺ 상호작용 모듈 설정
-│
-├── data\
-│   ├── fb_posts.json
-│   ├── price_requests.json
-│   ├── interaction_log.csv
-│   └── exported_data\
-│       └── *.xlsx
-│
-├── logs\
-│   ├── summary\
-│   ├── error\
-│   ├── function\
-│   ├── response_log.txt
-│   ├── interaction_log.json                ⏺ 상호작용 결과 로그
-│   └── obsolete_0520\
-│
+│   └── accounts.json                ✅ 다계정 설정 (없으면 .env 폴백)
 ├── db\
-│   ├── interaction_log.db                  ⏺ 상호작용 기록 DB
-│
-├── tools\
-│   └── integrity\
-│       ├── sha256_integrity_mastertree.py
-│       ├── verify_integrity_and_identify_unnecessary.py
-│       └── generate_interaction_hash.py    ⏺ 로그 무결성 자동검증 (신규)
-│
+│   ├── retry_queue.db               실패 태스크 영속 저장
+│   ├── kpi_snapshots.db             시간별 KPI 스냅샷
+│   └── liked_comments.db            중복 좋아요 방지
+├── docs\                            ← 현재 위치
+├── logs\
+│   ├── summary\app.log
+│   ├── error\error.log
+│   └── function\{모듈명}.log
+├── tools\integrity\
 ├── tests\
-│   ├── test_insta_dm.py
-│   ├── test_fb_crawler.py
-│   ├── test_avatar.py
-│   ├── test_trade.py
-│   ├── test_utils.py
-│   ├── test_metrics.py
-│   └── test_interaction_engine.py          ⏺ 신규 모듈 전용 테스트
-│
-└── backup\
-    ├── SNS_24AutoProject_FINAL_20250518.zip
-    ├── SNS_24AutoProject_BACKUP_20250509_012121.zip
-    └── RECOVERED_20250519\
+├── backup\
+├── dashboard.py
+├── run_scheduler.ps1
+└── watchdog.ps1
+```
 
+---
 
+## 데이터 흐름
 
-📘 주석 요약
+```
+Facebook → [facebook_crawler] → Airtable(Source_Feeds)
+         → [instagram_uploader] → Instagram Post
+         → [engagement_tracker] → Airtable(ig_media_id / like_count)
 
-modules/interaction_engine/ → 신규 핵심 모듈 (F-11)
+Instagram DM → Meta Webhook → [dm_receiver] → Airtable(Lead_Interactions)
+             → [dm_auto_reply] → Gemini → DM 발송
+             → [dm_followup_scheduler] → 팔로업 DM
 
-scheduler.py: 계정 리스트 기반 자동 주기 트리거
-
-executor.py: 실제 상호작용(좋아요·댓글·공유) 실행
-
-logger.py: JSON + DB 로그 기록, SHA256 무결성 체크
-
-config_loader.py: 계정/환경 설정 JSON 로드
-
-main.py: 단독 실행 및 DRY-RUN 테스트 진입점
-
-연관 항목:
-
-configs/interaction_config.json (모듈 환경파일)
-
-db/interaction_log.db (로그DB)
-
-logs/interaction_log.json (액션 기록)
-
-tests/test_interaction_engine.py (단위검증)
+Lead_Interactions → [lead_scorer] → 점수 산정
+                 → [order_detector] → 주문 의도 감지
+                 → [daily_report] → Slack 알림
+```
