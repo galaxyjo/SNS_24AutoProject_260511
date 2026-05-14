@@ -21,9 +21,10 @@ from modules.common.logger import get_logger
 
 logger = get_logger(__name__)
 
-_CALL_INTERVAL = 1.0
-_RETRY_DELAYS  = [5, 10, 20]
+_CALL_INTERVAL = 4.0
+_RETRY_DELAYS  = [20, 40, 60]
 _last_call_ts  = 0.0
+_client        = None
 
 _FALLBACK_TEMPLATE = (
     "안녕하세요! 문의 감사합니다 😊\n"
@@ -71,15 +72,18 @@ def generate_reply(
     )
     prompt = f"{system}\n\n고객 메시지:\n{user_message[:500]}\n\n응답:"
 
+    global _client
+    if _client is None:
+        from google import genai
+        _client = genai.Client(api_key=api_key)
+
     for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
         if delay:
             logger.info(f"[AIReply] 429 재시도 {attempt} | {delay}초 대기")
             time.sleep(delay)
         try:
-            from google import genai
             _throttle()
-            client = genai.Client(api_key=api_key)
-            resp = client.models.generate_content(
+            resp = _client.models.generate_content(
                 model="gemini-2.0-flash-lite",
                 contents=prompt,
             )

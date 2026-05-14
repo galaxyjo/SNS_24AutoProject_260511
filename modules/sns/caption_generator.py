@@ -4,12 +4,12 @@ from google import genai
 
 _client = None
 
-# 호출 간 최소 간격 (초) — 연속 호출 시 429 예방
-_CALL_INTERVAL = 1.0
+# 호출 간 최소 간격 (초) — free tier 30 RPM 기준 안전 마진 확보
+_CALL_INTERVAL = 4.0
 _last_call_ts  = 0.0
 
 # 429 발생 시 재시도 대기 시간 (초)
-_RETRY_DELAYS  = [5, 10, 20]
+_RETRY_DELAYS  = [20, 40, 60]
 
 
 def _get_client():
