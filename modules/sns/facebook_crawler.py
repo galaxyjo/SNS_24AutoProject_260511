@@ -88,44 +88,50 @@ def save_to_airtable(image_url, source_url, text=""):
 def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
     logger.info(f"[FB Crawler] 시작 | user={adspower_user_id} | url={target_url}")
     driver = get_driver(adspower_user_id, proxy_opts)
-    driver.get(target_url)
-    time.sleep(12)  # 초기 렌더링 대기 (7 → 12초)
-
-    # 스크롤 다운 → lazy-load 이미지 강제 렌더링 후 상단 복귀
-    driver.execute_script("window.scrollBy(0, 800);")
-    time.sleep(2)
-    driver.execute_script("window.scrollTo(0, 0);")
-    time.sleep(1)
-
-    feed = driver.find_element(By.CSS_SELECTOR, "div[role='feed']")
-    posts = feed.find_elements(By.XPATH, ".//div[@role='article']")
-
-    if not posts:
-        logger.warning(f"[FB Crawler] 포스트 없음 | url={target_url}")
-        return []
-
-    results = []
-    for i, post in enumerate(posts[:max_posts], start=1):
-        # 각 포스트를 뷰포트 중앙으로 스크롤 → lazy-load 트리거
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post)
-        time.sleep(1.5)
-
-        image_url = extract_image_url(post, driver)
-        # 서로게이트 등 latin-1 불가 문자 안전 처리
-        text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
-        logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
-        save_to_airtable(image_url, target_url, text)
-        results.append({"target_url": target_url, "content": text, "image_url": image_url})
-
-    logger.info(f"[FB Crawler] 완료 | {len(results)}개 처리 | user={adspower_user_id}")
-
     try:
-        from modules.metrics.crawl_monitor import record_crawl
-        record_crawl(results, target_url=target_url)
-    except Exception as exc:
-        logger.warning(f"[FB Crawler] 이미지 비율 기록 실패 | {exc}")
+        driver.get(target_url)
+        time.sleep(12)  # 초기 렌더링 대기 (7 → 12초)
 
-    return results
+        # 스크롤 다운 → lazy-load 이미지 강제 렌더링 후 상단 복귀
+        driver.execute_script("window.scrollBy(0, 800);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(1)
+
+        feed = driver.find_element(By.CSS_SELECTOR, "div[role='feed']")
+        posts = feed.find_elements(By.XPATH, ".//div[@role='article']")
+
+        if not posts:
+            logger.warning(f"[FB Crawler] 포스트 없음 | url={target_url}")
+            return []
+
+        results = []
+        for i, post in enumerate(posts[:max_posts], start=1):
+            # 각 포스트를 뷰포트 중앙으로 스크롤 → lazy-load 트리거
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post)
+            time.sleep(1.5)
+
+            image_url = extract_image_url(post, driver)
+            # 서로게이트 등 latin-1 불가 문자 안전 처리
+            text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
+            logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
+            save_to_airtable(image_url, target_url, text)
+            results.append({"target_url": target_url, "content": text, "image_url": image_url})
+
+        logger.info(f"[FB Crawler] 완료 | {len(results)}개 처리 | user={adspower_user_id}")
+
+        try:
+            from modules.metrics.crawl_monitor import record_crawl
+            record_crawl(results, target_url=target_url)
+        except Exception as exc:
+            logger.warning(f"[FB Crawler] 이미지 비율 기록 실패 | {exc}")
+
+        return results
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
 
 def run_all_accounts(max_posts=MAX_POSTS) -> dict:
