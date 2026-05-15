@@ -84,7 +84,7 @@ def generate_reply(
         try:
             _throttle()
             resp = _client.models.generate_content(
-                model="gemini-2.0-flash-lite",
+                model="gemini-2.5-flash-lite",
                 contents=prompt,
             )
             reply = resp.text.strip()
