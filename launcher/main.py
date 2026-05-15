@@ -117,7 +117,7 @@ def _job_insta_upload():
             try:
                 r1 = _req.post(
                     f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
-                    data={"image_url": image_url, "caption": caption, "access_token": token},
+                    params={"image_url": image_url, "caption": caption, "access_token": token},
                     timeout=30,
                 )
                 c1 = r1.json()
@@ -125,7 +125,7 @@ def _job_insta_upload():
                     raise RuntimeError(f"미디어 생성 실패: {c1}")
                 r2 = _req.post(
                     f"https://graph.facebook.com/v21.0/{ig_user_id}/media_publish",
-                    data={"creation_id": c1["id"], "access_token": token},
+                    params={"creation_id": c1["id"], "access_token": token},
                     timeout=30,
                 )
                 c2 = r2.json()
