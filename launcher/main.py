@@ -18,6 +18,12 @@ Streamlit 대시보드는 별도 프로세스:
 import os
 import sys
 
+# 백그라운드 프로세스에서 stdout/stderr 인코딩을 UTF-8로 강제 설정
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 프로젝트 루트를 sys.path에 추가 (launcher/ 하위에서 실행 시 필요)
 from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]

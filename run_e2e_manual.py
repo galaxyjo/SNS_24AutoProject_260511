@@ -40,7 +40,7 @@ for rec in records:
         try:
             r1 = requests.post(
                 f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
-                data={"image_url": image_url, "caption": caption, "access_token": page_token},
+                params={"image_url": image_url, "caption": caption, "access_token": page_token},
                 timeout=30,
             )
             c1 = r1.json()
@@ -49,7 +49,7 @@ for rec in records:
             time.sleep(5)
             r2 = requests.post(
                 f"https://graph.facebook.com/v21.0/{ig_user_id}/media_publish",
-                data={"creation_id": c1["id"], "access_token": page_token},
+                params={"creation_id": c1["id"], "access_token": page_token},
                 timeout=30,
             )
             c2 = r2.json()

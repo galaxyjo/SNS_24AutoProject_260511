@@ -111,7 +111,8 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
         time.sleep(1.5)
 
         image_url = extract_image_url(post, driver)
-        text = post.text
+        # 서로게이트 등 latin-1 불가 문자 안전 처리
+        text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
         logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
         save_to_airtable(image_url, target_url, text)
         results.append({"target_url": target_url, "content": text, "image_url": image_url})
