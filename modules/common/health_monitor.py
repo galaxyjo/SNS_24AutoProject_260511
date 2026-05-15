@@ -56,18 +56,20 @@ def _check_process(keyword: str) -> str:
             text=True,
             timeout=5,
         )
-        # launcher/main.py 는 python.exe 이므로 wmic 로 확인
         if keyword == "ngrok":
             return "ok" if "ngrok" in out.lower() else "down"
 
-        # python 프로세스 커맨드라인 확인
-        wmic_out = subprocess.check_output(
-            ["wmic", "process", "where", "name='python.exe'", "get", "commandline", "/FORMAT:CSV"],
+        # python 프로세스 커맨드라인 확인 (PowerShell Get-WmiObject, wmic 대체)
+        ps_out = subprocess.check_output(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "Get-WmiObject Win32_Process -Filter \"Name='python.exe'\" | Select-Object -ExpandProperty CommandLine",
+            ],
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=8,
+            timeout=10,
         )
-        return "ok" if keyword in wmic_out else "down"
+        return "ok" if keyword in ps_out else "down"
     except Exception:
         return "unknown"
 
