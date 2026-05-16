@@ -1,0 +1,5 @@
+﻿account_code,platform,account_email,account_handle,owner_name,persona_role,mbti_type,account_status,credential_key,ads_power_id,proxy_group,target_url,crawl_enabled,daily_post_limit,daily_dm_limit,cooldown_until,last_error_msg
+ACC-001,facebook,nhm880808@gmail.com,@nhm880808,operator_01,crawler_operator,INTJ,active,cred_fb_001,ADS-001,proxy_group_a,https://www.facebook.com/groups/3393946167372584,1,3,20,,
+ACC-002,facebook,sample02@example.com,@sample02,operator_02,crawler_operator,ENTJ,active,cred_fb_002,ADS-002,proxy_group_b,https://www.facebook.com/groups/917312062157704,1,3,20,,
+ACC-003,instagram,sample03@example.com,@brand03,brand_operator,publisher,ENFJ,active,cred_ig_003,ADS-003,proxy_group_c,https://www.facebook.com/groups/3578200969171884,0,5,30,,
+,,,,,,,,,,,,,,,,

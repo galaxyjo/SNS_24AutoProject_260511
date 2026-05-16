@@ -1,0 +1,21 @@
+﻿source_feed_code,external_source_type,source_url,raw_content,normalized_content,processing_status,processing_status = gpt_ready,account_code_ref,vendor_code,source_url (URL),insta_post_code_ref,ingested_at,is_duplicate,last_error_msg,Instagram_Posts
+SF-001,facebook_group,https://www.facebook.com/groups/3393946167372584,sample raw facebook post 001,"어떤 용도로 사용하실지 몰라 몇 가지 유형별로 준비했습니다. 원하시는 것을 골라 사용해 보세요.
+
+1.  **가장 일반적인 확인용:**
+    > ""안녕하세요, 이것은 시스템 작동 여부를 확인하기 위한 테스트 문장입니다.""
+
+2.  **모든 자음이 포함된 문장 (폰트/타이핑 테스트용 - 팬그램):**
+    > ""다람쥐 헌 쳇바퀴에 타고파.""
+
+3.  **길이가 조금 긴 설명형 문장:**
+    > ""인공지능 모델이 텍스트를 정확하게 생성하고 출력하는지 확인하기 위해 다양한 단어와 문장 구조를 사용하여 이 메시지를 작성했습니다.""
+
+4.  **특수문자 및 숫자 포함:**
+    > ""테스트 데이터: 사용자ID(user_01), 점수(95.5%), 일시(2024-05-22 10:30), 비고(!@#$).""
+
+5.  **감성적인 짧은 문장:**
+    > ""오늘 날씨가 참 맑네요. 기분 좋은 하루 보내시길 바랍니다.""
+
+원하시는 특정한 형태(글자 수 제한, 특정 단어 포함 등)가 있다면 말씀해 주세요!",mapped,ready,ACC-001,,,,2026-04-14 16:30,0,,
+SF-002,facebook_group,https://www.facebook.com/groups/group_id_2/posts/post_id_002,sample raw facebook post 002,sample normalized post 002,mapped,ready,ACC-002,,,,2026-04-14 16:35,0,,
+SF-003,manual_seed,https://example.com/source/sample003,seed content for pipeline test,seed content for pipeline test,mapped,ready,ACC-001,,,IP-003,2026-04-14 16:40,0,,

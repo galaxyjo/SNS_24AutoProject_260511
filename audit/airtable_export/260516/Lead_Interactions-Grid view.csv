@@ -1,0 +1,15 @@
+﻿interaction_code,source_feed_code_ref,insta_post_code_ref,account_code_ref,post_code ,inquiry_user_handle,inquiry_message,bridge_status,lead_status,conversation_channel,response_delay_sec,relay_scheduled_at,replied_at,last_error_msg,lead_score,lead_grade
+LI-001,SF-001,IP-001,ACC-001,,@lead_001,sample inquiry 001,relay_queued,new,instagram_dm,0,2026-04-14 17:10,,,,
+LI-002,SF-002,IP-002,ACC-002,,@lead_002,sample inquiry 002,inbound_received,new,instagram_dm,0,2026-04-14 17:12,,,,
+LI-003,SF-003,IP-003,ACC-001,,@lead_003,sample inquiry 003,replied,qualified,instagram_dm,420,2026-04-14 16:20,2026-04-14 16:27,,,
+LI-809C1BE0,,,,,E2E_REAL_SENDER_001,안녕하세요! 상품 문의드립니다 :),dm_received,new,instagram_dm,,2026-05-12 10:12,,,,
+LI-A9896E92,,,,,1792783944739953,"확인됨.
+951.0606 — Instagram 테스터 ✅
+yuna18253 — Instagram 테스터 ✅
+지금 바로: 951.0606 계정으로 운영 Instagram 계정에 DM 보내봐. Telegram에 알림 오면 완전 검증 완료.",dm_received,new,instagram_dm,,2026-05-12 10:30,,,,
+LI-EC598CD4,,,,,1792783944739953,"두 서비스 모두 정상. 실시간 모니터링 시작합니다. 지금 951.0606에서 DM
+  보내주세요.",dm_received,new,instagram_dm,,2026-05-12 10:51,,,,
+LI-53848886,,,,,1792783944739953,"test ""단가 얼마예요?""",followup_sent,qualified,instagram_dm,3,2026-05-12 10:55,2026-05-12 10:56,,,
+LI-97805C78,,,,,1792783944739953,단가 얼마예요?,followup_sent,qualified,instagram_dm,5,2026-05-12 11:07,2026-05-12 11:07,,,
+LI-2AD94EA0,,,,,1792783944739953,팔로업 테스트 — 단가 알려주세요,followup_sent,qualified,instagram_dm,5,2026-05-12 11:19,2026-05-12 11:19,,,
+LI-16E015DC,,,,,1792783944739953,이 제품 단가 얼마예요? 대량 구매 검토 중이에요,followup_sent,qualified,instagram_dm,7,2020-01-01 09:00,2026-05-12 11:31,,,
