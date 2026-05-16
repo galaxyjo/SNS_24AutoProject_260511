@@ -65,13 +65,13 @@ _IG_RATIO_MIN = 0.8    # 4:5  (세로형 최대)
 _IG_RATIO_MAX = 1.91   # 1.91:1 (가로형 최대)
 
 
-def _preprocess_image(image_url: str) -> str:
-    """Instagram 허용 비율(4:5 ~ 1.91:1) 벗어난 이미지를 center-crop 후 ngrok URL 반환.
-    NGROK_URL 미설정이거나 전처리 실패 시 원본 URL 그대로 반환."""
-    ngrok_url = os.getenv("NGROK_URL", "").rstrip("/")
-    if not ngrok_url:
-        return image_url
+def _preprocess_image(image_url: str):
+    """Instagram 허용 비율(4:5 ~ 1.91:1) 확인 후 필요 시 center-crop.
 
+    Returns:
+        (original_url, None)  — 비율 유효 또는 오류 시 → URL 업로드 사용
+        (None, local_path)    — 비율 보정 완료 → multipart/form-data 업로드 사용
+    """
     try:
         from PIL import Image
         import requests as _req
@@ -83,7 +83,7 @@ def _preprocess_image(image_url: str) -> str:
         ratio = w / h
 
         if _IG_RATIO_MIN <= ratio <= _IG_RATIO_MAX:
-            return image_url  # 이미 유효 범위 — 전처리 불필요
+            return image_url, None  # 유효 범위 — 전처리 불필요
 
         if ratio > _IG_RATIO_MAX:
             # 너무 넓음 → 너비 크롭 (center)
@@ -101,11 +101,11 @@ def _preprocess_image(image_url: str) -> str:
         fpath = os.path.join(str(_ROOT), "data", "temp_images", fname)
         img.save(fpath, "JPEG", quality=95)
         logger.info(f"[Preprocess] 비율 보정 완료 | {w}x{h} ratio={ratio:.2f} → {fname}")
-        return f"{ngrok_url}/temp/{fname}"
+        return None, fpath
 
     except Exception as exc:
         logger.warning(f"[Preprocess] 이미지 전처리 실패 — 원본 URL 사용 | {exc}")
-        return image_url
+        return image_url, None
 
 
 # ── 잡 함수 ───────────────────────────────────────────────────────────────────
@@ -162,17 +162,28 @@ def _job_insta_upload():
             table.update(rid, {"post_status": "failed", "last_error_msg": "image_url 없음"})
             continue
 
-        # 비율 보정 전처리 (4:5 ~ 1.91:1 범위 벗어나면 center-crop)
-        image_url = _preprocess_image(image_url)
+        # 비율 보정 전처리 (4:5 ~ 1.91:1 범위 벗어나면 center-crop → multipart 업로드)
+        upload_url, local_path = _preprocess_image(image_url)
 
         success, last_err = False, None
         for attempt in range(1, 4):
             try:
-                r1 = _req.post(
-                    f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
-                    params={"image_url": image_url, "caption": caption, "access_token": token},
-                    timeout=30,
-                )
+                if local_path:
+                    # 비율 보정된 로컬 파일 → multipart/form-data 직접 업로드 (ngrok 불필요)
+                    with open(local_path, "rb") as img_f:
+                        r1 = _req.post(
+                            f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
+                            data={"caption": caption, "access_token": token},
+                            files={"source": ("image.jpg", img_f, "image/jpeg")},
+                            timeout=30,
+                        )
+                else:
+                    # 비율 유효한 원본 → image_url 방식
+                    r1 = _req.post(
+                        f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
+                        params={"image_url": upload_url, "caption": caption, "access_token": token},
+                        timeout=30,
+                    )
                 c1 = r1.json()
                 if "id" not in c1:
                     raise RuntimeError(f"미디어 생성 실패: {c1}")
@@ -248,14 +259,6 @@ def main():
     # 3. Flask + 팔로업·댓글·리포트 스케줄러 (dm_receiver 내부에서 start_scheduler 호출)
     from modules.dm.dm_receiver import app, start_scheduler
     start_scheduler()
-
-    # 비율 보정된 임시 이미지 서빙 라우트
-    from flask import send_from_directory
-    _temp_dir = os.path.join(str(_ROOT), "data", "temp_images")
-
-    @app.route("/temp/<path:filename>")
-    def serve_temp_image(filename):
-        return send_from_directory(_temp_dir, filename)
 
     _print_banner()
 
