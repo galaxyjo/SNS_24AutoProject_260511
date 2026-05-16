@@ -83,6 +83,15 @@
 
 ---
 
+## INC-009 | Launcher 2일 중단
+**발생:** 2026-05-15 ~ 2026-05-17
+**요약:** `main.py` 미실행으로 크롤링/업로드 전면 중단. `crawl_stats.db` 마지막 기록 2026-05-15 15:24 확인으로 발견.
+**영향:** FB 크롤링 / Instagram 업로드 / KPI 수집 / engagement 업데이트 전면 중단
+**해결:** launcher 재기동 (`python launcher/main.py`) 후 크롤→Airtable 저장 확인
+**재발 방지:** watchdog.ps1 상시 실행 / FP-014 등록
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다

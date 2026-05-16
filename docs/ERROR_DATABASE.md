@@ -109,3 +109,39 @@
 **Root Cause:** E2E 전체 검증 없이 단계별 완료 선언
 **Fix:** E2E flow 전체 재검증
 **Prevention:** FP-012 준수 / production_verified 기준 엄격 적용
+
+---
+
+## ERR-013 | Instagram Aspect Ratio Rejection
+**Type:** Graph API Error 36003
+**Raw:** `The aspect ratio is not supported`
+**Root Cause:** FB 수집 이미지 비율이 Instagram 허용 범위(4:5 ~ 1.91:1) 벗어남
+**Fix:** Pillow로 업로드 전 이미지 비율 자동 크롭 전처리 (`_preprocess_image()` in main.py)
+**Prevention:** `save_to_airtable()` 단계 비율 사전 검증
+
+---
+
+## ERR-014 | Media ID Expiry
+**Type:** Graph API Error 9007 / 22070
+**Raw:** `Media ID is not available`
+**Root Cause:** 미디어 컨테이너 생성 후 publish 시간 초과
+**Fix:** Step1→Step2 즉시 연결 / 대기 최소화
+**Prevention:** 10초 이내 publish 호출
+
+---
+
+## ERR-015 | False Runtime Targeting
+**Type:** Dead Code Debugging
+**Raw:** 수정했는데 반영 안 됨
+**Root Cause:** `instagram_uploader.py` 수정했으나 실제 runtime은 `main.py`
+**Fix:** 실제 entry point 확인 후 수정
+**Prevention:** 수정 전 import chain 추적 필수
+
+---
+
+## ERR-016 | Launcher Not Running
+**Type:** Operational Error
+**Raw:** 2일간 크롤링/업로드 미동작
+**Root Cause:** `main.py` 프로세스 미실행
+**Fix:** `python launcher/main.py` 재실행
+**Prevention:** 프로세스 상태 모니터링 / 자동 재시작 watchdog

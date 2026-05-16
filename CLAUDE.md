@@ -227,3 +227,24 @@ C:\SNS_24AutoProject_260511\
   - SQLite 스냅샷: `db/kpi_snapshots.db` (시간별 저장)
   - 스케줄러: 1시간 간격 자동 수집 (run_engine + launcher 모두 등록)
   - 대시보드: dashboard.py KPI 탭 — 지표 카드 / 등급·파이프라인 차트 / 시계열 추이
+
+---
+
+## 오류 발견 시 의무 처리 규칙
+
+오류가 발견되면 자동으로 아래 순서 실행:
+
+1. `docs/ERROR_DATABASE.md` 에 ERR-NNN 항목 추가
+2. `docs/FAILURE_PATTERN.md` 에 FP-NNN 항목 추가 (반복 패턴인 경우)
+3. `docs/INCIDENT_TIMELINE.md` 에 INC-NNN 항목 추가 (운영 영향 발생 시)
+4. git commit 필수 — 오류 기록 없는 수정 커밋 금지
+
+수정 전 반드시 실제 entry point 확인:
+- import chain 추적 후 실제 실행 파일 특정
+- `instagram_uploader.py` 수정했는데 실제 runtime은 `main.py` 같은 오류 방지
+
+Evidence 없는 완료 선언 금지:
+- `Get-ChildItem` 파일 실존 확인
+- `git log` 커밋 확인
+- DB / Runtime 상태 직접 확인
+- 대화 기록은 증거가 아님

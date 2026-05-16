@@ -123,6 +123,14 @@ git log --oneline -3
 
 ---
 
+## FP-014 | Launcher Silent Stop
+**설명:** `main.py`가 조용히 종료됐는데 아무도 모름
+**근본 원인:** watchdog / 프로세스 모니터링 없음
+**증상:** 크롤링/업로드 중단 / DB 신규 기록 없음 / `crawl_stats.db` 타임스탬프 정지
+**예방:** 프로세스 생존 확인 자동화 / watchdog.ps1 상시 실행 / 주기적 포트 확인
+
+---
+
 ## REQUIRED VALIDATION CHECKLIST
 모든 완료 선언 전:
 - [ ] File Exists (Get-ChildItem)
