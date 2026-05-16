@@ -65,14 +65,21 @@ _IG_RATIO_MIN = 0.8    # 4:5  (세로형 최대)
 _IG_RATIO_MAX = 1.91   # 1.91:1 (가로형 최대)
 
 
-def _preprocess_image(image_url: str):
-    """Instagram 허용 비율(4:5 ~ 1.91:1) 확인 후 필요 시 center-crop.
+def _preprocess_image(image_url: str) -> str:
+    """Instagram 허용 비율(4:5 ~ 1.91:1) 확인 후 필요 시 center-crop → imgbb 업로드.
 
     Returns:
-        (original_url, None)  — 비율 유효 또는 오류 시 → URL 업로드 사용
-        (None, local_path)    — 비율 보정 완료 → multipart/form-data 업로드 사용
+        imgbb 영구 URL  — 비율 보정 후 업로드 성공 시
+        original URL   — 비율 유효하거나 오류 시 (폴백)
+    IMGBB_API_KEY 미설정 시 원본 URL 그대로 반환.
     """
+    imgbb_key = os.getenv("IMGBB_API_KEY", "").strip()
+    if not imgbb_key:
+        logger.warning("[Preprocess] IMGBB_API_KEY 미설정 — 전처리 생략")
+        return image_url
+
     try:
+        import base64
         from PIL import Image
         import requests as _req
 
@@ -83,7 +90,7 @@ def _preprocess_image(image_url: str):
         ratio = w / h
 
         if _IG_RATIO_MIN <= ratio <= _IG_RATIO_MAX:
-            return image_url, None  # 유효 범위 — 전처리 불필요
+            return image_url  # 유효 범위 — 전처리 불필요
 
         if ratio > _IG_RATIO_MAX:
             # 너무 넓음 → 너비 크롭 (center)
@@ -96,16 +103,29 @@ def _preprocess_image(image_url: str):
             top = (h - new_h) // 2
             img = img.crop((0, top, w, top + new_h))
 
-        os.makedirs(os.path.join(str(_ROOT), "data", "temp_images"), exist_ok=True)
-        fname = f"ig_{abs(hash(image_url))}.jpg"
-        fpath = os.path.join(str(_ROOT), "data", "temp_images", fname)
-        img.save(fpath, "JPEG", quality=95)
-        logger.info(f"[Preprocess] 비율 보정 완료 | {w}x{h} ratio={ratio:.2f} → {fname}")
-        return None, fpath
+        logger.info(f"[Preprocess] 비율 보정 완료 | {w}x{h} ratio={ratio:.2f} → crop 후 imgbb 업로드")
+
+        # 크롭 이미지를 메모리에서 base64 인코딩 후 imgbb 업로드
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=95)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        upload_resp = _req.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": imgbb_key, "image": b64},
+            timeout=30,
+        )
+        upload_data = upload_resp.json()
+        if not upload_data.get("success"):
+            raise RuntimeError(f"imgbb 업로드 실패: {upload_data}")
+
+        imgbb_url = upload_data["data"]["url"]
+        logger.info(f"[Preprocess] imgbb 업로드 완료 | {imgbb_url}")
+        return imgbb_url
 
     except Exception as exc:
         logger.warning(f"[Preprocess] 이미지 전처리 실패 — 원본 URL 사용 | {exc}")
-        return image_url, None
+        return image_url
 
 
 # ── 잡 함수 ───────────────────────────────────────────────────────────────────
@@ -162,28 +182,17 @@ def _job_insta_upload():
             table.update(rid, {"post_status": "failed", "last_error_msg": "image_url 없음"})
             continue
 
-        # 비율 보정 전처리 (4:5 ~ 1.91:1 범위 벗어나면 center-crop → multipart 업로드)
-        upload_url, local_path = _preprocess_image(image_url)
+        # 비율 보정 전처리 (4:5 ~ 1.91:1 범위 벗어나면 crop → imgbb 영구 URL)
+        image_url = _preprocess_image(image_url)
 
         success, last_err = False, None
         for attempt in range(1, 4):
             try:
-                if local_path:
-                    # 비율 보정된 로컬 파일 → multipart/form-data 직접 업로드 (ngrok 불필요)
-                    with open(local_path, "rb") as img_f:
-                        r1 = _req.post(
-                            f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
-                            data={"caption": caption, "access_token": token},
-                            files={"source": ("image.jpg", img_f, "image/jpeg")},
-                            timeout=30,
-                        )
-                else:
-                    # 비율 유효한 원본 → image_url 방식
-                    r1 = _req.post(
-                        f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
-                        params={"image_url": upload_url, "caption": caption, "access_token": token},
-                        timeout=30,
-                    )
+                r1 = _req.post(
+                    f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
+                    params={"image_url": image_url, "caption": caption, "access_token": token},
+                    timeout=30,
+                )
                 c1 = r1.json()
                 if "id" not in c1:
                     raise RuntimeError(f"미디어 생성 실패: {c1}")
