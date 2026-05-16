@@ -15,6 +15,7 @@ Streamlit 대시보드는 별도 프로세스:
     streamlit run dashboard.py
 """
 
+import io
 import os
 import sys
 
@@ -56,6 +57,55 @@ try:
     _slack = _get_notify_fn()
 except Exception:
     _slack = None
+
+
+# ── 이미지 전처리 ─────────────────────────────────────────────────────────────
+
+_IG_RATIO_MIN = 0.8    # 4:5  (세로형 최대)
+_IG_RATIO_MAX = 1.91   # 1.91:1 (가로형 최대)
+
+
+def _preprocess_image(image_url: str) -> str:
+    """Instagram 허용 비율(4:5 ~ 1.91:1) 벗어난 이미지를 center-crop 후 ngrok URL 반환.
+    NGROK_URL 미설정이거나 전처리 실패 시 원본 URL 그대로 반환."""
+    ngrok_url = os.getenv("NGROK_URL", "").rstrip("/")
+    if not ngrok_url:
+        return image_url
+
+    try:
+        from PIL import Image
+        import requests as _req
+
+        resp = _req.get(image_url, timeout=15)
+        resp.raise_for_status()
+        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+        w, h = img.size
+        ratio = w / h
+
+        if _IG_RATIO_MIN <= ratio <= _IG_RATIO_MAX:
+            return image_url  # 이미 유효 범위 — 전처리 불필요
+
+        if ratio > _IG_RATIO_MAX:
+            # 너무 넓음 → 너비 크롭 (center)
+            new_w = int(h * _IG_RATIO_MAX)
+            left = (w - new_w) // 2
+            img = img.crop((left, 0, left + new_w, h))
+        else:
+            # 너무 길음 → 높이 크롭 (center)
+            new_h = int(w / _IG_RATIO_MIN)
+            top = (h - new_h) // 2
+            img = img.crop((0, top, w, top + new_h))
+
+        os.makedirs(os.path.join(str(_ROOT), "data", "temp_images"), exist_ok=True)
+        fname = f"ig_{abs(hash(image_url))}.jpg"
+        fpath = os.path.join(str(_ROOT), "data", "temp_images", fname)
+        img.save(fpath, "JPEG", quality=95)
+        logger.info(f"[Preprocess] 비율 보정 완료 | {w}x{h} ratio={ratio:.2f} → {fname}")
+        return f"{ngrok_url}/temp/{fname}"
+
+    except Exception as exc:
+        logger.warning(f"[Preprocess] 이미지 전처리 실패 — 원본 URL 사용 | {exc}")
+        return image_url
 
 
 # ── 잡 함수 ───────────────────────────────────────────────────────────────────
@@ -111,6 +161,9 @@ def _job_insta_upload():
         if not image_url:
             table.update(rid, {"post_status": "failed", "last_error_msg": "image_url 없음"})
             continue
+
+        # 비율 보정 전처리 (4:5 ~ 1.91:1 범위 벗어나면 center-crop)
+        image_url = _preprocess_image(image_url)
 
         success, last_err = False, None
         for attempt in range(1, 4):
@@ -195,6 +248,14 @@ def main():
     # 3. Flask + 팔로업·댓글·리포트 스케줄러 (dm_receiver 내부에서 start_scheduler 호출)
     from modules.dm.dm_receiver import app, start_scheduler
     start_scheduler()
+
+    # 비율 보정된 임시 이미지 서빙 라우트
+    from flask import send_from_directory
+    _temp_dir = os.path.join(str(_ROOT), "data", "temp_images")
+
+    @app.route("/temp/<path:filename>")
+    def serve_temp_image(filename):
+        return send_from_directory(_temp_dir, filename)
 
     _print_banner()
 
