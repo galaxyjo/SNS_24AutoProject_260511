@@ -131,6 +131,16 @@ git log --oneline -3
 
 ---
 
+## FP-015 | CDN URL Expiry Silent Upload Fail
+**설명:** Facebook CDN 이미지 URL을 그대로 Instagram API에 전달 시 업로드 실패
+**근본 원인:** Facebook CDN URL은 일정 시간 후 만료됨 — Instagram Graph API가 접근 불가
+**증상:** 업로드 요청 성공처럼 보이나 media_id 미생성 / 또는 aspect ratio 오류로 위장
+**해결:** imgbb API로 이미지를 재업로드 → 영구 URL 획득 후 Instagram API 전달
+**예방:** 크롤 시점에 imgbb 업로드 완료 후 영구 URL만 Airtable에 저장
+**관련:** ERR-013 / INC-010 / 2026-05-17 해결 확인
+
+---
+
 ## REQUIRED VALIDATION CHECKLIST
 모든 완료 선언 전:
 - [ ] File Exists (Get-ChildItem)
