@@ -130,6 +130,23 @@ retry_queue dead = 0 ✅
 
 ---
 
+## 오류 발견 시 의무 처리 규칙
+
+모든 오류/수정 작업 완료 시 반드시:
+
+1. `docs/ERROR_DATABASE.md` 업데이트 (ERR-NNN 추가)
+2. `docs/FAILURE_PATTERN.md` 업데이트 (반복 패턴 시 FP-NNN 추가)
+3. `docs/INCIDENT_TIMELINE.md` 업데이트 (운영 영향 시 INC-NNN 추가)
+4. git commit 필수
+
+수정 전 반드시 실제 entry point 확인:
+- import chain 추적 후 실제 실행 파일 특정
+- Evidence 없는 완료 선언 금지
+
+완료 후 git commit + `Get-ChildItem` 실존 확인.
+
+---
+
 ## PRODUCTION RULES
 ```
 1. 운영 중 직접 코드 수정 금지
