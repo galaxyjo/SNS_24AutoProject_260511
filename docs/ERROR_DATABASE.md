@@ -116,8 +116,10 @@
 **Type:** Graph API Error 36003
 **Raw:** `The aspect ratio is not supported`
 **Root Cause:** FB 수집 이미지 비율이 Instagram 허용 범위(4:5 ~ 1.91:1) 벗어남
-**Fix:** Pillow로 업로드 전 이미지 비율 자동 크롭 전처리 (`_preprocess_image()` in main.py)
+**Fix:** Pillow center-crop 전처리 + imgbb 영구 URL 업로드 방식 적용 (`_preprocess_image()` in instagram_uploader.py)
 **Prevention:** `save_to_airtable()` 단계 비율 사전 검증
+**Status:** ✅ RESOLVED (2026-05-17)
+**Evidence:** `ig_media_id=18116524126780958` 실제 업로드 성공 확인 / INC-010
 
 ---
 
