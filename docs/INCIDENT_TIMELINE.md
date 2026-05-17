@@ -92,6 +92,16 @@
 
 ---
 
+## INC-010 | Aspect Ratio E2E 업로드 첫 성공
+**발생:** 2026-05-17
+**요약:** ERR-013(Instagram 이미지 비율 오류) 해결 후 단일 계정 E2E 업로드 최초 성공 확인.
+**원인:** Facebook 크롤 이미지 비율이 Instagram 허용 범위(4:5~1.91:1) 미충족
+**해결:** Pillow center-crop 전처리 + imgbb 영구 URL 업로드 방식 적용 / `failed` 레코드 → `ready` 재시도 후 `posted` 전환 확인
+**결과:** `ig_media_id=18116524126780958` 생성 / Single Account E2E PASS
+**재발 방지:** PHASE2_CHECKLIST.md duplicate upload / retry consistency 항목 등록
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다

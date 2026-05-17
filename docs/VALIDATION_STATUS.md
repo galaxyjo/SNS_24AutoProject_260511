@@ -1,6 +1,6 @@
 # VALIDATION_STATUS.md
 
-> 기준일: 2026-05-16
+> 기준일: 2026-05-17
 > 목적: Phase 1 Runtime Governance 준비 상태 검증 기록
 
 ---
@@ -11,6 +11,7 @@
 | schema_locked | ✅ PASS | 2026-05-16 |
 | adapter_ready | ✅ PASS | 2026-05-16 |
 | merge_journal_ready | ✅ PASS | 2026-05-16 |
+| single_account_e2e | ✅ PASS | 2026-05-17 |
 
 ---
 
@@ -22,3 +23,4 @@
 | schema_locked | `docs/schema_governance.md` 작성 완료 — Migration Forbidden 규칙 명시 |
 | adapter_ready | `docs/BRIDGE_SKELETON_POLICY.md` 작성 완료 — bridge contract 정책 확정 |
 | merge_journal_ready | `porting_logs/MERGE_JOURNAL.md` 생성 완료 — 이식 기록 체계 수립 |
+| single_account_e2e | Pillow crop + imgbb 전처리 후 `ig_media_id=18116524126780958` 생성 확인 (INC-010) |
