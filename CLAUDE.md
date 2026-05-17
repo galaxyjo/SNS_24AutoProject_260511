@@ -248,3 +248,20 @@ Evidence 없는 완료 선언 금지:
 - `git log` 커밋 확인
 - DB / Runtime 상태 직접 확인
 - 대화 기록은 증거가 아님
+
+---
+
+## 단계 마무리 의무 체크리스트 (자동 실행)
+
+모든 작업 단계 완료 시 반드시 순서대로 실행:
+
+1. `docs/ERROR_DATABASE.md` 업데이트 (새 오류 또는 해결 내용)
+2. `docs/FAILURE_PATTERN.md` 업데이트 (반복 패턴)
+3. `docs/INCIDENT_TIMELINE.md` 업데이트 (운영 영향)
+4. `docs/VALIDATION_STATUS.md` 업데이트 (단계 PASS)
+5. `porting_logs/MERGE_JOURNAL.md` 업데이트 (이식/수정 기록)
+6. git commit (증거 확정)
+7. `Get-ChildItem` 실존 확인
+
+이 체크리스트는 사용자 명령 없이 자동 실행.
+생략 금지. 순서 변경 금지.
