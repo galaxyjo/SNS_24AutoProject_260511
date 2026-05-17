@@ -1,5 +1,6 @@
 # PHASE2_CHECKLIST.md
 > 생성: 2026-05-17 | 목적: Single Account E2E PASS 이후 운영 안정화 검증 항목
+> **완료 선언: 2026-05-17 — 전 항목 ✅ PASS / GAP 3건 발견·수정 완료**
 
 ---
 
@@ -20,3 +21,15 @@
 - 전 항목 ✅ PASS → PHASE2 완료 선언 가능
 - 각 항목 Evidence: Runtime 실행 로그 또는 Airtable 필드값 직접 확인 필수
 - Evidence 없는 PASS 금지 (INC-008 교훈)
+
+---
+
+## PHASE2 완료 선언
+
+**선언일:** 2026-05-17
+**결과:** 5/5 항목 PASS
+**수정된 GAP:**
+- ERR-017: token 오류 Slack 미전달 → `_slack` 직접 호출 수정
+- ERR-018: 레코드 잠금 미적용 + `max_instances` 미설정 → `uploading` 마킹 + `max_instances=1`
+- ERR-019: posted 레코드 재업로드 허용 → `ig_media_id` 존재 시 차단 가드 추가
+**Evidence:** 모든 항목 Runtime/Airtable 직접 확인 완료 (대화 기록은 증거 아님)

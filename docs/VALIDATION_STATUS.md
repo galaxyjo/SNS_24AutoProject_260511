@@ -17,6 +17,7 @@
 | phase2_token_expiry | ✅ PASS | 2026-05-17 |
 | phase2_multiaccount_race | ✅ PASS | 2026-05-17 |
 | phase2_retry_consistency | ✅ PASS | 2026-05-17 |
+| **phase2_complete** | ✅ **PASS** | **2026-05-17** |
 
 ---
 
@@ -34,3 +35,4 @@
 | phase2_token_expiry | OAuthException 190 감지 → Slack 직접 호출 + Airtable failed 마킹 확인 (ERR-017 수정 후 재검증) |
 | phase2_multiaccount_race | 코드 분석: race condition 2건(ERR-018) 발견 → uploading 잠금 + max_instances=1 수정 완료 |
 | phase2_retry_consistency | Part A: failed→posted 기존 확인 / Part B: ig_media_id 가드로 중복 업로드 차단 확인 (ERR-019) |
+| **phase2_complete** | 5개 항목 전체 PASS (2026-05-17) — GAP 3건 발견·수정(ERR-017/018/019) / launcher/main.py 안정화 완료 |
