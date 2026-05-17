@@ -74,7 +74,7 @@ def _get_latest_crawl() -> str:
     try:
         conn = sqlite3.connect(db_path)
         row = conn.execute(
-            "SELECT crawled_at FROM crawl_stats ORDER BY id DESC LIMIT 1"
+            "SELECT crawled_at FROM crawl_log ORDER BY id DESC LIMIT 1"
         ).fetchone()
         conn.close()
         return row[0] if row else "기록 없음"
