@@ -15,6 +15,7 @@
 | phase2_dup_upload_guard | ✅ PASS | 2026-05-17 |
 | phase2_queue_recovery | ✅ PASS | 2026-05-17 |
 | phase2_token_expiry | ✅ PASS | 2026-05-17 |
+| phase2_multiaccount_race | ✅ PASS | 2026-05-17 |
 
 ---
 
@@ -30,3 +31,4 @@
 | phase2_dup_upload_guard | `save_to_airtable()` 동일 image_url 재호출 시 "중복 이미지 - 저장 생략" 반환, 레코드 수 1 유지 확인 |
 | phase2_queue_recovery | 재시작(PID 30916→34916) 후 큐 워커가 pending 태스크 픽업·처리 확인 (id=5, status=dead) |
 | phase2_token_expiry | OAuthException 190 감지 → Slack 직접 호출 + Airtable failed 마킹 확인 (ERR-017 수정 후 재검증) |
+| phase2_multiaccount_race | 코드 분석: race condition 2건(ERR-018) 발견 → uploading 잠금 + max_instances=1 수정 완료 |

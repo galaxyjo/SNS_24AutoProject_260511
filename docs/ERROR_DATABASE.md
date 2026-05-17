@@ -157,3 +157,13 @@
 **Fix:** API 응답 `error.code in (190, 104)` 감지 시 `_slack` 직접 호출 후 `raise` (`launcher/main.py`)
 **Status:** ✅ RESOLVED (2026-05-17)
 **Evidence:** bad token 테스트 → OAuthException 190 감지 + Slack mock 호출 1회 + Airtable failed 마킹 확인 (PHASE2 #3)
+
+---
+
+## ERR-018 | Multi-Account Upload Race Condition (Structural)
+**Type:** Concurrency / Logic Gap
+**Raw:** 다계정 병렬 실행 시 동일 ready 레코드 중복 픽업 → 중복 게시 가능
+**Root Cause:** ① `_job_insta_upload`에 record-level 잠금 없음 ② APScheduler `max_instances` 미설정으로 잡 중복 실행 가능
+**Fix:** ① 레코드 처리 전 `post_status='uploading'` 원자적 마킹 추가 ② `max_instances=1` 설정 (`launcher/main.py`)
+**Status:** ✅ RESOLVED (2026-05-17) — 1계정 운영 중 사전 수정
+**Evidence:** 코드 구조 분석 / PHASE2 #4 검증

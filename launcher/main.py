@@ -175,6 +175,11 @@ def _job_insta_upload():
     for rec in records:
         rid       = rec["id"]
         fields    = rec["fields"]
+        # 원자적 잠금: uploading 마킹으로 다른 스레드/프로세스 중복 픽업 방지
+        try:
+            table.update(rid, {"post_status": "uploading"})
+        except Exception:
+            continue  # 업데이트 실패 시 다음 레코드로 (다른 worker가 선점한 경우)
         image_url = fields.get("image_url") or fields.get("source_url", "")
         caption   = f"{fields.get('caption','')}\n{fields.get('hashtag','')}".strip()
 
@@ -237,7 +242,8 @@ def _build_scheduler() -> BackgroundScheduler:
     sched.add_job(_job_fb_crawl,     "interval", minutes=CRAWL_INTERVAL_MIN,
                   id="fb_crawl",     next_run_time=now)
     sched.add_job(_job_insta_upload, "interval", minutes=UPLOAD_POLL_MIN,
-                  id="insta_upload", next_run_time=now + timedelta(seconds=20))
+                  id="insta_upload", next_run_time=now + timedelta(seconds=20),
+                  max_instances=1)
     sched.add_job(_job_kpi_snapshot, "interval", hours=1,
                   id="kpi_snapshot", next_run_time=now + timedelta(seconds=50))
     sched.add_job(_job_engagement_update, "interval", minutes=30,
