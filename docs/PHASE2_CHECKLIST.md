@@ -7,7 +7,7 @@
 
 | # | 항목 | 상태 | 확인일 | 비고 |
 |---|------|------|--------|------|
-| 1 | duplicate upload 방지 검증 | ⬜ PENDING | — | 동일 image_url 재크롤 시 중복 업로드 발생 여부 |
+| 1 | duplicate upload 방지 검증 | ✅ PASS | 2026-05-17 | `save_to_airtable()` 동일 image_url 재호출 → "중복 이미지 - 저장 생략" 반환, 레코드 수 불변 확인 |
 | 2 | launcher 재시작 후 queue 복구 검증 | ⬜ PENDING | — | retry_queue.db 잔류 태스크 재실행 확인 |
 | 3 | token expiration 대응 검증 | ⬜ PENDING | — | INSTA_ACCESS_TOKEN 만료 시 에러 감지 + Slack 알림 |
 | 4 | multi-account 동시 업로드 충돌 검증 | ⬜ PENDING | — | ThreadPoolExecutor 병렬 실행 시 race condition 없음 확인 |
