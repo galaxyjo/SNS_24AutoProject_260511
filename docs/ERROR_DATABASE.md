@@ -167,3 +167,13 @@
 **Fix:** ① 레코드 처리 전 `post_status='uploading'` 원자적 마킹 추가 ② `max_instances=1` 설정 (`launcher/main.py`)
 **Status:** ✅ RESOLVED (2026-05-17) — 1계정 운영 중 사전 수정
 **Evidence:** 코드 구조 분석 / PHASE2 #4 검증
+
+---
+
+## ERR-019 | Posted Record Re-upload on Status Reset
+**Type:** Logic Gap / Duplicate Upload
+**Raw:** `post_status='posted'` 레코드를 `ready`로 수동 변경 시 재업로드 발생
+**Root Cause:** `_job_insta_upload`이 `ready` 상태만 확인하고 `ig_media_id` 존재 여부 미검사
+**Fix:** `uploading` 잠금 전 `ig_media_id` 존재 시 `posted` 복원 후 `continue` (`launcher/main.py`)
+**Status:** ✅ RESOLVED (2026-05-17)
+**Evidence:** recy3sNhxbsGelFgy ready 변경 → 330s 후 ig_media_id 유지된 채 posted 복원 확인 (PHASE2 #5)

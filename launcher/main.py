@@ -175,6 +175,11 @@ def _job_insta_upload():
     for rec in records:
         rid       = rec["id"]
         fields    = rec["fields"]
+        # ig_media_id 있으면 이미 업로드된 레코드 — 재업로드 차단
+        if fields.get("ig_media_id"):
+            table.update(rid, {"post_status": "posted"})
+            logger.warning(f"[Main] ig_media_id 존재 — 재업로드 차단, posted 복원 | {rid}")
+            continue
         # 원자적 잠금: uploading 마킹으로 다른 스레드/프로세스 중복 픽업 방지
         try:
             table.update(rid, {"post_status": "uploading"})
