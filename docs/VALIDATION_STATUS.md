@@ -18,6 +18,9 @@
 | phase2_multiaccount_race | ✅ PASS | 2026-05-17 |
 | phase2_retry_consistency | ✅ PASS | 2026-05-17 |
 | **phase2_complete** | ✅ **PASS** | **2026-05-17** |
+| watchdog_n8n_guard | ✅ PASS | 2026-05-17 |
+| watchdog_fail_counter | ✅ PASS | 2026-05-17 |
+| health_check_tool | ✅ PASS | 2026-05-17 |
 
 ---
 
@@ -36,3 +39,6 @@
 | phase2_multiaccount_race | 코드 분석: race condition 2건(ERR-018) 발견 → uploading 잠금 + max_instances=1 수정 완료 |
 | phase2_retry_consistency | Part A: failed→posted 기존 확인 / Part B: ig_media_id 가드로 중복 업로드 차단 확인 (ERR-019) |
 | **phase2_complete** | 5개 항목 전체 PASS (2026-05-17) — GAP 3건 발견·수정(ERR-017/018/019) / launcher/main.py 안정화 완료 |
+| watchdog_n8n_guard | n8n 포트 5678 HTTP 감시 + Start-N8n 자동 재시작 추가 완료 |
+| watchdog_fail_counter | `$failCount` 해시테이블 — 서비스별 연속 실패 카운터, 3회 이상 시 Slack error 알림 |
+| health_check_tool | `tools/check_runtime_health.py` 생성 — launcher PID / n8n PID / port 5000·5678 / Airtable API / crawl_stats / ready·failed 레코드 수 |

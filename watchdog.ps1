@@ -1,4 +1,4 @@
-# watchdog.ps1 — Flask / Streamlit / ngrok / launcher/main.py 프로세스 감시 및 자동 재시작
+# watchdog.ps1 — Flask / Streamlit / ngrok / launcher/main.py / n8n 프로세스 감시 및 자동 재시작
 # 사용법: .\watchdog.ps1
 # run_scheduler.ps1로 서버를 먼저 띄운 뒤 이 스크립트를 별도 터미널에서 실행.
 
@@ -12,11 +12,22 @@ $watchdogLog = Join-Path $logDir "watchdog.log"
 $POLL_SEC       = 30   # 감시 주기 (초)
 $RESTART_WAIT   = 5    # 재시작 후 대기 (초)
 $HTTP_TIMEOUT   = 5    # HTTP 헬스체크 타임아웃 (초)
+$FAIL_ALERT_TH  = 3    # 연속 실패 Slack 알림 임계값
 
 $FLASK_URL      = "http://localhost:5000/health"
 $STREAMLIT_URL  = "http://localhost:8501"
 $NGROK_URL      = "danuta-overdramatic-whirly.ngrok-free.dev"
 $NGROK_ARGS     = "http --url=$NGROK_URL 5000"
+$N8N_URL        = "http://localhost:5678"
+
+# 서비스별 연속 실패 카운터
+$failCount = @{
+    Flask     = 0
+    Streamlit = 0
+    Ngrok     = 0
+    Launcher  = 0
+    N8n       = 0
+}
 
 function Write-Log {
     param([string]$msg)
@@ -54,6 +65,25 @@ function Test-Http {
     }
 }
 
+# 서비스 실패 처리 — 카운터 증가 및 임계값 도달 시 Slack 알림
+function Register-Failure {
+    param([string]$service)
+    $failCount[$service]++
+    if ($failCount[$service] -ge $FAIL_ALERT_TH) {
+        $msg = "$service 연속 $($failCount[$service])회 실패 — 수동 점검 필요"
+        Write-Log "[ALERT] $msg"
+        Send-SlackAlert $msg "error"
+    }
+}
+
+function Register-Success {
+    param([string]$service)
+    if ($failCount[$service] -gt 0) {
+        Write-Log "[RECOVER] $service 복구 (이전 연속 실패: $($failCount[$service])회)"
+    }
+    $failCount[$service] = 0
+}
+
 function Start-Flask {
     Start-Process -FilePath $python -ArgumentList "-m modules.dm.dm_receiver" `
         -RedirectStandardOutput "$logDir\webhook_stdout.log" `
@@ -88,7 +118,12 @@ function Start-Launcher {
     Start-Sleep -Seconds $RESTART_WAIT
 }
 
-Write-Log "===== watchdog 시작 (주기: ${POLL_SEC}초) ====="
+function Start-N8n {
+    Start-Process cmd -ArgumentList "/c npx n8n start > `"$logDir\n8n.log`" 2>&1" -WindowStyle Hidden
+    Start-Sleep -Seconds 15  # n8n 초기 기동 대기
+}
+
+Write-Log "===== watchdog 시작 (주기: ${POLL_SEC}초 / 연속실패알림: ${FAIL_ALERT_TH}회) ====="
 
 while ($true) {
 
@@ -100,10 +135,14 @@ while ($true) {
         if (Test-Http $FLASK_URL) {
             Write-Log "[OK]   Flask 재시작 성공"
             Send-SlackAlert "Flask 재시작 성공" "success"
+            Register-Success "Flask"
         } else {
             Write-Log "[ERROR] Flask 재시작 후에도 응답 없음 — webhook_stderr.log 확인 필요"
             Send-SlackAlert "Flask 재시작 실패 — webhook_stderr.log 확인 필요" "error"
+            Register-Failure "Flask"
         }
+    } else {
+        Register-Success "Flask"
     }
 
     # --- Streamlit 감시 ---
@@ -114,10 +153,14 @@ while ($true) {
         if (Test-Http $STREAMLIT_URL) {
             Write-Log "[OK]   Streamlit 재시작 성공"
             Send-SlackAlert "Streamlit 재시작 성공" "success"
+            Register-Success "Streamlit"
         } else {
             Write-Log "[ERROR] Streamlit 재시작 후에도 응답 없음 — dashboard_err.log 확인 필요"
             Send-SlackAlert "Streamlit 재시작 실패 — dashboard_err.log 확인 필요" "error"
+            Register-Failure "Streamlit"
         }
+    } else {
+        Register-Success "Streamlit"
     }
 
     # --- ngrok 감시 (프로세스 존재 여부) ---
@@ -128,10 +171,14 @@ while ($true) {
         if (Get-Process -Name ngrok -ErrorAction SilentlyContinue) {
             Write-Log "[OK]   ngrok 재시작 성공"
             Send-SlackAlert "ngrok 재시작 성공" "success"
+            Register-Success "Ngrok"
         } else {
             Write-Log "[ERROR] ngrok 재시작 실패 — ngrok PATH 확인 필요"
             Send-SlackAlert "ngrok 재시작 실패 — ngrok PATH 확인 필요" "error"
+            Register-Failure "Ngrok"
         }
+    } else {
+        Register-Success "Ngrok"
     }
 
     # --- launcher/main.py 감시 (커맨드라인 검사) ---
@@ -142,10 +189,32 @@ while ($true) {
         if (Test-Launcher) {
             Write-Log "[OK]   launcher/main.py 재시작 성공"
             Send-SlackAlert "launcher/main.py 재시작 성공" "success"
+            Register-Success "Launcher"
         } else {
             Write-Log "[ERROR] launcher/main.py 재시작 실패 — scheduler_err.log 확인 필요"
             Send-SlackAlert "launcher/main.py 재시작 실패 — scheduler_err.log 확인 필요" "error"
+            Register-Failure "Launcher"
         }
+    } else {
+        Register-Success "Launcher"
+    }
+
+    # --- n8n 감시 (HTTP 헬스체크) ---
+    if (-not (Test-Http $N8N_URL)) {
+        Write-Log "[WARN] n8n 응답 없음 — 재시작 시도"
+        Send-SlackAlert "n8n 응답 없음 — 재시작 시도" "warning"
+        Start-N8n
+        if (Test-Http $N8N_URL) {
+            Write-Log "[OK]   n8n 재시작 성공"
+            Send-SlackAlert "n8n 재시작 성공" "success"
+            Register-Success "N8n"
+        } else {
+            Write-Log "[ERROR] n8n 재시작 실패 — logs/n8n.log 확인 필요"
+            Send-SlackAlert "n8n 재시작 실패 — logs/n8n.log 확인 필요" "error"
+            Register-Failure "N8n"
+        }
+    } else {
+        Register-Success "N8n"
     }
 
     Start-Sleep -Seconds $POLL_SEC
