@@ -147,3 +147,13 @@
 **Root Cause:** `main.py` 프로세스 미실행
 **Fix:** `python launcher/main.py` 재실행
 **Prevention:** 프로세스 상태 모니터링 / 자동 재시작 watchdog
+
+---
+
+## ERR-017 | Token Expiry Silent Fail (No Slack)
+**Type:** OAuthException 190 / Silent Alert Gap
+**Raw:** `OAuthException 190: Invalid OAuth access token`
+**Root Cause:** `_job_insta_upload` 내부 `except`가 예외를 삼켜 `@handle_errors(notify_fn=_slack)` 미도달
+**Fix:** API 응답 `error.code in (190, 104)` 감지 시 `_slack` 직접 호출 후 `raise` (`launcher/main.py`)
+**Status:** ✅ RESOLVED (2026-05-17)
+**Evidence:** bad token 테스트 → OAuthException 190 감지 + Slack mock 호출 1회 + Airtable failed 마킹 확인 (PHASE2 #3)

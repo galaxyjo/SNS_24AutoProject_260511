@@ -194,6 +194,12 @@ def _job_insta_upload():
                     timeout=30,
                 )
                 c1 = r1.json()
+                if c1.get("error", {}).get("code") in (190, 104):
+                    err_msg = f"[TOKEN_EXPIRED] OAuthException {c1['error']['code']}: {c1['error'].get('message','')}"
+                    logger.error(f"[Main] {err_msg}")
+                    if _slack:
+                        _slack(err_msg)
+                    raise RuntimeError(err_msg)
                 if "id" not in c1:
                     raise RuntimeError(f"미디어 생성 실패: {c1}")
                 r2 = _req.post(

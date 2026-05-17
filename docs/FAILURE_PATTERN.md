@@ -131,6 +131,16 @@ git log --oneline -3
 
 ---
 
+## FP-016 | Inner Except Swallows Exception — Decorator Alert Lost
+**설명:** 함수 내부 `except`가 예외를 캐치·처리하면 `@handle_errors(notify_fn=...)` 데코레이터에 예외가 전달되지 않아 알림 누락
+**근본 원인:** 레코드별 재시도 루프 안의 `except Exception` 이 예외를 소비 → 함수 정상 종료처럼 보임
+**증상:** Airtable failed 마킹은 되나 Slack/Telegram 알림 없음 — 운영자가 token 만료를 인지 못함
+**해결:** token 오류 등 치명적 예외는 내부에서 `notify_fn` 직접 호출 후 `raise`로 재전파
+**예방:** `@handle_errors` 의존 알림은 예외가 함수 밖으로 나와야 함 — 내부 except 범위 설계 시 치명/일반 오류 분리
+**관련:** ERR-017 / 2026-05-17 수정 확인
+
+---
+
 ## FP-015 | CDN URL Expiry Silent Upload Fail
 **설명:** Facebook CDN 이미지 URL을 그대로 Instagram API에 전달 시 업로드 실패
 **근본 원인:** Facebook CDN URL은 일정 시간 후 만료됨 — Instagram Graph API가 접근 불가
