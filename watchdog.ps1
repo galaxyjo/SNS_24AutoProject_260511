@@ -4,6 +4,16 @@
 
 Set-Location $PSScriptRoot
 
+# .env에서 SLACK_WEBHOOK_URL 로드 (시스템 환경변수 미설정 시 폴백)
+if (-not $env:SLACK_WEBHOOK_URL) {
+    $envFile = Join-Path $PSScriptRoot ".env"
+    if (Test-Path $envFile) {
+        Get-Content $envFile | Where-Object { $_ -match '^SLACK_WEBHOOK_URL\s*=' } | ForEach-Object {
+            $env:SLACK_WEBHOOK_URL = ($_ -split '=', 2)[1].Trim()
+        }
+    }
+}
+
 $python      = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $streamlit   = Join-Path $PSScriptRoot ".venv\Scripts\streamlit.exe"
 $logDir      = Join-Path $PSScriptRoot "logs"

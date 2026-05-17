@@ -17,10 +17,14 @@
 | phase2_token_expiry | ✅ PASS | 2026-05-17 |
 | phase2_multiaccount_race | ✅ PASS | 2026-05-17 |
 | phase2_retry_consistency | ✅ PASS | 2026-05-17 |
-| **phase2_complete** | ✅ **PASS** | **2026-05-17** |
+| watchdog_launcher_recovery | ✅ PASS | 2026-05-17 |
 | watchdog_n8n_guard | ✅ PASS | 2026-05-17 |
 | watchdog_fail_counter | ✅ PASS | 2026-05-17 |
+| watchdog_slack_env_fix | ✅ PASS | 2026-05-17 |
 | health_check_tool | ✅ PASS | 2026-05-17 |
+| **phase2_runtime_governance_ready** | ✅ **PASS** | **2026-05-17** |
+
+> ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
 ---
 
@@ -38,7 +42,9 @@
 | phase2_token_expiry | OAuthException 190 감지 → Slack 직접 호출 + Airtable failed 마킹 확인 (ERR-017 수정 후 재검증) |
 | phase2_multiaccount_race | 코드 분석: race condition 2건(ERR-018) 발견 → uploading 잠금 + max_instances=1 수정 완료 |
 | phase2_retry_consistency | Part A: failed→posted 기존 확인 / Part B: ig_media_id 가드로 중복 업로드 차단 확인 (ERR-019) |
-| **phase2_complete** | 5개 항목 전체 PASS (2026-05-17) — GAP 3건 발견·수정(ERR-017/018/019) / launcher/main.py 안정화 완료 |
-| watchdog_n8n_guard | n8n 포트 5678 HTTP 감시 + Start-N8n 자동 재시작 추가 완료 |
+| watchdog_launcher_recovery | launcher PID 27104 강제 종료 → watchdog 감지(23:04:23) → 6초 내 재시작 성공(23:04:29) / watchdog.log 직접 확인 |
+| watchdog_n8n_guard | n8n 프로세스 전체 강제 종료(포트 5678 CLOSED 확인) → watchdog 감지 → 자동 재시작(23:05:34~23:06:44) / watchdog.log 직접 확인 |
 | watchdog_fail_counter | `$failCount` 해시테이블 — 서비스별 연속 실패 카운터, 3회 이상 시 Slack error 알림 |
-| health_check_tool | `tools/check_runtime_health.py` 생성 — launcher PID / n8n PID / port 5000·5678 / Airtable API / crawl_stats / ready·failed 레코드 수 |
+| watchdog_slack_env_fix | `.env` SLACK_WEBHOOK_URL 자동 로드 추가 — 시스템 환경변수 미설정 시 .env 폴백 (ERR-020) |
+| health_check_tool | `tools/check_runtime_health.py` 실행 확인 — launcher PID 27104 / n8n PID 13724 / port 5000·5678 OPEN / Airtable HTTP 200 / posted 97건 정상 출력 |
+| **phase2_runtime_governance_ready** | 단일계정 E2E + 운영 안정화(watchdog 자동복구 실증) 완료. 다계정 실운영 evidence는 별도 미보유. Phase 3 진입 가능 상태. |

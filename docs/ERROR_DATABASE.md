@@ -177,3 +177,14 @@
 **Fix:** `uploading` 잠금 전 `ig_media_id` 존재 시 `posted` 복원 후 `continue` (`launcher/main.py`)
 **Status:** ✅ RESOLVED (2026-05-17)
 **Evidence:** recy3sNhxbsGelFgy ready 변경 → 330s 후 ig_media_id 유지된 채 posted 복원 확인 (PHASE2 #5)
+
+---
+
+## ERR-020 | Watchdog Slack Silent (env var not loaded)
+**Type:** Configuration Gap
+**Raw:** watchdog 재시작 알림이 Slack에 미전달 — `Send-SlackAlert` 내 `$webhookUrl` 항상 null
+**Root Cause:** `watchdog.ps1`이 `$env:SLACK_WEBHOOK_URL` 읽음. 그런데 해당 값은 `.env`에만 존재하고 시스템 환경변수에 미등록 → `if (-not $webhookUrl) { return }` 로 즉시 반환
+**Fix:** watchdog.ps1 시작부에 `.env` 파싱 블록 추가 — `Get-Content .env | Where { $_ -match '^SLACK_WEBHOOK_URL\s*=' }` → `$env:SLACK_WEBHOOK_URL` 세팅
+**Prevention:** PowerShell 스크립트에서 `.env` 값 사용 시 별도 로드 블록 필수
+**Status:** ✅ RESOLVED (2026-05-17)
+**Evidence:** watchdog.ps1 상단 .env 로드 블록 추가 확인
