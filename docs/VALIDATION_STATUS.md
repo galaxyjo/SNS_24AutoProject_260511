@@ -13,6 +13,7 @@
 | merge_journal_ready | ✅ PASS | 2026-05-16 |
 | single_account_e2e | ✅ PASS | 2026-05-17 |
 | phase2_dup_upload_guard | ✅ PASS | 2026-05-17 |
+| phase2_queue_recovery | ✅ PASS | 2026-05-17 |
 
 ---
 
@@ -26,3 +27,4 @@
 | merge_journal_ready | `porting_logs/MERGE_JOURNAL.md` 생성 완료 — 이식 기록 체계 수립 |
 | single_account_e2e | Pillow crop + imgbb 전처리 후 `ig_media_id=18116524126780958` 생성 확인 (INC-010) |
 | phase2_dup_upload_guard | `save_to_airtable()` 동일 image_url 재호출 시 "중복 이미지 - 저장 생략" 반환, 레코드 수 1 유지 확인 |
+| phase2_queue_recovery | 재시작(PID 30916→34916) 후 큐 워커가 pending 태스크 픽업·처리 확인 (id=5, status=dead) |
