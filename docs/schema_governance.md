@@ -122,12 +122,36 @@
 
 | 우선순위 | 테이블 | 문제 컬럼 | 이슈 유형 | 조치 방향 |
 |----------|--------|-----------|-----------|-----------|
-| P1 | Instagram_Posts | `last_error_msg` / `error_message` | 중복 컬럼 | 코드 참조 확인 후 1개로 통합 (수동) |
-| P1 | Instagram_Posts | `caption` / `caption copy` | 중복 컬럼 | `caption copy` 삭제 검토 |
-| P1 | Instagram_Posts | `post_url` / `post_url copy` | 중복 컬럼 | `post_url copy` 삭제 검토 |
-| P2 | Source_Feeds | `source_url` / `source_url (URL)` | 중복 컬럼 | 참조 코드 확인 후 통합 |
-| P2 | Source_Feeds | `processing_status = gpt_ready` | 컬럼명 오염 | 컬럼명 정규화 필요 |
-| P2 | Source_Feeds | `Instagram_Posts` | 컬럼명 오염 | Airtable 링크필드 잔재 여부 확인 |
+| ~~P1~~ **완료** | Instagram_Posts | `error_message` | 중복 컬럼 | ✅ 삭제 확정 260526 — `last_error_msg` 로 통합 |
+| ~~P1~~ **완료** | Instagram_Posts | `caption copy` | 중복 컬럼 | ✅ 삭제 확정 260526 — 코드 참조 0건 |
+| ~~P1~~ **완료** | Instagram_Posts | `post_url copy` | 중복 컬럼 | ✅ 삭제 확정 260526 — 코드 참조 0건 |
+| ~~P2~~ **완료** | Source_Feeds | `source_url (URL)` | 중복 컬럼 | ✅ 삭제 확정 260526 — 코드 참조 0건 |
+| P2 **유지** | Source_Feeds | `processing_status = gpt_ready` | 컬럼명 오염 | 🔒 삭제 금지 — runtime 상태값 정상 사용 중 |
+| P2 **유지** | Source_Feeds | `Instagram_Posts` | 컬럼명 오염 | 🔒 삭제 금지 — Airtable 링크필드 정상 관계 |
+
+---
+
+## 삭제 확정 필드 목록 (260526)
+
+> 근거: `Select-String -Path "*.py" -Pattern ...` grep 전수조사 결과 코드 참조 0건 확인
+
+### 삭제 대상 (Airtable에서 직접 삭제 가능)
+
+| 테이블 | 필드명 | 판정 근거 | 확정일 |
+|--------|--------|-----------|--------|
+| Instagram_Posts | `caption copy` | 코드 참조 0건 — `caption` 중복 孤兒 필드 | 260526 |
+| Instagram_Posts | `post_url copy` | 코드 참조 0건 — `post_url` 중복 孤兒 필드 | 260526 |
+| Instagram_Posts | `error_message` | 코드 참조 0건 — `last_error_msg` 로 통합, 로컬 변수로만 존재 | 260526 |
+| Source_Feeds | `source_url (URL)` | 코드 참조 0건 — `source_url` 중복 孤兒 필드 | 260526 |
+
+---
+
+## 삭제 금지 필드 (260526 확정)
+
+| 테이블 | 필드명 / 값 | 사유 |
+|--------|-------------|------|
+| Source_Feeds | `processing_status` 값: `gpt_ready` | `airtable_autorun_engine.py:152`, `pipeline_feed_ingest.py:437,468,486` — 정상 runtime 상태값. 절대 삭제 금지 |
+| Source_Feeds | `Instagram_Posts` 링크필드 | Airtable 테이블 간 연결 관계 필드 — 절대 삭제 금지 |
 
 ---
 
@@ -136,3 +160,4 @@
 | 날짜 | 변경 내용 | 담당자 |
 |------|-----------|--------|
 | 2026-05-16 | 최초 작성 — 현재 상태 기록 | galaxyjo |
+| 2026-05-26 | 孤兒 필드 삭제 확정 — grep 전수조사 기준 (Instagram_Posts 3건, Source_Feeds 1건) | galaxyjo |
