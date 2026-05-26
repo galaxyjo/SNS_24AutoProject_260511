@@ -23,6 +23,9 @@
 | watchdog_slack_env_fix | ✅ PASS | 2026-05-17 |
 | health_check_tool | ✅ PASS | 2026-05-17 |
 | **phase2_runtime_governance_ready** | ✅ **PASS** | **2026-05-17** |
+| schema_orphan_cleanup_260526 | ✅ PASS | 2026-05-26 |
+| persona_profile_per001_created_260526 | ✅ PASS | 2026-05-26 |
+| backup_3_confirmed_260526 | ✅ PASS | 2026-05-26 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -48,3 +51,6 @@
 | watchdog_slack_env_fix | `.env` SLACK_WEBHOOK_URL 자동 로드 추가 — 시스템 환경변수 미설정 시 .env 폴백 (ERR-020) |
 | health_check_tool | `tools/check_runtime_health.py` 실행 확인 — launcher PID 27104 / n8n PID 13724 / port 5000·5678 OPEN / Airtable HTTP 200 / posted 97건 정상 출력 |
 | **phase2_runtime_governance_ready** | 단일계정 E2E + 운영 안정화(watchdog 자동복구 실증) 완료. 다계정 실운영 evidence는 별도 미보유. Phase 3 진입 가능 상태. |
+| schema_orphan_cleanup_260526 | 孤兒 필드 4개 삭제 확인 — `caption copy`, `post_url copy`, `error_message` (Instagram_Posts), `source_url (URL)` (Source_Feeds). grep 코드 참조 0건 확인 후 Airtable UI 직접 삭제. |
+| persona_profile_per001_created_260526 | Persona_Profile 테이블 신규 생성 (tblbxtUH1K88aomOP, 12개 필드) + PER-001 레코드 생성 완료. record_id: reck5gPdhpWqgmdKP, persona_name: 엔틱, account_code_ref: ACC-001 연결. |
+| backup_3_confirmed_260526 | `C:\backup_(3)_260526 1350_SNS_24AutoProject_260511.zip` 백업 완료 확인. |
