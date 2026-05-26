@@ -233,10 +233,6 @@ def process_due_followups() -> None:
 
         _at_patch(record_id, update)
 
-        if sent and next_status == "followup3_sent":
-            from modules.crm.lead_closer import mark_lead_closed
-            mark_lead_closed(record_id)
-
         if sent:
             _send_telegram_followup(igsid, stage_num, template)
 
