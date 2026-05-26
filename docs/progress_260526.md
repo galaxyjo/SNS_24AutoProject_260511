@@ -62,5 +62,5 @@ Airtable 스키마 정리 + Account_Registry 검증 + Persona_Profile 테이블 
 ---
 
 ## 잔여 작업
-- [ ] Airtable UI에서 孤兒 필드 4개 직접 삭제
+- [x] Airtable UI에서 孤兒 필드 4개 직접 삭제 ✅ 260526
 - [ ] Persona_Profile PER-001 레코드 데이터 입력
