@@ -184,6 +184,12 @@ def handle_price_inquiry(
     received_at: datetime,
 ) -> None:
     """단가 문의 감지 → 10% 마진 가격으로 자동 응답 → Lead 업데이트 → 팔로업 예약 → Telegram 알림."""
+    from modules.dm.rules import evaluate as _rule_evaluate
+    _rule = _rule_evaluate(inquiry_text)
+    if not _rule:
+        logger.info(f"[AutoReply] 메시지 필터 차단 | reason={_rule.reason} | sender={sender_igsid}")
+        return
+
     from modules.dm.dm_followup_scheduler import set_followup_schedule
     from modules.common.retry_queue import get_retry_queue
 
