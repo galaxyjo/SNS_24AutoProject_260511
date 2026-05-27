@@ -265,3 +265,26 @@ Evidence 없는 완료 선언 금지:
 
 이 체크리스트는 사용자 명령 없이 자동 실행.
 생략 금지. 순서 변경 금지.
+
+---
+## [260527 Runtime Governance 추가]
+
+### Absolute Forbidden
+- 250723 삭제/dead 판정 금지
+- 폴더 merge/전체 복사 금지
+- 이름 기준 판단 금지
+- git add/commit 선행 금지
+- Evidence 없는 완료 선언 금지
+- 승인 없는 destructive/merge 실행 금지
+
+### Evidence Rule
+우선순위: Runtime log > DB/API > grep > file > git > docs
+추정 금지. 없으면 UNKNOWN.
+
+### Session Start Rule
+매 세션 시작 시 순서대로 실행:
+1. Get-Content "C:\SNS_24AutoProject_260511\docs\CURRENT_RUNTIME_CONTEXT.md" -Encoding UTF8
+2. Get-Content "C:\SNS_24AutoProject_260511\porting_logs\MERGE_JOURNAL.md" -Tail 20 -Encoding UTF8
+3. git status --short
+
+위 3개 확인 전 어떤 작업도 시작하지 않는다.

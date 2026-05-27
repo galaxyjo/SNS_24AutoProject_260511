@@ -47,3 +47,29 @@
 | 커밋 | `0456adb` fix: preprocess image via imgbb upload |
 
 ---
+
+---
+## [260527] watchdog 재기동 + Runtime Infra Recovery
+
+### 장애 원인
+- Flask/launcher/ngrok 2026-05-18 이후 중단 (9일간 미기동)
+- watchdog.ps1 미실행 상태
+
+### 재기동 시각
+- 2026-05-27 14:57
+
+### 복구 결과
+- Flask ✅ / launcher ✅ / ngrok ✅ / Streamlit ✅
+- overall=ok 확인 (scheduler_err.log 15:00)
+- _job_fb_crawl / _job_insta_upload / _job_kpi_snapshot 정상 실행
+
+### DEFAULT_BASE_PRICE
+- .env 설정값: 50000 ✅
+- Runtime 실제 반영: UNKNOWN (실제 DM price inquiry 미수신)
+
+### 신규 파일
+- docs/CURRENT_RUNTIME_CONTEXT.md 생성 ✅
+- CLAUDE.md append 완료 ✅
+
+### 현재 상태
+Runtime Infra Recovery Complete / Business Flow Verification Pending
