@@ -26,6 +26,8 @@
 | schema_orphan_cleanup_260526 | ✅ PASS | 2026-05-26 |
 | persona_profile_per001_created_260526 | ✅ PASS | 2026-05-26 |
 | backup_3_confirmed_260526 | ✅ PASS | 2026-05-26 |
+| watchdog_flask_dual_fixed_260527 | ✅ PASS | 2026-05-27 |
+| dual_scheduler_resolved_260527 | ✅ PASS | 2026-05-27 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 

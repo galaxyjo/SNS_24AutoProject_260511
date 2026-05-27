@@ -94,13 +94,14 @@ function Register-Success {
     $failCount[$service] = 0
 }
 
-function Start-Flask {
-    Start-Process -FilePath $python -ArgumentList "-m modules.dm.dm_receiver" `
-        -RedirectStandardOutput "$logDir\webhook_stdout.log" `
-        -RedirectStandardError  "$logDir\webhook_stderr.log" `
-        -WindowStyle Hidden
-    Start-Sleep -Seconds $RESTART_WAIT
-}
+# [260527] Start-Flask 주석 처리 — launcher\main.py line 300이 :5000 직접 관리, 독립 기동 불필요
+# function Start-Flask {
+#     Start-Process -FilePath $python -ArgumentList "-m modules.dm.dm_receiver" `
+#         -RedirectStandardOutput "$logDir\webhook_stdout.log" `
+#         -RedirectStandardError  "$logDir\webhook_stderr.log" `
+#         -WindowStyle Hidden
+#     Start-Sleep -Seconds $RESTART_WAIT
+# }
 
 function Start-Streamlit {
     Start-Process -FilePath $streamlit -ArgumentList "run dashboard.py --server.port 8501" `
@@ -137,23 +138,24 @@ Write-Log "===== watchdog 시작 (주기: ${POLL_SEC}초 / 연속실패알림: $
 
 while ($true) {
 
+    # [260527] Flask 독립 감시 블록 주석 처리 — launcher\main.py가 Flask(:5000) 직접 관리
     # --- Flask 감시 ---
-    if (-not (Test-Http $FLASK_URL)) {
-        Write-Log "[WARN] Flask 응답 없음 — 재시작 시도"
-        Send-SlackAlert "Flask 응답 없음 — 재시작 시도" "warning"
-        Start-Flask
-        if (Test-Http $FLASK_URL) {
-            Write-Log "[OK]   Flask 재시작 성공"
-            Send-SlackAlert "Flask 재시작 성공" "success"
-            Register-Success "Flask"
-        } else {
-            Write-Log "[ERROR] Flask 재시작 후에도 응답 없음 — webhook_stderr.log 확인 필요"
-            Send-SlackAlert "Flask 재시작 실패 — webhook_stderr.log 확인 필요" "error"
-            Register-Failure "Flask"
-        }
-    } else {
-        Register-Success "Flask"
-    }
+    # if (-not (Test-Http $FLASK_URL)) {
+    #     Write-Log "[WARN] Flask 응답 없음 — 재시작 시도"
+    #     Send-SlackAlert "Flask 응답 없음 — 재시작 시도" "warning"
+    #     Start-Flask
+    #     if (Test-Http $FLASK_URL) {
+    #         Write-Log "[OK]   Flask 재시작 성공"
+    #         Send-SlackAlert "Flask 재시작 성공" "success"
+    #         Register-Success "Flask"
+    #     } else {
+    #         Write-Log "[ERROR] Flask 재시작 후에도 응답 없음 — webhook_stderr.log 확인 필요"
+    #         Send-SlackAlert "Flask 재시작 실패 — webhook_stderr.log 확인 필요" "error"
+    #         Register-Failure "Flask"
+    #     }
+    # } else {
+    #     Register-Success "Flask"
+    # }
 
     # --- Streamlit 감시 ---
     if (-not (Test-Http $STREAMLIT_URL)) {

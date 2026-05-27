@@ -102,6 +102,16 @@
 
 ---
 
+## INC-011 | Watchdog :5000 중복 바인딩 + Dual Scheduler 해소
+**발생:** 2026-05-27
+**요약:** watchdog.ps1 재기동 시 Flask(:5000) 이중 바인딩 + `process_due_followups` 매 5분 2회 실행 발생. watchdog.ps1 `Start-Flask` 주석 처리로 해소.
+**원인:** watchdog이 `dm_receiver`(Flask)를 독립 기동 + `launcher\main.py`도 기동 → launcher 내부에서도 `app.run(:5000)` 실행 → 이중 바인딩. dm_receiver 독립 APScheduler와 launcher APScheduler가 동시 실행 → 잡 중복.
+**해결:** `watchdog.ps1` `Start-Flask` 함수(line 97~103) + Flask 감시 블록(line 140~156) 주석 처리. launcher\main.py에 Flask 관리 위임.
+**결과:** :5000 단일 LISTEN 확인 / `process_due_followups` 1회/5분 2사이클 연속 확인
+**재발 방지:** FP-017 등록 — watchdog 감시 대상 설계 시 진입점 내부 포함 여부 사전 확인 의무화
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다

@@ -5,6 +5,21 @@
 
 ---
 
+## [260527_2000~2200] watchdog.ps1 Start-Flask 주석 처리 — :5000 중복 바인딩 + Dual Scheduler 해소
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-05-27 |
+| 대상 파일 | `watchdog.ps1` |
+| 문제 | watchdog `Start-Flask`가 dm_receiver(:5000) 독립 기동 + launcher\main.py도 내부에서 `:5000` LISTEN → 이중 바인딩. dm_receiver 독립 APScheduler + launcher 내부 APScheduler → `process_due_followups` / `poll_new_comments` 매 5분 2회 실행(27초 간격) |
+| 원인 분석 | launcher\main.py line 286~287 `start_scheduler()` 호출로 dm_receiver APScheduler가 launcher 내부에서 이미 기동됨. watchdog이 dm_receiver를 별도 프로세스로 추가 기동하면 중복 인스턴스 발생 |
+| 수정 | `watchdog.ps1` `Start-Flask` 함수(line 97~103) + Flask 감시 블록(line 140~156) 주석 처리(#). 삭제 없음. launcher\main.py에 Flask 관리 위임. |
+| 검증 | PSParser 문법 PASS. app.log 22:00:34 / 22:05:34 `process_due_followups` 1회/5분 2사이클 연속 확인. :5000 단일 LISTEN (PID 23272) 확인. |
+| 근거 문서 | ERR-021 / FP-017 / INC-011 / VALIDATION_STATUS watchdog_flask_dual_fixed_260527 PASS |
+| 커밋 | d3f9428 (이전) + 이번 세션 체크리스트 커밋 |
+
+---
+
 ## [260526] 하노이 세션 — Airtable 스키마 정리 + Persona_Profile 구축
 
 | 항목 | 내용 |
@@ -73,3 +88,23 @@
 
 ### 현재 상태
 Runtime Infra Recovery Complete / Business Flow Verification Pending
+
+---
+## [260527_1533~1940] 250723 전체 스캔 + E2E 로그 갭 확정
+
+### 작업 내용
+- 250723 전체 폴더 스캔 완료 (modules/dm, sns, common, crm, tools, dashboard, scripts, tests)
+- 이식 대상 없음 확정 — 260511이 전부 더 완성됨
+- 250723 pytest 마지막 결과: 613 passed / 17 failed / 6 errors — Green Build 아님
+- E2E AutoReply 화면 증거 확인: "단가 기준가는 11,000원" 응답 (5/12)
+- 로그 갭 원인 확정: watchdog Start-Process -RedirectStandardError overwrite 구조로 이전 세션 로그 소멸
+- watchdog 19:37 재기동 완료 — Flask/Streamlit/ngrok/launcher 전부 OK
+
+### 확정 사항
+- 250723 역할: Archive / Evidence 참고용만
+- 260511 보호 유지
+- Business Runtime commit: 로그 증거 소실로 화면 증거만 존재 — commit 보류 유지
+
+### 미완
+- n8n 미설정 상태 (정상)
+- dual scheduler 중복 발송 원인 파악됨 — 수정 미적용

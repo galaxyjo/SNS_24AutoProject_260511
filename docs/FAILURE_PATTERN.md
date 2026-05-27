@@ -151,6 +151,16 @@ git log --oneline -3
 
 ---
 
+## FP-017 | Watchdog 감시 대상과 진입점 내부 기동이 충돌하는 패턴
+**설명:** watchdog이 독립 서비스(A)를 기동하는데, 진입점(B)도 내부에서 동일 서비스(A)를 포함하는 구조 → A 중복 실행
+**근본 원인:** 서비스 책임 경계 미정의. watchdog이 "Flask는 내가 감시한다" + launcher도 "Flask는 내가 실행한다" → 충돌
+**증상:** 동일 포트 이중 바인딩 / APScheduler 이중 등록 / 동일 잡 N회 실행 / 로그에 동일 패턴 시간 간격
+**해결:** watchdog은 진입점(launcher)만 감시. 내부 서비스 기동은 진입점에 위임.
+**예방:** watchdog 기동 대상 정의 시 "이 서비스가 다른 프로세스 내부에도 포함되는가" 반드시 확인. 포함되면 watchdog 직접 감시 제거.
+**관련:** ERR-021 / 2026-05-27 해결 확인
+
+---
+
 ## REQUIRED VALIDATION CHECKLIST
 모든 완료 선언 전:
 - [ ] File Exists (Get-ChildItem)
