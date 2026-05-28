@@ -54,3 +54,13 @@ d3f9428 (docs: runtime governance + watchdog recovery journal [260527])
 - Evidence 없는 완료 선언
 - 코드 수정 (승인 전)
 - git add/commit 선행
+
+## [260528_Virtual_AutoReply_Proof] — 2026-05-28 13:27 KST
+- Infra: Flask :5000 PID 14256 + ngrok :4040 PID 8956 LISTENING 확인
+- Webhook: 로컬 POST 200 OK 확인
+- Parser: 단가 얼마예요? detect_price_inquiry=True 확인
+- AutoReply: DEFAULT_BASE_PRICE=50000 적용, handle_price_inquiry 완료
+- Airtable: LI-2B0A72F7 생성, recXgM9FlDo9EEikr qualified/auto_replied
+- IG 발송 실패: TEST_SENDER_004 가상 ID 정상 예상 결과
+- 백업: backup_(7)_260528_1338 완료
+- 실제 DM Proof: 다음 섹션 보류
