@@ -118,4 +118,18 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 - Airtable: LI-2B0A72F7 생성, recXgM9FlDo9EEikr qualified/auto_replied
 - IG 발송 실패: TEST_SENDER_004 가상 ID 정상 예상 결과
 - 백업: backup_(7)_260528_1338 완료
-- 실제 DM Proof: 다음 섹션 보류
+
+---
+## [260528_Real_DM_Proof + Duplicate_Bug_Fix] — 2026-05-28 20:14~22:00 KST
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-05-28 |
+| 대상 파일 | `modules/dm/dm_auto_reply.py` |
+| 수정 1 | _rule.reason AttributeError 수정 — `getattr(_rule, "reason", "unknown")` |
+| 수정 2 | 중복 발송 방지 — `_has_recent_auto_replied()` 추가, `CREATED_TIME()` 기준 3분 window, `bridge_status='auto_replied'` 조건 |
+| 실거래 DM Proof | IGSID 1792783944739953 → IG DM 발송 완료 20:14:37 (recKh3tm6R5foxjjv) ✅ |
+| duplicate skip 검증 | 21:42:15 recvpUz9Q6YW4EsPv ✅ / 21:50:03 recKeIWfh5YtBLhzo ✅ |
+| git 상태 | M modules/dm/dm_auto_reply.py (미커밋 — 사용자 승인 후 commit 예정) |
+| watchdog autostart | SNS_Watchdog_AutoStart 등록 시도 → 관리자 권한 필요 (미완료) |
+| dual scheduler | 중복 없음 재확인 — process_due_followups 1회/5분 정상 |

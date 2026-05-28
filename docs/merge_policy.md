@@ -82,6 +82,11 @@
 
 ---
 
+## RUNTIME CHANGE LOG
+| 날짜 | 파일 | 내용 |
+|------|------|------|
+| 2026-05-28 | modules/dm/dm_auto_reply.py | 중복 발송 방지 _has_recent_auto_replied() 추가 / _rule.reason AttributeError 수정 |
+
 ## FINAL POLICY
 ```
 실행 성공 Runtime 기준 우선.

@@ -220,6 +220,28 @@
 
 ---
 
+## ERR-025 | _rule.reason AttributeError on Falsy Rule Object
+**Type:** AttributeError
+**Raw:** `AttributeError: 'NoneType' object has no attribute 'reason'` (또는 False/falsy 객체)
+**Root Cause:** `if not _rule:` 분기 내부에서 `_rule.reason` 직접 접근 — _rule이 falsy면 속성 없음
+**Fix:** `reason = getattr(_rule, "reason", "unknown")` fallback 적용
+**Prevention:** falsy 판정 후 해당 객체 속성 접근 금지 — getattr + default 패턴 사용
+**Status:** ✅ RESOLVED (2026-05-28)
+**File:** modules/dm/dm_auto_reply.py
+
+---
+
+## ERR-026 | IS_AFTER Airtable Filter Bypassed — replied_at 필드 미존재
+**Type:** Logic Gap / Silent Filter Bypass
+**Raw:** 중복 발송 차단 가드가 존재하나 실제로 차단 안 됨
+**Root Cause:** `IS_AFTER({replied_at}, cutoff)` filterByFormula 사용 — Airtable Lead_Interactions 테이블에 `replied_at` 커스텀 필드 없음 → API가 오류 없이 빈 records 반환 → 가드 항상 False
+**Fix:** `IS_AFTER(CREATED_TIME(), cutoff)` 로 교체 — Airtable 내장 시스템 필드 사용
+**Prevention:** filterByFormula에 커스텀 필드 사용 시 해당 필드 Airtable 존재 여부 사전 검증 필수
+**Status:** ✅ RESOLVED (2026-05-28)
+**File:** modules/dm/dm_auto_reply.py — _has_recent_auto_replied()
+
+---
+
 ## ERR-020 | Watchdog Slack Silent (env var not loaded)
 **Type:** Configuration Gap
 **Raw:** watchdog 재시작 알림이 Slack에 미전달 — `Send-SlackAlert` 내 `$webhookUrl` 항상 null

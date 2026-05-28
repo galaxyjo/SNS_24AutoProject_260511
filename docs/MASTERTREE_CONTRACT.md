@@ -101,6 +101,13 @@ Account_Registry  ← 계정 + AdsPower 매핑
 
 ---
 
+## RUNTIME STATUS (2026-05-28)
+```
+modules/dm/dm_auto_reply.py  M  — 중복 발송 방지 + AttributeError 수정 (미커밋)
+실거래 DM AutoReply E2E PASS — IGSID 1792783944739953
+duplicate skip 검증 PASS      — 21:42:15 / 21:50:03
+```
+
 ## MASTER PRINCIPLE
 ```
 MasterTree   > Conversation

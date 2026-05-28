@@ -14,6 +14,17 @@
 - [ ] Selenium attach 성공 확인
 - [ ] .env 로드 확인
 - [ ] retry_queue dead = 0 확인
+- [ ] Flask :5000 LISTENING 확인 (netstat -ano | findstr ":5000")
+- [ ] ngrok :4040 LISTENING 확인 (netstat -ano | findstr ":4040")
+- [ ] watchdog.ps1 실행 중 확인
+```
+
+## WATCHDOG 기동 (세션 시작 시)
+```powershell
+# watchdog 미기동 시 실행
+Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File C:\SNS_24AutoProject_260511\watchdog.ps1" -WindowStyle Normal
+# 자동 시작 등록 (관리자 PowerShell 필요)
+# SNS_Watchdog_AutoStart 작업 스케줄러 등록
 ```
 
 ---
@@ -77,6 +88,8 @@
 ## STEP-009 | DM Relay
 **대상:** dm_auto_reply.py / dm_router.py
 **확인:** replied_at timestamp 기록 / DM 실제 발송 확인
+**중복 차단:** `_has_recent_auto_replied()` — CREATED_TIME() 기준 3분 window (2026-05-28 추가)
+**중복 확인:** `duplicate skip` 로그 정상 출력 확인
 **실패 시:** session 상태 확인 / rate limit 확인
 
 ---

@@ -115,6 +115,14 @@ MasterTree 기준 유지
 
 ---
 
+## RUNTIME VERIFIED (2026-05-28)
+```
+- 실거래 DM AutoReply E2E 성공: IGSID 1792783944739953 → IG DM 발송 완료
+- 중복 발송 방지: _has_recent_auto_replied() CREATED_TIME() 3분 window 적용
+- duplicate skip 로그 검증: 21:42:15 / 21:50:03 정상 차단 확인
+- 수정 파일: modules/dm/dm_auto_reply.py (미커밋)
+```
+
 ## FINAL PRINCIPLE
 ```
 Conversation ≠ System Reality

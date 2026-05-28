@@ -46,6 +46,32 @@ def _at_patch(table: str, record_id: str, fields: dict) -> None:
         logger.error(f"[AutoReply] Airtable PATCH 실패 | {resp.status_code} {resp.text[:200]}")
 
 
+def _has_recent_auto_replied(sender_igsid: str, minutes: int = 3) -> bool:
+    """sender_igsid 기준 최근 N분 이내 auto_replied 레코드 존재 여부 확인."""
+    import urllib.parse
+    from datetime import timedelta
+    base = os.getenv("AIRTABLE_BASE_ID", "")
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    safe_id = sender_igsid.replace("'", "\\'")
+    formula = (
+        f"AND({{inquiry_user_handle}}='{safe_id}',"
+        f"{{bridge_status}}='auto_replied',"
+        f"IS_AFTER(CREATED_TIME(),'{cutoff}'))"
+    )
+    try:
+        r = requests.get(
+            f"https://api.airtable.com/v0/{base}/Lead_Interactions",
+            headers=_at_headers(),
+            params={"filterByFormula": formula, "maxRecords": 1, "fields[]": "replied_at"},
+            timeout=8,
+        )
+        records = r.json().get("records", [])
+        return len(records) > 0
+    except Exception as exc:
+        logger.warning(f"[AutoReply] 중복 체크 실패 — 발송 허용 | {exc}")
+        return False
+
+
 # ── 공개 함수 ─────────────────────────────────────────────────────────────────
 
 def detect_price_inquiry(text: str) -> bool:
@@ -184,10 +210,14 @@ def handle_price_inquiry(
     received_at: datetime,
 ) -> None:
     """단가 문의 감지 → 10% 마진 가격으로 자동 응답 → Lead 업데이트 → 팔로업 예약 → Telegram 알림."""
+    if _has_recent_auto_replied(sender_igsid, minutes=3):
+        logger.info(f"[AutoReply] duplicate skip | record={record_id} sender={sender_igsid} status=auto_replied")
+        return
     from modules.dm.rules import evaluate as _rule_evaluate
     _rule = _rule_evaluate(inquiry_text)
     if not _rule:
-        logger.info(f"[AutoReply] 메시지 필터 차단 | reason={_rule.reason} | sender={sender_igsid}")
+        reason = getattr(_rule, "reason", "unknown")
+        logger.info(f"[AutoReply] 메시지 필터 차단 | reason={reason} | sender={sender_igsid}")
         return
 
     from modules.dm.dm_followup_scheduler import set_followup_schedule

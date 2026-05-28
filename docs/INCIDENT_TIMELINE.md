@@ -112,6 +112,22 @@
 
 ---
 
+## INC-012 | 실거래 DM AutoReply 성공 + 중복 발송 버그 수정
+**발생:** 2026-05-28
+**요약:** 실계정(IGSID 1792783944739953) DM 수신 → AutoReply 발송 성공 확인 (20:14 KST). 동시에 동일 IGSID에 중복 발송(20:14, 21:29, 21:30) 문제 발견 → _has_recent_auto_replied() 추가로 해소.
+**영향:** 실제 사용자에게 동일 DM 복수 발송 가능 — 운영 신뢰도 저하
+**근본 원인:**
+1. `_has_recent_auto_replied()` 미구현 → 동일 IGSID 중복 차단 없음
+2. `IS_AFTER({replied_at}, ...)` 사용했으나 `replied_at` 필드 미존재 → 항상 빈 결과 → 가드 무력화
+3. _rule.reason AttributeError — falsy _rule 객체에서 .reason 직접 접근
+**해결:**
+- `_has_recent_auto_replied()`: `CREATED_TIME()` 기준 3분 window, `bridge_status='auto_replied'` 조건
+- `getattr(_rule, "reason", "unknown")` fallback 적용
+**결과:** 21:42:15 / 21:50:03 duplicate skip 로그 확인 — 중복 차단 정상 동작
+**재발 방지:** FP-020 / FP-021 등록 — Airtable 미존재 필드 의존 금지 / 호출부 명시값 확인 의무화
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다
