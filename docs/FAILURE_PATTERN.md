@@ -161,6 +161,37 @@ git log --oneline -3
 
 ---
 
+## FP-018 | PowerShell chcp 65001 미설정 — 한글 깨짐
+**설명:** PowerShell 기본 코드페이지(CP949)에서 Python 스크립트 한글 출력 시 깨진 문자 표시
+**근본 원인:** Windows PowerShell 기본 인코딩 ≠ Python UTF-8 stdout
+**증상:** 로그·출력에 `???` 또는 알 수 없는 문자 출력 / 오류 메시지 판독 불가
+**예방:**
+```powershell
+# Python 스크립트 실행 전 항상 먼저 실행
+chcp 65001
+```
+**관련:** ERR-022 / 2026-05-28 확인
+
+---
+
+## FP-019 | watchdog 미기동 시 Flask 수동 실행 패턴
+**설명:** watchdog.ps1이 실행되지 않은 상태에서 세션 시작 시 Flask(:5000), ngrok, launcher 모두 미기동 상태일 수 있음
+**근본 원인:** watchdog.ps1은 자동 시작 등록 없이 수동 실행 — 재부팅·세션 종료 후 미기동
+**증상:** curl :5000 연결 거부 / webhook 수신 불가 / ngrok URL 없음
+**체크:**
+```powershell
+# 세션 시작 시 포트 확인
+netstat -ano | findstr ":5000"
+netstat -ano | findstr ":4040"
+```
+**복구 순서:**
+1. `.\watchdog.ps1` 기동 (별도 터미널)
+2. 또는 `python launcher/main.py` 직접 실행
+3. ngrok 별도 기동 필요 시: watchdog에 포함됨 확인
+**관련:** ERR-024 / 2026-05-28 확인
+
+---
+
 ## REQUIRED VALIDATION CHECKLIST
 모든 완료 선언 전:
 - [ ] File Exists (Get-ChildItem)

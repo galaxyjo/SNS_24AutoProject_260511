@@ -190,6 +190,36 @@
 
 ---
 
+## ERR-022 | PowerShell 한글 인코딩 깨짐 (chcp 65001 미설정)
+**Type:** Encoding Error
+**Raw:** 한글 출력이 `???` 또는 깨진 문자로 표시됨
+**Root Cause:** PowerShell 기본 코드페이지(CP949/EUC-KR)에서 UTF-8 스트림 출력 시 인코딩 불일치
+**Fix:** `chcp 65001` 실행 후 스크립트 재시작 / 또는 `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`
+**Prevention:** FP-018 준수 — PowerShell 터미널에서 한글 포함 Python 스크립트 실행 전 chcp 65001 필수
+**Date:** 2026-05-28
+
+---
+
+## ERR-023 | pyngrok ModuleNotFoundError
+**Type:** ModuleNotFoundError
+**Raw:** `ModuleNotFoundError: No module named 'pyngrok'`
+**Root Cause:** venv에 pyngrok 미설치 상태에서 launcher/main.py 실행
+**Fix:** `.venv\Scripts\pip install pyngrok`
+**Prevention:** requirements.txt 확인 후 venv activate → pip install -r requirements.txt 선행 실행
+**Date:** 2026-05-28
+
+---
+
+## ERR-024 | watchdog 미기동 → Flask :5000 미리스닝
+**Type:** Operational Error
+**Raw:** `curl http://localhost:5000` 연결 거부 / webhook 수신 불가
+**Root Cause:** watchdog.ps1 미실행 상태에서 launcher/main.py도 미기동 → Flask 프로세스 없음
+**Fix:** `python launcher/main.py` 직접 실행 또는 `.\watchdog.ps1` 재기동
+**Prevention:** FP-019 준수 — 세션 시작 시 Flask :5000 LISTENING 여부 확인 필수
+**Date:** 2026-05-28
+
+---
+
 ## ERR-020 | Watchdog Slack Silent (env var not loaded)
 **Type:** Configuration Gap
 **Raw:** watchdog 재시작 알림이 Slack에 미전달 — `Send-SlackAlert` 내 `$webhookUrl` 항상 null

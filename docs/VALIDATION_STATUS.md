@@ -28,6 +28,7 @@
 | backup_3_confirmed_260526 | ✅ PASS | 2026-05-26 |
 | watchdog_flask_dual_fixed_260527 | ✅ PASS | 2026-05-27 |
 | dual_scheduler_resolved_260527 | ✅ PASS | 2026-05-27 |
+| virtual_autoreply_proof_260528 | ✅ PASS | 2026-05-28 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -56,3 +57,4 @@
 | schema_orphan_cleanup_260526 | 孤兒 필드 4개 삭제 확인 — `caption copy`, `post_url copy`, `error_message` (Instagram_Posts), `source_url (URL)` (Source_Feeds). grep 코드 참조 0건 확인 후 Airtable UI 직접 삭제. |
 | persona_profile_per001_created_260526 | Persona_Profile 테이블 신규 생성 (tblbxtUH1K88aomOP, 12개 필드) + PER-001 레코드 생성 완료. record_id: reck5gPdhpWqgmdKP, persona_name: 엔틱, account_code_ref: ACC-001 연결. |
 | backup_3_confirmed_260526 | `C:\backup_(3)_260526 1350_SNS_24AutoProject_260511.zip` 백업 완료 확인. |
+| virtual_autoreply_proof_260528 | Flask :5000 PID 14256 + ngrok :4040 PID 8956 LISTENING 확인. 로컬 POST 200 OK. detect_price_inquiry=True. DEFAULT_BASE_PRICE=50000 적용. Airtable LI-2B0A72F7 생성·qualified/auto_replied 확인. IG 발송 실패는 TEST_SENDER_004 가상 ID 정상 예상 결과. backup_(7)_260528_1338 완료. |
