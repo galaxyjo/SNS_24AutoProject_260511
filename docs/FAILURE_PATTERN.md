@@ -212,6 +212,20 @@ netstat -ano | findstr ":4040"
 
 ---
 
+## FP-022 | accounts.json 빈 배열 → account_manager default 폴백 → crawl_urls 고정 빈 리스트
+**설명:** `configs/accounts.json`이 `[]`이면 account_manager가 `.env` 단일 계정으로 폴백하는데, 이 default 계정은 `crawl_urls=[]`로 하드코딩되어 있음 → FB_GROUP_URL을 `.env`에 추가해도 크롤러가 읽지 않음
+**근본 원인:** account_manager의 default 계정 생성 로직이 `crawl_urls=[]` 고정값 사용 — `.env` `FB_GROUP_URL` 참조 없음
+**증상:** `[WARNING] crawl_urls 없음 — skip | account=default` 반복 — .env 변경해도 해소 안 됨
+**해결:** `configs/accounts.json`에 계정 1개 이상 등록 (name / adspower_user_id / crawl_urls 포함)
+**예방:**
+```json
+[{ "name": "account1", "adspower_user_id": "...", "crawl_urls": ["https://..."], ... }]
+```
+크롤러 기동 후 `crawl_urls 없음 — skip` 로그 유무로 즉시 확인
+**관련:** ERR-027 / 2026-05-29 해결 확인
+
+---
+
 ## REQUIRED VALIDATION CHECKLIST
 모든 완료 선언 전:
 - [ ] File Exists (Get-ChildItem)

@@ -250,3 +250,25 @@
 **Prevention:** PowerShell 스크립트에서 `.env` 값 사용 시 별도 로드 블록 필수
 **Status:** ✅ RESOLVED (2026-05-17)
 **Evidence:** watchdog.ps1 상단 .env 로드 블록 추가 확인
+
+---
+
+## ERR-027 | accounts.json 빈 배열 → crawl_urls 없음 → FB Crawler skip
+**Type:** Configuration Gap
+**Raw:** `[WARNING] [FB Crawler] crawl_urls 없음 — skip | account=default`
+**Root Cause:** `configs/accounts.json`이 `[]` 빈 배열 → account_manager가 `.env` 단일 계정으로 폴백 → default 계정은 `crawl_urls=[]` 하드코딩 → 크롤러 전량 skip
+**Fix:** `configs/accounts.json`에 account1 + crawl_urls 등록 (`https://www.facebook.com/groups/3393946167372584`)
+**Prevention:** FP-022 준수 — accounts.json 배포 후 크롤러 로그에서 skip 여부 반드시 확인
+**Status:** ✅ RESOLVED (2026-05-29)
+**Evidence:** 19:43 / 20:13 크롤러 2회 연속 `계정 완료 | account=account1 | 3개` 확인
+
+---
+
+## ERR-028 | Airtable caption 필드 없음 → 422 UNKNOWN_FIELD_NAME
+**Type:** Airtable Schema Mismatch
+**Raw:** `422 Client Error: Unprocessable Entity — UNKNOWN_FIELD_NAME: "caption"`
+**Root Cause:** `facebook_crawler.py` `save_to_airtable()`이 `"caption"` 필드로 저장 시도 — Airtable `Instagram_Posts` 테이블에 해당 필드 미존재
+**Fix:** Airtable UI에서 `Instagram_Posts` 테이블에 `caption` (Long text / multilineText) 필드 수동 추가
+**Prevention:** 코드에서 새 Airtable 필드 사용 시 배포 전 테이블 스키마 확인 필수 — API read-only로 기존 필드 목록 검증 후 진행
+**Status:** ✅ RESOLVED (2026-05-29)
+**Evidence:** Airtable API 필드 목록에 `caption multilineText` 확인 / 19:43 이후 422 없음

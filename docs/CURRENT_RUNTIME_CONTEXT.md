@@ -1,18 +1,17 @@
 ﻿# CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260529_1253_
+_마지막 업데이트: 260529_2015_
 
 ## 현재 단계
-실거래 DM AutoReply 발송 성공 + 중복 발송 버그 수정 완료 — modules/dm/dm_auto_reply.py ✅ 72e0e1a 커밋 완료
+FB 크롤러 정상화 완료 — accounts.json 등록 + Airtable caption 필드 추가 → 2회 연속 `계정 완료 | account=account1 | 3개` 확인 (19:43 / 20:13)
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
 ## 마지막 확인 커밋
-72e0e1a (fix: duplicate reply guard + rule.reason bugfix + docs update [260528])
-- modules/dm/dm_auto_reply.py ✅ 커밋 완료
+7ce335e (config: add facebook crawl url account1 [260529])
 
-## Runtime 상태 (260529 12:53 기준)
+## Runtime 상태 (260529 20:15 기준)
 | 구간 | 상태 | 근거 |
 |---|---|---|
 | Flask (dm_receiver) | ✅ LIVE | :5000 LISTENING (현재 세션 기준) |
@@ -50,6 +49,14 @@ _마지막 업데이트: 260529_1253_
 - 중복 발송 버그 → **260528 해소 완료** (_has_recent_auto_replied() CREATED_TIME() 기준 3분 window)
 - _rule.reason AttributeError → **260528 해소 완료** (getattr fallback)
 - SNS_Watchdog_AutoStart 작업 스케줄러 등록 → ✅ **등록 완료** (260529 관리자 권한으로 등록)
+- accounts.json 빈 배열 → crawl_urls skip → **260529 해소 완료** (account1 + crawl_url 등록)
+- Airtable caption 필드 없음 → 422 UNKNOWN_FIELD_NAME → **260529 해소 완료** (UI에서 필드 추가)
+- FB 크롤러 2회 연속 정상 완료 → **260529 19:43 / 20:13 확인**
+
+## 미해결 항목 (Phase 후순위)
+- 크롤링 콘텐츠 필터 없음 — 전량 수집 중 (품질 필터 미구현)
+- 영어 변환 미구현 — 캡션 한국어로 생성 중
+- 워터마크 제외 로직 미구현
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -79,3 +86,10 @@ _마지막 업데이트: 260529_1253_
 - 검증: 21:42:15 duplicate skip recvpUz9Q6YW4EsPv ✅
 - 검증: 21:50:03 duplicate skip recKeIWfh5YtBLhzo ✅
 - 수정 파일: modules/dm/dm_auto_reply.py ✅ 72e0e1a 커밋 완료
+
+## [260529_Crawler_Normalization] — 2026-05-29 KST
+- ERR-027: accounts.json `[]` → crawl_urls skip → account1 등록으로 해소 (7ce335e)
+- ERR-028: Airtable caption 필드 없음 → 422 → UI에서 Long text 필드 추가로 해소
+- 검증: 19:43:40 `계정 완료 | account=account1 | 3개` ✅
+- 검증: 20:13:41 `계정 완료 | account=account1 | 3개` ✅
+- 미해결: 필터 없음 / 영어변환 미구현 / 워터마크 제외 미구현
