@@ -7,6 +7,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
 from modules.sns.caption_generator import generate_caption
+from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info
 from modules.common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -115,6 +116,11 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
             # 서로게이트 등 latin-1 불가 문자 안전 처리
             text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
             logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
+            text = detect_and_translate(text)
+            if not text or not passes_keyword_filter(text):
+                logger.info(f"[FB Crawler] POST {i} 필터 제외")
+                continue
+            text = clean_contact_info(text)
             save_to_airtable(image_url, target_url, text)
             results.append({"target_url": target_url, "content": text, "image_url": image_url})
 
