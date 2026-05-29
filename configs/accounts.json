@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "name": "account1",
+    "adspower_user_id": "k1bto3j4",
+    "crawl_urls": ["https://www.facebook.com/groups/3393946167372584"],
+    "ig_access_token": "",
+    "fb_page_id": "",
+    "airtable_base_id": "",
+    "telegram_chat_id": "",
+    "proxy": {}
+  }
+]
