@@ -128,6 +128,36 @@
 
 ---
 
+## INC-013 | FB Crawler Skip (accounts.json 빈 배열)
+**발생:** 2026-05-29
+**요약:** `accounts.json`이 빈 배열(`[]`)로 설정되어 crawl_urls 루프가 실행되지 않음. FB 크롤링 전면 skip.
+**영향:** FB 콘텐츠 수집 중단
+**해결:** `account1` + `crawl_url` 등록 (`7ce335e` 커밋)
+**결과:** 19:43 / 20:13 `계정 완료 | account=account1 | 3개` 2회 연속 확인
+**재발 방지:** accounts.json 최초 배포 시 빈 배열 여부 확인 의무화
+
+---
+
+## INC-014 | Airtable caption 422 UNKNOWN_FIELD_NAME
+**발생:** 2026-05-29
+**요약:** FB 크롤러가 Airtable `Source_Feeds` 테이블에 `caption` 필드 저장 시도 → 422 UNKNOWN_FIELD_NAME 오류 반복 발생.
+**영향:** 크롤링 데이터 Airtable 저장 실패
+**해결:** Airtable UI에서 `Source_Feeds` 테이블에 `caption` Long text 필드 직접 추가
+**결과:** 422 오류 해소 / 크롤 데이터 정상 저장 확인
+**재발 방지:** 신규 필드 사용 전 Airtable 스키마 선행 확인 의무화
+
+---
+
+## INC-015 | Watchdog 루프 중단 → Launcher 재시작으로 복구
+**발생:** 2026-05-29
+**요약:** watchdog 감시 루프가 중단되어 launcher 프로세스 감시 비활성화. Flask(:5000) / ngrok(:4040) DOWN 상태 지속.
+**영향:** launcher 자동 재시작 불가 / 서비스 중단
+**해결:** launcher 수동 재시작으로 복구
+**결과:** 서비스 정상 복구
+**재발 방지:** SNS_Watchdog_AutoStart 작업 스케줄러 등록 완료(260529) — 부팅 시 자동 시작
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다
