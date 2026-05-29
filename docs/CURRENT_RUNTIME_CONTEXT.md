@@ -49,7 +49,7 @@ _마지막 업데이트: 260529_1253_
 - Windows venv shim: .venv\Scripts\python.exe(268KB) → Python310\python.exe(103KB) 자식 프로세스 — 2 PID 정상 (1 논리 인스턴스)
 - 중복 발송 버그 → **260528 해소 완료** (_has_recent_auto_replied() CREATED_TIME() 기준 3분 window)
 - _rule.reason AttributeError → **260528 해소 완료** (getattr fallback)
-- SNS_Watchdog_AutoStart 작업 스케줄러 등록 → ⚠️ **관리자 권한 필요** — 펜딩
+- SNS_Watchdog_AutoStart 작업 스케줄러 등록 → ✅ **등록 완료** (260529 관리자 권한으로 등록)
 
 ## 절대 금지
 - 250723 삭제/dead 판정
