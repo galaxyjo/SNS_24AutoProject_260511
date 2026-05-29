@@ -1,23 +1,23 @@
 ﻿# CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260528_2200_
+_마지막 업데이트: 260529_1253_
 
 ## 현재 단계
-실거래 DM AutoReply 발송 성공 + 중복 발송 버그 수정 완료 — modules/dm/dm_auto_reply.py M (미커밋)
+실거래 DM AutoReply 발송 성공 + 중복 발송 버그 수정 완료 — modules/dm/dm_auto_reply.py ✅ 72e0e1a 커밋 완료
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
 ## 마지막 확인 커밋
-ddfad96 (docs: add validation, error, failure pattern records for 260528 virtual proof)
-- modules/dm/dm_auto_reply.py M (미커밋 — 사용자 승인 후 commit 예정)
+72e0e1a (fix: duplicate reply guard + rule.reason bugfix + docs update [260528])
+- modules/dm/dm_auto_reply.py ✅ 커밋 완료
 
-## Runtime 상태 (260528 22:00 기준)
+## Runtime 상태 (260529 12:53 기준)
 | 구간 | 상태 | 근거 |
 |---|---|---|
-| Flask (dm_receiver) | ✅ LIVE | PID 23160 (21:48 재시작) |
+| Flask (dm_receiver) | ✅ LIVE | :5000 LISTENING (현재 세션 기준) |
 | launcher/main.py | ✅ LIVE | watchdog 감시 중 |
-| ngrok | ✅ LIVE | danuta-overdramatic-whirly.ngrok-free.dev |
+| ngrok | ✅ LIVE | :4040 LISTENING (현재 세션 기준) |
 | Streamlit | ✅ LIVE | watchdog 감시 중 |
 | n8n | ⚠️ 미설정 | 정상 — 아직 구성 안 함 |
 
@@ -49,7 +49,7 @@ ddfad96 (docs: add validation, error, failure pattern records for 260528 virtual
 - Windows venv shim: .venv\Scripts\python.exe(268KB) → Python310\python.exe(103KB) 자식 프로세스 — 2 PID 정상 (1 논리 인스턴스)
 - 중복 발송 버그 → **260528 해소 완료** (_has_recent_auto_replied() CREATED_TIME() 기준 3분 window)
 - _rule.reason AttributeError → **260528 해소 완료** (getattr fallback)
-- SNS_Watchdog_AutoStart 작업 스케줄러 등록 → **관리자 권한 필요** (미완료)
+- SNS_Watchdog_AutoStart 작업 스케줄러 등록 → ⚠️ **관리자 권한 필요** — 펜딩
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -78,4 +78,4 @@ ddfad96 (docs: add validation, error, failure pattern records for 260528 virtual
 - 버그2: 중복 발송 → _has_recent_auto_replied() 추가 (CREATED_TIME() 기준 3분 window)
 - 검증: 21:42:15 duplicate skip recvpUz9Q6YW4EsPv ✅
 - 검증: 21:50:03 duplicate skip recKeIWfh5YtBLhzo ✅
-- 수정 파일: modules/dm/dm_auto_reply.py (M 미커밋)
+- 수정 파일: modules/dm/dm_auto_reply.py ✅ 72e0e1a 커밋 완료
