@@ -41,14 +41,15 @@ def generate_caption(text: str) -> tuple[str, str]:
         return "", ""
 
     prompt = (
-        "아래 페이스북 포스트 내용을 Instagram용 캡션과 해시태그로 변환해줘.\n\n"
-        "규칙:\n"
-        "- 캡션: 핵심 내용을 2~3문장으로 자연스럽게 요약 (이모지 포함)\n"
-        "- 해시태그: 관련 키워드 5~10개, # 포함, 공백으로 구분\n"
-        "- 응답 형식 (반드시 이 형식만 사용):\n"
-        "CAPTION: <캡션 내용>\n"
-        "HASHTAGS: <해시태그>\n\n"
-        f"포스트 내용:\n{text[:1000]}"
+        "Convert the following Facebook post into an Instagram caption and hashtags.\n\n"
+        "Rules:\n"
+        "- Caption: Summarize in 2-3 natural English sentences with emojis\n"
+        "- Hashtags: 5-10 relevant keywords with #, separated by spaces\n"
+        "- Output MUST be in English only\n"
+        "- Response format (use exactly this format):\n"
+        "CAPTION: <caption text>\n"
+        "HASHTAGS: <hashtags>\n\n"
+        f"Post content:\n{text[:1000]}"
     )
 
     for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
