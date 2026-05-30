@@ -69,23 +69,42 @@ def save_to_airtable(image_url, source_url, text=""):
     if not image_url:
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
         return
-    table = get_table("Instagram_Posts")
+    import requests as _req
+    _api_key = os.getenv("AIRTABLE_API_KEY", "")
+    _base_id = os.getenv("AIRTABLE_BASE_ID", "")
+    if not _api_key or not _base_id:
+        logger.error("[AIRTABLE] API_KEY 또는 BASE_ID 미설정")
+        return
+    _url = f"https://api.airtable.com/v0/{_base_id}/Instagram_Posts"
+    _hdrs = {"Authorization": f"Bearer {_api_key}", "Content-Type": "application/json"}
     image_url_hash = hashlib.sha256(image_url.encode("utf-8")).hexdigest()
-    existing = table.first(formula=f"{{image_url_hash}}='{image_url_hash}'")
-    if existing:
+    try:
+        chk = _req.get(_url, headers=_hdrs, params={"filterByFormula": f"{{image_url_hash}}='{image_url_hash}'", "maxRecords": "1"}, timeout=10)
+    except Exception as exc:
+        logger.error(f"[AIRTABLE] 중복 체크 요청 실패 | {type(exc).__name__}")
+        return
+    if not chk.ok:
+        logger.error(f"[AIRTABLE] 중복 체크 실패 | {chk.status_code} | {chk.text[:200]}")
+        return
+    try:
+        records = chk.json().get("records", [])
+    except ValueError:
+        logger.error("[AIRTABLE] 중복 체크 응답 JSON 파싱 실패")
+        return
+    if records:
         print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return
     caption, hashtags = generate_caption(text)
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
-    table.create({
-        "image_url": image_url,
-        "image_url_hash": image_url_hash,
-        "source_url": source_url,
-        "post_status": "ready",
-        "caption": caption,
-        "hashtag": hashtags,
-    })
-    print(f"[AIRTABLE] 저장 완료: {image_url[:80]}...")
+    try:
+        res = _req.post(_url, headers=_hdrs, json={"fields": {"image_url": image_url, "image_url_hash": image_url_hash, "source_url": source_url, "post_status": "ready", "caption": caption, "hashtag": hashtags}}, timeout=10)
+    except Exception as exc:
+        logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}")
+        return
+    if res.ok:
+        print(f"[AIRTABLE] 저장 완료: {image_url[:80]}...")
+    else:
+        logger.error(f"[AIRTABLE] 저장 실패 | {res.status_code} | {res.text[:200]}")
 
 
 def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
