@@ -1,3 +1,4 @@
+import os
 from deep_translator import GoogleTranslator
 import re
 
@@ -52,3 +53,40 @@ def clean_contact_info(text: str) -> str:
             continue
         cleaned.append(line)
     return "\n".join(cleaned).strip()
+
+
+def _get_contact_mapping():
+    return {
+        "kakao": os.getenv("MY_KAKAO", "").strip(),
+        "instagram": os.getenv("MY_INSTAGRAM", "").strip(),
+        "email": os.getenv("MY_EMAIL", "").strip(),
+        "line": os.getenv("MY_LINE", "").strip(),
+        "whatsapp": os.getenv("MY_WHATSAPP", "").strip(),
+        "zalo": os.getenv("MY_ZALO", "").strip(),
+    }
+
+
+def replace_contacts(text: str) -> str:
+    if not text:
+        return text
+
+    contacts = _get_contact_mapping()
+
+    patterns = [
+        ("kakao", r"(?i)\b(kakaotalk|kakao|카카오톡|카톡)\b[:\s]*[^\s,;/]+", "KakaoTalk: {value}"),
+        ("zalo", r"(?i)\b(zalo)\b[:\s]*[^\s,;/]+", "Zalo: {value}"),
+        ("line", r"(?i)\b(line\s*id|line)\b[:\s]*[^\s,;/]+", "Line: {value}"),
+        ("whatsapp", r"(?i)\b(whatsapp|wa)\b[:\s]*[^\s,;/]+", "WhatsApp: {value}"),
+        ("instagram", r"(?i)\b(instagram|insta|ig)\b[:\s]*@?[A-Za-z0-9._]+", "Instagram: @{value}"),
+        ("email", r"(?i)\b(email|이메일|mail)\b[:\s]*[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "Email: {value}"),
+        ("whatsapp", r"(?i)\b(전화|phone|tel|contact)\b[:\s]*[\d\s\-\+()]{7,}", "Contact: {value}"),
+    ]
+
+    result = text
+    for key, pattern, template in patterns:
+        value = contacts.get(key, "")
+        if not value:
+            continue
+        result = re.sub(pattern, template.format(value=value), result)
+
+    return result
