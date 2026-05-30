@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import time
@@ -69,8 +70,8 @@ def save_to_airtable(image_url, source_url, text=""):
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
         return
     table = get_table("Instagram_Posts")
-    escaped = image_url.replace("'", "\\'")
-    existing = table.all(formula=f"{{image_url}}='{escaped}'")
+    image_url_hash = hashlib.sha256(image_url.encode("utf-8")).hexdigest()
+    existing = table.first(formula=f"{{image_url_hash}}='{image_url_hash}'")
     if existing:
         print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return
@@ -78,6 +79,7 @@ def save_to_airtable(image_url, source_url, text=""):
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
     table.create({
         "image_url": image_url,
+        "image_url_hash": image_url_hash,
         "source_url": source_url,
         "post_status": "ready",
         "caption": caption,
