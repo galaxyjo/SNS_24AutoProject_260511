@@ -81,3 +81,31 @@ def generate_caption(text: str) -> tuple[str, str]:
 
     print("[CAPTION] 최대 재시도 초과 — 생략")
     return "", ""
+
+
+def generate_caption_clone(text: str) -> tuple[str, str]:
+    """
+    Clone Mode:
+    - Preserve original Facebook text.
+    - Replace seller contacts with our mapped contacts.
+    - Do not summarize.
+    - Do not rewrite.
+    - Do not truncate.
+    - Only normalize spacing/line breaks.
+    """
+    from modules.sns.content_filter import replace_contacts
+    import re
+
+    if not text:
+        return "", ""
+
+    caption = replace_contacts(text)
+    caption = caption.replace("\r\n", "\n").replace("\r", "\n")
+    caption = re.sub(r"[ \t]+", " ", caption)
+    caption = re.sub(r"\n{3,}", "\n\n", caption)
+    caption = caption.strip()
+
+    tags = re.findall(r"#[\w가-힣_]+", caption)
+    hashtags = " ".join(dict.fromkeys(tags))
+
+    return caption, hashtags
