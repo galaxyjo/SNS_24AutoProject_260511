@@ -7,8 +7,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
-from modules.sns.caption_generator import generate_caption
-from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info
+from modules.sns.caption_generator import generate_caption, generate_caption_clone
+from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts
 from modules.common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -65,7 +65,7 @@ def extract_image_url(post_element, driver=None):
     return ""
 
 
-def save_to_airtable(image_url, source_url, text=""):
+def save_to_airtable(image_url, source_url, text="", original_text=None, media_type="image"):
     if not image_url:
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
         return
@@ -94,10 +94,11 @@ def save_to_airtable(image_url, source_url, text=""):
     if records:
         print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return
-    caption, hashtags = generate_caption(text)
+    caption, hashtags = generate_caption_clone(text)
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
+    _original = original_text or text
     try:
-        res = _req.post(_url, headers=_hdrs, json={"fields": {"image_url": image_url, "image_url_hash": image_url_hash, "source_url": source_url, "post_status": "ready", "caption": caption, "hashtag": hashtags}}, timeout=10)
+        res = _req.post(_url, headers=_hdrs, json={"fields": {"image_url": image_url, "image_url_hash": image_url_hash, "source_url": source_url, "post_status": "ready", "caption": caption, "hashtag": hashtags, "original_text": _original, "converted_text": text, "media_type": media_type}}, timeout=10)
     except Exception as exc:
         logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}")
         return
@@ -135,15 +136,15 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
 
             image_url = extract_image_url(post, driver)
             # 서로게이트 등 latin-1 불가 문자 안전 처리
-            text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
+            raw_text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
             logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
-            text = detect_and_translate(text)
-            if not text or not passes_keyword_filter(text):
+            filter_text = detect_and_translate(raw_text)
+            if not filter_text or not passes_keyword_filter(filter_text):
                 logger.info(f"[FB Crawler] POST {i} 필터 제외")
                 continue
-            text = clean_contact_info(text)
-            save_to_airtable(image_url, target_url, text)
-            results.append({"target_url": target_url, "content": text, "image_url": image_url})
+            converted_text = replace_contacts(raw_text)
+            save_to_airtable(image_url, target_url, converted_text, original_text=raw_text, media_type="image")
+            results.append({"target_url": target_url, "content": converted_text, "image_url": image_url})
 
         logger.info(f"[FB Crawler] 완료 | {len(results)}개 처리 | user={adspower_user_id}")
 
