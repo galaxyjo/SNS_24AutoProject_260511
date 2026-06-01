@@ -65,6 +65,21 @@ def extract_image_url(post_element, driver=None):
     return ""
 
 
+def expand_see_more(post, driver) -> None:
+    """'더 보기' / 'See more' 버튼 클릭으로 포스트 전문 펼치기. 실패 시 silent skip."""
+    try:
+        btns = post.find_elements(
+            By.XPATH,
+            ".//div[contains(text(),'더 보기') or contains(text(),'See more')]"
+            "| .//span[contains(text(),'더 보기') or contains(text(),'See more')]",
+        )
+        if btns:
+            driver.execute_script("arguments[0].click();", btns[0])
+            time.sleep(1)
+    except Exception:
+        pass
+
+
 def save_to_airtable(image_url, source_url, text="", original_text=None, media_type="image"):
     if not image_url:
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
@@ -135,6 +150,7 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
             time.sleep(1.5)
 
             image_url = extract_image_url(post, driver)
+            expand_see_more(post, driver)
             # 서로게이트 등 latin-1 불가 문자 안전 처리
             raw_text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
             logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
