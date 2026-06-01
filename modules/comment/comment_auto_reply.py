@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
+_AUTO_REPLY_ENABLED = os.getenv("COMMENT_AUTO_REPLY_ENABLED", "false").lower() == "true"
+
 # ── 키워드 ─────────────────────────────────────────────────────────────────────
 
 PRICE_KEYWORDS = [
@@ -164,7 +166,8 @@ def handle_comment(
         return
 
     if detect_price_comment(text):
-        reply_to_comment(comment_id, PRICE_REPLY)
+        if _AUTO_REPLY_ENABLED:
+            reply_to_comment(comment_id, PRICE_REPLY)
         _send_telegram_comment(username, text, "price")
     else:
         _send_telegram_comment(username, text, "new")
