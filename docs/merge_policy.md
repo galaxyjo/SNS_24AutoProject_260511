@@ -82,10 +82,23 @@
 
 ---
 
+## COMMIT 전 Runtime Proof 원칙 (260602 확정)
+```
+- 기능 코드 commit 전 반드시 one-shot 단발 실행 → Airtable 저장 1건 확인 필수
+- py_compile + git diff 통과 ≠ 동작 확인
+- docs-only commit은 코드 변경 없으면 Runtime Proof 없이 별도 승인 가능
+- 코드 + 런타임 캐시 파일(processed_comment_ids.json 등) 혼합 commit 금지
+- git add . 절대 금지 — 파일명 지정 add만 허용
+```
+
 ## RUNTIME CHANGE LOG
 | 날짜 | 파일 | 내용 |
 |------|------|------|
 | 2026-05-28 | modules/dm/dm_auto_reply.py | 중복 발송 방지 _has_recent_auto_replied() 추가 / _rule.reason AttributeError 수정 |
+| 2026-06-01 | modules/sns/caption_generator.py | generate_caption_clone() 추가 — Gemini rewrite 없는 Clone Mode 포맷터 |
+| 2026-06-01 | modules/sns/facebook_crawler.py | clone 경로 연결 + expand_see_more() 추가 |
+| 2026-06-01 | modules/sns/content_filter.py | keyword filter 확장 7개 + BRAND_ALLOWLIST |
+| 2026-06-01 | modules/comment/comment_auto_reply.py | COMMENT_AUTO_REPLY_ENABLED 안전장치 |
 
 ## FINAL POLICY
 ```

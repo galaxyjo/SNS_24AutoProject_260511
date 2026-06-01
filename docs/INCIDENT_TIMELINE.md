@@ -158,6 +158,26 @@
 
 ---
 
+## INC-016 | Clone Mode 실패 → 진단 → Runtime Proof 성공
+**발생:** 2026-06-01 ~ 2026-06-02
+**요약:** Clone Mode 파이프라인 6단계 commit 후 Runtime Proof 0건 → 원인 진단 → 필터/더보기 보정 → 1건 확보
+**타임라인:**
+- 260601 Phase 1~3 commit 완료 (c8000ee, 3ed3b45, b059740)
+- max_posts=3 단발 실행 → 0건 처리 (원인: 베트남어 피드 / 더보기 미클릭)
+- 진단 1: `_diag_post_text.py` → POST 1 text_len 63, #SNUGGLE 감지
+- 진단 2: `detect_and_translate()` 정상 동작 확인, `passes: True`
+- 진단 3: `_diag_seemore.py` → 더보기 클릭 시 110→581자 확장 / 베트남어 확인
+- Phase 4: keyword filter 확장 (25c3f13)
+- Phase 5: comment auto-reply 안전장치 (a64b0ff)
+- Phase 6: `expand_see_more()` 추가 (deec24c)
+- 새 그룹 URL `1676627532598134` 로 max_posts=10 실행 → K-BEAUTY 키워드 매칭 → 저장 1건
+- Airtable recsmA4WIlrur1wHO: original_text / converted_text / caption / media_type=image ✅
+**영향:** Clone Mode Runtime Proof 6일 지연 (260529→260602)
+**해결:** expand_see_more() + 그룹 URL 다중화로 해소
+**재발 방지:** FP-020 (Runtime Proof 없는 commit 금지) / FP-021 (더보기 필수) 등록
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다

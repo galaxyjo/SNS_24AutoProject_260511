@@ -160,6 +160,31 @@ retry_queue dead = 0 ✅
 
 ---
 
+## CLONE MODE 단발 Runtime Proof 절차 (260602 확정)
+```
+1. AdsPower k1bto3j4 프로필 Open 확인
+2. Facebook 그룹 로그인 상태 + 피드 게시글 육안 확인
+3. one-shot crawler 실행 (load_dotenv 필수):
+   cd "C:\SNS_24AutoProject_260511"
+   .venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_dotenv(override=True); from modules.sns.facebook_crawler import run; result=run('<GROUP_URL>', max_posts=10, adspower_user_id='k1bto3j4'); print('count:', len(result) if result else 0)"
+4. [AIRTABLE] 저장 완료 로그 확인
+5. Airtable Instagram_Posts 최신 record (post_status=ready) 확인:
+   - original_text: 존재
+   - converted_text: 존재
+   - caption: 원문 기반 (요약 아님)
+   - media_type: image
+6. 이상 없으면 Runtime Proof PASS
+```
+
+## CLONE MODE 운영 안전 원칙 (260602 확정)
+```
+- COMMENT_AUTO_REPLY_ENABLED=false 유지 (IG 공개 답글 차단)
+- git add . 절대 금지 — 파일명 지정 add만 허용
+- data/processed_comment_ids.json commit 금지
+- Instagram 업로드는 post_status=ready 확인 후 수동 승인
+- launcher 장시간 실행 전 Runtime Proof 1건 확보 필수
+```
+
 ## PRODUCTION RULES
 ```
 1. 운영 중 직접 코드 수정 금지

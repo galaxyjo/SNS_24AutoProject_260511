@@ -1,8 +1,11 @@
 ﻿# CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260529_2015_
+_마지막 업데이트: 260602_0108_
 
 ## 현재 단계
-FB 크롤러 정상화 완료 — accounts.json 등록 + Airtable caption 필드 추가 → 2회 연속 `계정 완료 | account=account1 | 3개` 확인 (19:43 / 20:13)
+**Clone Mode Runtime Proof 성공** — Facebook post → expand_see_more() → original_text 보존 → replace_contacts() → converted_text → generate_caption_clone() → Airtable 저장 1건 확인 (recsmA4WIlrur1wHO)
+
+## 최종 확인 커밋
+deec24c (feat: expand facebook see-more text before clone capture [260601])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -54,9 +57,9 @@ FB 크롤러 정상화 완료 — accounts.json 등록 + Airtable caption 필드
 - FB 크롤러 2회 연속 정상 완료 → **260529 19:43 / 20:13 확인**
 
 ## 미해결 항목 (Phase 후순위)
-- 크롤링 콘텐츠 필터 없음 — 전량 수집 중 (품질 필터 미구현)
-- 영어 변환 미구현 — 캡션 한국어로 생성 중
+- accounts.json crawl_url 다중화 미완료 — 현재 1개 그룹만 등록
 - 워터마크 제외 로직 미구현
+- data/processed_comment_ids.json untracked 유지 (정상 — gitignore 대상)
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -92,4 +95,13 @@ FB 크롤러 정상화 완료 — accounts.json 등록 + Airtable caption 필드
 - ERR-028: Airtable caption 필드 없음 → 422 → UI에서 Long text 필드 추가로 해소
 - 검증: 19:43:40 `계정 완료 | account=account1 | 3개` ✅
 - 검증: 20:13:41 `계정 완료 | account=account1 | 3개` ✅
-- 미해결: 필터 없음 / 영어변환 미구현 / 워터마크 제외 미구현
+
+## [260601~260602_Clone_Mode_Proof] — 2026-06-02 01:08 KST
+- Phase 1: replace_contacts() 매핑 추가 (c8000ee)
+- Phase 2: generate_caption_clone() 추가 (3ed3b45)
+- Phase 3: facebook_crawler clone 경로 연결 (b059740)
+- Phase 4: keyword filter 확장 + BRAND_ALLOWLIST (25c3f13)
+- Phase 5: comment auto-reply 안전장치 COMMENT_AUTO_REPLY_ENABLED=false (a64b0ff)
+- Phase 6: expand_see_more() 추가 + Runtime Proof (deec24c)
+- Runtime Proof: recsmA4WIlrur1wHO — original_text / converted_text / caption / media_type=image 전부 저장 확인 ✅
+- 백업: C:\backup_(11)_260602_0108_SNS_24AutoProject_260511.zip

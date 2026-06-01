@@ -115,12 +115,38 @@ MasterTree 기준 유지
 
 ---
 
+## CLONE MODE ARCHITECTURE LOCK (260602 확정)
+```
+원칙:
+1. Gemini rewrite 호출 절대 금지 (generate_caption() clone 경로 사용 금지)
+2. original_text 보존 필수 — post.text 직후 캡처, 가공 전 저장
+3. converted_text = replace_contacts(raw_text) 결과
+4. caption = generate_caption_clone(converted_text) 결과 (포맷 정리만)
+5. expand_see_more() 호출 필수 — raw_text 읽기 직전
+6. Runtime Proof 1건 확보 전 기능 확장 금지
+7. COMMENT_AUTO_REPLY_ENABLED=false 기본 유지
+
+저장 파이프라인 (고정):
+Facebook post
+  → expand_see_more()         # 더보기 클릭
+  → raw_text = post.text      # 원문 캡처
+  → detect_and_translate()    # 필터용 번역 (저장 미사용)
+  → passes_keyword_filter()   # 필터 통과 체크
+  → replace_contacts(raw_text) → converted_text
+  → save_to_airtable(converted_text, original_text=raw_text)
+      → generate_caption_clone(converted_text) → caption, hashtags
+      → Airtable POST: original_text / converted_text / caption / hashtag / media_type=image
+
+Runtime Proof (2026-06-02):
+  recsmA4WIlrur1wHO — original_text / converted_text / caption / media_type=image ✅
+```
+
 ## RUNTIME VERIFIED (2026-05-28)
 ```
 - 실거래 DM AutoReply E2E 성공: IGSID 1792783944739953 → IG DM 발송 완료
 - 중복 발송 방지: _has_recent_auto_replied() CREATED_TIME() 3분 window 적용
 - duplicate skip 로그 검증: 21:42:15 / 21:50:03 정상 차단 확인
-- 수정 파일: modules/dm/dm_auto_reply.py (미커밋)
+- 수정 파일: modules/dm/dm_auto_reply.py ✅ 72e0e1a 커밋 완료
 ```
 
 ## FINAL PRINCIPLE

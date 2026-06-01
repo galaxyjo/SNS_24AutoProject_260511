@@ -174,6 +174,51 @@ chcp 65001
 
 ---
 
+## FP-020 | Runtime Proof 없이 commit 누적
+**설명:** 코드 패치를 여러 단계 commit 했으나 실제 Airtable 저장 1건도 확인하지 않은 상태
+**근본 원인:** py_compile + git diff 통과 = 동작 확인으로 오인. 실제 FB 피드 → 저장까지 E2E 미검증
+**증상:** commit 6개 쌓인 후 Runtime에서 0개 처리 / 피드 언어 불일치 / .env 미로드 등 뒤늦게 발견
+**예방:** 기능 commit 전 반드시 one-shot crawler 단발 실행 → Airtable record 1건 직접 확인
+**관련:** 260601 Clone Mode 진단 세션
+
+---
+
+## FP-021 | Facebook 더보기(See more) 미클릭으로 원문 누락
+**설명:** Selenium이 `post.text`를 읽을 때 `더 보기` 클릭 전 truncated 텍스트만 수집
+**근본 원인:** Facebook은 긴 게시글을 `더 보기` 뒤에 숨김. Selenium `post.text`는 보이는 텍스트만 반환
+**증상:** `text_len: 63` (실제 전문 581자) → 키워드 미매칭 → 필터 제외
+**해결:** `expand_see_more(post, driver)` 추가 — post.text 읽기 전 클릭 시도, 실패 시 silent skip
+**예방:** Clone Mode에서 원문 보존이 목적이므로 더보기 클릭은 필수 보정
+**관련:** deec24c / 260601 Runtime Proof
+
+---
+
+## FP-022 | 베트남어/중국어 게시글을 필터 버그로 오인
+**설명:** `detect_and_translate()`가 베트남어 텍스트에 `""` 반환 → 필터 제외 → 버그 의심
+**근본 원인:** `_has_excluded_language()` 설계대로 베트남어/중국어 차단. 버그 아님
+**증상:** `POST N 필터 제외` 로그 + `필터_text: (빈값)` → 오인 가능
+**예방:** 필터 제외 시 원문을 진단해 언어 확인 후 판정. 베트남어/중국어는 설계 차단
+**관련:** 260601 진단 — `raw_after: Khánh Sun ... NMN 36000 – Hỗ trợ ...` 확인
+
+---
+
+## FP-023 | clean_contact_info() 선처리 후 replace_contacts() 치환 실패
+**설명:** `run()` 에서 `clean_contact_info(text)` 가 연락처를 먼저 제거하면, 이후 `replace_contacts()` 가 치환할 패턴 없음
+**근본 원인:** Phase 3 패치로 `clean_contact_info()` 를 clone 경로에서 제거, `replace_contacts(raw_text)` 로 교체. 두 함수의 역할 혼동 시 재발 가능
+**예방:** clone 경로에서 `clean_contact_info()` 재투입 금지. `replace_contacts()` 만 사용
+**관련:** b059740 Phase 3 패치
+
+---
+
+## FP-024 | data/processed_comment_ids.json commit 혼입
+**설명:** `git add .` 사용 시 `data/processed_comment_ids.json` 이 commit에 혼입됨
+**근본 원인:** comment_poller 캐시 파일이 `data/` 에 생성됨. `.gitignore` 미등록 상태
+**증상:** commit에 런타임 캐시 파일 포함 → 다음 pull 시 comment 중복 처리 위험
+**예방:** `git add .` 절대 금지. 파일명 지정 add만 허용. `data/` 폴더 gitignore 확인
+**관련:** 현재 `data/processed_comment_ids.json` untracked 유지 중
+
+---
+
 ## FP-019 | watchdog 미기동 시 Flask 수동 실행 패턴
 **설명:** watchdog.ps1이 실행되지 않은 상태에서 세션 시작 시 Flask(:5000), ngrok, launcher 모두 미기동 상태일 수 있음
 **근본 원인:** watchdog.ps1은 자동 시작 등록 없이 수동 실행 — 재부팅·세션 종료 후 미기동

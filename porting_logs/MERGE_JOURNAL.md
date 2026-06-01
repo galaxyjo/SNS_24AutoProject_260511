@@ -5,6 +5,24 @@
 
 ---
 
+## [260601~260602] Clone Mode 전체 파이프라인 구축 + Runtime Proof
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-06-01 ~ 2026-06-02 |
+| 목표 | Facebook 원문 보존 Clone Mode 저장 파이프라인 구축 및 Runtime Proof 확보 |
+| Phase 1 | `modules/sns/content_filter.py` — `replace_contacts()` 추가, 판매자 연락처 → 내 연락처 매핑 치환 (c8000ee) |
+| Phase 2 | `modules/sns/caption_generator.py` — `generate_caption_clone()` 추가, Gemini rewrite 없이 원문 포맷 정리만 (3ed3b45) |
+| Phase 3 | `modules/sns/facebook_crawler.py` — `run()` clone 경로 연결, `raw_text` 보존 + `replace_contacts()` → `converted_text`, `save_to_airtable()` payload 확장 (b059740) |
+| Phase 4 | `modules/sns/content_filter.py` — keyword filter 확장 7개 + `BRAND_ALLOWLIST=["snuggle"]` (25c3f13) |
+| Phase 5 | `modules/comment/comment_auto_reply.py` — `COMMENT_AUTO_REPLY_ENABLED=false` 안전장치, IG 공개 답글만 차단, Telegram+Airtable 유지 (a64b0ff) |
+| Phase 6 | `modules/sns/facebook_crawler.py` — `expand_see_more()` 추가, post.text 읽기 전 더보기 클릭 (deec24c) |
+| Runtime Proof | recsmA4WIlrur1wHO — original_text / converted_text / caption / media_type=image 저장 확인 ✅ |
+| 백업 | C:\backup_(11)_260602_0108_SNS_24AutoProject_260511.zip |
+| 주요 진단 | 베트남어 게시글 정상 차단 확인 / FB 더보기 클릭 110→581자 확장 확인 / GoogleTranslator 정상 동작 확인 |
+
+---
+
 ## [260527_2000~2200] watchdog.ps1 Start-Flask 주석 처리 — :5000 중복 바인딩 + Dual Scheduler 해소
 
 | 항목 | 내용 |

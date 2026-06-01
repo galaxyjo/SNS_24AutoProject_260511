@@ -264,6 +264,67 @@
 
 ---
 
+## ERR-029 | one-liner 실행 시 .env 미로드 → Airtable API_KEY 없음
+**Type:** Configuration Gap
+**Raw:** `[AIRTABLE] API_KEY 또는 BASE_ID 미설정`
+**Root Cause:** `python -c "..."` one-liner 실행 시 `load_dotenv()` 미호출 → 환경변수 없음
+**Fix:** one-liner 앞에 `from dotenv import load_dotenv; load_dotenv(override=True);` 추가
+**Prevention:** 단발 실행 one-liner에는 항상 load_dotenv() 선행 호출 필수
+**Status:** ✅ RESOLVED (2026-06-02)
+**Evidence:** load_dotenv 추가 후 `[AIRTABLE] 저장 완료` 확인
+
+---
+
+## ERR-030 | raw_text 보존 위치 오류 — clean_contact_info 선처리로 원문 손실
+**Type:** Logic Error
+**Raw:** `original_text = text` 시점이 clean_contact_info() 통과 후 → 원문 아님
+**Root Cause:** 기존 run()에서 `text = clean_contact_info(text)` 후 `save_to_airtable(text)` 호출 → save_to_airtable 내부의 `original_text = text` 는 이미 가공된 값
+**Fix:** Phase 3 패치 — `raw_text = post.text` 직후 캡처, `clean_contact_info()` clone 경로 제거
+**Prevention:** original_text는 반드시 post.text 직후 값. 어떤 가공도 전에 캡처
+**Status:** ✅ RESOLVED (2026-06-01, b059740)
+
+---
+
+## ERR-031 | generate_caption() Gemini rewrite로 원문 손실
+**Type:** Design Error
+**Raw:** caption이 원문 요약/번역본 → 상품명/가격/조건 소실
+**Root Cause:** 기존 `generate_caption(text)` 는 Gemini API 호출로 `Summarize in 2-3 sentences` 지시 → 원문 정보 손실
+**Fix:** `generate_caption_clone(text)` 신규 추가 — Gemini 호출 없이 포맷 정리만
+**Prevention:** Clone Mode에서 Gemini rewrite 호출 절대 금지
+**Status:** ✅ RESOLVED (2026-06-01, 3ed3b45)
+
+---
+
+## ERR-032 | Facebook 더보기 미클릭 → 텍스트 63자 truncated → 키워드 미매칭
+**Type:** Data Capture Gap
+**Raw:** `text_len: 63` → `passes: False` → 필터 제외 (실제 전문 581자)
+**Root Cause:** Selenium `post.text`는 현재 DOM에 렌더된 텍스트만 반환. Facebook 더보기 클릭 전 truncated 상태
+**Fix:** `expand_see_more(post, driver)` 추가 — post.text 읽기 직전 클릭
+**Prevention:** Clone Mode에서 더보기 클릭은 원문 보존 필수 보정
+**Status:** ✅ RESOLVED (2026-06-01, deec24c)
+
+---
+
+## ERR-033 | 베트남어 게시글 → detect_and_translate() 빈값 → 필터 제외 (정상 동작)
+**Type:** Expected Behavior (버그 아님)
+**Raw:** `filter_text: (빈값)` / `POST N 필터 제외` — 베트남어 게시글
+**Root Cause:** `_has_excluded_language()` 가 베트남어 특수문자 감지 → `""` 반환 → 정상 차단
+**Fix:** 없음 — 설계대로 동작
+**Prevention:** 필터 제외 시 원문 텍스트 언어 확인 후 판정. 베트남어/중국어는 정상 차단
+**Status:** ✅ CONFIRMED (2026-06-01, 설계 정상)
+
+---
+
+## ERR-034 | comment_poller 미실행 → 댓글 알림 미발송
+**Type:** Operational Gap
+**Raw:** IG 댓글 수신 후 Telegram 알림 없음
+**Root Cause:** `poll_new_comments()`는 `core/run_engine.py` 스케줄러에 등록됨. launcher 미실행 시 polling loop 없음
+**Fix:** launcher 기동으로 즉시 활성화
+**Prevention:** launcher 실행 상태 주기적 확인. watchdog.ps1 SNS_Watchdog_AutoStart 등록 확인
+**Status:** ⏸ PENDING (launcher 기동 시 자동 해소)
+
+---
+
 ## ERR-028 | Airtable caption 필드 없음 → 422 UNKNOWN_FIELD_NAME
 **Type:** Airtable Schema Mismatch
 **Raw:** `422 Client Error: Unprocessable Entity — UNKNOWN_FIELD_NAME: "caption"`

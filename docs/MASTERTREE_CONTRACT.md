@@ -101,11 +101,33 @@ Account_Registry  ← 계정 + AdsPower 매핑
 
 ---
 
-## RUNTIME STATUS (2026-05-28)
+## AIRTABLE Instagram_Posts 데이터 계약 (260602 확정)
+
+| 필드명 | 타입 | 역할 | 기본값 |
+|--------|------|------|--------|
+| `image_url` | url | Facebook CDN 이미지 URL | 필수 |
+| `image_url_hash` | singleLineText | 중복 체크용 SHA256 | 자동 생성 |
+| `source_url` | url | Facebook 그룹 URL | 필수 |
+| `post_status` | multilineText | ready → uploading → posted | ready |
+| `caption` | multilineText | generate_caption_clone() 결과 | 원문 기반 |
+| `hashtag` | multilineText | 원문 #태그 추출본 | 없으면 빈값 |
+| `original_text` | multilineText | post.text 직후 원문 (가공 전) | 필수 |
+| `converted_text` | multilineText | replace_contacts() 결과 | 필수 |
+| `media_type` | singleLineText | 미디어 타입 | image (기본) |
+
 ```
-modules/dm/dm_auto_reply.py  M  — 중복 발송 방지 + AttributeError 수정 (미커밋)
-실거래 DM AutoReply E2E PASS — IGSID 1792783944739953
-duplicate skip 검증 PASS      — 21:42:15 / 21:50:03
+media_type 확장 계획:
+- image: 현재 구현 (260602 Runtime Proof 완료)
+- carousel: Phase 후속 (별도 기획 필요)
+- video: Phase 후속 (별도 기획 필요)
+```
+
+## RUNTIME STATUS (2026-06-02)
+```
+Clone Mode Runtime Proof PASS — recsmA4WIlrur1wHO
+original_text / converted_text / caption / media_type=image 저장 확인
+최종 commit: deec24c
+백업: backup_(11)_260602_0108
 ```
 
 ## MASTER PRINCIPLE
