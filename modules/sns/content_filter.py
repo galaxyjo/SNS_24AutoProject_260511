@@ -5,7 +5,13 @@ import re
 # 키워드 목록
 KEYWORDS = [
     "wholesale", "export", "cosmetic", "k-beauty", "kbeauty",
-    "skincare", "distributor", "moq", "supply", "btob", "b2b"
+    "skincare", "distributor", "moq", "supply", "btob", "b2b",
+    "koreacosmetic", "serum", "toner", "essence", "oem", "odm", "makeup",
+]
+
+# 브랜드 allowlist — KEYWORDS 와 별도 관리
+BRAND_ALLOWLIST = [
+    "snuggle",
 ]
 
 # 중국어/베트남어 유니코드 범위
@@ -37,7 +43,10 @@ def detect_and_translate(text: str) -> str:
 # 키워드 필터
 def passes_keyword_filter(text: str) -> bool:
     lower = text.lower()
-    return any(kw in lower for kw in KEYWORDS)
+    return (
+        any(kw in lower for kw in KEYWORDS)
+        or any(br in lower for br in BRAND_ALLOWLIST)
+    )
 
 # 연락처/회사명 제거
 def clean_contact_info(text: str) -> str:
