@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260602_1340_
+_마지막 업데이트: 260602_1620_
 
 ## 현재 단계
-**섹션19 Clone Mode 그룹URL 다중화 완료** — crawl_urls 4개 확장 / BOM 제거 / load_dotenv 추가 / Airtable 저장 재확인
+**섹션19 Instagram 업로드 Runtime Proof 완료** — Graph API 2-step 업로드 / imgbb 전처리 / Airtable posted 마킹 / caption clean_fb_metadata 적용
 
 ## 최종 확인 커밋
-f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
+349fedf (fix: Clone Mode caption Facebook UI 잔여물 제거 (ERR-037) [260602])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -15,6 +15,7 @@ f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
 - 3dbe72a (feat: crawl_urls 4개 그룹으로 확장 [260602])
 - c6a30d1 (fix: accounts.json BOM 제거 + newline 정리 [260602])
 - f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
+- 349fedf (fix: Clone Mode caption Facebook UI 잔여물 제거 ERR-037 [260602])
 
 ## Runtime 상태 (260529 20:15 기준 — 세션 간 기동 미확인)
 | 구간 | 상태 | 근거 |
@@ -62,6 +63,11 @@ f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
 - facebook_crawler.py load_dotenv 추가 → **260602 완료** (f5d59f2)
 - pytest 104 passed / 1 xfailed / 2 xpassed 확인 (260602)
 - deep-translator 1.11.4 설치 완료 (260602)
+- 시스템 환경변수 AIRTABLE_API_KEY 플레이스홀더(`pat여기에전체토큰`) → **260602 제거 완료** (User scope + 세션 제거)
+- bot_uploader.py → insta_uploader.py 체인: **dead stub 확인** — 실제 Graph API 호출 없음, launcher/main.py가 실제 업로더
+- caption clean_fb_metadata() → **260602 완료** (349fedf) — 작성자명·경과시간·구분점(·) 제거
+- Airtable ready 레코드 caption 오염 일괄 정정 → **260602 완료** (2건: recKLX1OsOvfRu5k1, recsmA4WIlrur1wHO)
+- Instagram 업로드 Runtime Proof → **260602 완료** — recFyw7OUaZ666JDJ / ig_media_id=18101360630320704 / post_status=posted ✅
 
 ## 미해결 항목 (Phase 후순위)
 - 그룹 610113703703488: div[role='feed'] 미탐지 — 가입 승인 대기 중 (코드 문제 아님)
@@ -114,6 +120,19 @@ f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
 - Phase 6: expand_see_more() 추가 + Runtime Proof (deec24c)
 - Runtime Proof: recsmA4WIlrur1wHO — original_text / converted_text / caption / media_type=image 전부 저장 확인 ✅
 - 백업: C:\backup_(11)_260602_0108_SNS_24AutoProject_260511.zip
+
+## [260602_섹션19_Instagram_Upload_Runtime_Proof] — 2026-06-02 16:20 KST
+- 업로드 체인 분석: bot_uploader→insta_uploader dead stub 확인, 실제 업로더=launcher/main.py:159
+- 환경변수 이슈: 시스템 AIRTABLE_API_KEY 플레이스홀더 → latin-1 UnicodeEncodeError → User scope 삭제 해소
+- find_dotenv() 탐색 실패 원인 확인: temp 경로 실행 시 발생 — 절대경로 load_dotenv 사용으로 우회
+- ERR-037 해소: caption Facebook UI 잔여물(작성자명·경과시간··) → clean_fb_metadata() 추가 (349fedf)
+- Airtable ready 레코드 2건 caption 일괄 정정 완료
+- **Graph API 업로드 성공 증거:**
+  - 대상: recFyw7OUaZ666JDJ
+  - 이미지: 960×1707 ratio=0.56 → imgbb center-crop → https://i.ibb.co/dwnMVq7Z/2547998023eb.jpg
+  - /media id: 17889472404540095
+  - /media_publish id (ig_media_id): **18101360630320704** ✅
+  - Airtable post_status: ready → uploading → **posted** ✅
 
 ## [260602_섹션19_Clone_Mode_그룹URL_다중화] — 2026-06-02 13:40 KST
 - crawl_urls 1개 → 4개 그룹 확장 (3dbe72a)

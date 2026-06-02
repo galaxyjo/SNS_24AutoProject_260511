@@ -141,6 +141,21 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 - 260511 보호 유지
 - Business Runtime commit: 로그 증거 소실로 화면 증거만 존재 — commit 보류 유지
 
+---
+## [260602_Instagram_Upload_Pipeline_Proof] — 2026-06-02 16:20 KST
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-06-02 |
+| 대상 파일 | `modules/sns/content_filter.py`, `modules/sns/caption_generator.py` |
+| 수정 1 | `clean_fb_metadata()` 추가 — Facebook UI 잔여물(작성자명·경과시간·구분점) 제거 |
+| 수정 2 | `generate_caption_clone()` 에서 `replace_contacts()` 전에 `clean_fb_metadata()` 선처리 |
+| 환경변수 수정 | 시스템 AIRTABLE_API_KEY 플레이스홀더 User scope 삭제 + 세션 제거 |
+| dead code 확인 | `bot_uploader→insta_uploader` 체인, `instagram_uploader.py`, `uploader_instagram.py`, `wf_instagram_scheduler.py` 전부 dead stub 확인 |
+| Airtable 정정 | ready 레코드 caption 오염 2건 일괄 정정 (recKLX1OsOvfRu5k1, recsmA4WIlrur1wHO) |
+| Instagram 업로드 증거 | recFyw7OUaZ666JDJ → ig_media_id=18101360630320704 → post_status=posted ✅ |
+| git 상태 | 349fedf (fix: Clone Mode caption Facebook UI 잔여물 제거 ERR-037) ✅ |
+
 ### 미완
 - n8n 미설정 상태 (정상)
 - dual scheduler 중복 발송 원인 파악됨 — 수정 미적용

@@ -188,6 +188,23 @@
 
 ---
 
+## INC-018 | 시스템 환경변수 플레이스홀더 + caption 오염 → Instagram 업로드 사전 차단
+**발생:** 2026-06-02
+**요약:** Instagram 업로드 테스트 준비 중 2개 독립 버그 발견 및 해소
+**타임라인:**
+- AIRTABLE_API_KEY User 환경변수에 `pat여기에전체토큰`(한국어 플레이스홀더, 10자) 잔존 확인
+- `load_dotenv()` find_dotenv() 탐색 실패(temp 경로 실행) + 시스템 변수 우선 적용 → latin-1 UnicodeEncodeError
+- 시스템 환경변수 User scope 삭제 + 세션 제거로 해소
+- Airtable ready 레코드 caption 필드에 `우다현\n43분\n·` 형태 Facebook UI 잔여물 포함 확인 (ERR-037)
+- `clean_fb_metadata()` 추가 + `generate_caption_clone()` 선처리 연결 (349fedf)
+- 기존 dirty 레코드 2건 Airtable 직접 정정 완료
+- Instagram 업로드 테스트 실행: recFyw7OUaZ666JDJ → ig_media_id=18101360630320704 → posted ✅
+**영향:** 잠재적 latin-1 에러로 Airtable 연동 전체 차단 / 오염 caption 업로드 사전 방지
+**해결:** 환경변수 정리 + ERR-037 코드 수정 + Airtable 레코드 정정
+**재발 방지:** load_dotenv 절대경로 필수 / 시스템 환경변수 플레이스홀더 설정 금지 / clone 경로 원문 전처리 의무화
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다
