@@ -64,6 +64,29 @@ def clean_contact_info(text: str) -> str:
     return "\n".join(cleaned).strip()
 
 
+def clean_fb_metadata(text: str) -> str:
+    """Facebook UI 잔여물 제거 — 작성자명·경과시간·구분점(·) 헤더 행 삭제."""
+    lines = text.splitlines()
+    # "이름\n숫자분/시간/일 ·" 형태 앞 2~3줄 감지 후 제거
+    _time_pat = re.compile(r'^\s*\d+\s*(분|시간|일|주|개월)\s*[·•]?\s*$')
+    _dot_pat   = re.compile(r'^\s*[·•]\s*$')
+    cleaned = []
+    skip_next = False
+    for i, line in enumerate(lines):
+        if skip_next:
+            skip_next = False
+            continue
+        # 경과시간 줄이면 바로 앞 줄(이름)도 소급 제거
+        if _time_pat.match(line):
+            if cleaned:
+                cleaned.pop()
+            continue
+        if _dot_pat.match(line):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def _get_contact_mapping():
     return {
         "kakao": os.getenv("MY_KAKAO", "").strip(),

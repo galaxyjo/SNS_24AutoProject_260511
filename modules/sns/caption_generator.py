@@ -93,13 +93,14 @@ def generate_caption_clone(text: str) -> tuple[str, str]:
     - Do not truncate.
     - Only normalize spacing/line breaks.
     """
-    from modules.sns.content_filter import replace_contacts
+    from modules.sns.content_filter import replace_contacts, clean_fb_metadata
     import re
 
     if not text:
         return "", ""
 
-    caption = replace_contacts(text)
+    caption = clean_fb_metadata(text)
+    caption = replace_contacts(caption)
     caption = caption.replace("\r\n", "\n").replace("\r", "\n")
     caption = re.sub(r"[ \t]+", " ", caption)
     caption = re.sub(r"\n{3,}", "\n\n", caption)

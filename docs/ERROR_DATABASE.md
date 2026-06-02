@@ -285,6 +285,16 @@
 
 ---
 
+## ERR-037 | Clone Mode caption에 Facebook UI 잔여물 포함
+**Type:** Data Contamination
+**Raw:** caption 필드에 `우다현\n43분\n·\n[NEW ARRIVAL]...` 형태로 작성자명·경과시간·구분점이 그대로 포함됨
+**Root Cause:** `generate_caption_clone()`이 `replace_contacts()`만 호출하고 Facebook UI 메타데이터(작성자명, 경과시간, ·) 제거 없이 원문을 그대로 캡션으로 사용
+**Fix:** `content_filter.py`에 `clean_fb_metadata()` 추가 (경과시간 패턴 감지 → 해당 줄 및 직전 이름 줄 소급 제거), `generate_caption_clone()`에서 `replace_contacts()` 전에 호출
+**Prevention:** clone 경로에서 원문 보존은 본문 내용만 대상. UI 잔여물(작성자/시간/구분점) 제거는 별도 전처리 단계로 분리
+**Status:** ✅ RESOLVED (2026-06-02)
+
+---
+
 ## ERR-031 | generate_caption() Gemini rewrite로 원문 손실
 **Type:** Design Error
 **Raw:** caption이 원문 요약/번역본 → 상품명/가격/조건 소실
