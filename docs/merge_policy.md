@@ -99,6 +99,15 @@
 | 2026-06-01 | modules/sns/facebook_crawler.py | clone 경로 연결 + expand_see_more() 추가 |
 | 2026-06-01 | modules/sns/content_filter.py | keyword filter 확장 7개 + BRAND_ALLOWLIST |
 | 2026-06-01 | modules/comment/comment_auto_reply.py | COMMENT_AUTO_REPLY_ENABLED 안전장치 |
+| 2026-06-02 | configs/accounts.json | crawl_urls 4개 그룹 확장 + BOM 제거 (3dbe72a / c6a30d1) |
+| 2026-06-02 | modules/sns/facebook_crawler.py | load_dotenv(override=True) 모듈 상단 추가 (f5d59f2) |
+
+## JSON 설정 파일 저장 규칙 (260602 확정)
+```
+Set-Content -Encoding UTF8 사용 절대 금지 (JSON/설정 파일)
+→ BOM 삽입 → Python json.load() 파싱 실패 (ERR-035 / FP-025)
+반드시: [System.IO.File]::WriteAllText(path, content, [System.Text.UTF8Encoding]::new($false))
+```
 
 ## FINAL POLICY
 ```

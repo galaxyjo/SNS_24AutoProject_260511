@@ -193,3 +193,26 @@ retry_queue dead = 0 ✅
 4. evidence 없는 판단 금지
 5. rollback 없는 수정 금지
 ```
+
+## CRAWL_URLS 현황 (260602 기준)
+| 그룹 ID | 상태 | 비고 |
+|---------|------|------|
+| 1676627532598134 | ✅ 활성 | K-beauty 필리핀 그룹 — 키워드 매칭 시 수집 |
+| 610113703703488 | ⚠️ 대기 | div[role='feed'] 미탐지 — 가입 승인 대기 중 |
+| 345179878828208 | ✅ 활성 | Airtable 저장 확인 (260602 기준 그룹) |
+| 755455243345993 | ✅ 활성 | 키워드 매칭 시 수집 |
+
+---
+
+## JSON 설정 파일 저장 규칙 (260602 확정)
+```powershell
+# ❌ 절대 금지 — BOM 삽입으로 JSON 파싱 실패 유발
+Set-Content "경로.json" -Encoding UTF8 -Value $content
+
+# ✅ 필수 사용 — BOM-free UTF-8
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText("경로.json", $content, $utf8NoBom)
+```
+**근거:** ERR-035 / FP-025 — PowerShell 5.1 Set-Content UTF8 BOM 삽입 버그
+
+---

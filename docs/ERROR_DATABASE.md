@@ -333,3 +333,25 @@
 **Prevention:** 코드에서 새 Airtable 필드 사용 시 배포 전 테이블 스키마 확인 필수 — API read-only로 기존 필드 목록 검증 후 진행
 **Status:** ✅ RESOLVED (2026-05-29)
 **Evidence:** Airtable API 필드 목록에 `caption multilineText` 확인 / 19:43 이후 422 없음
+
+## ERR-035 | PowerShell Set-Content UTF8 BOM → account_manager JSON 파싱 실패
+**Type:** JSON Parse Error / Encoding Bug
+**Raw:** `[AccountManager] accounts.json 파싱 실패 | Unexpected UTF-8 BOM (decode using utf-8-sig)`
+**Root Cause:** `Set-Content -Encoding UTF8` 이 BOM(EF BB BF) 포함 파일 생성 → Python `json.load()` BOM 거부
+**Fix:** `[System.IO.File]::WriteAllText(path, content, [System.Text.UTF8Encoding]::new($false))`
+**Prevention:** FP-025 준수 — JSON/설정 파일은 반드시 BOM-free UTF-8 저장
+**Status:** ✅ RESOLVED (2026-06-02, c6a30d1)
+**Evidence:** BOM 제거 후 `[AccountManager] accounts.json 로드 | 1개 계정` 확인
+
+---
+
+## ERR-036 | facebook_crawler.py 모듈 load_dotenv 미호출 → Airtable API_KEY 미설정
+**Type:** Configuration Gap / Module-level
+**Raw:** `[AIRTABLE] API_KEY 또는 BASE_ID 미설정`
+**Root Cause:** `modules/sns/facebook_crawler.py` 상단에 `load_dotenv()` 미호출 → 모듈 직접 import 실행 시 `.env` 미로드 → `os.getenv("AIRTABLE_API_KEY")` 빈 값 반환
+**Fix:** 모듈 상단에 `from dotenv import load_dotenv; load_dotenv(override=True)` 추가
+**Prevention:** 독립 실행 가능성 있는 모듈은 상단에 load_dotenv 필수. ERR-029(one-liner 수준)와 별개로 모듈 자체가 보장해야 함
+**Status:** ✅ RESOLVED (2026-06-02, f5d59f2)
+**Evidence:** 수정 후 `[AIRTABLE] 저장 완료` 확인 (그룹 345179878828208)
+
+---

@@ -178,6 +178,16 @@
 
 ---
 
+## INC-017 | PowerShell BOM 삽입 → accounts.json 파싱 실패 → 크롤러 설정 미로드
+**발생:** 2026-06-02
+**요약:** `Set-Content -Encoding UTF8`로 `accounts.json` 저장 시 BOM 삽입 → `account_manager`가 JSON 파싱 실패 → 계정 설정 없음 → crawl_urls 미로드
+**영향:** 세션 내 one-shot 크롤러 실행 시 accounts.json 미로드 (launcher 미기동 상태라 운영 크롤링 영향 없음)
+**해결:** `[System.IO.File]::WriteAllText` + `UTF8Encoding(false)` 로 BOM-free 재저장 (c6a30d1)
+**결과:** `accounts.json 로드 | 1개 계정` 정상 확인
+**재발 방지:** FP-025 / ERR-035 등록 — JSON 설정 파일 Set-Content UTF8 금지 룰 확정
+
+---
+
 ## LESSONS LEARNED
 ```
 1. 텍스트는 증거가 아니다

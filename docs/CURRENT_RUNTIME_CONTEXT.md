@@ -1,26 +1,28 @@
-﻿# CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260602_0108_
+# CURRENT_RUNTIME_CONTEXT.md
+_마지막 업데이트: 260602_1340_
 
 ## 현재 단계
-**Clone Mode Runtime Proof 성공** — Facebook post → expand_see_more() → original_text 보존 → replace_contacts() → converted_text → generate_caption_clone() → Airtable 저장 1건 확인 (recsmA4WIlrur1wHO)
+**섹션19 Clone Mode 그룹URL 다중화 완료** — crawl_urls 4개 확장 / BOM 제거 / load_dotenv 추가 / Airtable 저장 재확인
 
 ## 최종 확인 커밋
-deec24c (feat: expand facebook see-more text before clone capture [260601])
+f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
-## 마지막 확인 커밋
-7ce335e (config: add facebook crawl url account1 [260529])
+## 마지막 확인 커밋 체인
+- 3dbe72a (feat: crawl_urls 4개 그룹으로 확장 [260602])
+- c6a30d1 (fix: accounts.json BOM 제거 + newline 정리 [260602])
+- f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
 
-## Runtime 상태 (260529 20:15 기준)
+## Runtime 상태 (260529 20:15 기준 — 세션 간 기동 미확인)
 | 구간 | 상태 | 근거 |
 |---|---|---|
-| Flask (dm_receiver) | ✅ LIVE | :5000 LISTENING (현재 세션 기준) |
-| launcher/main.py | ✅ LIVE | watchdog 감시 중 |
-| ngrok | ✅ LIVE | :4040 LISTENING (현재 세션 기준) |
-| Streamlit | ✅ LIVE | watchdog 감시 중 |
+| Flask (dm_receiver) | ⚠️ UNKNOWN | 세션 외 확인 필요 |
+| launcher/main.py | ⚠️ UNKNOWN | 세션 외 확인 필요 |
+| ngrok | ⚠️ UNKNOWN | 세션 외 확인 필요 |
+| Streamlit | ⚠️ UNKNOWN | 세션 외 확인 필요 |
 | n8n | ⚠️ 미설정 | 정상 — 아직 구성 안 함 |
 
 ## Dual Scheduler 해소 (260527)
@@ -55,11 +57,17 @@ deec24c (feat: expand facebook see-more text before clone capture [260601])
 - accounts.json 빈 배열 → crawl_urls skip → **260529 해소 완료** (account1 + crawl_url 등록)
 - Airtable caption 필드 없음 → 422 UNKNOWN_FIELD_NAME → **260529 해소 완료** (UI에서 필드 추가)
 - FB 크롤러 2회 연속 정상 완료 → **260529 19:43 / 20:13 확인**
+- crawl_urls 4개 그룹 확장 → **260602 완료** (3dbe72a)
+- accounts.json BOM 제거 → **260602 완료** (c6a30d1) — PowerShell Set-Content UTF8 금지
+- facebook_crawler.py load_dotenv 추가 → **260602 완료** (f5d59f2)
+- pytest 104 passed / 1 xfailed / 2 xpassed 확인 (260602)
+- deep-translator 1.11.4 설치 완료 (260602)
 
 ## 미해결 항목 (Phase 후순위)
-- accounts.json crawl_url 다중화 미완료 — 현재 1개 그룹만 등록
+- 그룹 610113703703488: div[role='feed'] 미탐지 — 가입 승인 대기 중 (코드 문제 아님)
 - 워터마크 제외 로직 미구현
 - data/processed_comment_ids.json untracked 유지 (정상 — gitignore 대상)
+- 백업 필요 시점 도달 (마지막 백업: backup_(11)_260602_0108)
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -67,6 +75,7 @@ deec24c (feat: expand facebook see-more text before clone capture [260601])
 - Evidence 없는 완료 선언
 - 코드 수정 (승인 전)
 - git add/commit 선행
+- PowerShell Set-Content -Encoding UTF8 로 JSON 파일 저장 (BOM 삽입됨 — [System.IO.File]::WriteAllText + UTF8Encoding(false) 사용)
 
 ## [260528_Virtual_AutoReply_Proof] — 2026-05-28 13:27 KST
 - Infra: Flask :5000 PID 14256 + ngrok :4040 PID 8956 LISTENING 확인
@@ -105,3 +114,16 @@ deec24c (feat: expand facebook see-more text before clone capture [260601])
 - Phase 6: expand_see_more() 추가 + Runtime Proof (deec24c)
 - Runtime Proof: recsmA4WIlrur1wHO — original_text / converted_text / caption / media_type=image 전부 저장 확인 ✅
 - 백업: C:\backup_(11)_260602_0108_SNS_24AutoProject_260511.zip
+
+## [260602_섹션19_Clone_Mode_그룹URL_다중화] — 2026-06-02 13:40 KST
+- crawl_urls 1개 → 4개 그룹 확장 (3dbe72a)
+  - 1676627532598134 (K-beauty 필리핀 중고 그룹)
+  - 610113703703488 (feed 셀렉터 실패 — 가입 승인 대기)
+  - 345179878828208 (기존 그룹, Airtable 저장 확인 ✅)
+  - 755455243345993 (신규 그룹)
+- accounts.json BOM 제거 (c6a30d1) — PowerShell Set-Content UTF8 BOM 삽입 버그 수정
+- facebook_crawler.py load_dotenv(override=True) 추가 (f5d59f2) — 모듈 직접 실행 시 .env 로드 보장
+- Airtable 저장 성공 재확인: 그룹 345179878828208 → [AIRTABLE] 저장 완료 ✅
+- pytest 104 passed / 1 xfailed / 2 xpassed ✅
+- deep-translator 1.11.4 pip install 완료
+- 백업 필요 시점 도달 (다음 세션 초반 백업 권장)

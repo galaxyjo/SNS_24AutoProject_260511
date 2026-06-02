@@ -293,3 +293,19 @@ netstat -ano | findstr ":4040"
 
 대화는 참고자료일 뿐이다.
 ```
+
+## FP-025 | PowerShell Set-Content -Encoding UTF8 → BOM 삽입 → JSON 파싱 실패
+**설명:** PowerShell 5.1의 `Set-Content -Encoding UTF8`은 파일 앞에 UTF-8 BOM(EF BB BF)을 삽입함. Python `json.load()`는 일반 UTF-8로 읽으므로 BOM 감지 시 `Unexpected UTF-8 BOM` 파싱 에러 발생
+**근본 원인:** PowerShell 5.1 기본 UTF8 인코딩 구현이 BOM 포함. Python `open(encoding='utf-8')`은 BOM 미처리
+**증상:** `[AccountManager] accounts.json 파싱 실패 | Unexpected UTF-8 BOM (decode using utf-8-sig)` → 계정 설정 없음 → crawl_urls skip
+**해결:** `[System.IO.File]::WriteAllText(path, content, [System.Text.UTF8Encoding]::new($false))` 사용
+**예방:**
+```powershell
+# JSON/설정 파일 저장 시 반드시 BOM-free 방식 사용
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText("경로", $content, $utf8NoBom)
+# Set-Content -Encoding UTF8 절대 금지 (JSON/환경설정 파일에)
+```
+**관련:** ERR-035 / c6a30d1 / 2026-06-02 수정 확인
+
+---

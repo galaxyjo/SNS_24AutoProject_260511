@@ -5,6 +5,24 @@
 
 ---
 
+## [260602_섹션19] Clone Mode 그룹URL 다중화 + BOM 수정 + load_dotenv 추가
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-06-02 |
+| 목표 | crawl_urls 다중화, 환경 설정 버그 2건 수정 |
+| 변경 1 | `configs/accounts.json` — crawl_urls 1개 → 4개 그룹 (1676627532598134 / 610113703703488 / 345179878828208 / 755455243345993) (3dbe72a) |
+| 변경 2 | `configs/accounts.json` — PowerShell Set-Content UTF8 BOM 삽입 버그 수정. [System.IO.File]::WriteAllText + UTF8Encoding(false) 사용 (c6a30d1) |
+| 변경 3 | `modules/sns/facebook_crawler.py` — 모듈 상단 `from dotenv import load_dotenv; load_dotenv(override=True)` 추가 (f5d59f2) |
+| 검증 | Airtable 저장 성공 — 그룹 345179878828208 기준 `[AIRTABLE] 저장 완료` 확인 ✅ |
+| pytest | 104 passed / 1 xfailed / 2 xpassed ✅ |
+| 그룹 610113703703488 | div[role='feed'] 미탐지 — 가입 승인 대기 중, 코드 문제 아님 |
+| 신규 ERR | ERR-035 (BOM 삽입) / ERR-036 (load_dotenv 모듈 누락) |
+| 신규 FP | FP-025 (PowerShell UTF8 BOM) |
+| 최종 커밋 | f5d59f2 |
+| 백업 필요 | 다음 세션 초반 백업 권장 |
+
+---
 ## [260601~260602] Clone Mode 전체 파이프라인 구축 + Runtime Proof
 
 | 항목 | 내용 |

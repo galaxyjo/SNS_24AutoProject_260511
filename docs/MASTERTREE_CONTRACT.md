@@ -122,12 +122,14 @@ media_type 확장 계획:
 - video: Phase 후속 (별도 기획 필요)
 ```
 
-## RUNTIME STATUS (2026-06-02)
+## RUNTIME STATUS (2026-06-02 섹션19)
 ```
-Clone Mode Runtime Proof PASS — recsmA4WIlrur1wHO
-original_text / converted_text / caption / media_type=image 저장 확인
-최종 commit: deec24c
-백업: backup_(11)_260602_0108
+Clone Mode Runtime Proof PASS — recsmA4WIlrur1wHO (260602_0108)
+섹션19: crawl_urls 4개 확장 / BOM 수정 / load_dotenv 추가
+Airtable 저장 재확인 (그룹 345179878828208) ✅
+pytest 104 passed ✅
+최종 commit: f5d59f2
+백업: backup_(11)_260602_0108 (다음 세션 재백업 권장)
 ```
 
 ## MASTER PRINCIPLE
