@@ -101,6 +101,8 @@
 | 2026-06-01 | modules/comment/comment_auto_reply.py | COMMENT_AUTO_REPLY_ENABLED 안전장치 |
 | 2026-06-02 | configs/accounts.json | crawl_urls 4개 그룹 확장 + BOM 제거 (3dbe72a / c6a30d1) |
 | 2026-06-02 | modules/sns/facebook_crawler.py | load_dotenv(override=True) 모듈 상단 추가 (f5d59f2) |
+| 2026-06-02 | modules/sns/content_filter.py | clean_fb_metadata() 추가 — FB UI 잔여물 제거 (349fedf) |
+| 2026-06-02 | modules/sns/caption_generator.py | generate_caption_clone()에 clean_fb_metadata() 선처리 추가 (349fedf) |
 
 ## JSON 설정 파일 저장 규칙 (260602 확정)
 ```

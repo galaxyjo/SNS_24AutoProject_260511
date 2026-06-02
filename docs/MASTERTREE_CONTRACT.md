@@ -122,14 +122,15 @@ media_type 확장 계획:
 - video: Phase 후속 (별도 기획 필요)
 ```
 
-## RUNTIME STATUS (2026-06-02 섹션19)
+## RUNTIME STATUS (2026-06-02 섹션19 완료)
 ```
-Clone Mode Runtime Proof PASS — recsmA4WIlrur1wHO (260602_0108)
-섹션19: crawl_urls 4개 확장 / BOM 수정 / load_dotenv 추가
-Airtable 저장 재확인 (그룹 345179878828208) ✅
+Clone Mode Runtime Proof PASS — recsmA4WIlrur1wHO (260602_0108) ✅
+Instagram 업로드 Runtime Proof PASS — recFyw7OUaZ666JDJ / ig_media_id=18101360630320704 (260602_1620) ✅
+섹션19: crawl_urls 4개 확장 / BOM 수정 / load_dotenv 추가 / clean_fb_metadata() / 업로드 증명
+Airtable caption dirty 2건 정제 완료 (recKLX1OsOvfRu5k1, recsmA4WIlrur1wHO)
 pytest 104 passed ✅
-최종 commit: f5d59f2
-백업: backup_(11)_260602_0108 (다음 세션 재백업 권장)
+최종 commit: 59b57ed
+백업: backup_(12)_260602_2207
 ```
 
 ## MASTER PRINCIPLE

@@ -185,6 +185,33 @@ retry_queue dead = 0 ✅
 - launcher 장시간 실행 전 Runtime Proof 1건 확보 필수
 ```
 
+## INSTAGRAM 업로드 단발 테스트 절차 (260602 확정)
+```
+1. 환경변수 확인:
+   - INSTA_ACCESS_TOKEN, INSTA_IG_USER_ID 설정 여부 확인
+   - 시스템 환경변수 AIRTABLE_API_KEY 플레이스홀더 없어야 함
+   - load_dotenv 절대경로 필수: load_dotenv(dotenv_path=r'..\.env', override=True)
+
+2. Airtable ready 레코드 확인:
+   - Instagram_Posts 테이블 post_status='ready' 레코드 존재 확인
+   - caption 필드 FB UI 잔여물(작성자명·경과시간··) 없는지 확인
+
+3. 업로드 실행 (max_records=1):
+   - _preprocess_image() → imgbb 비율 보정 (IMGBB_API_KEY 설정 시)
+   - POST /media → creation_id 획득
+   - POST /media_publish → ig_media_id 획득
+   - Airtable: post_status=posted / ig_media_id 기록
+
+4. 성공 검증:
+   - ig_media_id 출력 확인
+   - Airtable post_status=posted 확인
+   - Instagram 계정(@yuna18253) 실제 게시 여부 확인
+
+Runtime Proof (2026-06-02):
+  recFyw7OUaZ666JDJ → ig_media_id=18101360630320704 → posted ✅
+  이미지: 960×1707 → imgbb center-crop → https://i.ibb.co/dwnMVq7Z/2547998023eb.jpg
+```
+
 ## PRODUCTION RULES
 ```
 1. 운영 중 직접 코드 수정 금지

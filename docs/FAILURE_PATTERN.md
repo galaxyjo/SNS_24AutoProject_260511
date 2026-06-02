@@ -294,6 +294,21 @@ netstat -ano | findstr ":4040"
 대화는 참고자료일 뿐이다.
 ```
 
+## FP-026 | load_dotenv() 경로 미지정 + 시스템 환경변수 플레이스홀더 → .env 무시
+**설명:** `load_dotenv()` (경로 인자 없음)는 `find_dotenv()`로 호출 스크립트 위치에서 상위로 탐색. 스크립트가 `%TEMP%` 등 프로젝트 외부 경로에서 실행되면 `.env`를 찾지 못하고 시스템 환경변수 우선 적용
+**근본 원인:** 1) `find_dotenv()` 탐색 기준 = 호출 스크립트 파일 위치 (CWD 아님) 2) User/Machine 수준 환경변수에 한국어 플레이스홀더 잔존 시 non-ASCII 값이 덮어씌워짐
+**증상:** `AIRTABLE_API_KEY` len=10 / non-ASCII / latin-1 UnicodeEncodeError → Airtable API 헤더 인코딩 실패 → 모든 Airtable 연동 차단
+**해결:**
+```python
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=r'C:\SNS_24AutoProject_260511\.env', override=True)
+```
+시스템 환경변수 플레이스홀더 제거: `[System.Environment]::SetEnvironmentVariable("KEY", $null, "User")`
+**예방:** 모든 단발 실행 스크립트에서 절대경로 `dotenv_path` 지정 필수. 시스템 환경변수에 플레이스홀더 절대 설정 금지
+**관련:** ERR-036 / INC-018 / 2026-06-02 해결 확인
+
+---
+
 ## FP-025 | PowerShell Set-Content -Encoding UTF8 → BOM 삽입 → JSON 파싱 실패
 **설명:** PowerShell 5.1의 `Set-Content -Encoding UTF8`은 파일 앞에 UTF-8 BOM(EF BB BF)을 삽입함. Python `json.load()`는 일반 UTF-8로 읽으므로 BOM 감지 시 `Unexpected UTF-8 BOM` 파싱 에러 발생
 **근본 원인:** PowerShell 5.1 기본 UTF8 인코딩 구현이 BOM 포함. Python `open(encoding='utf-8')`은 BOM 미처리

@@ -135,10 +135,32 @@ Facebook post
   → replace_contacts(raw_text) → converted_text
   → save_to_airtable(converted_text, original_text=raw_text)
       → generate_caption_clone(converted_text) → caption, hashtags
+          └→ clean_fb_metadata()       # FB UI 잔여물(작성자명·경과시간··) 제거 (ERR-037)
+          └→ replace_contacts()        # 연락처 치환
       → Airtable POST: original_text / converted_text / caption / hashtag / media_type=image
 
 Runtime Proof (2026-06-02):
   recsmA4WIlrur1wHO — original_text / converted_text / caption / media_type=image ✅
+```
+
+## INSTAGRAM UPLOAD ARCHITECTURE LOCK (260602 확정)
+```
+업로드 실제 진입점: launcher/main.py:159 _job_insta_upload()
+  (bot_uploader.py → insta_uploader.py 체인은 dead stub — 실제 API 호출 없음)
+
+업로드 파이프라인 (고정):
+Airtable Instagram_Posts (post_status=ready)
+  → _preprocess_image()          # 비율 보정(4:5~1.91:1) + imgbb 영구 URL 변환
+  → table.update(uploading)      # 원자적 잠금
+  → POST /media                  # 미디어 컨테이너 생성 → creation_id
+  → POST /media_publish          # 게시 → ig_media_id
+  → table.update(posted, ig_media_id)
+
+환경변수 (필수):
+  INSTA_ACCESS_TOKEN, INSTA_IG_USER_ID, IMGBB_API_KEY (전처리용)
+
+Runtime Proof (2026-06-02):
+  recFyw7OUaZ666JDJ → ig_media_id=18101360630320704 → posted ✅
 ```
 
 ## RUNTIME VERIFIED (2026-05-28)

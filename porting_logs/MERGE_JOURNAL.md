@@ -154,7 +154,8 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | dead code 확인 | `bot_uploader→insta_uploader` 체인, `instagram_uploader.py`, `uploader_instagram.py`, `wf_instagram_scheduler.py` 전부 dead stub 확인 |
 | Airtable 정정 | ready 레코드 caption 오염 2건 일괄 정정 (recKLX1OsOvfRu5k1, recsmA4WIlrur1wHO) |
 | Instagram 업로드 증거 | recFyw7OUaZ666JDJ → ig_media_id=18101360630320704 → post_status=posted ✅ |
-| git 상태 | 349fedf (fix: Clone Mode caption Facebook UI 잔여물 제거 ERR-037) ✅ |
+| git 상태 | 349fedf → 59b57ed (docs: Instagram 업로드 Runtime Proof 기록) ✅ |
+| 백업 | C:\backup_(12)_260602_2207_SNS_24AutoProject_260511.zip |
 
 ### 미완
 - n8n 미설정 상태 (정상)
