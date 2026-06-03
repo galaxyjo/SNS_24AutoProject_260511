@@ -249,3 +249,9 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 3. http://localhost:5000/health → 200 OK 확인
 4. watchdog.log 마지막 줄 확인
 - 실패 시: Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force 후 재시도
+
+## 부팅 후 점검 추가항목 (260603 확정)
+- SNS_Watchdog_AutoStart RunLevel=Highest / UserId=admin 확인
+- watchdog.ps1 자가치유 블록 관리자 권한 실행 확인
+- 명령: (Get-ScheduledTask -TaskName 'SNS_Watchdog_AutoStart').Principal | Select-Object RunLevel, UserId
+- 성공기준: RunLevel=Highest

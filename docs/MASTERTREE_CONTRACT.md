@@ -127,7 +127,9 @@ media_type 확장 계획:
 260603: ExecutionPolicy 차단 해결 + watchdog 자가치유 블록 추가
 Flask/APScheduler/ngrok/watchdog 전부 정상 가동 확인
 최종 commit: 2695d87
-백업: backup_(12)_260602_2207 (세션20 신규 백업 권장)
+백업: backup_(12)_260602_2207
+작업스케줄러 권한: RunLevel=Highest / UserId=admin ✅
+자가치유 블록 검증 완료 ✅
 pytest 104 passed ✅
 ```
 ```
