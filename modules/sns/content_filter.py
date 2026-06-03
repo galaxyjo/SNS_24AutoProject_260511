@@ -102,26 +102,40 @@ def _get_contact_mapping():
 
 
 def replace_contacts(text: str) -> str:
+    """줄 단위로 플랫폼 연락처 패턴 감지 → 내 값으로 교체, 내 값 없으면 줄 제거."""
     if not text:
         return text
 
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
     contacts = _get_contact_mapping()
 
-    patterns = [
-        ("kakao", r"(?i)\b(kakaotalk|kakao|카카오톡|카톡)\b[:\s]*[^\s,;/]+", "KakaoTalk: {value}"),
-        ("zalo", r"(?i)\b(zalo)\b[:\s]*[^\s,;/]+", "Zalo: {value}"),
-        ("line", r"(?i)\b(line\s*id|line)\b[:\s]*[^\s,;/]+", "Line: {value}"),
-        ("whatsapp", r"(?i)\b(whatsapp|wa)\b[:\s]*[^\s,;/]+", "WhatsApp: {value}"),
-        ("instagram", r"(?i)\b(instagram|insta|ig)\b[:\s]*@?[A-Za-z0-9._]+", "Instagram: @{value}"),
-        ("email", r"(?i)\b(email|이메일|mail)\b[:\s]*[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "Email: {value}"),
-        ("whatsapp", r"(?i)\b(전화|phone|tel|contact)\b[:\s]*[\d\s\-\+()]{7,}", "Contact: {value}"),
+    # (key, 패턴, 출력 레이블)
+    # [^\n]* 로 앞 전화번호/이름 포함 줄 전체 매칭
+    platform_patterns = [
+        ("zalo",      r"(?i)[^\n]*(zalo)[:\s]*([\+\d]+)",                                      "Zalo"),
+        ("whatsapp",  r"(?i)[^\n]*(whatsapp|wa)[:\s]*([\+\d]+)",                               "WhatsApp"),
+        ("kakao",     r"(?i)[^\n]*(kakaotalk|kakao|카카오톡|카톡)[:\s]*(\S+)",                 "KakaoTalk"),
+        ("line",      r"(?i)[^\n]*(line[\s]*id|line)[:\s]*(\S+)",                              "Line"),
+        ("instagram", r"(?i)[^\n]*(instagram|insta|ig)[:\s]*@?([A-Za-z0-9._]+)",              "Instagram"),
+        ("email",     r"(?i)[^\n]*(email|이메일|mail)[:\s]*([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})", "Email"),
     ]
 
-    result = re.sub(r"(?<![A-Za-z0-9])(\+?[\d]{3,4}[-\s]?[\d]{3,4}[-\s]?[\d]{3,6})", "", text)
-    for key, pattern, template in patterns:
-        value = contacts.get(key, "")
-        if not value:
-            continue
-        result = re.sub(pattern, template.format(value=value), result)
+    result_lines = []
+    for line in text.splitlines():
+        matched = False
+        for key, pattern, label in platform_patterns:
+            if re.search(pattern, line):
+                my_val = contacts.get(key, "").strip()
+                if my_val:
+                    if label == "Instagram":
+                        result_lines.append(f"Instagram: @{my_val}")
+                    else:
+                        result_lines.append(f"{label}: {my_val}")
+                # my_val 없으면 줄 제거
+                matched = True
+                break
+        if not matched:
+            result_lines.append(line)
 
-    return result
+    return "\n".join(result_lines).strip()
