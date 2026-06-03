@@ -70,6 +70,7 @@ def clean_fb_metadata(text: str) -> str:
     # "이름\n숫자분/시간/일 ·" 형태 앞 2~3줄 감지 후 제거
     _time_pat = re.compile(r'^\s*\d+\s*(분|시간|일|주|개월)\s*[·•]?\s*$')
     _dot_pat   = re.compile(r'^\s*[·•]\s*$')
+    _comment_pat = re.compile(r'^.{1,30}\s*(이름으로\s*댓글\s*달기|으로\s*댓글\s*달기)')
     cleaned = []
     skip_next = False
     for i, line in enumerate(lines):
@@ -82,6 +83,8 @@ def clean_fb_metadata(text: str) -> str:
                 cleaned.pop()
             continue
         if _dot_pat.match(line):
+            continue
+        if _comment_pat.match(line):
             continue
         cleaned.append(line)
     return "\n".join(cleaned).strip()
@@ -114,7 +117,7 @@ def replace_contacts(text: str) -> str:
         ("whatsapp", r"(?i)\b(전화|phone|tel|contact)\b[:\s]*[\d\s\-\+()]{7,}", "Contact: {value}"),
     ]
 
-    result = text
+    result = re.sub(r"(?<![A-Za-z0-9])(\+?[\d]{3,4}[-\s]?[\d]{3,4}[-\s]?[\d]{3,6})", "", text)
     for key, pattern, template in patterns:
         value = contacts.get(key, "")
         if not value:
