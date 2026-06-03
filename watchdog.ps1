@@ -2,6 +2,9 @@
 # 사용법: .\watchdog.ps1
 # run_scheduler.ps1로 서버를 먼저 띄운 뒤 이 스크립트를 별도 터미널에서 실행.
 
+# ExecutionPolicy 자가치유 — 부팅/정책 초기화 후 자동 복구
+if ((Get-ExecutionPolicy -Scope LocalMachine) -ne 'RemoteSigned') { Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force }
+
 Set-Location $PSScriptRoot
 
 # .env에서 SLACK_WEBHOOK_URL 로드 (시스템 환경변수 미설정 시 폴백)
