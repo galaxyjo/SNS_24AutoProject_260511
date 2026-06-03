@@ -243,3 +243,9 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 **근거:** ERR-035 / FP-025 — PowerShell 5.1 Set-Content UTF8 BOM 삽입 버그
 
 ---
+## 부팅 후 점검 절차 (260603 추가)
+1. 작업스케줄러 SNS_Watchdog_AutoStart 실행 확인
+2. netstat -ano | findstr ':5000' → LISTENING 확인
+3. http://localhost:5000/health → 200 OK 확인
+4. watchdog.log 마지막 줄 확인
+- 실패 시: Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force 후 재시도

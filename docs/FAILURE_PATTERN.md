@@ -324,3 +324,9 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 **관련:** ERR-035 / c6a30d1 / 2026-06-02 수정 확인
 
 ---
+## FP-027 (260603)
+- 증상: watchdog 미실행 → Flask dead
+- 원인: LocalMachine ExecutionPolicy=Restricted → .ps1 실행 차단
+- 에러코드: 0xC000013A (작업스케줄러 LastTaskResult)
+- 해결: Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+- 재발방지: watchdog.ps1 상단 자가치유 블록 삽입 (커밋 2695d87)

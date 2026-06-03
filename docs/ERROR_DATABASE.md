@@ -365,3 +365,8 @@
 **Evidence:** 수정 후 `[AIRTABLE] 저장 완료` 확인 (그룹 345179878828208)
 
 ---
+## ERR-038 (260603)
+- 코드: 0xC000013A (3221225786)
+- 발생: 작업스케줄러 SNS_Watchdog_AutoStart LastTaskResult
+- 의미: 프로세스 강제종료 / ExecutionPolicy 차단
+- 해결: Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force

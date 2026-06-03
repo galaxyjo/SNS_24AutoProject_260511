@@ -185,3 +185,11 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | git 상태 | M modules/dm/dm_auto_reply.py (미커밋 — 사용자 승인 후 commit 예정) |
 | watchdog autostart | SNS_Watchdog_AutoStart 등록 시도 → 관리자 권한 필요 (미완료) |
 | dual scheduler | 중복 없음 재확인 — process_due_followups 1회/5분 정상 |
+
+## 세션20 (2026-06-03)
+- 작업: ExecutionPolicy Restricted 차단 해결
+- 조치: LocalMachine RemoteSigned 적용
+- watchdog.ps1 자가치유 블록 삽입
+- 커밋: 2695d87 (push 완료)
+- 문서: FP-027 / INC-019 / ERR-038 등록
+- 시스템: Flask/APScheduler/ngrok/watchdog 전부 정상

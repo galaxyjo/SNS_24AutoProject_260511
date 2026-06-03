@@ -117,3 +117,5 @@ Set-Content -Encoding UTF8 사용 절대 금지 (JSON/설정 파일)
 텍스트 기준 merge 금지.
 Evidence 없는 merge 금지.
 ```
+
+| 2026-06-03 | watchdog.ps1 | ExecutionPolicy 자가치유 블록 추가 (2695d87) |

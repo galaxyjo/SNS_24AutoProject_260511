@@ -69,7 +69,7 @@ _마지막 업데이트: 260602_1620_
 - Airtable ready 레코드 caption 오염 일괄 정정 → **260602 완료** (2건: recKLX1OsOvfRu5k1, recsmA4WIlrur1wHO)
 - Instagram 업로드 Runtime Proof → **260602 완료** — recFyw7OUaZ666JDJ / ig_media_id=18101360630320704 / post_status=posted ✅
 - 백업 완료: C:\backup_(12)_260602_2207_SNS_24AutoProject_260511.zip
-- 최종 commit: 59b57ed
+- 최종 commit: 2695d87
 
 ## 미해결 항목 (Phase 후순위)
 - 그룹 610113703703488: div[role='feed'] 미탐지 — 가입 승인 대기 중 (코드 문제 아님)

@@ -122,7 +122,14 @@ media_type 확장 계획:
 - video: Phase 후속 (별도 기획 필요)
 ```
 
-## RUNTIME STATUS (2026-06-02 섹션19 완료)
+## RUNTIME STATUS (2026-06-03 세션20 완료)
+```
+260603: ExecutionPolicy 차단 해결 + watchdog 자가치유 블록 추가
+Flask/APScheduler/ngrok/watchdog 전부 정상 가동 확인
+최종 commit: 2695d87
+백업: backup_(12)_260602_2207 (세션20 신규 백업 권장)
+pytest 104 passed ✅
+```
 ```
 Clone Mode Runtime Proof PASS — recsmA4WIlrur1wHO (260602_0108) ✅
 Instagram 업로드 Runtime Proof PASS — recFyw7OUaZ666JDJ / ig_media_id=18101360630320704 (260602_1620) ✅

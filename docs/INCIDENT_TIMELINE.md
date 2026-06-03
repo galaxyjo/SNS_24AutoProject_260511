@@ -213,3 +213,8 @@
 4. Evidence 없는 PASS 금지
 5. AI 출력 = 실제 실행 아님
 ```
+## INC-019 (2026-06-03)
+- 시각: 11:34 부팅 후 watchdog 실행 실패
+- 원인: ExecutionPolicy Restricted (0xC000013A)
+- 조치: RemoteSigned 적용 → watchdog 수동기동 → Flask 복구 (15:29)
+- 커밋: 2695d87
