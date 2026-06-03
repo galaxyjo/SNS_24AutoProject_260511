@@ -33,11 +33,10 @@ def detect_and_translate(text: str) -> str:
         return ""
     if _has_excluded_language(text):
         return ""
-    if _korean_ratio(text) > 0.3:
-        try:
-            text = GoogleTranslator(source='ko', target='en').translate(text[:4000])
-        except Exception:
-            return ""
+    try:
+        text = GoogleTranslator(source='auto', target='en').translate(text[:4000])
+    except Exception:
+        return ""
     return text
 
 # 키워드 필터
