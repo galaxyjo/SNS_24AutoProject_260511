@@ -253,7 +253,7 @@ def _build_scheduler() -> BackgroundScheduler:
                   id="kpi_snapshot", next_run_time=now + timedelta(seconds=50))
     sched.add_job(_job_engagement_update, "interval", minutes=30,
                   id="engagement_update", next_run_time=now + timedelta(seconds=60))
-    sched.add_job(_job_auto_like, "interval", minutes=15,
+    #DISABLED_260603 sched.add_job(_job_auto_like, "interval", minutes=15,
                   id="auto_like", next_run_time=now + timedelta(seconds=70))
     return sched
 
