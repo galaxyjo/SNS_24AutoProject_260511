@@ -10,6 +10,9 @@ KEYWORDS = [
     "wholesale", "export", "cosmetic", "k-beauty", "kbeauty",
     "skincare", "distributor", "moq", "supply", "btob", "b2b",
     "koreacosmetic", "serum", "toner", "essence", "oem", "odm", "makeup",
+    # 한국어 키워드
+    "도매", "화장품", "스킨케어", "코스메틱", "유통", "벌크", "재고",
+    "수출", "총판", "공급", "선크림", "세럼", "토너", "에센스",
 ]
 
 # 브랜드 allowlist — KEYWORDS 와 별도 관리
@@ -37,7 +40,9 @@ def detect_and_translate(text: str) -> str:
     if _has_excluded_language(text):
         return ""
     try:
-        text = GoogleTranslator(source='auto', target='en').translate(text[:4000])
+        # 한글 비율 높으면 source=ko 명시 (auto가 한글 혼용 시 번역 누락)
+        src = 'ko' if _korean_ratio(text) > 0.2 else 'auto'
+        text = GoogleTranslator(source=src, target='en').translate(text[:4000])
     except Exception:
         return ""
     return text
