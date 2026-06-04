@@ -1,6 +1,9 @@
 import os
 from deep_translator import GoogleTranslator
 import re
+from modules.common.logger import get_logger
+
+logger = get_logger(__name__)
 
 # 키워드 목록
 KEYWORDS = [
@@ -138,3 +141,57 @@ def replace_contacts(text: str) -> str:
             result_lines.append(line)
 
     return "\n".join(result_lines).strip()
+
+
+# ── 이미지 필터 ───────────────────────────────────────────────────────────────
+
+_IMAGE_BLOCK_KEYWORDS = [
+    r'\d{3,4}[-\s]?\d{3,4}[-\s]?\d{4}',  # 전화번호 패턴
+    r'zalo', r'kakao', r'whatsapp', r'wechat', r'line\s*id',
+    r'@[a-zA-Z0-9_.]+',
+    r'aurora\s*shop', r'coslife', r'everglow', r'kcosmetic',
+    r'damoa', r'vtk\s*cos', r'피터박',
+]
+
+
+def passes_image_filter(image_url: str) -> bool:
+    """이미지 OCR로 워터마크/연락처/회사로고 감지 → True=통과, False=차단"""
+    import requests as _req
+    from PIL import Image, ImageEnhance
+    from io import BytesIO
+
+    if not image_url or not image_url.startswith("http"):
+        logger.info("[ImageFilter] image_url 없음 — 차단")
+        return False
+
+    try:
+        resp = _req.get(image_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        resp.raise_for_status()
+        img = Image.open(BytesIO(resp.content)).convert("RGB")
+    except Exception as exc:
+        logger.warning(f"[ImageFilter] 다운로드 실패 — 차단 | {exc}")
+        return False
+
+    w, h = img.size
+    if w < 300 or h < 300:
+        logger.info(f"[ImageFilter] 이미지 너무 작음 {w}x{h} — 차단")
+        return False
+
+    try:
+        import pytesseract
+        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        img_ocr = img.resize((w * 2, h * 2), Image.LANCZOS)
+        img_ocr = img_ocr.convert("L")
+        img_ocr = ImageEnhance.Contrast(img_ocr).enhance(2.0)
+        ocr_text = pytesseract.image_to_string(img_ocr, lang="eng").lower()
+    except Exception as exc:
+        logger.warning(f"[ImageFilter] OCR 실패 — 통과 처리 | {exc}")
+        return True
+
+    for pattern in _IMAGE_BLOCK_KEYWORDS:
+        if re.search(pattern, ocr_text, re.IGNORECASE):
+            logger.info(f"[ImageFilter] 차단 키워드 감지: {pattern} — 차단")
+            return False
+
+    logger.info(f"[ImageFilter] 통과 | {w}x{h}")
+    return True

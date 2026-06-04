@@ -10,7 +10,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
 from modules.sns.caption_generator import generate_caption, generate_caption_clone
-from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts
+from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts, passes_image_filter
 from modules.common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -159,6 +159,9 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
             filter_text = detect_and_translate(raw_text)
             if not filter_text or not passes_keyword_filter(filter_text):
                 logger.info(f"[FB Crawler] POST {i} 필터 제외")
+                continue
+            if not passes_image_filter(image_url):
+                logger.info(f"[FB Crawler] POST {i} 이미지 필터 제외")
                 continue
             converted_text = replace_contacts(raw_text)
             save_to_airtable(image_url, target_url, converted_text, original_text=raw_text, media_type="image")
