@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
 from modules.sns.caption_generator import generate_caption, generate_caption_clone
 from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts, passes_image_filter
+from modules.sns.post_id_generator import generate_sku, get_source_group, get_platform_code
 from modules.common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -82,7 +83,7 @@ def expand_see_more(post, driver) -> None:
         pass
 
 
-def save_to_airtable(image_url, source_url, text="", original_text=None, media_type="image"):
+def save_to_airtable(image_url, source_url, text="", original_text=None, media_type="image", sku_code=""):
     if not image_url:
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
         return
@@ -115,7 +116,7 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
     _original = original_text or text
     try:
-        res = _req.post(_url, headers=_hdrs, json={"fields": {"image_url": image_url, "image_url_hash": image_url_hash, "source_url": source_url, "post_status": "ready", "caption": caption, "hashtag": hashtags, "original_text": _original, "converted_text": text, "media_type": media_type}}, timeout=10)
+        res = _req.post(_url, headers=_hdrs, json={"fields": {"image_url": image_url, "image_url_hash": image_url_hash, "source_url": source_url, "post_status": "ready", "caption": caption, "hashtag": hashtags, "original_text": _original, "converted_text": text, "media_type": media_type, "insta_post_code": sku_code}}, timeout=10)
     except Exception as exc:
         logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}")
         return
@@ -164,7 +165,8 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
                 logger.info(f"[FB Crawler] POST {i} 이미지 필터 제외")
                 continue
             converted_text = replace_contacts(raw_text)
-            save_to_airtable(image_url, target_url, converted_text, original_text=raw_text, media_type="image")
+            sku = generate_sku(target_url)
+            save_to_airtable(image_url, target_url, converted_text, original_text=raw_text, media_type="image", sku_code=sku)
             results.append({"target_url": target_url, "content": converted_text, "image_url": image_url})
 
         logger.info(f"[FB Crawler] 완료 | {len(results)}개 처리 | user={adspower_user_id}")
