@@ -20,6 +20,12 @@ BRAND_ALLOWLIST = [
     "snuggle",
 ]
 
+# 공급자 차단 목록 — Airtable Supplier_Blocklist와 병행 운용
+PAGE_BLOCKLIST = [
+    "cosmetics station",
+    "athena magnayon",
+]
+
 # 중국어/베트남어 유니코드 범위
 def _has_excluded_language(text: str) -> bool:
     chinese = any('一' <= c <= '鿿' for c in text)
@@ -50,6 +56,8 @@ def detect_and_translate(text: str) -> str:
 # 키워드 필터
 def passes_keyword_filter(text: str) -> bool:
     lower = text.lower()
+    if any(bl in lower for bl in PAGE_BLOCKLIST):
+        return False
     return (
         any(kw in lower for kw in KEYWORDS)
         or any(br in lower for br in BRAND_ALLOWLIST)
