@@ -20,6 +20,45 @@ CHROMEDRIVER_PATH = r"C:\Users\admin\AppData\Roaming\adspower_global\cwd_global\
 MAX_POSTS = int(os.getenv("FB_MAX_POSTS", "10"))
 
 
+def load_supplier_blocklist() -> list:
+    """Airtable Supplier_Blocklist 1회 로드 — author_name, page_name 반환."""
+    import requests as _req
+    _api_key = os.getenv('AIRTABLE_API_KEY', '')
+    _base_id = os.getenv('AIRTABLE_BASE_ID', '')
+    if not _api_key or not _base_id:
+        logger.warning('[Blocklist] API_KEY/BASE_ID 없음 — 빈 목록 반환')
+        return []
+    _url = f'https://api.airtable.com/v0/{_base_id}/Supplier_Blocklist'
+    _hdrs = {'Authorization': f'Bearer {_api_key}'}
+    try:
+        r = _req.get(_url, headers=_hdrs, timeout=10)
+        records = r.json().get('records', [])
+        blocklist = []
+        for rec in records:
+            fields = rec.get('fields', {})
+            blocklist.append({
+                'author_name': fields.get('author_name', '').strip().lower(),
+                'page_name': fields.get('page_name', '').strip().lower(),
+                'reason_code': fields.get('reason_code', ''),
+            })
+        logger.info(f'[Blocklist] 로드 완료 | {len(blocklist)}건')
+        return blocklist
+    except Exception as exc:
+        logger.warning(f'[Blocklist] 로드 실패 — 빈 목록 반환 | {exc}')
+        return []
+
+
+def is_blocked_supplier(author_name: str, blocklist: list) -> dict:
+    """author_name 이 blocklist 에 있으면 매칭된 항목 반환, 없으면 None."""
+    normalized = author_name.strip().lower()
+    for item in blocklist:
+        if item['author_name'] and item['author_name'] in normalized:
+            return item
+        if item['page_name'] and item['page_name'] in normalized:
+            return item
+    return None
+
+
 def start_browser(adspower_user_id: str = "k1bto3j4"):
     import urllib.request
     r = urllib.request.urlopen(f"http://local.adspower.net:50325/api/v1/browser/start?user_id={adspower_user_id}")
@@ -128,6 +167,7 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
 
 def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
     logger.info(f"[FB Crawler] 시작 | user={adspower_user_id} | url={target_url}")
+    _blocklist = load_supplier_blocklist()  # DRY_RUN용 blocklist 1회 로드
     driver = get_driver(adspower_user_id, proxy_opts)
     try:
         driver.get(target_url)
@@ -156,6 +196,13 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
             expand_see_more(post, driver)
             # 서로게이트 등 latin-1 불가 문자 안전 처리
             raw_text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
+            # DRY_RUN: author 추출 + blocklist 매칭 로그 (실제 차단 미적용)
+            _author_raw = raw_text.splitlines()[0] if raw_text else ""
+            _matched = is_blocked_supplier(_author_raw, _blocklist)
+            if _matched:
+                logger.warning(f"[Blocklist][DRY_RUN] 차단대상 감지 | author={_author_raw!r} | matched={_matched}")
+            else:
+                logger.info(f"[Blocklist][DRY_RUN] 통과 | author={_author_raw!r}")
             logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
             filter_text = detect_and_translate(raw_text)
             if not filter_text or not passes_keyword_filter(filter_text):
