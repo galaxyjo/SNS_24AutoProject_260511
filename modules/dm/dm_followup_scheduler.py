@@ -47,6 +47,61 @@ STAGE_TEMPLATES: dict[str, str] = {
 
 _scheduler: BackgroundScheduler | None = None
 
+# LOST 타임아웃 (분) — 기본 72h
+LOST_TIMEOUT_MINUTES = int(os.getenv("LOST_TIMEOUT_MINUTES", "4320"))
+
+
+def _at_get_lost_candidates() -> list[dict]:
+    """LOST 전환 대상 조회 — followup3_sent + relay_scheduled_at <= now."""
+    base    = os.getenv("AIRTABLE_BASE_ID", "")
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    formula = (
+        "AND("
+        "{bridge_status}='followup3_sent',"
+        f"{{relay_scheduled_at}}<='{now_iso}'"
+        ")"
+    )
+    try:
+        resp = requests.get(
+            f"https://api.airtable.com/v0/{base}/Lead_Interactions",
+            headers={"Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", "")},
+            params={"filterByFormula": formula, "maxRecords": 20},
+            timeout=15,
+        )
+        return resp.json().get("records", [])
+    except Exception as exc:
+        logger.error(f"[LOST] 조회 실패 | {exc}")
+        return []
+
+
+def mark_lost(record_id: str, reason: str = "followup_timeout") -> bool:
+    """레코드를 LOST 상태로 전환."""
+    lost_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return _at_patch(record_id, {
+        "bridge_status": "lost",
+        "lead_status":   "disqualified",
+        "lost_reason":   reason,
+        "lost_at":       lost_at,
+    })
+
+
+def process_lost_candidates() -> None:
+    """5분마다 실행 — LOST 전환 대상 처리 (DRY_RUN 모드)."""
+    dry_run = os.getenv("LOST_DRY_RUN", "true").lower() != "false"
+    records = _at_get_lost_candidates()
+    if not records:
+        return
+    logger.info(f"[LOST] 대상 {len(records)}건 | dry_run={dry_run}")
+    for rec in records:
+        record_id = rec["id"]
+        fields    = rec.get("fields", {})
+        igsid     = fields.get("inquiry_user_handle", "")
+        if dry_run:
+            logger.warning(f"[LOST][DRY_RUN] 전환 대상 | record={record_id} | igsid={igsid}")
+        else:
+            ok = mark_lost(record_id, reason="followup_timeout")
+            logger.warning(f"[LOST] 전환 완료 | record={record_id} | igsid={igsid} | ok={ok}")
+
 
 # ── Airtable 헬퍼 ─────────────────────────────────────────────────────────────
 
@@ -225,10 +280,11 @@ def process_due_followups() -> None:
             "last_error_msg": "" if sent else "IG DM send failed",
         }
 
-        # 3차 발송 완료 전이면 다음 단계 예약
-        if sent and next_status != "followup3_sent":
+        # 다음 단계 예약 — 3차 발송 시 LOST 타임아웃 기준 시각 설정
+        if sent:
+            delay = LOST_TIMEOUT_MINUTES if next_status == "followup3_sent" else STAGE_DELAY_MINUTES
             update["relay_scheduled_at"] = (
-                datetime.now(timezone.utc) + timedelta(minutes=STAGE_DELAY_MINUTES)
+                datetime.now(timezone.utc) + timedelta(minutes=delay)
             ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
         _at_patch(record_id, update)
@@ -253,6 +309,15 @@ def start_scheduler() -> BackgroundScheduler:
         trigger="interval",
         minutes=5,
         id="followup_poll",
+        replace_existing=True,
+    )
+
+    # LOST 전환 체크 — 5분 간격
+    _scheduler.add_job(
+        process_lost_candidates,
+        trigger="interval",
+        minutes=5,
+        id="lost_check",
         replace_existing=True,
     )
 
