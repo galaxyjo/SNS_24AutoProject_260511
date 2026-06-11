@@ -95,8 +95,10 @@ hash 불일치 → 자동 통과 금지 / 수동 확인 후 판단
 ```
 Source_Feeds      ← FB 크롤링 원본
 Instagram_Posts   ← 업로드 상태 관리
-Lead_Interactions ← DM/CRM 상태
+Lead_Interactions ← DM/CRM 상태 (lost_reason / lost_at / disqualified 추가 — 260612)
 Account_Registry  ← 계정 + AdsPower 매핑
+Crawl_Targets     ← 크롤링 대상 URL 관리 (FB_GROUP_POOL_V1 = 5개 활성)
+Supplier_Blocklist ← 차단 공급사 목록 (실차단 적용 중)
 ```
 
 ---
@@ -122,23 +124,28 @@ media_type 확장 계획:
 - video: Phase 후속 (별도 기획 필요)
 ```
 
-## RUNTIME STATUS (2026-06-03 세션20 완료)
+## RUNTIME STATUS (2026-06-12 세션 완료)
+```
+260612: 운영정비 완료
+- Supplier_Blocklist 실차단 적용 (11fc204)
+- LOST 72h 타임아웃 DRY_RUN 구현 (0e5133b)
+- Lead_Interactions: lost_reason / lost_at / disqualified 필드 추가
+- FB그룹 1676627532598134 제거 (c71f2c7) — crawl_urls 5개 운영
+- Instagram_Posts.caption 필드 재추가 (API, fldcxTzLzYCzD9aYe)
+- ig_media_id 17863634121631171 클리어 (rectwruMD3uua54sv)
+최신 commit: 0b9291c
+백업: backup_(12)_260602_2207 (백업 필요 시점 도달)
+```
 ```
 260603: ExecutionPolicy 차단 해결 + watchdog 자가치유 블록 추가
 Flask/APScheduler/ngrok/watchdog 전부 정상 가동 확인
 최종 commit: 2695d87
-백업: backup_(12)_260602_2207
 작업스케줄러 권한: RunLevel=Highest / UserId=admin ✅
-자가치유 블록 검증 완료 ✅
-pytest 104 passed ✅
 ```
 ```
 Clone Mode Runtime Proof PASS — recsmA4WIlrur1wHO (260602_0108) ✅
 Instagram 업로드 Runtime Proof PASS — recFyw7OUaZ666JDJ / ig_media_id=18101360630320704 (260602_1620) ✅
-섹션19: crawl_urls 4개 확장 / BOM 수정 / load_dotenv 추가 / clean_fb_metadata() / 업로드 증명
-Airtable caption dirty 2건 정제 완료 (recKLX1OsOvfRu5k1, recsmA4WIlrur1wHO)
 pytest 104 passed ✅
-최종 commit: 59b57ed
 백업: backup_(12)_260602_2207
 ```
 

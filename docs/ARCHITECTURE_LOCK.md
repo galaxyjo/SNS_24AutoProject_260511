@@ -171,6 +171,40 @@ Runtime Proof (2026-06-02):
 - 수정 파일: modules/dm/dm_auto_reply.py ✅ 72e0e1a 커밋 완료
 ```
 
+## LEAD STATE MACHINE LOCK (260612 확정)
+```
+Lead_Interactions bridge_status 상태 전이:
+
+new → qualified → auto_replied
+                 → followup1_sent → followup2_sent → followup3_sent
+                                                    → LOST (72h 타임아웃, DRY_RUN 모드)
+             → disqualified (Supplier_Blocklist 차단)
+
+LOST 전환 조건:
+  followup3_sent 상태 + relay_scheduled_at 기준 72h 경과
+  .env LOST_DRY_RUN=false 설정 필요 (현재 DRY_RUN 모드)
+
+Airtable Lead_Interactions 필드 (260612 추가):
+  lost_reason   — Single line text
+  lost_at       — Date
+  disqualified  — Checkbox
+```
+
+## SUPPLIER_BLOCKLIST ARCHITECTURE LOCK (260612 확정)
+```
+- Supplier_Blocklist Airtable 테이블 기반 차단 (DRY_RUN 제거 완료)
+- FB 크롤러 실행 시 Blocklist 로드 → author 매칭 → continue(skip)
+- 현재 등록: 4건
+- 차단 로그: [Blocklist] 통과 | author='...' / [FB Crawler] POST N 필터 제외
+```
+
+## FILTER_RULES ARCHITECTURE LOCK (260612 확정)
+```
+- configs/filter_rules.json: 분석 전용, 운영 연동 금지
+- generate_filter_rules.py: Crawl_Training_Set 기반 생성 스크립트, 자동 실행 금지
+- 운영 필터: modules/sns/content_filter.py passes_keyword_filter() 사용
+```
+
 ## FINAL PRINCIPLE
 ```
 Conversation ≠ System Reality

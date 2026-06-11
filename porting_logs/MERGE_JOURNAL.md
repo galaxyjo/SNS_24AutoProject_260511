@@ -5,6 +5,27 @@
 
 ---
 
+## [260611~260612_운영정비] Supplier_Blocklist 실차단 / LOST 구현 / 그룹 정리 / caption 재추가
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-06-11 ~ 2026-06-12 |
+| 목표 | 크롤링 품질 개선, Lead 상태머신 완성, 운영 오류 2건 해소 |
+| 변경 1 | `modules/dm/dm_auto_reply.py` 또는 blocklist 모듈 — Supplier_Blocklist DRY_RUN 제거, continue 적용 (11fc204) |
+| 변경 2 | `modules/dm/dm_followup_scheduler.py` — LOST 72h 타임아웃 구현, DRY_RUN 모드 (0e5133b) |
+| 변경 3 | Airtable Lead_Interactions — lost_reason(Single line) / lost_at(Date) / disqualified(Checkbox) 필드 추가 |
+| 변경 4 | `tools/generate_filter_rules.py` + `configs/filter_rules.json` — Crawl_Training_Set 기반 분석용 (3840a6a), 운영 연동 금지 |
+| 변경 5 | `configs/accounts.json` — crawl_urls에서 FB그룹 1676627532598134 제거, 5개 유지 (c71f2c7) |
+| 변경 6 | Airtable `Crawl_Targets` — rec20hOhqyCukfYPs (A001/FB_KB뷰티도매) 레코드 삭제 |
+| 변경 7 | Airtable `Instagram_Posts.caption` 필드 재추가 — API로 multilineText 생성 (field_id: fldcxTzLzYCzD9aYe) |
+| 변경 8 | Airtable `Instagram_Posts` rectwruMD3uua54sv — ig_media_id 17863634121631171 클리어 |
+| 운영 오류 | ERR-028 재발(caption 422) → 재해소 / ERR-039 신규(ig_media_id invalid) → 해소 |
+| 문서 | CURRENT_RUNTIME_CONTEXT.md 업데이트 (0b9291c) |
+| 최종 커밋 | 0b9291c |
+| crawl_urls | 5개 운영: 610113703703488(Hold) / 345179878828208 / 755455243345993 / 3289570041331131 / 1827528710833477 |
+
+---
+
 ## [260602_섹션19] Clone Mode 그룹URL 다중화 + BOM 수정 + load_dotenv 추가
 
 | 항목 | 내용 |

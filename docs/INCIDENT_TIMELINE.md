@@ -218,3 +218,25 @@
 - 원인: ExecutionPolicy Restricted (0xC000013A)
 - 조치: RemoteSigned 적용 → watchdog 수동기동 → Flask 복구 (15:29)
 - 커밋: 2695d87
+
+---
+
+## INC-020 | Instagram_Posts caption 필드 재소멸 → 422 오류 반복 (2026-06-11~12)
+**발생:** 2026-06-11 22:27 최초 확인, 22:57 / 23:27 반복
+**요약:** FB 크롤러 `save_to_airtable()`이 `Instagram_Posts.caption` 저장 시도 → 422 UNKNOWN_FIELD_NAME 반복. 260529에 UI로 추가한 필드가 사라진 상태.
+**영향:** `1827528710833477` 그룹 크롤 데이터 Airtable 저장 실패 반복. upload_rate 6.2% 저하 원인.
+**근본 원인:** Airtable UI 수동 추가 필드는 추적 불가 — 언제 삭제됐는지 불명. ERR-028 재발.
+**해결:** Airtable Metadata API로 프로그래매틱 추가 (`multilineText`, field_id: fldcxTzLzYCzD9aYe)
+**결과:** 다음 크롤링부터 422 오류 없이 정상 저장 예상
+**재발 방지:** FP-028 등록 — Airtable 필드는 API로 추가 + MASTERTREE_CONTRACT 데이터 계약 즉시 갱신
+
+---
+
+## INC-021 | engagement_tracker ig_media_id 17863634121631171 반복 오류 (2026-06-11)
+**발생:** 2026-06-11 00:03 ~ 23:25 (30분 간격 반복, 약 20회 이상)
+**요약:** `engagement_tracker.py`가 `Instagram_Posts`에서 `post_status=posted, ig_media_id!=''` 조건으로 조회 → `rectwruMD3uua54sv` 레코드의 `ig_media_id=17863634121631171` Graph API 조회 → `Object does not exist or missing permissions` 반복 Warning.
+**영향:** 로그 노이즈 / engagement_tracker 30분 간격 오류 누적
+**근본 원인:** 존재하지 않거나 권한 없는 media_id가 Airtable에 남아 있음
+**해결:** `rectwruMD3uua54sv` ig_media_id 필드 공백으로 PATCH → engagement_tracker 조회 대상에서 제외
+**결과:** 다음 30분 간격 실행부터 해당 레코드 제외 → 오류 없음
+**재발 방지:** ERR-039 등록 — 업로드 실패 레코드의 ig_media_id는 즉시 클리어

@@ -339,10 +339,11 @@
 **Type:** Airtable Schema Mismatch
 **Raw:** `422 Client Error: Unprocessable Entity — UNKNOWN_FIELD_NAME: "caption"`
 **Root Cause:** `facebook_crawler.py` `save_to_airtable()`이 `"caption"` 필드로 저장 시도 — Airtable `Instagram_Posts` 테이블에 해당 필드 미존재
-**Fix:** Airtable UI에서 `Instagram_Posts` 테이블에 `caption` (Long text / multilineText) 필드 수동 추가
-**Prevention:** 코드에서 새 Airtable 필드 사용 시 배포 전 테이블 스키마 확인 필수 — API read-only로 기존 필드 목록 검증 후 진행
-**Status:** ✅ RESOLVED (2026-05-29)
-**Evidence:** Airtable API 필드 목록에 `caption multilineText` 확인 / 19:43 이후 422 없음
+**Fix (1차):** Airtable UI에서 `Instagram_Posts` 테이블에 `caption` (Long text / multilineText) 필드 수동 추가
+**Fix (2차, 260612):** Airtable Metadata API로 프로그래매틱 추가 → field_id: fldcxTzLzYCzD9aYe
+**Prevention:** UI 수동 추가 대신 API 추가 사용 (재현 가능). MASTERTREE_CONTRACT 데이터 계약 즉시 갱신. FP-028 참조.
+**Status:** ✅ RESOLVED (재발 260611 → 재해소 260612)
+**Evidence (2차):** Meta API 200 OK, `{'type': 'multilineText', 'id': 'fldcxTzLzYCzD9aYe', 'name': 'caption'}` 확인
 
 ## ERR-035 | PowerShell Set-Content UTF8 BOM → account_manager JSON 파싱 실패
 **Type:** JSON Parse Error / Encoding Bug
@@ -370,3 +371,15 @@
 - 발생: 작업스케줄러 SNS_Watchdog_AutoStart LastTaskResult
 - 의미: 프로세스 강제종료 / ExecutionPolicy 차단
 - 해결: Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+
+---
+
+## ERR-039 | engagement_tracker 무효 ig_media_id 반복 조회
+**Type:** Graph API Warning / Data Integrity
+**Raw:** `[Engagement] Graph API 오류 | 17863634121631171 | Unsupported get request. Object with ID '17863634121631171' does not exist, cannot be loaded due to missing permissions`
+**Root Cause:** `Instagram_Posts` 레코드 `rectwruMD3uua54sv`의 `ig_media_id` 필드에 유효하지 않은 media ID 잔존 → `engagement_tracker.py`가 `post_status=posted AND ig_media_id!=''` 필터로 30분마다 조회 → Graph API 반복 실패
+**Fix:** 해당 레코드 `ig_media_id` 필드를 공백으로 PATCH → engagement_tracker 조회 대상에서 자동 제외
+**Prevention:** 업로드 실패로 media_id 획득에 실패했거나 게시물이 삭제된 경우 ig_media_id 즉시 클리어. `post_status=posted`인데 ig_media_id가 비어있는 경우 → 재업로드 또는 레코드 정리.
+**Status:** ✅ RESOLVED (2026-06-12)
+**Evidence:** PATCH 200 OK / 다음 실행부터 해당 레코드 engagement_tracker 조회 제외
+**관련:** INC-021

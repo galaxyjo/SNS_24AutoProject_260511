@@ -330,3 +330,16 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 - 에러코드: 0xC000013A (작업스케줄러 LastTaskResult)
 - 해결: Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
 - 재발방지: watchdog.ps1 상단 자가치유 블록 삽입 (커밋 2695d87)
+
+---
+
+## FP-028 | Airtable 필드 UI 추가 후 재소멸 — 코드 의존 필드 선언 누락
+**설명:** Airtable 테이블에 필드를 UI에서 추가했으나 이후 세션에서 해당 필드가 없는 상태로 재발. 코드에서 신규 필드를 사용하면서도 해당 필드를 Airtable Schema에 공식 선언하지 않으면 재발 가능.
+**근본 원인:** Airtable UI 수동 추가는 코드/문서와 연동되지 않음. MASTERTREE_CONTRACT의 데이터 계약 미갱신 시 팀(또는 AI)이 해당 필드 존재를 모르고 삭제하거나 base를 새로 구성할 때 누락.
+**증상:** `422 UNKNOWN_FIELD_NAME: "caption"` 반복 — save_to_airtable()은 caption 저장 시도, 테이블에는 없음
+**해결:** Airtable Metadata API로 프로그래매틱 필드 추가 (재현 가능 / 문서화 가능)
+```python
+requests.post(f'.../tables/{table_id}/fields', json={'name': 'caption', 'type': 'multilineText'})
+```
+**예방:** 신규 Airtable 필드 사용 시 MASTERTREE_CONTRACT.md 데이터 계약 테이블 즉시 업데이트. UI 수동 추가보다 API 추가 우선 (재현 가능).
+**관련:** ERR-028(260529 해소 → 260612 재발) / ERR-039 / INC-020

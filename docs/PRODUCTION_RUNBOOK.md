@@ -221,13 +221,15 @@ Runtime Proof (2026-06-02):
 5. rollback 없는 수정 금지
 ```
 
-## CRAWL_URLS 현황 (260602 기준)
+## CRAWL_URLS 현황 (260612 기준 — FB_GROUP_POOL_V1)
 | 그룹 ID | 상태 | 비고 |
 |---------|------|------|
-| 1676627532598134 | ✅ 활성 | K-beauty 필리핀 그룹 — 키워드 매칭 시 수집 |
-| 610113703703488 | ⚠️ 대기 | div[role='feed'] 미탐지 — 가입 승인 대기 중 |
-| 345179878828208 | ✅ 활성 | Airtable 저장 확인 (260602 기준 그룹) |
+| ~~1676627532598134~~ | ❌ 제거 | 인도 트래픽 비율 높음 — accounts.json + Crawl_Targets 삭제 (c71f2c7) |
+| 610113703703488 | ⚠️ Hold | div[role='feed'] 미탐지 — 가입 승인 대기 중 |
+| 345179878828208 | ✅ 활성 | Airtable 저장 확인 |
 | 755455243345993 | ✅ 활성 | 키워드 매칭 시 수집 |
+| 3289570041331131 | ✅ 활성 | FB_신규1 |
+| 1827528710833477 | ✅ 활성 | FB_신규2 — caption 저장 확인 (260612 기준)
 
 ---
 
@@ -255,3 +257,27 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 - watchdog.ps1 자가치유 블록 관리자 권한 실행 확인
 - 명령: (Get-ScheduledTask -TaskName 'SNS_Watchdog_AutoStart').Principal | Select-Object RunLevel, UserId
 - 성공기준: RunLevel=Highest
+
+---
+
+## LOST 상태 운영 주의사항 (260612 추가)
+```
+- LOST 타임아웃: followup3_sent + 72h 경과 → 자동 LOST 전환
+- 현재 DRY_RUN 모드: .env LOST_DRY_RUN=true (기본값)
+- 실운영 전환: .env LOST_DRY_RUN=false 설정 후 launcher 재시작
+- 전환 전 확인: Lead_Interactions lost_reason / lost_at / disqualified 필드 존재 여부 확인
+```
+
+## Supplier_Blocklist 운영 (260612 확인)
+```
+- DRY_RUN 제거 완료 (11fc204) — 실차단 적용 중
+- Blocklist 로드: 4건 (로그 확인 가능: [Blocklist] 로드 완료 | 4건)
+- 차단 시: [FB Crawler] POST N 필터 제외 로그 출력
+```
+
+## filter_rules.json 운영 금지 사항 (260612 추가)
+```
+- configs/filter_rules.json: Crawl_Training_Set 기반 분석 전용
+- 운영 크롤러(facebook_crawler.py)와 연동 금지
+- generate_filter_rules.py: 분석 스크립트, 자동 실행 금지
+```

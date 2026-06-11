@@ -119,3 +119,9 @@ Evidence 없는 merge 금지.
 ```
 
 | 2026-06-03 | watchdog.ps1 | ExecutionPolicy 자가치유 블록 추가 (2695d87) |
+| 2026-06-11 | modules/dm/dm_followup_scheduler.py (blocklist 모듈) | Supplier_Blocklist DRY_RUN 제거 → 실차단 적용 (11fc204) |
+| 2026-06-11 | modules/dm/dm_followup_scheduler.py | LOST 72h 타임아웃 구현 — DRY_RUN 모드 (0e5133b) |
+| 2026-06-11 | configs/filter_rules.json + tools/generate_filter_rules.py | Crawl_Training_Set 기반 분석 전용 추가 — 운영 연동 금지 (3840a6a) |
+| 2026-06-12 | configs/accounts.json | crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비율 높음 (c71f2c7) |
+| 2026-06-12 | Airtable Instagram_Posts | caption 필드 재추가 (API, fldcxTzLzYCzD9aYe) — ERR-028 재해소 |
+| 2026-06-12 | Airtable Lead_Interactions | lost_reason / lost_at / disqualified 필드 추가 |
