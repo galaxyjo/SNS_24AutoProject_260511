@@ -1,21 +1,22 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260602_1620_
+_마지막 업데이트: 260612_0026_
 
 ## 현재 단계
-**섹션19 Instagram 업로드 Runtime Proof 완료** — Graph API 2-step 업로드 / imgbb 전처리 / Airtable posted 마킹 / caption clean_fb_metadata 적용
+**260612 운영정비 완료** — FB그룹 정리 / caption 필드 재추가 / ig_media_id 클리어 / Supplier_Blocklist 실차단 / LOST 타임아웃 DRY_RUN 구현
 
 ## 최종 확인 커밋
-349fedf (fix: Clone Mode caption Facebook UI 잔여물 제거 (ERR-037) [260602])
+c71f2c7 (fix: crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비율 높음 [260611])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
 ## 마지막 확인 커밋 체인
-- 3dbe72a (feat: crawl_urls 4개 그룹으로 확장 [260602])
-- c6a30d1 (fix: accounts.json BOM 제거 + newline 정리 [260602])
-- f5d59f2 (fix: facebook_crawler load_dotenv 누락 추가 [260602])
-- 349fedf (fix: Clone Mode caption Facebook UI 잔여물 제거 ERR-037 [260602])
+- b5b23ad (feat: Supplier_Blocklist DRY_RUN 로그 추가 [260609])
+- 11fc204 (feat: Supplier_Blocklist 실제 차단 적용 — DRY_RUN 제거, continue 추가 [260611])
+- 0e5133b (feat: LOST 상태 구현 — followup3_sent 72h 타임아웃 자동 전환 DRY_RUN 모드 [260611])
+- 3840a6a (docs: Crawl_Training_Set 기반 filter_rules 후보 저장 + 생성 스크립트 추가 [260611])
+- c71f2c7 (fix: crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비율 높음 [260611])
 
 ## Runtime 상태 (260529 20:15 기준 — 세션 간 기동 미확인)
 | 구간 | 상태 | 근거 |
@@ -56,7 +57,7 @@ _마지막 업데이트: 260602_1620_
 - _rule.reason AttributeError → **260528 해소 완료** (getattr fallback)
 - SNS_Watchdog_AutoStart 작업 스케줄러 등록 → ✅ **등록 완료** (260529 관리자 권한으로 등록)
 - accounts.json 빈 배열 → crawl_urls skip → **260529 해소 완료** (account1 + crawl_url 등록)
-- Airtable caption 필드 없음 → 422 UNKNOWN_FIELD_NAME → **260529 해소 완료** (UI에서 필드 추가)
+- Airtable caption 필드 없음 → 422 UNKNOWN_FIELD_NAME → **260529 해소** → **260612 재발 → 재해소** (API로 multilineText 필드 추가, field_id=fldcxTzLzYCzD9aYe)
 - FB 크롤러 2회 연속 정상 완료 → **260529 19:43 / 20:13 확인**
 - crawl_urls 4개 그룹 확장 → **260602 완료** (3dbe72a)
 - accounts.json BOM 제거 → **260602 완료** (c6a30d1) — PowerShell Set-Content UTF8 금지
@@ -70,12 +71,21 @@ _마지막 업데이트: 260602_1620_
 - Instagram 업로드 Runtime Proof → **260602 완료** — recFyw7OUaZ666JDJ / ig_media_id=18101360630320704 / post_status=posted ✅
 - 백업 완료: C:\backup_(12)_260602_2207_SNS_24AutoProject_260511.zip
 - 최종 commit: 2695d87
+- Supplier_Blocklist 실제 차단 적용 → **260611 완료** (11fc204) — DRY_RUN 제거, continue 적용
+- LOST 72h 타임아웃 구현 → **260611 완료** (0e5133b) — DRY_RUN 모드, 실운영은 LOST_DRY_RUN=false 설정 후 활성화
+- Lead_Interactions lost_reason / lost_at / disqualified 필드 추가 → **260611 완료** (Airtable UI)
+- filter_rules.json + generate_filter_rules.py 추가 → **260611 완료** (3840a6a) — 운영 연동 금지, 분석용 전용
+- FB그룹 1676627532598134 제거 → **260612 완료** (c71f2c7) — 인도 비율 높음, accounts.json + Crawl_Targets 동시 삭제
+- ig_media_id 17863634121631171 클리어 → **260612 완료** — rectwruMD3uua54sv, engagement_tracker 반복 오류 해소
+- crawl_urls 현재 5개 운영 중 (FB_GROUP_POOL_V1): 610113703703488(Hold) / 345179878828208 / 755455243345993 / 3289570041331131 / 1827528710833477
+- upload_rate 6.2% → caption 필드 복구로 다음 크롤링부터 회복 예상
 
 ## 미해결 항목 (Phase 후순위)
 - 그룹 610113703703488: div[role='feed'] 미탐지 — 가입 승인 대기 중 (코드 문제 아님)
+- LOST_DRY_RUN=false 전환 대기 — 실운영 전 Airtable 필드 확인 후 적용
 - 워터마크 제외 로직 미구현
 - data/processed_comment_ids.json untracked 유지 (정상 — gitignore 대상)
-- 백업 필요 시점 도달 (마지막 백업: backup_(11)_260602_0108)
+- 백업 필요 시점 도달 (마지막 백업: backup_(12)_260602_2207)
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -148,3 +158,20 @@ _마지막 업데이트: 260602_1620_
 - pytest 104 passed / 1 xfailed / 2 xpassed ✅
 - deep-translator 1.11.4 pip install 완료
 - 백업 필요 시점 도달 (다음 세션 초반 백업 권장)
+
+## [260612_운영정비] — 2026-06-12 00:26 KST
+- Supplier_Blocklist 실차단 적용 (11fc204) — DRY_RUN 로그 제거, 매칭 시 continue로 실제 skip
+- LOST 72h 타임아웃 구현 (0e5133b) — followup3_sent + 72h 경과 → LOST 자동 전환, DRY_RUN 모드
+  - 실운영 전환 조건: .env LOST_DRY_RUN=false 설정
+- Lead_Interactions 필드 추가: lost_reason(Single line) / lost_at(Date) / disqualified(Checkbox)
+- filter_rules.json + generate_filter_rules.py (3840a6a) — Crawl_Training_Set 기반 분석 전용, 운영 연동 금지
+- FB그룹 1676627532598134 제거 (c71f2c7) — Crawl_Targets 레코드 삭제 + accounts.json crawl_urls 제거
+  - 사유: 인도 트래픽 비율 높음, K-beauty 타겟 부적합
+  - crawl_urls 5개 → 5개 유지 (610113703703488 Hold 포함)
+- Instagram_Posts.caption 필드 재추가 — API로 multilineText 추가 (fldcxTzLzYCzD9aYe), 422 오류 해소
+  - 원인: 260529 UI 추가 후 어느 시점 삭제됨
+- ig_media_id 17863634121631171 클리어 (rectwruMD3uua54sv) — engagement_tracker 30분 간격 반복 오류 해소
+- launcher/main.py 기동 확인 (00:26 KST) — Flask :5000 / APScheduler 8잡 / RetryQueue 정상
+  - AdsPower 미실행으로 FB 크롤링 WinError 10061 (AdsPower 기동 후 자동 복구)
+- upload_rate 6.2% — caption 필드 복구로 다음 크롤링부터 ready 레코드 누적 회복 예상
+- 최신 커밋: c71f2c7 / GitHub push 완료
