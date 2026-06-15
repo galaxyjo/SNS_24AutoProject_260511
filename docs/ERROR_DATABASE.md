@@ -383,3 +383,51 @@
 **Status:** ✅ RESOLVED (2026-06-12)
 **Evidence:** PATCH 200 OK / 다음 실행부터 해당 레코드 engagement_tracker 조회 제외
 **관련:** INC-021
+
+---
+
+## ERR-040 | post_status Single Select 옵션 소실
+**Type:** Airtable 422 INVALID_MULTIPLE_CHOICE_OPTIONS
+**Raw:** `422 Client Error: INVALID_MULTIPLE_CHOICE_OPTIONS: Insufficient permissions to create new select option "ready"`
+**Root Cause:** Instagram_Posts 테이블 post_status 필드에서 `ready` / `uploading` 옵션이 소실됨. 260612 caption 필드 재추가 작업 시 연관 변경으로 추정. Airtable UI에서 Single Select 필드를 재생성하면 기존 옵션이 초기화됨.
+**Fix:** Airtable Meta API PATCH 시도 → 422 실패 → Records API `typecast:True`로 더미 레코드 생성 → 옵션 강제 등록 → 더미 레코드 삭제
+**Prevention:** post_status 필드 수정 시 기존 옵션 목록 확인 필수. API 수정 후 즉시 옵션 목록 재확인.
+**Status:** ✅ RESOLVED (2026-06-16)
+**Evidence:** `['draft','scheduled','posted','failed','ready','uploading']` Meta API 응답 확인
+**관련:** ERR-041
+
+---
+
+## ERR-041 | retry_count / last_error_msg UNKNOWN_FIELD_NAME
+**Type:** Airtable 422 UNKNOWN_FIELD_NAME
+**Raw:** `422 Client Error: UNKNOWN_FIELD_NAME: "retry_count"` — launcher/main.py 업로드 실패 경로
+**Root Cause:** Instagram_Posts 테이블에 `retry_count` / `last_error_msg` 필드 미존재. 코드에서 해당 필드에 write를 시도하여 422 발생. 예외는 `@handle_errors(reraise=False)`에 의해 삼켜져서 "executed successfully" 로그만 남고 실제 상태는 `uploading` 고착.
+**Fix:** launcher/main.py 성공 경로(L224) + 실패 경로(L237) 양쪽에서 `retry_count` / `last_error_msg` 참조 제거. 실패 에러 내용은 `logger.error`로 직접 출력.
+**Prevention:** Airtable 필드 write 전 Meta API로 필드 존재 확인. 코드에 존재하지 않는 Airtable 필드명 사용 금지.
+**Status:** ✅ RESOLVED (2026-06-16) — 커밋 463c350
+**Evidence:** 이후 업로드 성공 → post_status=posted 정상 마킹 확인 (recw3EHD8d9uiP2FX)
+**관련:** ERR-040, FP-029
+
+---
+
+## ERR-042 | FB CDN 동일 이미지 다중 URL → image_url_hash 중복 미탐지
+**Type:** Data Quality / Airtable 중복 레코드
+**Raw:** uploading 고착 28건 전부 Regine Kim 포스트 동일 이미지 — CDN 노드만 다름 (`scontent.fhan15-2`, `fdad3-8`, `fhan5-6`)
+**Root Cause:** `image_url_hash = hashlib.sha256(image_url.encode())` — URL 전체를 해시 → CDN 노드가 다르면 다른 해시 → 동일 이미지도 신규로 저장. 같은 이미지가 28건 중복 저장됨.
+**Fix:** `re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", image_url)`로 FB 미디어 ID 추출 → 미디어 ID 기준 해시. 추출 실패 시 원본 URL 폴백.
+**Prevention:** CDN URL 해시 금지. 미디어 고유 ID 기반 중복 감지 원칙. FB CDN URL 파싱 로직은 FP-029 참조.
+**Status:** ✅ RESOLVED (2026-06-16) — 커밋 25c6779
+**Evidence:** 3개 CDN URL → 동일 미디어 ID(709844463_2805495464410633) → 동일 해시 ✅
+**관련:** FP-029, ERR-041
+
+---
+
+## ERR-043 | import re 누락
+**Type:** NameError
+**Raw:** `[FB Crawler] 크롤링 실패 | name 're' is not defined` — 그룹 1827528710833477
+**Root Cause:** `facebook_crawler.py`에 `re.search()` 호출(L138) 추가 시 `import re` 추가 누락. ERR-042 수정 커밋(25c6779)에서 import 라인 미포함.
+**Fix:** `facebook_crawler.py` 상단 `import re` 추가.
+**Prevention:** `re`, `os`, `sys` 등 표준 라이브러리 사용 시 파일 상단 import 확인 필수. 코드 수정 후 즉시 `python -c "import facebook_crawler"` 또는 lint 검증.
+**Status:** ✅ RESOLVED (2026-06-16) — 커밋 366c617
+**Evidence:** 이후 크롤링 NameError 미발생 확인
+**관련:** ERR-042

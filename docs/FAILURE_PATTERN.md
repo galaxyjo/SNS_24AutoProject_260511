@@ -343,3 +343,18 @@ requests.post(f'.../tables/{table_id}/fields', json={'name': 'caption', 'type': 
 ```
 **예방:** 신규 Airtable 필드 사용 시 MASTERTREE_CONTRACT.md 데이터 계약 테이블 즉시 업데이트. UI 수동 추가보다 API 추가 우선 (재현 가능).
 **관련:** ERR-028(260529 해소 → 260612 재발) / ERR-039 / INC-020
+
+---
+
+## FP-029 | FB CDN 동일 이미지 다중 URL — URL 해시 기반 중복 감지 무력화
+**설명:** Facebook은 동일한 이미지를 여러 CDN 노드로 서빙한다 (`scontent.fhan15-2`, `fdad3-8`, `fhan5-6` 등). URL 전체를 해시 키로 사용하면 노드가 달라질 때마다 다른 해시가 생성되어 동일 이미지를 신규 레코드로 저장한다. 크롤링이 반복될수록 같은 이미지의 중복 레코드가 기하급수적으로 누적된다.
+**근본 원인:** `hashlib.sha256(image_url.encode())` — CDN URL의 도메인 부분이 가변적. FB CDN URL 구조: `https://scontent.{node}/v/{path}/{media_id_composite}.jpg?{query_params}` — 미디어 ID만 고정.
+**증상:** 같은 이미지(Regine Kim 포스트)가 28건 중복 저장. uploading 고착 + upload_rate 하락.
+**해결:** FB 미디어 ID 추출 정규식으로 CDN 노드 무관한 고유 키 생성:
+```python
+_m = re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", image_url)
+_key = _m.group(1) if _m else image_url
+image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
+```
+**예방:** 외부 CDN URL을 해시 키로 직접 사용 금지. URL 내부의 콘텐츠 고유 ID를 추출하여 해시 생성. CDN 도메인·쿼리파라미터는 가변 요소로 취급.
+**관련:** ERR-042, ERR-041, ERR-040

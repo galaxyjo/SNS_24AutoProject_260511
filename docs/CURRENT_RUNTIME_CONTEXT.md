@@ -1,22 +1,21 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260612_0026_
+_마지막 업데이트: 260616_0207_
 
 ## 현재 단계
-**260612 운영정비 완료** — FB그룹 정리 / caption 필드 재추가 / ig_media_id 클리어 / Supplier_Blocklist 실차단 / LOST 타임아웃 DRY_RUN 구현
+**260616 버그수정 완료** — post_status 옵션 복구 / uploading 고착 28건 정리 / retry_count 제거 / CDN 중복 감지 개선 / import re 추가 / Instagram 업로드 성공 확인
 
 ## 최종 확인 커밋
-c71f2c7 (fix: crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비율 높음 [260611])
+366c617 (fix: facebook_crawler import re 누락 추가 [260616])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
 ## 마지막 확인 커밋 체인
-- b5b23ad (feat: Supplier_Blocklist DRY_RUN 로그 추가 [260609])
-- 11fc204 (feat: Supplier_Blocklist 실제 차단 적용 — DRY_RUN 제거, continue 추가 [260611])
-- 0e5133b (feat: LOST 상태 구현 — followup3_sent 72h 타임아웃 자동 전환 DRY_RUN 모드 [260611])
-- 3840a6a (docs: Crawl_Training_Set 기반 filter_rules 후보 저장 + 생성 스크립트 추가 [260611])
 - c71f2c7 (fix: crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비율 높음 [260611])
+- 463c350 (fix: retry_count/last_error_msg 필드 제거 + Graph API 실패 로깅 보강 [260616])
+- 25c6779 (fix: image_url_hash FB CDN 중복 감지 개선 — URL 전체 대신 미디어ID 추출 [260616])
+- 366c617 (fix: facebook_crawler import re 누락 추가 [260616])
 
 ## Runtime 상태 (260529 20:15 기준 — 세션 간 기동 미확인)
 | 구간 | 상태 | 근거 |
@@ -78,7 +77,13 @@ c71f2c7 (fix: crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비�
 - FB그룹 1676627532598134 제거 → **260612 완료** (c71f2c7) — 인도 비율 높음, accounts.json + Crawl_Targets 동시 삭제
 - ig_media_id 17863634121631171 클리어 → **260612 완료** — rectwruMD3uua54sv, engagement_tracker 반복 오류 해소
 - crawl_urls 현재 5개 운영 중 (FB_GROUP_POOL_V1): 610113703703488(Hold) / 345179878828208 / 755455243345993 / 3289570041331131 / 1827528710833477
-- upload_rate 6.2% → caption 필드 복구로 다음 크롤링부터 회복 예상
+- upload_rate 6.2% → caption 필드 복구로 다음 크롤링부터 회복 예상 (260612)
+- post_status ready/uploading 옵션 소실 → **260616 해소** (typecast 더미 레코드 방식으로 강제 복구)
+- uploading 고착 28건 (Regine Kim 포스트 동일 이미지) → **260616 failed 일괄 마킹** (200 OK 전부)
+- retry_count/last_error_msg UNKNOWN_FIELD_NAME → **260616 해소** (463c350 — 두 필드 코드에서 제거)
+- image_url_hash URL 전체 해시 → CDN 노드 달라 중복 미탐지 → **260616 해소** (25c6779 — FB 미디어 ID 추출로 변경)
+- import re 누락 → [FB Crawler] 크롤링 실패 | name 're' is not defined → **260616 해소** (366c617)
+- Instagram 업로드 성공 → **260616 02:07 KST 확인** | recw3EHD8d9uiP2FX | post_id=18122871268709171 ✅
 
 ## 미해결 항목 (Phase 후순위)
 - 그룹 610113703703488: div[role='feed'] 미탐지 — 가입 승인 대기 중 (코드 문제 아님)
@@ -175,3 +180,24 @@ c71f2c7 (fix: crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비�
   - AdsPower 미실행으로 FB 크롤링 WinError 10061 (AdsPower 기동 후 자동 복구)
 - upload_rate 6.2% — caption 필드 복구로 다음 크롤링부터 ready 레코드 누적 회복 예상
 - 최신 커밋: c71f2c7 / GitHub push 완료
+
+## [260616_버그수정] — 2026-06-16 02:07 KST
+- post_status 옵션 소실 (ready/uploading 없음) → Airtable Meta API PATCH 422 → typecast:True 더미 레코드 방식으로 강제 복구
+  - 복구 후 옵션 목록: ['draft', 'scheduled', 'posted', 'failed', 'ready', 'uploading'] ✅
+- uploading 고착 28건 일괄 마킹:
+  - 원인①: FB CDN 동일 이미지를 다른 노드(fhan15-2, fdad3-8, fhan5-6)로 서빙 → URL 해시 달라 중복 28건 저장
+  - 원인②: Graph API 업로드 실패 후 retry_count UNKNOWN_FIELD_NAME 예외 → uploading 고착
+  - 조치: 28건 전체 post_status=failed PATCH 완료 (200 OK)
+- retry_count/last_error_msg 필드 제거 (463c350):
+  - launcher/main.py 성공/실패 경로 양쪽에서 두 필드 참조 제거
+  - 실패 에러 내용은 logger.error로 직접 출력으로 대체
+- image_url_hash 개선 (25c6779):
+  - Before: `hashlib.sha256(image_url.encode())` — CDN 노드 다르면 다른 해시
+  - After: `re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", image_url)` → FB 미디어 ID 추출 후 해시
+  - 검증: 3개 CDN URL → 동일 미디어 ID → 동일 해시 ✅
+- import re 추가 (366c617): facebook_crawler.py 상단 `import re` 누락 수정
+- Instagram 업로드 성공 증거:
+  - 대상: recw3EHD8d9uiP2FX
+  - /media_publish id (ig_media_id): **18122871268709171** ✅
+  - Airtable post_status: ready → uploading → **posted** ✅
+- 최신 커밋: 366c617 / GitHub push 완료
