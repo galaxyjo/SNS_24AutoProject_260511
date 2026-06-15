@@ -211,6 +211,7 @@ def _job_insta_upload():
                         _slack(err_msg)
                     raise RuntimeError(err_msg)
                 if "id" not in c1:
+                    logger.error(f"[Main] 미디어 생성 실패 | {rid} | {c1}")
                     raise RuntimeError(f"미디어 생성 실패: {c1}")
                 r2 = _req.post(
                     f"https://graph.facebook.com/v21.0/{ig_user_id}/media_publish",
@@ -221,10 +222,8 @@ def _job_insta_upload():
                 if "id" not in c2:
                     raise RuntimeError(f"게시 실패: {c2}")
                 table.update(rid, {
-                    "post_status":   "posted",
-                    "ig_media_id":   c2["id"],
-                    "retry_count":   attempt - 1,
-                    "last_error_msg": "",
+                    "post_status": "posted",
+                    "ig_media_id": c2["id"],
                 })
                 logger.info(f"[Main] 업로드 성공 | {rid} | post_id={c2['id']}")
                 success = True
@@ -235,8 +234,8 @@ def _job_insta_upload():
                     time.sleep(10)
 
         if not success:
-            table.update(rid, {"post_status": "failed", "retry_count": 3, "last_error_msg": str(last_err)[:500]})
-            logger.error(f"[Main] 업로드 최종 실패 | {rid}")
+            table.update(rid, {"post_status": "failed"})
+            logger.error(f"[Main] 업로드 최종 실패 | {rid} | {last_err}")
 
 
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
