@@ -134,7 +134,9 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
         return
     _url = f"https://api.airtable.com/v0/{_base_id}/Instagram_Posts"
     _hdrs = {"Authorization": f"Bearer {_api_key}", "Content-Type": "application/json"}
-    image_url_hash = hashlib.sha256(image_url.encode("utf-8")).hexdigest()
+    _m = re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", image_url)
+    _key = _m.group(1) if _m else image_url
+    image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
     try:
         chk = _req.get(_url, headers=_hdrs, params={"filterByFormula": f"{{image_url_hash}}='{image_url_hash}'", "maxRecords": "1"}, timeout=10)
     except Exception as exc:
