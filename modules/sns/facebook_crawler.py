@@ -11,7 +11,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
 from modules.sns.caption_generator import generate_caption, generate_caption_clone
-from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts, passes_image_filter
+from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts, passes_image_filter, clean_fb_metadata
 from modules.sns.post_id_generator import generate_sku, get_source_group, get_platform_code
 from modules.common.logger import get_logger
 
@@ -199,6 +199,7 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
             expand_see_more(post, driver)
             # 서로게이트 등 latin-1 불가 문자 안전 처리
             raw_text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
+            raw_text = clean_fb_metadata(raw_text)
             _author_raw = raw_text.splitlines()[0] if raw_text else ""
             _matched = is_blocked_supplier(_author_raw, _blocklist)
             if _matched:
