@@ -156,6 +156,7 @@ _IMAGE_BLOCK_KEYWORDS = [
     r'@[a-zA-Z0-9_.]+',
     r'aurora\s*shop', r'coslife', r'everglow', r'kcosmetic',
     r'damoa', r'vtk\s*cos', r'피터박',
+    r'm&y\s*global',
 ]
 
 
