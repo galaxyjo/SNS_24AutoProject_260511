@@ -188,7 +188,8 @@ def _job_insta_upload():
         caption   = f"{fields.get('caption','')}\n{fields.get('hashtag','')}".strip()
 
         if not image_url:
-            table.update(rid, {"post_status": "failed", "last_error_msg": "image_url 없음"})
+            table.update(rid, {"post_status": "failed"})
+            logger.error(f"[Upload] image_url 없음 — failed 마킹 | rid={rid}")
             continue
 
         # 비율 보정 전처리 (4:5 ~ 1.91:1 범위 벗어나면 crop → imgbb 영구 URL)
