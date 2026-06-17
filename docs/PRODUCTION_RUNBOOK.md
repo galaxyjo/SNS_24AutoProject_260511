@@ -275,9 +275,72 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 - 차단 시: [FB Crawler] POST N 필터 제외 로그 출력
 ```
 
+## Supplier_Blocklist / content_filter 관리 절차 (260616 추가)
+
+### 워터마크 공급자 차단 절차
+```python
+# 1. Airtable Supplier_Blocklist 등록
+requests.post(f'{BASE_URL}/Supplier_Blocklist', json={'records': [{'fields': {
+    'author_name': '<FB 작성자명>',
+    'page_name': '<브랜드명>',
+    'reason_code': 'BLOCK_WATERMARK_SUPPLIER',
+    'notes': '워터마크 이미지 공급자'
+}}]})
+
+# 2. content_filter.py _IMAGE_BLOCK_KEYWORDS에 패턴 추가
+# modules/sns/content_filter.py 내 _IMAGE_BLOCK_KEYWORDS 리스트
+# 예: r'm&y\s*global'
+```
+
+### 차단 확인
+- 다음 크롤링 사이클에서 `[Blocklist] 차단 | author=...` 로그 확인
+- 텍스트 필터 테스트: `python -c "from modules.sns.content_filter import passes_keyword_filter; print(passes_keyword_filter('<텍스트>'))"``
+
+### 현재 Blocklist 건수 확인
+```python
+r = requests.get(f'{BASE_URL}/Supplier_Blocklist', headers=hdrs)
+print(len(r.json().get('records', [])), '건')
+```
+
+---
+
 ## filter_rules.json 운영 금지 사항 (260612 추가)
 ```
 - configs/filter_rules.json: Crawl_Training_Set 기반 분석 전용
 - 운영 크롤러(facebook_crawler.py)와 연동 금지
 - generate_filter_rules.py: 분석 스크립트, 자동 실행 금지
 ```
+
+## [260617] PRODUCTION_RUNBOOK - Pilot 3개 운영 절차
+
+### Pilot 계정 (Active)
+- IDN-000036: nguyenknv15@gmail.com
+- IDN-000038: nhm880808@gmail.com
+- IDN-000016: kang88jungmin@gmail.com
+
+### 자동화 실행 조건
+- identity_status = Active
+- automation_enabled = True
+- platform_automation_enabled = True
+- adspower_profile_id 존재
+
+### 실행 제외 조건
+- identity_status != Active
+- automation_enabled = False
+- adspower_profile_id 없음
+
+### Rollout 순서
+Stage 1: Pilot 3개 -> 7일 안정 확인
+Stage 2: 10개 확장
+Stage 3: 33개 전체 확장
+
+### 일일 점검 항목
+- Instagram_Posts publish_status 확인
+- 차단/오류 계정 확인
+- Platform_Accounts last_post_success_at 확인
+- n8n 실행 로그 확인
+
+### 긴급 중단 방법
+Account_Registry -> automation_enabled = False
+또는
+Platform_Accounts -> platform_automation_enabled = False

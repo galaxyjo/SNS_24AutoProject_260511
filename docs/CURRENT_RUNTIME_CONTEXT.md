@@ -1,21 +1,22 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260616_0207_
+_마지막 업데이트: 260617_0000_
 
 ## 현재 단계
-**260616 버그수정 완료** — post_status 옵션 복구 / uploading 고착 28건 정리 / retry_count 제거 / CDN 중복 감지 개선 / import re 추가 / Instagram 업로드 성공 확인
+**260616 운영정비 완료** — 버그수정 5건 / M&Y GLOBAL 차단 등록 / content_filter 패턴 추가 / clean_fb_metadata 크롤러 적용 / image_hosting.py 신규 모듈 추가
 
 ## 최종 확인 커밋
-366c617 (fix: facebook_crawler import re 누락 추가 [260616])
+0688849 (fix: clean_fb_metadata 호출 추가 — FB UI 잔여물 제거 [260616])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
 ## 마지막 확인 커밋 체인
-- c71f2c7 (fix: crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비율 높음 [260611])
 - 463c350 (fix: retry_count/last_error_msg 필드 제거 + Graph API 실패 로깅 보강 [260616])
 - 25c6779 (fix: image_url_hash FB CDN 중복 감지 개선 — URL 전체 대신 미디어ID 추출 [260616])
 - 366c617 (fix: facebook_crawler import re 누락 추가 [260616])
+- a126754 (fix: IMAGE_BLOCK_KEYWORDS에 M&Y GLOBAL 워터마크 패턴 추가 [260616])
+- 0688849 (fix: clean_fb_metadata 호출 추가 — FB UI 잔여물 제거 [260616])
 
 ## Runtime 상태 (260529 20:15 기준 — 세션 간 기동 미확인)
 | 구간 | 상태 | 근거 |
@@ -84,11 +85,15 @@ _마지막 업데이트: 260616_0207_
 - image_url_hash URL 전체 해시 → CDN 노드 달라 중복 미탐지 → **260616 해소** (25c6779 — FB 미디어 ID 추출로 변경)
 - import re 누락 → [FB Crawler] 크롤링 실패 | name 're' is not defined → **260616 해소** (366c617)
 - Instagram 업로드 성공 → **260616 02:07 KST 확인** | recw3EHD8d9uiP2FX | post_id=18122871268709171 ✅
+- M&Y GLOBAL / Mooncher Kim Supplier_Blocklist 등록 → **260616 완료** | recEDhkour93vZR74 | reason_code=BLOCK_WATERMARK_SUPPLIER
+- _IMAGE_BLOCK_KEYWORDS에 `r'm&y\s*global'` 추가 → **260616 완료** (a126754)
+- `clean_fb_metadata()` facebook_crawler.py L202 호출 추가 → **260616 완료** (0688849) — raw_text 추출 직후 작성자명·경과시간 제거
+- `modules/sns/image_hosting.py` 신규 추가 → **260616 완료** — imgbb 업로드 유틸 (다운로드→MIME검증→SHA256→업로드→URL검증)
 
 ## 미해결 항목 (Phase 후순위)
 - 그룹 610113703703488: div[role='feed'] 미탐지 — 가입 승인 대기 중 (코드 문제 아님)
 - LOST_DRY_RUN=false 전환 대기 — 실운영 전 Airtable 필드 확인 후 적용
-- 워터마크 제외 로직 미구현
+- 워터마크 제외 로직 — **260616 부분 구현** (_IMAGE_BLOCK_KEYWORDS + Supplier_Blocklist 등록), passes_image_filter 이미지 픽셀 분석 미구현
 - data/processed_comment_ids.json untracked 유지 (정상 — gitignore 대상)
 - 백업 필요 시점 도달 (마지막 백업: backup_(12)_260602_2207)
 
@@ -179,7 +184,23 @@ _마지막 업데이트: 260616_0207_
 - launcher/main.py 기동 확인 (00:26 KST) — Flask :5000 / APScheduler 8잡 / RetryQueue 정상
   - AdsPower 미실행으로 FB 크롤링 WinError 10061 (AdsPower 기동 후 자동 복구)
 - upload_rate 6.2% — caption 필드 복구로 다음 크롤링부터 ready 레코드 누적 회복 예상
-- 최신 커밋: c71f2c7 / GitHub push 완료
+- 최신 커밋: 0688849 / GitHub push 완료
+
+## [260616_운영정비_2차] — 2026-06-16 23:00 KST
+- M&Y GLOBAL 워터마크 공급자 차단:
+  - Supplier_Blocklist 등록: author_name=Mooncher Kim / page_name=M&Y GLOBAL / reason_code=BLOCK_WATERMARK_SUPPLIER (recEDhkour93vZR74)
+  - content_filter._IMAGE_BLOCK_KEYWORDS에 `r'm&y\s*global'` 추가 (a126754)
+- `facebook_crawler.py`에 `clean_fb_metadata()` 호출 추가 (0688849):
+  - raw_text 추출 직후 L202에서 clean_fb_metadata(raw_text) 호출
+  - 작성자명·경과시간·구분점(·) 제거 후 필터링 → 오탐 방지
+  - import L14에 clean_fb_metadata 추가
+- `modules/sns/image_hosting.py` 신규 생성 (BOM없음, 54줄):
+  - upload_to_imgbb(source_url) — imgbb API 래퍼
+  - MIME 검증 / 32MB 제한 / SHA256 content_hash / HEAD 공개 URL 검증
+  - 향후 launcher/main.py _preprocess_image() 대체 후보
+- Blocklist 로드 완료: 5건 (M&Y GLOBAL 추가 후 확인)
+- Regine Kim 포스트 A-F3-260616-001 업로드 성공 → posted 확인 ✅
+- 런처 재기동: 23:00 KST (clean_fb_metadata 적용 버전)
 
 ## [260616_버그수정] — 2026-06-16 02:07 KST
 - post_status 옵션 소실 (ready/uploading 없음) → Airtable Meta API PATCH 422 → typecast:True 더미 레코드 방식으로 강제 복구
@@ -201,3 +222,23 @@ _마지막 업데이트: 260616_0207_
   - /media_publish id (ig_media_id): **18122871268709171** ✅
   - Airtable post_status: ready → uploading → **posted** ✅
 - 최신 커밋: 366c617 / GitHub push 완료
+## [260617] Airtable Account DB 구축 완료
+
+### 변경사항
+- Account_Registry 필드 추가: identity_id / category / automation_enabled / pilot_wave / identity_status / adspower_profile_id
+- 유효 계정 33개 확정 (중복/빈행 정리 완료)
+- Platform_Accounts 테이블 신규 생성 (tblkdk5dEagfQvUMp)
+- Instagram 19개 + Facebook 12개 = 31개 입력
+- Instagram_Posts 라우팅 필드 추가: target_identity_id / target_platform_account_id / publish_status / run_id / scheduled_at
+- Account_Registry <-> Platform_Accounts Linked Record 연결 (fldcRdC6XdGnMILqI)
+- Pilot 3개 Active: IDN-000036(nguyenknv15) / IDN-000038(nhm880808) / IDN-000016(kang88jungmin)
+
+### Airtable 현재 상태
+- Base ID: apphJNTHWNoFcVb1D
+- Account_Registry: 33개 (Active 3 / Ready 30)
+- Platform_Accounts: 31개
+
+### 다음 단계
+- n8n 워크플로우 설계 (별도 세션)
+- Pilot 3개 Runtime 포스팅 검증
+- 3 -> 10 -> 33개 확장

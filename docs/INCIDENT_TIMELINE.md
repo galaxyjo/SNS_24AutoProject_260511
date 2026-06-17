@@ -232,6 +232,23 @@
 
 ---
 
+## INC-022 | post_status 옵션 소실 → retry_count 422 cascade → uploading 28건 고착 (2026-06-16)
+**발생:** 2026-06-15 21:33 ~ 2026-06-16 02:07 (약 5시간)
+**요약:** `Instagram_Posts.post_status` Single Select 필드의 `ready`/`uploading` 옵션이 소실된 상태에서 launcher 재기동. 크롤러가 `ready` 저장 시 422 발생해 데이터가 uploading 상태에 고착. 설상가상으로 업로드 실패 경로가 `retry_count` 필드(미존재)에 write를 시도해 또다른 422 발생 → uploading 상태에서 벗어나지 못하고 5분마다 루프.
+**영향:** 약 28건 uploading 고착 / 업로드 0건 / upload_rate 5.1%까지 하락
+**근본 원인 1:** post_status 옵션 소실 (260612 caption 재추가 작업 시 연관 변경 추정) → ERR-040
+**근본 원인 2:** launcher/main.py 실패 경로에 `retry_count`/`last_error_msg` 미존재 필드 참조 → ERR-041
+**근본 원인 3:** FB CDN 동일 이미지 다중 URL → URL 기반 해시로 중복 28건 저장 → ERR-042
+**해결:**
+1. Airtable typecast 더미 레코드 방식으로 `ready`/`uploading` 옵션 강제 복구
+2. 28건 일괄 `post_status=failed` PATCH
+3. launcher/main.py 성공/실패 경로에서 `retry_count`/`last_error_msg` 참조 제거 (463c350)
+4. image_url_hash FB 미디어 ID 추출 방식으로 변경 (25c6779)
+**결과:** 02:07 KST 업로드 성공 (post_id=18122871268709171) / upload_rate 5.7% 반등
+**재발 방지:** ERR-040~043 등록 / FP-029 등록
+
+---
+
 ## INC-021 | engagement_tracker ig_media_id 17863634121631171 반복 오류 (2026-06-11)
 **발생:** 2026-06-11 00:03 ~ 23:25 (30분 간격 반복, 약 20회 이상)
 **요약:** `engagement_tracker.py`가 `Instagram_Posts`에서 `post_status=posted, ig_media_id!=''` 조건으로 조회 → `rectwruMD3uua54sv` 레코드의 `ig_media_id=17863634121631171` Graph API 조회 → `Object does not exist or missing permissions` 반복 Warning.

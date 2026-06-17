@@ -5,6 +5,24 @@
 
 ---
 
+## [260616_운영정비] M&Y GLOBAL 차단 / content_filter 개선 / clean_fb_metadata 크롤러 적용
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-06-16 |
+| 목표 | 워터마크 공급자 차단, FB raw_text 오염 제거, imgbb 업로드 유틸 신규 추가 |
+| 변경 1 | Airtable `Supplier_Blocklist` — M&Y GLOBAL / Mooncher Kim 등록 (recEDhkour93vZR74, BLOCK_WATERMARK_SUPPLIER) |
+| 변경 2 | `modules/sns/content_filter.py` — `_IMAGE_BLOCK_KEYWORDS`에 `r'm&y\s*global'` 추가 (a126754) |
+| 변경 3 | `modules/sns/facebook_crawler.py` — `clean_fb_metadata()` import + L202 호출 추가 (0688849) |
+| 변경 4 | `modules/sns/image_hosting.py` — imgbb 업로드 유틸 신규 생성 (BOM없음) |
+| 선행 수정 (260616 1차) | ERR-040~043 4건 수정: post_status 옵션 복구 / retry_count 제거 (463c350) / CDN 중복 개선 (25c6779) / import re 추가 (366c617) |
+| 업로드 증거 | A-F3-260616-001 (recklCtzkFd0TR2v4) posted ✅ |
+| Blocklist 건수 | 5건 (M&Y GLOBAL 추가 후) |
+| 최종 커밋 | 0688849 |
+| push | 완료 (0688849 → origin/master) |
+
+---
+
 ## [260611~260612_운영정비] Supplier_Blocklist 실차단 / LOST 구현 / 그룹 정리 / caption 재추가
 
 | 항목 | 내용 |
@@ -219,3 +237,27 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 - 작업스케줄러 RunLevel=Highest 확인 완료
 - watchdog 자가치유 블록 권한 검증 완료
 - 세션20 완전 종료
+
+## [260617] MERGE_JOURNAL - Airtable Account DB 구축
+
+### 작업 내역
+날짜: 2026-06-17
+세션: 260617_Airtable_Account_DB
+
+변경 내용:
+1. Account_Registry 필드 6개 추가
+2. 43개 계정 입력 -> 정리 후 33개 확정
+3. Platform_Accounts 테이블 신규 생성
+4. Instagram 19 + Facebook 12 = 31개 입력
+5. Instagram_Posts 라우팅 필드 5개 추가
+6. Linked Record 연결 완료
+7. Pilot 3개 Active 설정
+
+### 삭제된 데이터
+- 기존 샘플 행 3개 (ACC-001/002/003)
+- 빈 행 4개
+- 중복 이메일 행 2개 (IDN-000023, IDN-000035)
+
+### 원본 보존
+- 원본 Excel: 원본_Email 260609_520_260319_240725.xlsx
+- 백업 Base: BACKUP_260615

@@ -205,9 +205,53 @@ Airtable Lead_Interactions 필드 (260612 추가):
 - 운영 필터: modules/sns/content_filter.py passes_keyword_filter() 사용
 ```
 
+## IMAGE HOSTING MODULE (260616 추가)
+```
+- modules/sns/image_hosting.py: imgbb 업로드 유틸 (upload_to_imgbb)
+- 용도: FB CDN 만료 URL → imgbb 영구 URL 변환 (Instagram 업로드 전처리)
+- 현재: launcher/main.py _preprocess_image()에서 직접 imgbb 호출 중
+- 향후: image_hosting.upload_to_imgbb()로 대체 예정
+- BOM 없음 확인 (UTF-8 without BOM)
+```
+
 ## FINAL PRINCIPLE
 ```
 Conversation ≠ System Reality
 Text ≠ File
 말로 완료 ≠ 실제 완료
 ```
+
+## [260617] Airtable 구조 변경 확정
+
+### 신규 테이블
+- Platform_Accounts (tblkdk5dEagfQvUMp)
+  - platform_account_id / identity_id / platform / username / profile_url
+  - platform_status / platform_automation_enabled / adspower_profile_id
+  - last_login_success_at / last_post_success_at / notes
+
+### Account_Registry 신규 필드
+- identity_id (PK 형식: IDN-000001)
+- category (A_BEAUTY / B_MED / C_TRAVEL / UNCATEGORIZED)
+- automation_enabled (checkbox)
+- pilot_wave (3 / 10 / 30)
+- identity_status (Ready / Active / Review / Blocked)
+- adspower_profile_id
+- linked_platform_accounts (Linked Record -> Platform_Accounts)
+
+### Instagram_Posts 신규 필드
+- target_identity_id
+- target_platform_account_id
+- publish_status (Ready / Processing / Posted / Failed)
+- run_id
+- scheduled_at
+
+### 고유키 확정
+- identity_id: IDN-000001
+- platform_account_id: PLT-IG-000001 / PLT-FB-000001
+- content_id: CNT-000001
+- run_id: RUN-000001
+
+### 절대 변경 금지
+- 기존 테이블 삭제/이름변경 금지
+- 비밀번호 Airtable 원문 저장 금지
+- Base 분리는 100개 확장 후 병목 확인 후 검토

@@ -358,3 +358,13 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 ```
 **예방:** 외부 CDN URL을 해시 키로 직접 사용 금지. URL 내부의 콘텐츠 고유 ID를 추출하여 해시 생성. CDN 도메인·쿼리파라미터는 가변 요소로 취급.
 **관련:** ERR-042, ERR-041, ERR-040
+
+---
+
+## FP-030 | FB raw_text 메타데이터 오염 — clean_fb_metadata 미호출로 필터 오탐
+**설명:** Selenium `post.text`는 Facebook UI가 렌더링한 전체 텍스트를 반환한다. 여기에는 작성자명(첫 줄), 경과시간("2시간 전"), 구분점(·) 등 UI 잔여물이 포함된다. 이 오염된 텍스트를 `detect_and_translate()` → `passes_keyword_filter()`에 통과시키면 작성자명이나 UI 문자열이 키워드 규칙에 의도치 않게 매칭(또는 미매칭)될 수 있다.
+**근본 원인:** `facebook_crawler.py`에서 `raw_text = post.text` 후 `clean_fb_metadata()` 호출 없이 바로 `detect_and_translate(raw_text)` 진행. `clean_fb_metadata()`는 `caption_generator.py` 내부에서만 호출되어 caption용으로만 정제됨.
+**증상:** `Ct Cossmetic YU` 텍스트가 `passes_keyword_filter=False` 반환 (정상 차단이지만 원인이 작성자명인지 본문인지 불명확). 필터 동작 의도와 실제 매칭 경로 불일치.
+**해결:** `facebook_crawler.py` L202에 `raw_text = clean_fb_metadata(raw_text)` 추가 (0688849) — raw_text 추출 직후, `_author_raw` 추출 및 필터링 이전에 적용.
+**예방:** `post.text` 사용 시 항상 `clean_fb_metadata()` 선처리 후 필터 적용. caption과 raw_text 모두 동일한 정제 파이프라인 통과 원칙.
+**관련:** ERR-037(caption 오염 → 260602 해소), 0688849

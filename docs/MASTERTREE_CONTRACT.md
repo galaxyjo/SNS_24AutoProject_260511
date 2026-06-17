@@ -110,7 +110,7 @@ Supplier_Blocklist ← 차단 공급사 목록 (실차단 적용 중)
 | `image_url` | url | Facebook CDN 이미지 URL | 필수 |
 | `image_url_hash` | singleLineText | 중복 체크용 SHA256 | 자동 생성 |
 | `source_url` | url | Facebook 그룹 URL | 필수 |
-| `post_status` | multilineText | ready → uploading → posted | ready |
+| `post_status` | singleSelect | ready → uploading → posted / failed | ready |
 | `caption` | multilineText | generate_caption_clone() 결과 | 원문 기반 |
 | `hashtag` | multilineText | 원문 #태그 추출본 | 없으면 빈값 |
 | `original_text` | multilineText | post.text 직후 원문 (가공 전) | 필수 |
@@ -124,6 +124,13 @@ media_type 확장 계획:
 - video: Phase 후속 (별도 기획 필요)
 ```
 
+### 주의: 존재하지 않는 필드 (코드 참조 금지)
+- `retry_count` — 삭제됨 (463c350, 260616)
+- `last_error_msg` — 삭제됨 (463c350, 260616)
+
+### modules/sns 신규 모듈 (260616)
+- `modules/sns/image_hosting.py` — imgbb 업로드 유틸 (upload_to_imgbb)
+
 ## RUNTIME STATUS (2026-06-12 세션 완료)
 ```
 260612: 운영정비 완료
@@ -135,6 +142,16 @@ media_type 확장 계획:
 - ig_media_id 17863634121631171 클리어 (rectwruMD3uua54sv)
 최신 commit: 0b9291c
 백업: backup_(12)_260602_2207 (백업 필요 시점 도달)
+```
+```
+260616: 버그수정 5건 + 운영정비
+- ERR-040~043 수정: post_status 옵션 복구 / retry_count 제거 / CDN 중복 개선 / import re 추가
+- M&Y GLOBAL Supplier_Blocklist 등록
+- _IMAGE_BLOCK_KEYWORDS m&y\s*global 추가 (a126754)
+- facebook_crawler.py clean_fb_metadata() 호출 추가 (0688849)
+- image_hosting.py 신규 추가
+- upload_rate: 5.1% → 5.7% 반등
+최신 commit: 0688849
 ```
 ```
 260603: ExecutionPolicy 차단 해결 + watchdog 자가치유 블록 추가
@@ -156,3 +173,38 @@ Runtime      > Text
 Evidence     > Assumption
 260511       > 250723
 ```
+
+## [260617] AIRTABLE STATE DB 구조 갱신
+
+### 현재 Base 구조
+Base: Airtable_Import_Ready_Control_Tower_v3
+Base ID: apphJNTHWNoFcVb1D
+Workspace: 24auto_vr01_260410_0347pm
+
+### 테이블 목록 (총 9개)
+기존 유지:
+- Account_Registry     아바타 본체 33개 (Active 3 / Ready 30)
+- Source_Feeds         크롤링 원본
+- Instagram_Posts      게시 대기열 (라우팅 필드 추가됨)
+- Lead_Interactions    DM/리드
+- Persona_Profile      아바타 성격/말투
+- Crawl_Training_Set   필터 학습 67 records
+- Crawl_Targets        크롤링 대상
+- Supplier_Blocklist   공급자 차단
+
+신규 추가:
+- Platform_Accounts    SNS별 계정 31개 (IG 19 + FB 12)
+
+### Multi-Account Routing 구조
+Instagram_Posts.target_identity_id
+-> Account_Registry.identity_id
+-> Platform_Accounts.identity_id
+-> Platform_Accounts.adspower_profile_id
+-> AdsPower 실행
+-> Instagram 게시
+-> publish_status 반환
+
+### Pilot 운영 현황
+- Active 3개: IDN-000036 / IDN-000038 / IDN-000016
+- 다음 단계: n8n 워크플로우 연결 후 Runtime 검증
+- Rollout: 3 -> 10 -> 33개
