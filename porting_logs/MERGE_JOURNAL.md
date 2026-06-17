@@ -5,6 +5,23 @@
 
 ---
 
+## [260617_n8n설계+publish_single분리] publish_single() 분리 / n8n WF 설계 확정
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-06-17 |
+| 커밋 | 9d65cb4 / 20bef95 |
+| 변경 1 | `launcher/main.py` — `publish_single()` 분리 (9d65cb4): 게시 로직 독립 함수화, APScheduler + n8n Endpoint 공용 호출 가능, Token 호출자 주입 구조 |
+| 변경 2 | `launcher/main.py` L191 — `last_error_msg` 잔존 참조 제거 (20bef95), ERR-041 완전 해소 |
+| n8n 설계 | WF-01~WF-05 Architecture 확정 (DESIGN_COMPLETE) |
+| Credential 구조 | Option B 확정: Python이 Graph API Token 소유, n8n Token 비보유, .env CRED_{ref}_TOKEN 형식 |
+| Canonical Status | post_status 단일 사용 (publish_status 미사용) |
+| P0 Backlog | execution_owner 필드 미구현 / instagram_publish_api.py 미구현 |
+| Runtime Proof | NOT_EXECUTED (ready 레코드 0건) |
+| push | 완료 (9d65cb4 → origin/master) |
+
+---
+
 ## [260616_운영정비] M&Y GLOBAL 차단 / content_filter 개선 / clean_fb_metadata 크롤러 적용
 
 | 항목 | 내용 |

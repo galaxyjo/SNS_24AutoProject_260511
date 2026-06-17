@@ -1,17 +1,19 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260617_0000_
+_마지막 업데이트: 260617_n8n설계_publish_single분리_
 
 ## 현재 단계
-**260616 운영정비 완료** — 버그수정 5건 / M&Y GLOBAL 차단 등록 / content_filter 패턴 추가 / clean_fb_metadata 크롤러 적용 / image_hosting.py 신규 모듈 추가
+**260617 n8n Architecture 설계 확정 + publish_single() 분리 완료** — last_error_msg 제거 / publish_single() APScheduler·n8n 공용 분리 / n8n WF-01~05 설계 확정 (DESIGN_COMPLETE) / execution_owner P0 Backlog
 
 ## 최종 확인 커밋
-0688849 (fix: clean_fb_metadata 호출 추가 — FB UI 잔여물 제거 [260616])
+9d65cb4 (refactor: publish_single() 분리 — APScheduler/n8n 공용 게시 함수 [260617])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
 ## 마지막 확인 커밋 체인
+- 9d65cb4 (refactor: publish_single() 분리 — APScheduler/n8n 공용 게시 함수 [260617])
+- 20bef95 (fix: last_error_msg L191 잔존 참조 제거 [260616])
 - 463c350 (fix: retry_count/last_error_msg 필드 제거 + Graph API 실패 로깅 보강 [260616])
 - 25c6779 (fix: image_url_hash FB CDN 중복 감지 개선 — URL 전체 대신 미디어ID 추출 [260616])
 - 366c617 (fix: facebook_crawler import re 누락 추가 [260616])
@@ -89,8 +91,19 @@ _마지막 업데이트: 260617_0000_
 - _IMAGE_BLOCK_KEYWORDS에 `r'm&y\s*global'` 추가 → **260616 완료** (a126754)
 - `clean_fb_metadata()` facebook_crawler.py L202 호출 추가 → **260616 완료** (0688849) — raw_text 추출 직후 작성자명·경과시간 제거
 - `modules/sns/image_hosting.py` 신규 추가 → **260616 완료** — imgbb 업로드 유틸 (다운로드→MIME검증→SHA256→업로드→URL검증)
+- `publish_single()` 분리 → **260617 완료** (9d65cb4) — launcher/main.py 게시 로직 독립 함수화, APScheduler + n8n Endpoint 공용 호출 가능
+- `last_error_msg` L191 잔존 참조 제거 → **260616/17 완료** (20bef95)
+- n8n Architecture 설계 → **260617 확정** (DESIGN_COMPLETE) — WF-01 Posting Scheduler / WF-02 DM Webhook / WF-03 Credential Health / WF-04 Failure Recovery / WF-05 Runtime Alert
+- Credential 구조 Option B 확정 — Python이 Graph API Token 소유 (.env CRED_{ref}_TOKEN), n8n Token 비보유
+- Canonical Status: post_status 단일 사용 (publish_status 미사용)
+- `execution_owner` 필드 — **미구현 (P0 Backlog)**
 
 ## 미해결 항목 (Phase 후순위)
+- **[P0 — 다음 세션]** Instagram_Posts.execution_owner 필드 Airtable 추가
+- **[P0 — 다음 세션]** APScheduler 조회 조건 수정: post_status=ready AND execution_owner 없음
+- **[P0 — 다음 세션]** /api/v1/instagram/publish Endpoint 구현 (modules/sns/instagram_publish_api.py)
+- **[P0 — 다음 세션]** DRY_RUN 검증 (PUBLISH_API_DRY_RUN=true → false 전환)
+- **[P0 — 다음 세션]** 테스트용 Record 1건 생성 후 실제 게시 Runtime Proof
 - 그룹 610113703703488: div[role='feed'] 미탐지 — 가입 승인 대기 중 (코드 문제 아님)
 - LOST_DRY_RUN=false 전환 대기 — 실운영 전 Airtable 필드 확인 후 적용
 - 워터마크 제외 로직 — **260616 부분 구현** (_IMAGE_BLOCK_KEYWORDS + Supplier_Blocklist 등록), passes_image_filter 이미지 픽셀 분석 미구현
@@ -277,3 +290,33 @@ _마지막 업데이트: 260617_0000_
 - failed 145건 backfill (Phase 3 보류)
 - push 미실행 (별도 승인 필요)
 - 안정화 후 API 키 재발급 필요 (AIRTABLE/INSTA/GEMINI/TELEGRAM/SLACK/IMGBB)
+
+## [260617_n8n설계_publish_single분리] — 2026-06-17 KST
+
+### publish_single() 분리 (9d65cb4)
+- launcher/main.py 게시 로직을 publish_single() 독립 함수로 분리
+- _job_insta_upload(): uploading 마킹 후 publish_single() 1줄 위임
+- n8n Endpoint와 APScheduler 공통 호출 가능 구조 확보
+- Token/ig_user_id 호출자 주입, 함수 내 저장소 참조 없음, 로그 access_token 출력 금지
+- Runtime Proof: NOT_EXECUTED (260617 기준 ready 레코드 0건)
+
+### last_error_msg L191 잔존 참조 제거 (20bef95)
+- launcher/main.py L191 image_url 없음 조기 실패 경로에서 last_error_msg 제거
+- ERR-041 완전 해소
+
+### n8n Architecture 설계 확정 (DESIGN_COMPLETE)
+- WF-01: Posting Scheduler — Airtable ready 레코드 폴링 → /api/v1/instagram/publish 호출
+- WF-02: Real-time DM Webhook — Meta Webhook → Python dm_receiver 처리
+- WF-03: Credential Health Check — 계정 토큰 주기적 검증
+- WF-04: Failure/Recovery Watchdog — failed 레코드 재시도 조율
+- WF-05: Runtime Alert — 오류/비정상 감지 → Slack 알림
+- Credential 구조 Option B 확정: Python Graph API Token 소유 (.env CRED_{ref}_TOKEN), n8n Token 비보유
+- Canonical Status: post_status 단일 (publish_status 신규 필드 미사용)
+
+### P0 Backlog (다음 세션)
+1. Instagram_Posts.execution_owner 필드 Airtable 추가
+2. APScheduler _job_insta_upload() 조회 조건 수정
+3. modules/sns/instagram_publish_api.py — /api/v1/instagram/publish Blueprint 구현
+4. dm_receiver.py Blueprint 등록
+5. PUBLISH_API_DRY_RUN=true 검증 → false 전환
+6. 테스트용 Record 1건 생성 → 실제 게시 Runtime Proof

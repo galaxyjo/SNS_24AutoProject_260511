@@ -143,24 +143,28 @@ Runtime Proof (2026-06-02):
   recsmA4WIlrur1wHO — original_text / converted_text / caption / media_type=image ✅
 ```
 
-## INSTAGRAM UPLOAD ARCHITECTURE LOCK (260602 확정)
+## INSTAGRAM UPLOAD ARCHITECTURE LOCK (260617 갱신)
 ```
-업로드 실제 진입점: launcher/main.py:159 _job_insta_upload()
+업로드 진입점:
+  - APScheduler: launcher/main.py _job_insta_upload() → publish_single() 위임 (9d65cb4)
+  - n8n Endpoint: /api/v1/instagram/publish → publish_single() 위임 (P0, 미구현)
   (bot_uploader.py → insta_uploader.py 체인은 dead stub — 실제 API 호출 없음)
 
 업로드 파이프라인 (고정):
 Airtable Instagram_Posts (post_status=ready)
-  → _preprocess_image()          # 비율 보정(4:5~1.91:1) + imgbb 영구 URL 변환
-  → table.update(uploading)      # 원자적 잠금
-  → POST /media                  # 미디어 컨테이너 생성 → creation_id
-  → POST /media_publish          # 게시 → ig_media_id
-  → table.update(posted, ig_media_id)
+  → table.update(uploading)      # 원자적 잠금 (_job_insta_upload)
+  → publish_single(rid, image_url, caption, token, ig_user_id)
+      → _preprocess_image()          # 비율 보정(4:5~1.91:1) + imgbb 영구 URL 변환
+      → POST /media                  # 미디어 컨테이너 생성 → creation_id
+      → POST /media_publish          # 게시 → ig_media_id
+      → table.update(posted, ig_media_id)
 
 환경변수 (필수):
   INSTA_ACCESS_TOKEN, INSTA_IG_USER_ID, IMGBB_API_KEY (전처리용)
 
 Runtime Proof (2026-06-02):
   recFyw7OUaZ666JDJ → ig_media_id=18101360630320704 → posted ✅
+publish_single() Runtime Proof: NOT_EXECUTED (260617 기준 ready 레코드 0건)
 ```
 
 ## RUNTIME VERIFIED (2026-05-28)
@@ -271,3 +275,36 @@ FB 크롤링 -> FB CDN URL 추출 -> imgbb 업로드 -> 공개 URL -> Airtable i
 - FB CDN URL을 Instagram Graph API에 직접 전달 금지
 - imgbb 검증 전 post_status=ready 설정 금지
 - caption 없는 레코드 ready 전환 금지
+
+---
+## [260617] n8n Architecture 설계 확정 (DESIGN_COMPLETE)
+
+### n8n Workflow 목록
+- WF-01: Posting Scheduler — Airtable ready 레코드 폴링 → /api/v1/instagram/publish 호출
+- WF-02: Real-time DM Webhook — Meta Webhook → Python dm_receiver 처리
+- WF-03: Credential Health Check — 계정 토큰 주기적 검증
+- WF-04: Failure/Recovery Watchdog — failed 레코드 재시도 조율
+- WF-05: Runtime Alert — 오류/비정상 감지 → Slack 알림
+
+### Credential 구조 (Option B 확정)
+- Python이 Instagram Graph API Token 소유
+- n8n은 Token 비보유 — /api/v1/instagram/publish Endpoint 경유만 허용
+- Token 저장: .env CRED_{credential_ref}_TOKEN 형식
+- Airtable credential 원문 저장 절대 금지
+
+### publish_single() 분리 (9d65cb4 확정)
+- launcher/main.py: publish_single(rid, image_url, caption, access_token, ig_user_id)
+- _job_insta_upload(): uploading 마킹 후 publish_single() 위임
+- /api/v1/instagram/publish (P0 미구현): 인증 → 재검증 → publish_single() 위임
+- Token/ig_user_id 호출자 주입, 로그에 access_token 출력 금지
+
+### Canonical Status (확정)
+- post_status 단일 필드 사용 (ready → uploading → posted / failed)
+- publish_status 신규 필드: 미사용 (향후 다계정 라우팅 시 검토)
+
+### P0 Backlog (미구현)
+- Instagram_Posts.execution_owner 필드 Airtable 추가
+- APScheduler 조회 조건: post_status=ready AND (execution_owner='' OR 없음)
+- modules/sns/instagram_publish_api.py — Flask Blueprint
+- dm_receiver.py Blueprint 등록
+- Runtime Proof: 테스트용 Record 1건 실제 게시

@@ -220,3 +220,20 @@ Instagram_Posts.target_identity_id
 
 ### Airtable 스키마 변경
 - Instagram_Posts.original_image_url 필드 추가 (fldEpMV0uFiWR7OmB, url 타입)
+
+---
+## RUNTIME STATUS (2026-06-17 세션 완료)
+```
+260617: publish_single() 분리 + n8n 설계 확정
+- last_error_msg L191 잔존 참조 제거 (20bef95)
+- publish_single() 분리 완료 (9d65cb4) — APScheduler/_job_insta_upload + n8n Endpoint 공용 호출 가능
+- n8n WF-01~WF-05 Architecture 설계 확정 (DESIGN_COMPLETE)
+- Credential 구조: Option B 확정 (Python Graph API Token 소유, n8n Token 비보유)
+- Canonical Status: post_status 단일 (publish_status 미사용)
+- execution_owner 필드: 미구현 (P0 Backlog)
+- Instagram_Posts 현재: failed=145 / posted=13 / draft=1 / ready=0
+최신 commit: 9d65cb4
+```
+
+### modules/sns 신규 모듈 (260617 P0 예정)
+- `modules/sns/instagram_publish_api.py` — n8n Endpoint Flask Blueprint (미구현, P0 Backlog)
