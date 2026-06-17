@@ -344,3 +344,18 @@ Stage 3: 33개 전체 확장
 Account_Registry -> automation_enabled = False
 또는
 Platform_Accounts -> platform_automation_enabled = False
+
+
+---
+## [260617] 서비스 재기동 표준 절차
+
+### 기동 순서 (관리자 PowerShell, C:\SNS_24AutoProject_260511)
+1. launcher: Start-Process .venv\Scripts\python.exe -ArgumentList "launcher\main.py" -WindowStyle Hidden
+2. Streamlit: Start-Process .venv\Scripts\streamlit.exe -ArgumentList "run dashboard.py --server.port 8501" -WindowStyle Hidden
+3. ngrok: Start-Process ngrok -ArgumentList "http --url=danuta-overdramatic-whirly.ngrok-free.dev 5000" -WindowStyle Hidden
+4. watchdog: Start-Process powershell -ArgumentList "-NoExit -File watchdog.ps1" -Verb RunAs
+5. 확인: netstat -ano | findstr "5000\|8501\|4040"
+
+### imgbb 연동 확인
+- 신규 크롤링 후 logs\scheduler_err.log에서 [ImgBB] 성공 로그 확인
+- Airtable image_url이 i.ibb.co 도메인인지 확인

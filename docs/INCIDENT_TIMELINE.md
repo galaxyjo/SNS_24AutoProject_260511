@@ -257,3 +257,20 @@
 **해결:** `rectwruMD3uua54sv` ig_media_id 필드 공백으로 PATCH → engagement_tracker 조회 대상에서 제외
 **결과:** 다음 30분 간격 실행부터 해당 레코드 제외 → 오류 없음
 **재발 방지:** ERR-039 등록 — 업로드 실패 레코드의 ig_media_id는 즉시 클리어
+
+
+---
+## [260617] Instagram 업로드 실패 148건 -> 정합성 복구
+
+| 시간 | 이벤트 |
+|------|--------|
+| 260616 1440 | Dashboard 미작동 발견 |
+| 260616 1500 | 전체 서비스 재기동 완료 |
+| 260616 1530 | 업로드 성공률 6.2% 확인 |
+| 260616 1600 | FB CDN URL 원인 확정 (error_subcode 2207052) |
+| 260616 1700 | imgbb API 키 확보, Phase1 완료 |
+| 260616 1730 | Backfill 1건 E2E 실증 성공 |
+| 260616 1800 | ig_media_id 오염 78건 발견 |
+| 260616 1900 | VERIFIED 3건 복구 / INVALID 75건 클리어 |
+| 260616 2000 | launcher/main.py 버그 수정 commit |
+| 260617 1200 | Phase4: facebook_crawler.py imgbb 연동 commit |

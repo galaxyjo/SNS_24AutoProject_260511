@@ -368,3 +368,24 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **해결:** `facebook_crawler.py` L202에 `raw_text = clean_fb_metadata(raw_text)` 추가 (0688849) — raw_text 추출 직후, `_author_raw` 추출 및 필터링 이전에 적용.
 **예방:** `post.text` 사용 시 항상 `clean_fb_metadata()` 선처리 후 필터 적용. caption과 raw_text 모두 동일한 정제 파이프라인 통과 원칙.
 **관련:** ERR-037(caption 오염 → 260602 해소), 0688849
+
+
+---
+## [260617] FB CDN URL -> Instagram API 거부 패턴
+
+### 패턴
+- Facebook CDN URL(fbcdn.net)을 Instagram Graph API image_url로 직접 전달
+- Meta 서버가 fbcdn.net 다운로드 실패 -> error_subcode 2207052
+
+### 근본 원인
+- facebook_crawler.py가 FB CDN URL을 Airtable image_url에 그대로 저장
+- Instagram Graph API는 공개 접근 가능한 URL만 허용
+
+### 해결
+- imgbb 중간 호스팅 계층 추가
+- FB CDN -> 로컬 다운로드 -> imgbb 업로드 -> 공개 URL -> Airtable 저장
+
+### 관련 파일
+- modules/sns/image_hosting.py
+- modules/sns/facebook_crawler.py (save_to_airtable)
+- tools/backfill_failed_images.py

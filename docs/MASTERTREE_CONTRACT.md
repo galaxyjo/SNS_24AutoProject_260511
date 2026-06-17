@@ -208,3 +208,15 @@ Instagram_Posts.target_identity_id
 - Active 3개: IDN-000036 / IDN-000038 / IDN-000016
 - 다음 단계: n8n 워크플로우 연결 후 Runtime 검증
 - Rollout: 3 -> 10 -> 33개
+
+
+---
+## [260617] 신규 모듈 등록
+
+| 파일 | 역할 | 상태 |
+|------|------|------|
+| modules/sns/image_hosting.py | imgbb 업로드 어댑터 | ACTIVE |
+| tools/backfill_failed_images.py | failed 레코드 imgbb 복구 | ACTIVE (DRY_RUN 기본) |
+
+### Airtable 스키마 변경
+- Instagram_Posts.original_image_url 필드 추가 (fldEpMV0uFiWR7OmB, url 타입)

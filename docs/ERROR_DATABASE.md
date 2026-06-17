@@ -431,3 +431,5 @@
 **Status:** ✅ RESOLVED (2026-06-16) — 커밋 366c617
 **Evidence:** 이후 크롤링 NameError 미발생 확인
 **관련:** ERR-042
+
+Cannot overwrite variable Error because it is read-only or constant.

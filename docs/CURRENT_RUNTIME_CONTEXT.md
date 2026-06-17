@@ -242,3 +242,38 @@ _마지막 업데이트: 260617_0000_
 - n8n 워크플로우 설계 (별도 세션)
 - Pilot 3개 Runtime 포스팅 검증
 - 3 -> 10 -> 33개 확장
+
+
+## [260617] ImgBB 연동 + 데이터 정합성 복구 세션
+
+### 완료 작업
+1. Dashboard 복구 — Flask :5000 / Streamlit :8501 / watchdog 정상 기동
+2. Instagram 업로드 실패 원인 확정 — Facebook CDN URL -> Instagram Graph API error_subcode 2207052
+3. imgbb 연동 (Phase 1~4)
+   - original_image_url 필드 추가 (fldEpMV0uFiWR7OmB)
+   - IMGBB_API_KEY .env 추가
+   - modules/sns/image_hosting.py 신규 생성
+   - tools/backfill_failed_images.py 신규 생성 (DRY_RUN=true 기본값)
+4. Backfill 1건 End-to-End 실증 — rec2v96YaBLQJvLyl: failed->ready->posted (ig_media_id: 18071004683495931)
+5. 데이터 정합성 복구
+   - ig_media_id 있는 failed 78건 Graph API 검증
+   - VERIFIED_POSTED 3건 -> posted 복구
+   - INVALID 75건 -> ig_media_id 클리어
+6. 버그 수정 — launcher/main.py: unverified ig_media_id -> posted 강제전환 제거 (commit e33cf37)
+7. Phase 4 — facebook_crawler.py save_to_airtable()에 imgbb 업로드 연동 (commit af85d3a)
+
+### 현재 Airtable 상태
+- failed: 145건 / posted: 14건 / ready: 0건
+- 성공률: 6.2% -> 8.2% 개선
+
+### Git 커밋 (260617 세션)
+- e33cf37: fix: prevent unverified ig_media_id from forcing posted status
+- 3b3fedf: feat: add ImgBB image hosting adapter
+- 6ab2ff0: feat: add guarded failed-image backfill utility
+- af85d3a: feat: integrate ImgBB upload in save_to_airtable (Phase4)
+
+### 미완료
+- Runtime Proof: 신규 크롤링 1건 ImgBB 성공 로그 확인 (진행 중)
+- failed 145건 backfill (Phase 3 보류)
+- push 미실행 (별도 승인 필요)
+- 안정화 후 API 키 재발급 필요 (AIRTABLE/INSTA/GEMINI/TELEGRAM/SLACK/IMGBB)

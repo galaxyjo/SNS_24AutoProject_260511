@@ -261,3 +261,27 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 ### 원본 보존
 - 원본 Excel: 원본_Email 260609_520_260319_240725.xlsx
 - 백업 Base: BACKUP_260615
+
+
+---
+## [260617] ImgBB 연동 + 데이터 정합성 복구
+
+### 작업 요약
+- Dashboard 복구 (Flask/Streamlit/watchdog)
+- Instagram 업로드 실패 원인: FB CDN URL -> error_subcode 2207052
+- image_hosting.py 신규 생성 (imgbb 업로드 모듈)
+- backfill_failed_images.py 신규 생성 (하드가드 12개)
+- Backfill 1건 E2E 실증 성공 (rec2v96YaBLQJvLyl -> posted)
+- ig_media_id 오염 78건 Graph API 검증 -> VERIFIED 3건 복구 / INVALID 75건 클리어
+- launcher/main.py 버그 수정: unverified ig_media_id -> posted 강제전환 제거
+- facebook_crawler.py Phase4: save_to_airtable()에 imgbb 연동
+
+### 커밋
+- e33cf37: fix: prevent unverified ig_media_id from forcing posted status
+- 3b3fedf: feat: add ImgBB image hosting adapter
+- 6ab2ff0: feat: add guarded failed-image backfill utility
+- af85d3a: feat: integrate ImgBB upload in save_to_airtable (Phase4)
+
+### 상태
+- failed=145 / posted=14 / ready=0 / 성공률 8.2%
+- push 미실행

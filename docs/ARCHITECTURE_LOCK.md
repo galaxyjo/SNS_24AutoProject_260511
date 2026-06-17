@@ -255,3 +255,19 @@ Text ≠ File
 - 기존 테이블 삭제/이름변경 금지
 - 비밀번호 Airtable 원문 저장 금지
 - Base 분리는 100개 확장 후 병목 확인 후 검토
+
+
+---
+## [260617] 이미지 호스팅 계층 추가 (확정)
+
+### 구조
+FB 크롤링 -> FB CDN URL 추출 -> imgbb 업로드 -> 공개 URL -> Airtable image_url 저장 -> Instagram 업로드
+
+### 확정 모듈
+- modules/sns/image_hosting.py: upload_to_imgbb(source_url) -> {success, public_url, content_hash}
+- Airtable 필드: image_url(imgbb), original_image_url(FB CDN 원본 보존)
+
+### 금지
+- FB CDN URL을 Instagram Graph API에 직접 전달 금지
+- imgbb 검증 전 post_status=ready 설정 금지
+- caption 없는 레코드 ready 전환 금지
