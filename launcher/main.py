@@ -155,9 +155,58 @@ def _job_auto_like():
     run_auto_like()
 
 
+def publish_single(rid, image_url, caption, access_token, ig_user_id):
+    """
+    단일 Record 게시 실행 함수.
+    APScheduler와 n8n Endpoint가 공통으로 호출한다.
+    Token/ig_user_id는 호출자가 주입 — 이 함수는 저장소를 모른다.
+    로그에 access_token 출력 금지.
+    """
+    import requests as _req
+    from modules.common.airtable_bridge import get_table
+    table = get_table("Instagram_Posts")
+
+    if not image_url:
+        table.update(rid, {"post_status": "failed"})
+        logger.error(f"[publish_single] image_url 없음 | rid={rid}")
+        return {"ok": False, "error": "image_url_missing"}
+
+    image_url = _preprocess_image(image_url)
+
+    for attempt in range(1, 4):
+        try:
+            r1 = _req.post(
+                f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
+                params={"image_url": image_url, "caption": caption,
+                        "access_token": access_token},
+                timeout=30,
+            )
+            r1.raise_for_status()
+            c1 = r1.json()
+
+            r2 = _req.post(
+                f"https://graph.facebook.com/v21.0/{ig_user_id}/media_publish",
+                params={"creation_id": c1["id"], "access_token": access_token},
+                timeout=30,
+            )
+            r2.raise_for_status()
+            c2 = r2.json()
+
+            ig_media_id = c2.get("id", "")
+            table.update(rid, {"post_status": "posted", "ig_media_id": ig_media_id})
+            logger.info(f"[publish_single] 성공 | rid={rid} | ig_media_id={ig_media_id}")
+            return {"ok": True, "ig_media_id": ig_media_id}
+
+        except Exception as e:
+            logger.warning(f"[publish_single] 시도 {attempt}/3 실패 | rid={rid} | {e}")
+            if attempt == 3:
+                table.update(rid, {"post_status": "failed"})
+                logger.error(f"[publish_single] 3회 실패 최종 | rid={rid}")
+                return {"ok": False, "error": str(e)}
+
+
 @handle_errors(task="insta_upload", notify_fn=_slack)
 def _job_insta_upload():
-    import time, requests as _req
     from modules.common.airtable_bridge import get_table
 
     token      = os.getenv("INSTA_ACCESS_TOKEN")
@@ -187,55 +236,7 @@ def _job_insta_upload():
         image_url = fields.get("image_url") or fields.get("source_url", "")
         caption   = f"{fields.get('caption','')}\n{fields.get('hashtag','')}".strip()
 
-        if not image_url:
-            table.update(rid, {"post_status": "failed"})
-            logger.error(f"[Upload] image_url 없음 — failed 마킹 | rid={rid}")
-            continue
-
-        # 비율 보정 전처리 (4:5 ~ 1.91:1 범위 벗어나면 crop → imgbb 영구 URL)
-        image_url = _preprocess_image(image_url)
-
-        success, last_err = False, None
-        for attempt in range(1, 4):
-            try:
-                r1 = _req.post(
-                    f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
-                    params={"image_url": image_url, "caption": caption, "access_token": token},
-                    timeout=30,
-                )
-                c1 = r1.json()
-                if c1.get("error", {}).get("code") in (190, 104):
-                    err_msg = f"[TOKEN_EXPIRED] OAuthException {c1['error']['code']}: {c1['error'].get('message','')}"
-                    logger.error(f"[Main] {err_msg}")
-                    if _slack:
-                        _slack(err_msg)
-                    raise RuntimeError(err_msg)
-                if "id" not in c1:
-                    logger.error(f"[Main] 미디어 생성 실패 | {rid} | {c1}")
-                    raise RuntimeError(f"미디어 생성 실패: {c1}")
-                r2 = _req.post(
-                    f"https://graph.facebook.com/v21.0/{ig_user_id}/media_publish",
-                    params={"creation_id": c1["id"], "access_token": token},
-                    timeout=30,
-                )
-                c2 = r2.json()
-                if "id" not in c2:
-                    raise RuntimeError(f"게시 실패: {c2}")
-                table.update(rid, {
-                    "post_status": "posted",
-                    "ig_media_id": c2["id"],
-                })
-                logger.info(f"[Main] 업로드 성공 | {rid} | post_id={c2['id']}")
-                success = True
-                break
-            except Exception as exc:
-                last_err = exc
-                if attempt < 3:
-                    time.sleep(10)
-
-        if not success:
-            table.update(rid, {"post_status": "failed"})
-            logger.error(f"[Main] 업로드 최종 실패 | {rid} | {last_err}")
+        result = publish_single(rid, image_url, caption, token, ig_user_id)
 
 
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
