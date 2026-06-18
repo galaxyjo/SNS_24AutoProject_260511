@@ -125,3 +125,5 @@ Evidence 없는 merge 금지.
 | 2026-06-12 | configs/accounts.json | crawl_urls에서 FB그룹 1676627532598134 제거 — 인도 비율 높음 (c71f2c7) |
 | 2026-06-12 | Airtable Instagram_Posts | caption 필드 재추가 (API, fldcxTzLzYCzD9aYe) — ERR-028 재해소 |
 | 2026-06-12 | Airtable Lead_Interactions | lost_reason / lost_at / disqualified 필드 추가 |
+| 2026-06-19 | modules/common/account_manager.py | CRAWL_TARGET_SOURCE Feature Flag — _load_crawl_urls_from_airtable() / _shadow_compare() 추가 (9cc4ee9) |
+| 2026-06-19 | Airtable Crawl_Targets | platform/max_posts/account_ref/last_run_at/last_result 필드 추가 (Metadata API) |

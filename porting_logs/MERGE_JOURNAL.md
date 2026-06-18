@@ -5,6 +5,26 @@
 
 ---
 
+## [260619_Airtable_crawl_urls_전환] CRAWL_TARGET_SOURCE Feature Flag + Airtable 단일 소스 전환
+
+| 항목 | 내용 |
+|------|------|
+| 작업일 | 2026-06-19 |
+| 커밋 | 9cc4ee9 |
+| 변경 1 | `.env` — FB_MAX_POSTS=20 추가 |
+| 변경 2 | Airtable `Crawl_Targets` — platform/max_posts/account_ref/last_run_at/last_result 필드 5개 추가 (Metadata API) |
+| 변경 3 | `modules/common/account_manager.py` — `_load_crawl_urls_from_airtable()` 추가: Airtable Crawl_Targets에서 Active+facebook URL 조회 |
+| 변경 4 | `modules/common/account_manager.py` — `_shadow_compare()` 추가: accounts.json vs Airtable URL 집합 비교 로그 |
+| 변경 5 | `modules/common/account_manager.py` — `_get_all()` CRAWL_TARGET_SOURCE 분기: accounts_json/shadow/airtable 3단계 |
+| 변경 6 | `.env` — CRAWL_TARGET_SOURCE=shadow → CRAWL_TARGET_SOURCE=airtable 최종 전환 |
+| Shadow 검증 | accounts.json=5건 / Airtable=4건 / 누락 그룹 610113703703488(Hold) 정상 감지 |
+| Runtime Proof | Airtable 4건 URL 기반 크롤링 — groups/1827528710833477 → 1건 수집 (720×1280) 확인 ✅ |
+| 상태 | accounts.json: 계정/세션 정보 전용 / crawl_urls: Airtable Crawl_Targets 단일 소스 |
+| push | 완료 (9cc4ee9 → origin/master) |
+| 다음 세션 | 도매꾹(domeggook) 크롤러 추가 — Crawl_Targets platform=domeggook 지원 |
+
+---
+
 ## [260617_n8n설계+publish_single분리] publish_single() 분리 / n8n WF 설계 확정
 
 | 항목 | 내용 |

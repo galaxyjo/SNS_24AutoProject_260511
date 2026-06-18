@@ -97,7 +97,7 @@ Source_Feeds      ← FB 크롤링 원본
 Instagram_Posts   ← 업로드 상태 관리
 Lead_Interactions ← DM/CRM 상태 (lost_reason / lost_at / disqualified 추가 — 260612)
 Account_Registry  ← 계정 + AdsPower 매핑
-Crawl_Targets     ← 크롤링 대상 URL 관리 (FB_GROUP_POOL_V1 = 5개 활성)
+Crawl_Targets     ← 크롤링 대상 URL 관리 (CRAWL_TARGET_SOURCE=airtable — Airtable 단일 소스, 4건 활성)
 Supplier_Blocklist ← 차단 공급사 목록 (실차단 적용 중)
 ```
 
@@ -237,3 +237,17 @@ Instagram_Posts.target_identity_id
 
 ### modules/sns 신규 모듈 (260617 P0 예정)
 - `modules/sns/instagram_publish_api.py` — n8n Endpoint Flask Blueprint (미구현, P0 Backlog)
+
+---
+## RUNTIME STATUS (2026-06-19 세션 완료)
+```
+260619: Airtable crawl_urls 전환
+- CRAWL_TARGET_SOURCE Feature Flag 구현 (9cc4ee9): accounts_json / shadow / airtable 3단계
+- account_manager.py _load_crawl_urls_from_airtable() + _shadow_compare() 추가
+- Crawl_Targets 스키마 확장: platform/max_posts/account_ref/last_run_at/last_result 필드 추가
+- Shadow 검증 완료: accounts.json=5건 vs Airtable=4건, 누락 그룹 610113703703488(Hold) 정상 감지
+- CRAWL_TARGET_SOURCE=airtable 전환 — Airtable 4건 URL 기반 크롤링 Runtime Proof 완료
+- accounts.json: 계정/세션 정보 전용 / crawl_urls: Airtable 단일 소스 전환 완료
+- FB_MAX_POSTS=20 설정 완료
+최신 commit: 9cc4ee9
+```

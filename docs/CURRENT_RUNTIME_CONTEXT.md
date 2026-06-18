@@ -1,17 +1,18 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260617_n8n설계_publish_single분리_
+_마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 
 ## 현재 단계
-**260617 n8n Architecture 설계 확정 + publish_single() 분리 완료** — last_error_msg 제거 / publish_single() APScheduler·n8n 공용 분리 / n8n WF-01~05 설계 확정 (DESIGN_COMPLETE) / execution_owner P0 Backlog
+**260619 Airtable crawl_urls 전환 완료** — CRAWL_TARGET_SOURCE Feature Flag(accounts_json/shadow/airtable) 구현 / account_manager.py Airtable 로더·Shadow 비교 추가 / Shadow 검증 완료 / CRAWL_TARGET_SOURCE=airtable 전환 / Airtable 4건 URL 기반 크롤링 Runtime Proof 완료
 
 ## 최종 확인 커밋
-9d65cb4 (refactor: publish_single() 분리 — APScheduler/n8n 공용 게시 함수 [260617])
+9cc4ee9 (feat: CRAWL_TARGET_SOURCE Feature Flag — Airtable crawl_urls 동적 로드 [260619])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
 - Archive: C:\SNS_24AutoProject_250723 (삭제/dead 판정 금지)
 
 ## 마지막 확인 커밋 체인
+- 9cc4ee9 (feat: CRAWL_TARGET_SOURCE Feature Flag — Airtable crawl_urls 동적 로드 [260619])
 - 9d65cb4 (refactor: publish_single() 분리 — APScheduler/n8n 공용 게시 함수 [260617])
 - 20bef95 (fix: last_error_msg L191 잔존 참조 제거 [260616])
 - 463c350 (fix: retry_count/last_error_msg 필드 제거 + Graph API 실패 로깅 보강 [260616])
@@ -97,6 +98,13 @@ _마지막 업데이트: 260617_n8n설계_publish_single분리_
 - Credential 구조 Option B 확정 — Python이 Graph API Token 소유 (.env CRED_{ref}_TOKEN), n8n Token 비보유
 - Canonical Status: post_status 단일 사용 (publish_status 미사용)
 - `execution_owner` 필드 — **미구현 (P0 Backlog)**
+- FB_MAX_POSTS=20 .env 설정 완료 (260619)
+- Crawl_Targets 스키마 확장: platform/max_posts/account_ref/last_run_at/last_result 필드 추가 (260619)
+- account_manager.py _load_crawl_urls_from_airtable() + _shadow_compare() 추가 (260619) — 9cc4ee9
+- CRAWL_TARGET_SOURCE Feature Flag 구현 (260619): accounts_json(기본)/shadow(비교 로그)/airtable(URL 교체)
+- Shadow 모드 검증 완료 (260619): accounts.json=5건 vs Airtable=4건, 누락 그룹 610113703703488 감지
+- CRAWL_TARGET_SOURCE=airtable 전환 → Airtable 4건 URL 기반 크롤링 Runtime Proof 완료 (260619)
+- accounts.json: 계정/세션 정보 전용 유지 / crawl_urls: Airtable Crawl_Targets 단일 소스 (260619)
 
 ## 미해결 항목 (Phase 후순위)
 - **[P0 — 다음 세션]** Instagram_Posts.execution_owner 필드 Airtable 추가
@@ -109,6 +117,7 @@ _마지막 업데이트: 260617_n8n설계_publish_single분리_
 - 워터마크 제외 로직 — **260616 부분 구현** (_IMAGE_BLOCK_KEYWORDS + Supplier_Blocklist 등록), passes_image_filter 이미지 픽셀 분석 미구현
 - data/processed_comment_ids.json untracked 유지 (정상 — gitignore 대상)
 - 백업 필요 시점 도달 (마지막 백업: backup_(12)_260602_2207)
+- **[P1 — 다음 세션]** 도매꾹(domeggook) 크롤러 추가 — Crawl_Targets platform=domeggook 지원
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -320,3 +329,22 @@ _마지막 업데이트: 260617_n8n설계_publish_single분리_
 4. dm_receiver.py Blueprint 등록
 5. PUBLISH_API_DRY_RUN=true 검증 → false 전환
 6. 테스트용 Record 1건 생성 → 실제 게시 Runtime Proof
+
+## [260619_Airtable_crawl_urls_전환] — 2026-06-19 KST
+
+### 완료 작업
+1. FB_MAX_POSTS=20 .env 설정 완료
+2. Crawl_Targets 스키마 확장: platform(singleSelect)/max_posts(number)/account_ref(singleLineText)/last_run_at(dateTime)/last_result(singleLineText) 필드 추가 (Airtable Metadata API)
+3. account_manager.py _load_crawl_urls_from_airtable() + _shadow_compare() 추가
+4. CRAWL_TARGET_SOURCE Feature Flag 구현: accounts_json(기본) / shadow(비교 로그) / airtable(URL 교체)
+5. Shadow 모드 검증: accounts.json=5건 / Airtable=4건 / 누락 그룹(610113703703488 Hold) 정상 감지
+6. CRAWL_TARGET_SOURCE=airtable 전환 — Airtable 4건 URL 기반 크롤링 Runtime Proof 완료
+   - groups/1827528710833477 → 1건 수집 (720×1280, imgbb 중복 skip 정상)
+7. accounts.json → 계정/세션 정보 전용 유지 / crawl_urls → Airtable Crawl_Targets 단일 소스
+
+### Git
+- 커밋: 9cc4ee9 (feat: CRAWL_TARGET_SOURCE Feature Flag — Airtable crawl_urls 동적 로드 [260619])
+- push: origin/master 완료
+
+### 다음 세션 예정
+- 도매꾹(domeggook) 크롤러 추가 — Crawl_Targets platform=domeggook 지원

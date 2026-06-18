@@ -218,6 +218,32 @@ Airtable Lead_Interactions 필드 (260612 추가):
 - BOM 없음 확인 (UTF-8 without BOM)
 ```
 
+## CRAWL_TARGET_SOURCE FEATURE FLAG (260619 확정)
+```
+crawl_urls 소스 제어 Feature Flag (.env CRAWL_TARGET_SOURCE):
+  accounts_json (기본): configs/accounts.json crawl_urls 사용
+  shadow         : accounts.json 사용 + Airtable 비교 로그 출력 (검증용)
+  airtable       : Airtable Crawl_Targets에서 Active facebook URL 동적 로드
+
+현재 운영: CRAWL_TARGET_SOURCE=airtable (Airtable 단일 소스)
+구현 파일: modules/common/account_manager.py
+  - _load_crawl_urls_from_airtable(): Airtable Crawl_Targets 조회
+  - _shadow_compare(): accounts.json vs Airtable URL 집합 비교
+  - _get_all(): Feature Flag 분기 처리
+커밋: 9cc4ee9
+```
+
+## Crawl_Targets 스키마 (260619 확장)
+```
+기존 필드: target_id / target_name / category_code / target_url / status / priority / notes
+신규 추가:
+  platform      (singleSelect: facebook / domeggook)
+  max_posts     (number)
+  account_ref   (singleLineText)
+  last_run_at   (dateTime, Asia/Bangkok)
+  last_result   (singleLineText)
+```
+
 ## FINAL PRINCIPLE
 ```
 Conversation ≠ System Reality

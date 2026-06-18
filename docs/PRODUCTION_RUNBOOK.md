@@ -221,15 +221,38 @@ Runtime Proof (2026-06-02):
 5. rollback 없는 수정 금지
 ```
 
-## CRAWL_URLS 현황 (260612 기준 — FB_GROUP_POOL_V1)
+## CRAWL_URLS 현황 (260619 기준 — CRAWL_TARGET_SOURCE=airtable)
+> ⚠️ 260619부터 crawl_urls 소스는 Airtable Crawl_Targets. accounts.json crawl_urls는 참고용 보조 기록.
+
 | 그룹 ID | 상태 | 비고 |
 |---------|------|------|
 | ~~1676627532598134~~ | ❌ 제거 | 인도 트래픽 비율 높음 — accounts.json + Crawl_Targets 삭제 (c71f2c7) |
-| 610113703703488 | ⚠️ Hold | div[role='feed'] 미탐지 — 가입 승인 대기 중 |
-| 345179878828208 | ✅ 활성 | Airtable 저장 확인 |
-| 755455243345993 | ✅ 활성 | 키워드 매칭 시 수집 |
-| 3289570041331131 | ✅ 활성 | FB_신규1 |
-| 1827528710833477 | ✅ 활성 | FB_신규2 — caption 저장 확인 (260612 기준)
+| 610113703703488 | ⚠️ Hold | Airtable에 미등록 — Shadow 감지 확인 / 가입 승인 대기 중 |
+| 345179878828208 | ✅ 활성 | Airtable Crawl_Targets 등록 |
+| 755455243345993 | ✅ 활성 | Airtable Crawl_Targets 등록 |
+| 3289570041331131 | ✅ 활성 | Airtable Crawl_Targets 등록 |
+| 1827528710833477 | ✅ 활성 | Airtable Crawl_Targets 등록 — Runtime Proof 1건 수집 확인 (260619)
+
+## CRAWL_TARGET_SOURCE 운영 절차 (260619 추가)
+```
+환경변수: CRAWL_TARGET_SOURCE (.env)
+  accounts_json : configs/accounts.json crawl_urls 사용 (기본값)
+  shadow        : accounts.json 사용 + Airtable 비교 로그만 출력 (전환 전 검증용)
+  airtable      : Airtable Crawl_Targets Active/facebook URL을 단일 소스로 사용
+
+전환 절차:
+1. CRAWL_TARGET_SOURCE=shadow 설정 → launcher 재시작 → [Shadow] 로그 확인
+2. accounts.json vs Airtable 일치 확인 후 → CRAWL_TARGET_SOURCE=airtable 전환
+3. launcher 재시작 → [AccountManager] crawl_urls → Airtable 방식 적용 로그 확인
+
+그룹 추가/제거:
+- Airtable Crawl_Targets 테이블에서 레코드 status='Active'/'Inactive' 변경
+- accounts.json crawl_urls는 더 이상 크롤 소스가 아님 (수정 불필요)
+
+관련 env:
+  FB_MAX_POSTS=20   (크롤당 최대 수집 수)
+  CRAWL_TARGET_SOURCE=airtable
+```
 
 ---
 
