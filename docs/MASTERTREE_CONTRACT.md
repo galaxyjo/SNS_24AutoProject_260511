@@ -239,6 +239,16 @@ Instagram_Posts.target_identity_id
 - `modules/sns/instagram_publish_api.py` — n8n Endpoint Flask Blueprint (미구현, P0 Backlog)
 
 ---
+## modules/crawlers/ (260619 세션2 신규)
+```
+modules/crawlers/
+  __init__.py                  ← 패키지 초기화
+  base_connector.py            ← BaseCrawlConnector ABC / ConnectorError
+  domeggook_api_connector.py   ← DomeggookApiConnector (API v4.1, aid=key)
+  quality_gate.py              ← NormalizedItem Gate (READY/ERROR/FILTERED)
+```
+
+---
 ## RUNTIME STATUS (2026-06-19 세션 완료)
 ```
 260619: Airtable crawl_urls 전환
@@ -250,4 +260,17 @@ Instagram_Posts.target_identity_id
 - accounts.json: 계정/세션 정보 전용 / crawl_urls: Airtable 단일 소스 전환 완료
 - FB_MAX_POSTS=20 설정 완료
 최신 commit: 9cc4ee9
+```
+
+---
+## RUNTIME STATUS (2026-06-19 세션2 완료)
+```
+260619 세션2: 도매꾹 크롤러 패키지 신설
+- modules/crawlers/ 패키지 신설 (commit 2112739)
+- DomeggookApiConnector: API v4.1, aid=key, health_check=True, fetch 10건 정규화 성공
+- quality_gate.run_gate(): READY/ERROR/FILTERED 5/5 PASS
+- Crawl_Targets keyword 필드 추가 (fldNhkqfOJvkCZZnp)
+- D001 Hold 등록 (recg8JU3eqL9BkMgf) — category_code 제외
+- NormalizedItem Contract v1.0 확정
+최신 commit: 2112739
 ```

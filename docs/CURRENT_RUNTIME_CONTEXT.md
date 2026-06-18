@@ -348,3 +348,32 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 
 ### 다음 세션 예정
 - 도매꾹(domeggook) 크롤러 추가 — Crawl_Targets platform=domeggook 지원
+
+## [260619_도매꾹크롤러] — 2026-06-19 KST (세션2)
+
+### 완료 작업
+1. 도매꾹 Open API 개통 확인 (ver=4.1, aid=DOMEGGOOK_API_KEY, om=json)
+2. modules/crawlers/ 패키지 신설
+   - base_connector.py — BaseCrawlConnector ABC + ConnectorError
+   - domeggook_api_connector.py — DomeggookApiConnector (health_check/fetch/normalize)
+   - quality_gate.py — READY/ERROR/FILTERED 판정 (fixture 5/5 PASS)
+3. Crawl_Targets keyword 필드 추가 (fldNhkqfOJvkCZZnp)
+4. D001 레코드 Hold 등록 (recg8JU3eqL9BkMgf) — category_code 제외 (singleSelect 선택지 미등록)
+5. commit 2112739 push 완료
+
+### Known Facts
+- DomeggookApiConnector.fetch(kw=화장품, max_posts=10) = 10건 정규화 성공
+- NormalizedItem Contract v1.0 확정
+- Crawl_Targets category_code 선택지: A/B/C/D (BEAUTY 추가 시 Airtable UI에서 직접)
+- API 키 파라미터: aid= (key= 아님), mode=getItemList, ver=4.1
+
+### P0 Backlog (다음 세션)
+1. Dispatcher 연결 — APScheduler에 domeggook job 추가
+2. platform=domeggook 레코드 조회 → fetch() → Gate → Source_Items 저장
+3. D001 Hold → Active 전환 전 Runtime Proof 필수
+4. Source_Items Airtable 테이블 설계 및 생성
+
+### 절대 금지 (다음 세션 전)
+- D001 Active 전환 금지 (Runtime Proof 전)
+- 전체 2,743건 수집 금지
+- FB/Instagram 코드 수정 금지

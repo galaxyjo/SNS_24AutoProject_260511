@@ -322,3 +322,20 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 ### 상태
 - failed=145 / posted=14 / ready=0 / 성공률 8.2%
 - push 미실행
+
+---
+
+## [260619_도매꾹크롤러] 2026-06-19 KST (세션2)
+
+| 항목 | 내용 |
+|------|------|
+| 커밋 | 2112739 |
+| 변경 1 | modules/crawlers/__init__.py 신규 |
+| 변경 2 | modules/crawlers/base_connector.py — BaseCrawlConnector ABC |
+| 변경 3 | modules/crawlers/domeggook_api_connector.py — API v4.1 Connector (aid=key) |
+| 변경 4 | modules/crawlers/quality_gate.py — Gate READY/ERROR/FILTERED |
+| 변경 5 | Crawl_Targets keyword 필드 추가 (fldNhkqfOJvkCZZnp) |
+| Runtime Proof | health_check=True / fetch 10건 / Gate 5/5 PASS |
+| 상태 | D001 Hold 등록 (recg8JU3eqL9BkMgf) — category_code 제외 |
+| push | 완료 (5c10eca → 2112739 origin/master) |
+| 다음 세션 | Dispatcher 연결 + Source_Items 테이블 설계 + D001 Runtime Proof 후 Active |
