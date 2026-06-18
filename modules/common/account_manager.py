@@ -97,6 +97,53 @@ class Account:
         return result
 
 
+
+
+# ── Airtable Crawl_Targets 로더 ───────────────────────────────────────────────
+
+def _load_crawl_urls_from_airtable() -> list[str]:
+    """Airtable Crawl_Targets에서 active facebook URL 목록 반환."""
+    import requests as _req
+    api_key = os.getenv('AIRTABLE_API_KEY', '')
+    base_id = os.getenv('AIRTABLE_BASE_ID', '')
+    if not api_key or not base_id:
+        logger.warning('[AccountManager] Airtable 키 없음 — crawl_urls 로드 실패')
+        return []
+    try:
+        r = _req.get(
+            f'https://api.airtable.com/v0/{base_id}/Crawl_Targets',
+            headers={'Authorization': f'Bearer {api_key}'},
+            params={
+                'filterByFormula': "AND({status}='Active',{platform}='facebook')",
+                'sort[0][field]': 'priority',
+                'sort[0][direction]': 'asc',
+                'maxRecords': 50,
+            },
+            timeout=10,
+        )
+        records = r.json().get('records', [])
+        urls = [rec['fields']['target_url'] for rec in records if rec.get('fields', {}).get('target_url')]
+        logger.info(f'[AccountManager] Airtable crawl_urls 로드 | {len(urls)}건')
+        return urls
+    except Exception as exc:
+        logger.error(f'[AccountManager] Airtable crawl_urls 로드 실패 | {exc}')
+        return []
+
+
+def _shadow_compare(json_urls: list[str], airtable_urls: list[str]) -> None:
+    """Shadow Mode — accounts.json vs Airtable URL 비교 로그."""
+    json_set = set(json_urls)
+    at_set = set(airtable_urls)
+    only_json = json_set - at_set
+    only_at = at_set - json_set
+    logger.info(f'[Shadow] accounts.json={len(json_urls)}건 | Airtable={len(airtable_urls)}건')
+    if only_json:
+        logger.warning(f'[Shadow] accounts.json에만 있음: {only_json}')
+    if only_at:
+        logger.warning(f'[Shadow] Airtable에만 있음: {only_at}')
+    if not only_json and not only_at:
+        logger.info('[Shadow] 두 소스 일치 ✅')
+
 # ── 로더 ─────────────────────────────────────────────────────────────────────
 
 def _load_from_json() -> list[Account]:
@@ -155,6 +202,15 @@ def _get_all() -> list[Account]:
         _cache = _load_from_json() or _load_from_env()
         if not _cache:
             logger.warning("[AccountManager] 계정 설정 없음 — accounts.json 또는 .env 확인 필요")
+        # Feature Flag: CRAWL_TARGET_SOURCE
+        source = os.getenv("CRAWL_TARGET_SOURCE", "accounts_json").strip()
+        if source in ("shadow", "airtable") and _cache:
+            at_urls = _load_crawl_urls_from_airtable()
+            if source == "shadow":
+                _shadow_compare(_cache[0].crawl_urls, at_urls)
+            elif source == "airtable":
+                _cache[0].crawl_urls = at_urls
+                logger.info(f"[AccountManager] crawl_urls → Airtable 방식 적용 | {len(at_urls)}건")
     return _cache
 
 
