@@ -155,6 +155,89 @@ def _job_auto_like():
     run_auto_like()
 
 
+@handle_errors(task="dome_crawl", notify_fn=_slack)
+def _job_dome_crawl():
+    import os as _os
+    from modules.crawlers.domeggook_api_connector import DomeggookApiConnector
+    from modules.crawlers.quality_gate import run_gate
+    from dotenv import load_dotenv
+    load_dotenv()
+    import requests as _req
+    BASE_ID = _os.getenv("AIRTABLE_BASE_ID")
+    API_KEY = _os.getenv("AIRTABLE_API_KEY")
+    headers = {"Authorization": "Bearer " + API_KEY, "Content-Type": "application/json"}
+
+    r = _req.get(
+        "https://api.airtable.com/v0/" + BASE_ID + "/Crawl_Targets",
+        headers={"Authorization": "Bearer " + API_KEY},
+        params={"maxRecords": 20}
+    )
+    targets = [
+        rec for rec in r.json().get("records", [])
+        if rec["fields"].get("platform") == "domeggook"
+        and rec["fields"].get("status") == "Active"
+    ]
+    if not targets:
+        logger.info("[dome_crawl] Active 타겟 없음 — 스킵")
+        return
+
+    conn = DomeggookApiConnector()
+    for rec in targets:
+        f = rec["fields"]
+        target = {
+            "target_id":     f.get("target_id", ""),
+            "kw":            f.get("keyword", ""),
+            "category_code": f.get("category_code", ""),
+            "max_posts":     min(int(f.get("max_posts", 10)), 10),
+        }
+        items = conn.fetch(target)
+        gated = run_gate(items)
+        ready = [i for i in gated if i["quality_status"] == "READY"]
+        logger.info(f"[dome_crawl] {target['target_id']} fetch={len(items)} ready={len(ready)}")
+
+        for item in ready:
+            payload = {k: v for k, v in {
+                "source_item_id":  item["source_item_id"],
+                "target_id":       target["target_id"],
+                "source_platform": item["source_platform"],
+                "source_url":      item.get("source_url") or None,
+                "title":           item["title"],
+                "unit_price":      item.get("unit_price"),
+                "currency":        item["currency"],
+                "min_order_qty":   item.get("min_order_qty"),
+                "image_url":       item.get("image_url") or None,
+                "seller_id":       item.get("seller_id") or None,
+                "category_code":   item.get("category_code") or None,
+                "keyword":         item.get("keyword") or None,
+                "content_hash":    item["content_hash"],
+                "quality_status":  item["quality_status"],
+                "filter_reason":   item.get("filter_reason", ""),
+                "collected_at":    item["collected_at"],
+                "pipeline_status": "NEW",
+            }.items() if v is not None}
+
+            # Upsert: source_item_id 기준 중복 확인
+            chk = _req.get(
+                "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items",
+                headers={"Authorization": "Bearer " + API_KEY},
+                params={"maxRecords": 1, "filterByFormula": "source_item_id='" + item["source_item_id"] + "'"}
+            )
+            existing = chk.json().get("records", [])
+            if existing:
+                ex = existing[0]
+                if ex["fields"].get("content_hash") == item["content_hash"]:
+                    continue  # SKIP
+                _req.patch(
+                    "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items/" + ex["id"],
+                    headers=headers, json={"fields": payload}
+                )
+            else:
+                _req.post(
+                    "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items",
+                    headers=headers, json={"fields": payload}
+                )
+
+
 def publish_single(rid, image_url, caption, access_token, ig_user_id):
     """
     단일 Record 게시 실행 함수.
@@ -255,6 +338,8 @@ def _build_scheduler() -> BackgroundScheduler:
                   id="engagement_update", next_run_time=now + timedelta(seconds=60))
     #DISABLED_260603 sched.add_job(_job_auto_like, "interval", minutes=15,
     #DISABLED_260603               id="auto_like", next_run_time=now + timedelta(seconds=70))
+    sched.add_job(_job_dome_crawl, "interval", minutes=60,
+                  id="dome_crawl", next_run_time=now + timedelta(seconds=80))
     return sched
 
 
