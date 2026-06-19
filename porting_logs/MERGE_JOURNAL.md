@@ -391,3 +391,15 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | Runtime Proof | exported=2 / 중복=0 / Gemini caption 정상 |
 | dome_export | 10분 interval 실운영 등록 |
 | 다음 세션 | D002 건강식품 추가 + 24시간 모니터링 |
+
+---
+
+## [260619_세션7_실운영확인] 2026-06-19 KST
+
+| 항목 | 내용 |
+|------|------|
+| launcher 재시작 | dome_crawl + dome_export 자동 등록 확인 |
+| D002 | 건강식품 Hold 등록 완료 |
+| Source_Items | 21건 누적 / EXPORTED=4 |
+| Instagram_Posts | 도매꾹 출처 3건 |
+| 다음 세션 | D002 Active 전환 + 품질 확인 |

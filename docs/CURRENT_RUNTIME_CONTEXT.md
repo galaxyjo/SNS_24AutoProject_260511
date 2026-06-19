@@ -476,3 +476,24 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 1. 건강식품 D002 추가
 2. 24시간 후 Source_Items/Instagram_Posts 누적 확인
 3. launcher 재시작 (watchdog 통해 dome_export job 자동 등록 확인)
+
+## [260619_세션7_실운영확인] — 2026-06-19 KST
+
+### 완료 작업
+1. launcher 재시작 → dome_crawl + dome_export 자동 등록 확인
+2. D002 건강식품 Hold 등록 (recuRdoKY0KDiV7Ci)
+3. 24시간 누적 확인:
+   - Source_Items 21건 (EXPORTED=4 / NEW=17)
+   - Instagram_Posts 도매꾹 출처 3건
+   - dome_crawl 60분 / dome_export 10분 자동 실행 확인
+
+### Known Facts
+- dome_crawl: 60분 interval 실운영 중 (D001 Active)
+- dome_export: 10분 interval 실운영 중
+- D002 Hold (건강식품) — 다음 세션 Active 전환 검토
+- Source_Items 누적 중 (10건/회)
+
+### P0 Backlog (다음 세션)
+1. D002 건강식품 Active 전환 → Runtime Proof
+2. source_item_id 기준 export_to_instagram_posts target_id 확장
+3. Instagram_Posts 도매꾹 출처 게시물 품질 확인
