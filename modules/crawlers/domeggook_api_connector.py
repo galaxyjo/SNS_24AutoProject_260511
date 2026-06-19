@@ -86,7 +86,7 @@ class DomeggookApiConnector(BaseCrawlConnector):
             'min_order_qty':   int(raw['unitQty']) if raw.get('unitQty') is not None else None,
             'image_url':       image_url,
             'seller_id':       raw.get('id') or None,
-            'adult_only':      bool(raw.get('adultOnly', False)),
+            'adult_only':      str(raw.get('adultOnly', 'false')).lower() == 'true',
             'category_code':   target.get('category_code') or None,
             'keyword':         target.get('kw') or target.get('keyword') or None,
             'quality_status':  'PENDING',
