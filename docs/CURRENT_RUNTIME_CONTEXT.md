@@ -377,3 +377,34 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 - D001 Active 전환 금지 (Runtime Proof 전)
 - 전체 2,743건 수집 금지
 - FB/Instagram 코드 수정 금지
+
+## [260619_세션3_Source_Items] — 2026-06-19 KST
+
+### 완료 작업
+1. adultOnly 파싱 버그 수정 (str->bool, f6bef6a)
+2. Source_Items 테이블 생성 (tblMWJaInVHS7YfY6, 17개 필드)
+3. STAGING WRITE TEST 4/4 PASS
+   - 1차: INSERT=10 / 2차: SKIP=10 / 3차: UPDATE=1 / 4차: SKIP=10(복구확인)
+4. D001 Hold 유지 확인
+5. 절차 위반 기록: STAGING WRITE TEST 전 BOM/diff 5개 조건 Claude Code 자체 진행
+
+### Known Facts
+- Source_Items 10건 저장 (화장품 키워드, READY)
+- pipeline_status=NEW, quality_status=READY 정상
+- FILTERED/ERROR 항목 pipeline_status 비움 확인
+- D001 recoNRhWSKTiwNeuv Hold 유지
+- tools/ 임시 스크립트 untracked (commit 대상 아님)
+
+### P0 Backlog (다음 세션)
+1. _job_dome_crawl() 구현 — launcher/main.py APScheduler 등록
+2. Dispatcher read-only 재확인 후 DRY_RUN
+3. Scheduler 수동 1회 실행
+4. D001 Hold 상태 Runtime Proof 후 Active 전환 검토
+5. C003 platform=daisomall 수정 (Dispatcher 확대 전 필수)
+
+### 절대 금지 (다음 세션 전)
+- D001 Active 전환 금지
+- Instagram_Posts 저장 금지
+- 전체 2,743건 수집 금지
+- FB/Instagram 코드 수정 금지
+- Dispatcher 미승인 연결 금지

@@ -274,3 +274,26 @@ modules/crawlers/
 - NormalizedItem Contract v1.0 확정
 최신 commit: 2112739
 ```
+
+---
+## Source_Items (260619 세션3 신규)
+```
+테이블: Source_Items (tblMWJaInVHS7YfY6)
+Primary: source_item_id (domeggook:{no} 형식)
+필드 17개: source_item_id / target_id / source_platform / source_url /
+           title / unit_price / currency / min_order_qty / image_url /
+           seller_id / category_code / keyword / content_hash /
+           quality_status / filter_reason / collected_at / pipeline_status
+Upsert 규칙: source_item_id 기준 / content_hash 변경 감지
+READY → pipeline_status=NEW / FILTERED·ERROR → pipeline_status 비움
+raw_payload 저장 금지
+```
+
+## RUNTIME STATUS (2026-06-19 세션3 완료)
+```
+커밋: f6bef6a — adultOnly str->bool 버그 수정
+Source_Items STAGING WRITE TEST 4/4 PASS
+D001 Hold 유지 / Dispatcher 미연결
+다음: _job_dome_crawl() APScheduler 등록
+최신 commit: f6bef6a
+```

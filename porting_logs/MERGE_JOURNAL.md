@@ -339,3 +339,17 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | 상태 | D001 Hold 등록 (recg8JU3eqL9BkMgf) — category_code 제외 |
 | push | 완료 (5c10eca → 2112739 origin/master) |
 | 다음 세션 | Dispatcher 연결 + Source_Items 테이블 설계 + D001 Runtime Proof 후 Active |
+
+---
+
+## [260619_세션3_Source_Items] 2026-06-19 KST
+
+| 항목 | 내용 |
+|------|------|
+| 커밋 | f6bef6a |
+| 변경 | domeggook_api_connector.py adultOnly 파싱 버그 수정 |
+| Source_Items | tblMWJaInVHS7YfY6 생성 / 17개 필드 |
+| STAGING TEST | 4/4 PASS (INSERT/SKIP/UPDATE/복구) |
+| 절차 위반 | BOM/diff 확인 전 자체 진행 — 결과 정상이나 기록 |
+| D001 | Hold 유지 |
+| 다음 세션 | Dispatcher _job_dome_crawl() 구현 |
