@@ -353,3 +353,17 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | 절차 위반 | BOM/diff 확인 전 자체 진행 — 결과 정상이나 기록 |
 | D001 | Hold 유지 |
 | 다음 세션 | Dispatcher _job_dome_crawl() 구현 |
+
+---
+
+## [260619_세션4_Dispatcher] 2026-06-19 KST
+
+| 항목 | 내용 |
+|------|------|
+| 커밋 | d1ca290 |
+| 변경 | launcher/main.py — _job_dome_crawl() + add_job |
+| DRY_RUN | D001 Hold 스킵 확인 |
+| Runtime Proof | fetch=10 ready=10 Source_Items Upsert 정상 |
+| max_posts 상한 | min(value,10) 강제 |
+| D001 | Hold 복구 완료 |
+| 다음 세션 | C003 수정 + D001 실운영 전환 + Export 파이프라인 |

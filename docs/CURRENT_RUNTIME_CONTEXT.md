@@ -408,3 +408,25 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 - 전체 2,743건 수집 금지
 - FB/Instagram 코드 수정 금지
 - Dispatcher 미승인 연결 금지
+
+## [260619_세션4_Dispatcher] — 2026-06-19 KST
+
+### 완료 작업
+1. _job_dome_crawl() 구현 + APScheduler 등록 (d1ca290)
+2. DRY_RUN: D001 Hold → Active 타겟 없음 스킵 확인
+3. D001 Active 전환 → fetch=10 ready=10 Runtime Proof
+4. Source_Items Upsert 정상 (중복 없음)
+5. max_posts 상한 min(value, 10) 강제 적용
+6. D001 Hold 복구 확인
+
+### Known Facts
+- dome_crawl job: interval 60분, next_run offset 80초
+- D001 Hold 상태 — 실운영 전 별도 Active 전환 승인 필요
+- Source_Items 11건 (STAGING + Runtime Proof 누적)
+- C003 platform=daisomall 수정 미완료 — 다음 세션
+
+### P0 Backlog (다음 세션)
+1. C003 platform=daisomall 수정
+2. D001 실운영 Active 전환 승인 후 24시간 모니터링
+3. Source_Items → Instagram_Posts Export 파이프라인 설계
+4. 건강식품 등 카테고리 확장 (D002 추가)
