@@ -451,3 +451,28 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 1. Source_Items → Instagram_Posts Export 파이프라인 설계
 2. 건강식품 D002 추가
 3. 24시간 후 Source_Items 누적 건수 확인
+
+## [260619_세션6_ExportPipeline] — 2026-06-19 KST
+
+### 완료 작업
+1. Source_Items 필드 4개 추가 (export_retry_count/last_error/next_retry_at/started_at)
+2. Instagram_Posts source_item_id 필드 추가
+3. source_exporter.py 구현 + Runtime Proof (d3b6003)
+   - DRY_RUN 3건 확인
+   - Export 1건 성공 (domeggook:55808288)
+   - 중복 재실행 exported=0 확인
+4. _job_dome_export() + APScheduler 10분 interval 등록 (4bf6e74)
+   - Runtime Proof exported=2 확인
+
+### Known Facts
+- dome_crawl: 60분 interval 실운영 중
+- dome_export: 10분 interval 실운영 중
+- D001 Active
+- Source_Items → Instagram_Posts 파이프라인 완성
+- STALE_QUEUED 30분 복구 로직 포함
+- retry/backoff: 10분/60분/300분
+
+### P0 Backlog (다음 세션)
+1. 건강식품 D002 추가
+2. 24시간 후 Source_Items/Instagram_Posts 누적 확인
+3. launcher 재시작 (watchdog 통해 dome_export job 자동 등록 확인)
