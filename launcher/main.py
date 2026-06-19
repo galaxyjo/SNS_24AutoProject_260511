@@ -238,6 +238,13 @@ def _job_dome_crawl():
                 )
 
 
+@handle_errors(task="dome_export", notify_fn=_slack)
+def _job_dome_export():
+    from modules.crawlers.source_exporter import export_to_instagram_posts
+    result = export_to_instagram_posts(target_id="D001", batch_size=3, dry_run=False)
+    logger.info(f"[dome_export] {result}")
+
+
 def publish_single(rid, image_url, caption, access_token, ig_user_id):
     """
     단일 Record 게시 실행 함수.
@@ -340,6 +347,9 @@ def _build_scheduler() -> BackgroundScheduler:
     #DISABLED_260603               id="auto_like", next_run_time=now + timedelta(seconds=70))
     sched.add_job(_job_dome_crawl, "interval", minutes=60,
                   id="dome_crawl", next_run_time=now + timedelta(seconds=80))
+    sched.add_job(_job_dome_export, "interval", minutes=10,
+                  id="dome_export", next_run_time=now + timedelta(seconds=90),
+                  max_instances=1, coalesce=True)
     return sched
 
 
