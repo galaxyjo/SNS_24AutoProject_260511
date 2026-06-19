@@ -402,3 +402,15 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | Source_Items | 21건 누적 / EXPORTED=4 |
 | Instagram_Posts | 도매꾹 출처 3건 |
 | 다음 세션 | D002 Active 전환 + 품질 확인 |
+
+---
+
+## [260619_세션8_D002확장] 2026-06-19 KST
+
+| 항목 | 내용 |
+|------|------|
+| 커밋 | 7fdd9d1 |
+| D002 | 건강식품 Active 전환 + Runtime Proof |
+| dome_export | target_id=None / batch_size=5 확장 |
+| exported | 3건 (D001+D002 혼합) Gemini 성공 |
+| 다음 세션 | 품질 확인 + 카테고리 확장 검토 |

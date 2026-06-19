@@ -496,3 +496,22 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 1. D002 건강식품 Active 전환 → Runtime Proof
 2. source_item_id 기준 export_to_instagram_posts target_id 확장
 3. Instagram_Posts 도매꾹 출처 게시물 품질 확인
+
+## [260619_세션8_D002확장] — 2026-06-19 KST
+
+### 완료 작업
+1. D002 건강식품 Active 전환
+2. dome_crawl D001+D002 동시 fetch=10+10 Runtime Proof
+3. _job_dome_export() target_id=None / batch_size=5 확장 (7fdd9d1)
+4. exported=3 (D001+D002 혼합) Gemini caption 3건 성공
+
+### Known Facts
+- dome_crawl: D001(화장품)+D002(건강식품) Active 실운영
+- dome_export: target_id=None 전체 대상 / batch_size=5
+- Source_Items 누적 중
+- Instagram_Posts 도매꾹 출처 증가 중
+
+### P0 Backlog (다음 세션)
+1. Instagram_Posts 도매꾹 출처 게시물 품질 육안 확인
+2. 카테고리 추가 검토 (D003 등)
+3. 48시간 안정성 모니터링
