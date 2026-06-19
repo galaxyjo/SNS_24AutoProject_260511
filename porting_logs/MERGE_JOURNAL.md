@@ -367,3 +367,15 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | max_posts 상한 | min(value,10) 강제 |
 | D001 | Hold 복구 완료 |
 | 다음 세션 | C003 수정 + D001 실운영 전환 + Export 파이프라인 |
+
+---
+
+## [260619_세션5_실운영전환] 2026-06-19 KST
+
+| 항목 | 내용 |
+|------|------|
+| C003 | platform=daisomall 수정 완료 |
+| D001 | Active 전환 + Runtime Proof 완료 |
+| dome_crawl | 60분 interval 실운영 등록 |
+| fetch | 10건 ready=10 Upsert 성공 |
+| 다음 세션 | Export 파이프라인 + D002 추가 |

@@ -430,3 +430,24 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 2. D001 실운영 Active 전환 승인 후 24시간 모니터링
 3. Source_Items → Instagram_Posts Export 파이프라인 설계
 4. 건강식품 등 카테고리 확장 (D002 추가)
+
+## [260619_세션5_실운영전환] — 2026-06-19 KST
+
+### 완료 작업
+1. C003 platform=daisomall 수정 완료
+2. D001 Active 전환
+3. launcher 재시작 → dome_crawl job 등록 확인
+4. 16:47:28 자동 실행 → fetch=10 ready=10 Upsert 성공
+5. 다음 실행 17:47:28 (60분 interval) 확인
+
+### Known Facts
+- dome_crawl: 60분 interval 실운영 중
+- D001 Active (recoNRhWSKTiwNeuv)
+- C003 platform=daisomall (Hold 유지)
+- Source_Items 누적 중 (11건+)
+- watchdog.ps1 백그라운드 유지
+
+### P0 Backlog (다음 세션)
+1. Source_Items → Instagram_Posts Export 파이프라인 설계
+2. 건강식품 D002 추가
+3. 24시간 후 Source_Items 누적 건수 확인
