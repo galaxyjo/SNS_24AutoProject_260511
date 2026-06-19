@@ -241,7 +241,7 @@ def _job_dome_crawl():
 @handle_errors(task="dome_export", notify_fn=_slack)
 def _job_dome_export():
     from modules.crawlers.source_exporter import export_to_instagram_posts
-    result = export_to_instagram_posts(target_id="D001", batch_size=3, dry_run=False)
+    result = export_to_instagram_posts(target_id=None, batch_size=5, dry_run=False)
     logger.info(f"[dome_export] {result}")
 
 
