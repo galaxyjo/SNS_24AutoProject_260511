@@ -476,7 +476,6 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 1. 건강식품 D002 추가
 2. 24시간 후 Source_Items/Instagram_Posts 누적 확인
 3. launcher 재시작 (watchdog 통해 dome_export job 자동 등록 확인)
-
 ## [260619_세션7_실운영확인] — 2026-06-19 KST
 
 ### 완료 작업
