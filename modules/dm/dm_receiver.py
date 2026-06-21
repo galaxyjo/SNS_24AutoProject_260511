@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+from modules.ingest.domeggook_ingest import domeggook_ingest_bp
+app.register_blueprint(domeggook_ingest_bp)
+
 
 # ── Airtable 직접 호출 (data=bytes 강제 → latin-1 인코딩 버그 우회) ──────────
 

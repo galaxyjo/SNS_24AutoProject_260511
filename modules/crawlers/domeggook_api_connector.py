@@ -105,3 +105,58 @@ class DomeggookApiConnector(BaseCrawlConnector):
             return r.status_code == 200
         except Exception:
             return False
+
+    def fetch_by_category(self, ca: str, so: str, top_n: int, subcategory: str = '') -> list:
+        """
+        카테고리 코드(ca) + 정렬(so)로 상위 top_n건 수집
+        so: 'rd'=랭킹순, 'ha'=인기상품순
+        """
+        params = {
+            'ver': '4.1',
+            'mode': 'getItemList',
+            'aid': self.api_key,
+            'market': 'dome',
+            'om': 'json',
+            'ca': ca,
+            'so': so,
+            'sz': str(min(top_n, 50)),
+            'pg': '1',
+        }
+
+        try:
+            r = requests.get(ENDPOINT, params=params, timeout=15)
+            r.raise_for_status()
+        except Exception as e:
+            raise ConnectorError(f'HTTP error: {e}')
+
+        try:
+            data = r.json()
+        except Exception as e:
+            raise ConnectorError(f'JSON parse error: {e}')
+
+        # ca 검색 응답 구조: data['domeggook']['list']['item'] 또는 data['list']['item']
+        raw_list = (
+            data.get('domeggook', {}).get('list', {}).get('item') or
+            data.get('list', {}).get('item') or []
+        )
+        if isinstance(raw_list, dict):
+            raw_list = [raw_list]
+
+        results = []
+        for position, raw in enumerate(raw_list[:top_n], 1):
+            try:
+                item = self._normalize(raw, {
+                    'category_code': subcategory,
+                    'ca': ca,
+                })
+                item['ranking_position'] = position if so == 'rd' else None
+                item['popular_position'] = position if so == 'ha' else None
+                item['ca_code'] = ca
+                item['subcategory'] = subcategory
+                item['discovery_sort'] = 'RANKING' if so == 'rd' else 'POPULAR'
+                results.append(item)
+            except Exception as e:
+                logger.warning(f'item parse skip no={raw.get("no")} err={e}')
+                continue
+
+        return results

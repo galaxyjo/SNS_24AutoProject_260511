@@ -240,6 +240,9 @@ def _job_dome_crawl():
 
 @handle_errors(task="dome_export", notify_fn=_slack)
 def _job_dome_export():
+    if os.getenv('DOME_EXPORT_ENABLED', 'true').lower() == 'false':
+        logger.info('[dome_export] DISABLED by feature flag')
+        return
     from modules.crawlers.source_exporter import export_to_instagram_posts
     result = export_to_instagram_posts(target_id=None, batch_size=5, dry_run=False)
     logger.info(f"[dome_export] {result}")
@@ -335,20 +338,20 @@ def _build_scheduler() -> BackgroundScheduler:
     now = datetime.now()
     sched = BackgroundScheduler(timezone="Asia/Seoul")
     sched.add_job(_job_fb_crawl,     "interval", minutes=CRAWL_INTERVAL_MIN,
-                  id="fb_crawl",     next_run_time=now)
+                  id="fb_crawl",     next_run_time=now + timedelta(seconds=60))
     sched.add_job(_job_insta_upload, "interval", minutes=UPLOAD_POLL_MIN,
-                  id="insta_upload", next_run_time=now + timedelta(seconds=20),
+                  id="insta_upload", next_run_time=now + timedelta(seconds=120),
                   max_instances=1)
     sched.add_job(_job_kpi_snapshot, "interval", hours=1,
-                  id="kpi_snapshot", next_run_time=now + timedelta(seconds=50))
+                  id="kpi_snapshot", next_run_time=now + timedelta(seconds=180))
     sched.add_job(_job_engagement_update, "interval", minutes=30,
-                  id="engagement_update", next_run_time=now + timedelta(seconds=60))
+                  id="engagement_update", next_run_time=now + timedelta(seconds=240))
     #DISABLED_260603 sched.add_job(_job_auto_like, "interval", minutes=15,
     #DISABLED_260603               id="auto_like", next_run_time=now + timedelta(seconds=70))
     sched.add_job(_job_dome_crawl, "interval", minutes=60,
-                  id="dome_crawl", next_run_time=now + timedelta(seconds=80))
+                  id="dome_crawl", next_run_time=now + timedelta(seconds=300))
     sched.add_job(_job_dome_export, "interval", minutes=10,
-                  id="dome_export", next_run_time=now + timedelta(seconds=90),
+                  id="dome_export", next_run_time=now + timedelta(seconds=360),
                   max_instances=1, coalesce=True)
     return sched
 
