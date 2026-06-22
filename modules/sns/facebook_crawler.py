@@ -15,6 +15,7 @@ from modules.sns.content_filter import detect_and_translate, passes_keyword_filt
 from modules.sns.post_id_generator import generate_sku, get_source_group, get_platform_code
 from modules.sns.image_hosting import upload_to_imgbb
 from modules.common.logger import get_logger
+from modules.infra.airtable_usage_logger import log_api_call
 
 logger = get_logger(__name__)
 
@@ -34,6 +35,7 @@ def load_supplier_blocklist() -> list:
     _hdrs = {'Authorization': f'Bearer {_api_key}'}
     try:
         r = _req.get(_url, headers=_hdrs, timeout=10)
+        log_api_call("Supplier_Blocklist", "GET")
         records = r.json().get('records', [])
         blocklist = []
         for rec in records:
@@ -141,6 +143,7 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
     image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
     try:
         chk = _req.get(_url, headers=_hdrs, params={"filterByFormula": f"{{image_url_hash}}='{image_url_hash}'", "maxRecords": "1"}, timeout=10)
+        log_api_call("Instagram_Posts", "GET")
     except Exception as exc:
         logger.error(f"[AIRTABLE] 중복 체크 요청 실패 | {type(exc).__name__}")
         return
@@ -178,6 +181,7 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
         elif not caption:
             import logging; logging.getLogger(__name__).warning("[ImgBB] caption?? failed | " + original_image_url[:80])
         res = _req.post(_url, headers=_hdrs, json={"fields": {"image_url": image_url, "original_image_url": original_image_url, "image_url_hash": image_url_hash, "source_url": source_url, "post_status": post_status, "caption": caption, "hashtag": hashtags, "original_text": _original, "converted_text": text, "media_type": media_type, "insta_post_code": sku_code}}, timeout=10)
+        log_api_call("Instagram_Posts", "POST")
     except Exception as exc:
         logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}")
         return

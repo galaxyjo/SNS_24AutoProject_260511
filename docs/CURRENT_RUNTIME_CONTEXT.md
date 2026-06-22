@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260619_Airtable_crawl_urls_전환_
+_마지막 업데이트: 260622_API_Usage_Logging_
 
 ## 현재 단계
-**260619 Airtable crawl_urls 전환 완료** — CRAWL_TARGET_SOURCE Feature Flag(accounts_json/shadow/airtable) 구현 / account_manager.py Airtable 로더·Shadow 비교 추가 / Shadow 검증 완료 / CRAWL_TARGET_SOURCE=airtable 전환 / Airtable 4건 URL 기반 크롤링 Runtime Proof 완료
+**260622 Airtable Usage Logging + Lily Yoon 차단 완료** — Airtable Team 플랜 업그레이드 완료 / Lily Yoon Supplier_Blocklist 등록 (recTMGb5XHgT8qjKJ, reason_code=WATERMARK_TAG_OVERLAY) / Instagram_Posts 160번 레코드 rejected 처리 / API Usage Logging 추가 (modules/infra/airtable_usage_logger.py, 12개 호출 포인트 연결)
 
 ## 최종 확인 커밋
-9cc4ee9 (feat: CRAWL_TARGET_SOURCE Feature Flag — Airtable crawl_urls 동적 로드 [260619])
+78bc88c (feat: job offset 분산 + fetch_by_category + ingest blueprint [260621])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -21,13 +21,13 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 - a126754 (fix: IMAGE_BLOCK_KEYWORDS에 M&Y GLOBAL 워터마크 패턴 추가 [260616])
 - 0688849 (fix: clean_fb_metadata 호출 추가 — FB UI 잔여물 제거 [260616])
 
-## Runtime 상태 (260529 20:15 기준 — 세션 간 기동 미확인)
+## Runtime 상태 (260622 기준)
 | 구간 | 상태 | 근거 |
 |---|---|---|
-| Flask (dm_receiver) | ⚠️ UNKNOWN | 세션 외 확인 필요 |
-| launcher/main.py | ⚠️ UNKNOWN | 세션 외 확인 필요 |
-| ngrok | ⚠️ UNKNOWN | 세션 외 확인 필요 |
-| Streamlit | ⚠️ UNKNOWN | 세션 외 확인 필요 |
+| Flask (dm_receiver) | ✅ LIVE | :5000 확인 |
+| launcher/main.py | ✅ LIVE | watchdog.ps1 기동 중 |
+| ngrok | ✅ LIVE | :4040 확인 |
+| Streamlit | ✅ LIVE | :8501 확인 |
 | n8n | ⚠️ 미설정 | 정상 — 아직 구성 안 함 |
 
 ## Dual Scheduler 해소 (260527)
@@ -496,6 +496,31 @@ _마지막 업데이트: 260619_Airtable_crawl_urls_전환_
 1. D002 건강식품 Active 전환 → Runtime Proof
 2. source_item_id 기준 export_to_instagram_posts target_id 확장
 3. Instagram_Posts 도매꾹 출처 게시물 품질 확인
+
+## [260622_API_Usage_Logging] — 2026-06-22 KST
+
+### 완료 작업
+1. Airtable Team 플랜 업그레이드 완료
+2. Lily Yoon Supplier_Blocklist 등록 (recTMGb5XHgT8qjKJ)
+   - author_name: Lily Yoon / reason_code: WATERMARK_TAG_OVERLAY
+   - 근거: Crawl_Training_Set 3건 decision=BLOCK / has_watermark=True 확인
+3. Instagram_Posts 160번 레코드 rejected 처리
+4. modules/infra/ 패키지 신설
+   - airtable_usage_logger.py — API 호출 카운트 / logs/airtable_usage.jsonl 날짜별 누적 / get_monthly_count() / 100,000회 초과 Telegram 경고
+5. log_api_call() 12개 포인트 연결
+   - airtable_bridge.py: fetch_ready_one(GET) / update_record(PATCH)
+   - facebook_crawler.py: Supplier_Blocklist(GET) / Instagram_Posts(GET·POST)
+   - launcher/main.py: Crawl_Targets(GET) / Source_Items(GET·PATCH·POST) / Instagram_Posts(GET·PATCH×3)
+
+### Known Facts
+- Airtable Usage 월 누적: 3회 (2026-06 기준, 테스트 포함)
+- logs/airtable_usage.jsonl 정상 생성 확인
+- content_filter.py: Airtable 직접 호출 없음 (연결 대상 아님)
+
+### P0 Backlog (다음 세션)
+1. Instagram_Posts 도매꾹 출처 게시물 품질 육안 확인
+2. 카테고리 추가 검토 (D003 등)
+3. 48시간 안정성 모니터링
 
 ## [260619_세션8_D002확장] — 2026-06-19 KST
 

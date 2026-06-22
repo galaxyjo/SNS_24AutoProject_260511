@@ -1,6 +1,7 @@
 import os
 import requests
 from pyairtable import Api
+from modules.infra.airtable_usage_logger import log_api_call
 
 # ENV LOCK
 API_KEY = os.getenv("AIRTABLE_API_KEY")
@@ -25,6 +26,7 @@ def fetch_ready_one(table_name: str):
     }
 
     res = requests.get(url, headers=headers, params=params)
+    log_api_call(table_name, "GET")
     return res.json().get("records", [])
 
 # Airtable UPDATE (status 변경)
@@ -40,3 +42,4 @@ def update_record(table_name: str, record_id: str, data: dict):
     }
 
     requests.patch(url, headers=headers, json=payload)
+    log_api_call(table_name, "PATCH")

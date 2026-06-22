@@ -43,6 +43,7 @@ from core.error_handler import handle_errors
 from modules.common.logger import get_logger
 from modules.common.retry_queue import get_retry_queue
 from modules.common.health_monitor import get_health, print_health
+from modules.infra.airtable_usage_logger import log_api_call
 
 init_logging()
 logger = get_logger(__name__)
@@ -172,6 +173,7 @@ def _job_dome_crawl():
         headers={"Authorization": "Bearer " + API_KEY},
         params={"maxRecords": 20}
     )
+    log_api_call("Crawl_Targets", "GET")
     targets = [
         rec for rec in r.json().get("records", [])
         if rec["fields"].get("platform") == "domeggook"
@@ -222,6 +224,7 @@ def _job_dome_crawl():
                 headers={"Authorization": "Bearer " + API_KEY},
                 params={"maxRecords": 1, "filterByFormula": "source_item_id='" + item["source_item_id"] + "'"}
             )
+            log_api_call("Source_Items", "GET")
             existing = chk.json().get("records", [])
             if existing:
                 ex = existing[0]
@@ -231,11 +234,13 @@ def _job_dome_crawl():
                     "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items/" + ex["id"],
                     headers=headers, json={"fields": payload}
                 )
+                log_api_call("Source_Items", "PATCH")
             else:
                 _req.post(
                     "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items",
                     headers=headers, json={"fields": payload}
                 )
+                log_api_call("Source_Items", "POST")
 
 
 @handle_errors(task="dome_export", notify_fn=_slack)
@@ -261,6 +266,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
 
     if not image_url:
         table.update(rid, {"post_status": "failed"})
+        log_api_call("Instagram_Posts", "PATCH")
         logger.error(f"[publish_single] image_url 없음 | rid={rid}")
         return {"ok": False, "error": "image_url_missing"}
 
@@ -287,6 +293,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
 
             ig_media_id = c2.get("id", "")
             table.update(rid, {"post_status": "posted", "ig_media_id": ig_media_id})
+            log_api_call("Instagram_Posts", "PATCH")
             logger.info(f"[publish_single] 성공 | rid={rid} | ig_media_id={ig_media_id}")
             return {"ok": True, "ig_media_id": ig_media_id}
 
@@ -294,6 +301,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
             logger.warning(f"[publish_single] 시도 {attempt}/3 실패 | rid={rid} | {e}")
             if attempt == 3:
                 table.update(rid, {"post_status": "failed"})
+                log_api_call("Instagram_Posts", "PATCH")
                 logger.error(f"[publish_single] 3회 실패 최종 | rid={rid}")
                 return {"ok": False, "error": str(e)}
 
@@ -310,6 +318,7 @@ def _job_insta_upload():
 
     table   = get_table("Instagram_Posts")
     records = table.all(formula="{post_status}='ready'")
+    log_api_call("Instagram_Posts", "GET")
     if not records:
         return
 
@@ -324,6 +333,7 @@ def _job_insta_upload():
         # 원자적 잠금: uploading 마킹으로 다른 스레드/프로세스 중복 픽업 방지
         try:
             table.update(rid, {"post_status": "uploading"})
+            log_api_call("Instagram_Posts", "PATCH")
         except Exception:
             continue  # 업데이트 실패 시 다음 레코드로 (다른 worker가 선점한 경우)
         image_url = fields.get("image_url") or fields.get("source_url", "")
