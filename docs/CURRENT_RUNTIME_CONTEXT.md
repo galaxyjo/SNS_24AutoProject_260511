@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260623_FB_Crawler_HUNG_해소_
+_마지막 업데이트: 260623_Repository_Interface_1차_연결_완료_
 
 ## 현재 단계
-**260623 FB Crawler HUNG 4개 Root Cause 해소 완료** — RLock deadlock(핵심) / SSL hang daemon thread / RemoteConnection AttributeError 수정 / Stage Log 전구간 정상 / Scheduler 자동 실행 14:17 KST 확인 / Repository Interface 생성 완료
+**260623 Repository Interface 1차 연결 완료** — RepositoryInterface 10개 메서드 ABC / AirtableRepository 구현체 / launcher/main.py + facebook_crawler.py 직접 Airtable 호출 교체 완료 / Runtime 정상
 
 ## 최종 확인 커밋
-56b09d1 (fix: RemoteConnection.set_timeout 제거 [260623])
+c52e00b (feat: Repository Interface 연결 — 직접 Airtable 호출 교체 [260623])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -585,3 +585,43 @@ AdsPower Stop API 완료
 2. 카테고리 추가 검토 (D003 등)
 3. 48시간 FB Crawler 안정성 모니터링
 4. Repository Interface Phase 2 연결 계획 수립
+
+## [260623_Repository_Interface_1차_연결] — 2026-06-23 KST
+
+### 완료 작업
+
+#### Phase 1 — Interface 설계 (758d29d)
+- `modules/infra/repository_interface.py` 전면 교체
+  - Enum: SourceItemStatus / InstagramPostStatus
+  - TypedDict 6개: SupplierBlockEntry / SourceItemRef / SourceItem / InstagramPost / CrawlTarget / PostPublishResult
+  - 예외 4개: RepositoryError / Unavailable / NotFound / Validation
+  - ABC 메서드 10개: list_blocked_suppliers / exists_post_by_image_url / save_instagram_post / fetch_active_crawl_targets / find_source_item_by_hash / save_source_item / update_source_item_status / fetch_pending_posts / claim_post_for_upload / mark_post_result
+- `modules/infra/airtable_repository.py` 전면 교체
+  - 10개 메서드 Airtable HTTP 구현체
+  - fields 언패킹 → TypedDict 변환
+  - _raise() → RepositoryError 계층 변환
+  - claim_post_for_upload: WARNING non-atomic, single-worker only
+  - fetch_active_crawl_targets: filterByFormula `{status}='Active'` 단독 (platform 제한 제거)
+
+#### Phase 2 — 직접 호출 교체 (c52e00b)
+| 파일 | 교체 내용 |
+|------|----------|
+| `airtable_bridge.py` | fetch_ready_one / update_record dead code 제거 / import requests 제거 |
+| `launcher/main.py` | _job_dome_crawl: Crawl_Targets GET → repo.fetch_active_crawl_targets() |
+| `launcher/main.py` | _job_dome_crawl: Source_Items upsert → find_source_item_by_hash / save_source_item / update_source_item_status |
+| `launcher/main.py` | _job_insta_upload: fetch_pending_posts / claim_post_for_upload / mark_post_result 연결 |
+| `launcher/main.py` | publish_single: table.update 3개 제거, 순수 반환값 함수로 전환 |
+| `facebook_crawler.py` | Instagram_Posts 중복체크 직접호출 → repo.exists_post_by_image_url() |
+
+### Known Facts
+- import 검증: AirtableRepository 10개 추상 메서드 전부 구현 확인 (python -c 검증)
+- airtable_bridge.py: get_table() 유지 (Function Signature Lock) / fetch_ready_one, update_record 제거
+- launcher/main.py: _req, BASE_ID, API_KEY 잔재 _job_dome_crawl 내부 전부 제거
+- facebook_crawler.py: _api_key, _base_id, image_url_hash 계산 로직 Repository 내부로 이동
+- 잔존 직접 호출: dm/, crm/, comment/, crawlers/source_exporter.py 등 16개 파일 — 다음 세션
+
+### P0 Backlog (다음 세션)
+1. DM 모듈 (dm_auto_reply / dm_followup_scheduler / dm_receiver) Repository 연결
+2. CRM 모듈 (lead_scorer / lead_closer / order_detector / daily_report) Repository 연결
+3. Comment 모듈 (comment_auto_reply / comment_poller) Repository 연결
+4. source_exporter.py Repository 연결 (호출 11개 — 최대 규모)
