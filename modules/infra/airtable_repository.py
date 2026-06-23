@@ -154,7 +154,7 @@ class AirtableRepository(RepositoryInterface):
                 _url("Crawl_Targets"),
                 headers=_headers(),
                 params={
-                    "filterByFormula": "AND({status}='Active',{platform}='facebook')",
+                    "filterByFormula": "{status}='Active'",
                     "fields[0]": "target_url",
                     "fields[1]": "platform",
                     "pageSize": 100,

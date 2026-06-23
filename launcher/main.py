@@ -162,23 +162,14 @@ def _job_dome_crawl():
     from modules.crawlers.domeggook_api_connector import DomeggookApiConnector
     from modules.crawlers.quality_gate import run_gate
     from dotenv import load_dotenv
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.infra.repository_interface import SourceItem, SourceItemStatus
     load_dotenv()
-    import requests as _req
-    BASE_ID = _os.getenv("AIRTABLE_BASE_ID")
-    API_KEY = _os.getenv("AIRTABLE_API_KEY")
-    headers = {"Authorization": "Bearer " + API_KEY, "Content-Type": "application/json"}
 
-    r = _req.get(
-        "https://api.airtable.com/v0/" + BASE_ID + "/Crawl_Targets",
-        headers={"Authorization": "Bearer " + API_KEY},
-        params={"maxRecords": 20}
-    )
-    log_api_call("Crawl_Targets", "GET")
-    targets = [
-        rec for rec in r.json().get("records", [])
-        if rec["fields"].get("platform") == "domeggook"
-        and rec["fields"].get("status") == "Active"
-    ]
+    repo = AirtableRepository()
+
+    raw_targets = repo.fetch_active_crawl_targets()
+    targets = [t for t in raw_targets if t.get("platform") == "domeggook"]
     if not targets:
         logger.info("[dome_crawl] Active 타겟 없음 — 스킵")
         return
@@ -218,29 +209,18 @@ def _job_dome_crawl():
                 "pipeline_status": "NEW",
             }.items() if v is not None}
 
-            # Upsert: source_item_id 기준 중복 확인
-            chk = _req.get(
-                "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items",
-                headers={"Authorization": "Bearer " + API_KEY},
-                params={"maxRecords": 1, "filterByFormula": "source_item_id='" + item["source_item_id"] + "'"}
-            )
-            log_api_call("Source_Items", "GET")
-            existing = chk.json().get("records", [])
-            if existing:
-                ex = existing[0]
-                if ex["fields"].get("content_hash") == item["content_hash"]:
-                    continue  # SKIP
-                _req.patch(
-                    "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items/" + ex["id"],
-                    headers=headers, json={"fields": payload}
+            # Upsert: content_hash 기준 중복 확인 → 신규/변경 분기
+            existing_ref = repo.find_source_item_by_hash(item["content_hash"])
+            if existing_ref:
+                continue  # 동일 hash 존재 → SKIP
+
+            source_item = SourceItem(**{k: v for k, v in payload.items() if v is not None})
+            saved_id = repo.save_source_item(source_item)
+            if saved_id:
+                repo.update_source_item_status(
+                    saved_id,
+                    SourceItemStatus.NEW,
                 )
-                log_api_call("Source_Items", "PATCH")
-            else:
-                _req.post(
-                    "https://api.airtable.com/v0/" + BASE_ID + "/Source_Items",
-                    headers=headers, json={"fields": payload}
-                )
-                log_api_call("Source_Items", "POST")
 
 
 @handle_errors(task="dome_export", notify_fn=_slack)
@@ -261,12 +241,8 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
     로그에 access_token 출력 금지.
     """
     import requests as _req
-    from modules.common.airtable_bridge import get_table
-    table = get_table("Instagram_Posts")
 
     if not image_url:
-        table.update(rid, {"post_status": "failed"})
-        log_api_call("Instagram_Posts", "PATCH")
         logger.error(f"[publish_single] image_url 없음 | rid={rid}")
         return {"ok": False, "error": "image_url_missing"}
 
@@ -292,23 +268,20 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
             c2 = r2.json()
 
             ig_media_id = c2.get("id", "")
-            table.update(rid, {"post_status": "posted", "ig_media_id": ig_media_id})
-            log_api_call("Instagram_Posts", "PATCH")
             logger.info(f"[publish_single] 성공 | rid={rid} | ig_media_id={ig_media_id}")
             return {"ok": True, "ig_media_id": ig_media_id}
 
         except Exception as e:
             logger.warning(f"[publish_single] 시도 {attempt}/3 실패 | rid={rid} | {e}")
             if attempt == 3:
-                table.update(rid, {"post_status": "failed"})
-                log_api_call("Instagram_Posts", "PATCH")
                 logger.error(f"[publish_single] 3회 실패 최종 | rid={rid}")
                 return {"ok": False, "error": str(e)}
 
 
 @handle_errors(task="insta_upload", notify_fn=_slack)
 def _job_insta_upload():
-    from modules.common.airtable_bridge import get_table
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.infra.repository_interface import PostPublishResult
 
     token      = os.getenv("INSTA_ACCESS_TOKEN")
     ig_user_id = os.getenv("INSTA_IG_USER_ID", "").strip()
@@ -316,30 +289,34 @@ def _job_insta_upload():
         logger.warning("[Main] INSTA 환경변수 미설정 — upload 생략")
         return
 
-    table   = get_table("Instagram_Posts")
-    records = table.all(formula="{post_status}='ready'")
-    log_api_call("Instagram_Posts", "GET")
-    if not records:
+    repo  = AirtableRepository()
+    posts = repo.fetch_pending_posts(limit=50)
+    if not posts:
         return
 
-    logger.info(f"[Main] insta_upload | {len(records)}건 처리 시작")
-    for rec in records:
-        rid       = rec["id"]
-        fields    = rec["fields"]
-        # ig_media_id 있으면 이미 업로드된 레코드 — 재업로드 차단
-        if fields.get("ig_media_id"):
-            logger.warning("[Main] unverified ig_media_id detected — status unchanged, skip | record_id=%s | post_status=%s", rid, fields.get("post_status"))
-            continue
-        # 원자적 잠금: uploading 마킹으로 다른 스레드/프로세스 중복 픽업 방지
-        try:
-            table.update(rid, {"post_status": "uploading"})
-            log_api_call("Instagram_Posts", "PATCH")
-        except Exception:
-            continue  # 업데이트 실패 시 다음 레코드로 (다른 worker가 선점한 경우)
-        image_url = fields.get("image_url") or fields.get("source_url", "")
-        caption   = f"{fields.get('caption','')}\n{fields.get('hashtag','')}".strip()
+    logger.info(f"[Main] insta_upload | {len(posts)}건 처리 시작")
+    for post in posts:
+        post_id   = post["post_id"]
+        image_url = post.get("image_url", "")
+        caption   = f"{post.get('caption','')}\n{post.get('hashtag','')}".strip()
 
-        result = publish_single(rid, image_url, caption, token, ig_user_id)
+        # ig_media_id 있으면 이미 업로드된 레코드 — 재업로드 차단
+        if post.get("ig_media_id"):
+            logger.warning("[Main] unverified ig_media_id detected — skip | post_id=%s", post_id)
+            continue
+
+        # claim: uploading 마킹 (non-atomic, single-worker only)
+        if not repo.claim_post_for_upload(post_id):
+            continue
+
+        raw = publish_single(post_id, image_url, caption, token, ig_user_id)
+
+        pub_result = PostPublishResult(
+            status="posted" if raw.get("ok") else "failed",
+            platform_post_id=raw.get("ig_media_id", ""),
+            error_code=raw.get("error", ""),
+        )
+        repo.mark_post_result(post_id, pub_result)
 
 
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
