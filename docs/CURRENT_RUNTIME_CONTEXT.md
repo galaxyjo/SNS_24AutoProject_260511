@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260622_API_Usage_Logging_
+_마지막 업데이트: 260623_FB_Crawler_HUNG_해소_
 
 ## 현재 단계
-**260622 Airtable Usage Logging + Lily Yoon 차단 완료** — Airtable Team 플랜 업그레이드 완료 / Lily Yoon Supplier_Blocklist 등록 (recTMGb5XHgT8qjKJ, reason_code=WATERMARK_TAG_OVERLAY) / Instagram_Posts 160번 레코드 rejected 처리 / API Usage Logging 추가 (modules/infra/airtable_usage_logger.py, 12개 호출 포인트 연결)
+**260623 FB Crawler HUNG 4개 Root Cause 해소 완료** — RLock deadlock(핵심) / SSL hang daemon thread / RemoteConnection AttributeError 수정 / Stage Log 전구간 정상 / Scheduler 자동 실행 14:17 KST 확인 / Repository Interface 생성 완료
 
 ## 최종 확인 커밋
-78bc88c (feat: job offset 분산 + fetch_by_category + ingest blueprint [260621])
+56b09d1 (fix: RemoteConnection.set_timeout 제거 [260623])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -540,3 +540,48 @@ _마지막 업데이트: 260622_API_Usage_Logging_
 1. Instagram_Posts 도매꾹 출처 게시물 품질 육안 확인
 2. 카테고리 추가 검토 (D003 등)
 3. 48시간 안정성 모니터링
+
+## [260623_FB_Crawler_HUNG_해소] — 2026-06-23 14:17 KST
+
+### Root Cause 4개 해소
+
+| 커밋 | 분류 | 내용 |
+|---|---|---|
+| e648ce3 | feat | Stage Log (JOB_START/ADSPOWER/DRIVER/PAGE_GET/CRAWL/CLEANUP) + timeout hardening |
+| f9b9483 | fix | SSL handshake timeout: socket.setdefaulttimeout + urllib3 adapter (효과 없음 → 다음 커밋으로 대체) |
+| 1082d11 | fix | daemon thread + join(timeout=12): Windows SSL hang 포함 wall-clock 강제 종료 |
+| 0878c68 | fix | **threading.Lock → RLock** — log_api_call()→get_monthly_count() 중첩 획득 deadlock 해소 (핵심 원인) |
+| 56b09d1 | fix | RemoteConnection.set_timeout() 제거 — _client_config AttributeError (_job_fb_crawl 크롤링 실패) |
+
+### Stage Log 전구간 확인 (Scheduler 자동 실행 14:17 KST)
+```
+JOB_START  elapsed=0.0s
+Blocklist  6건 로드 완료
+ADSPOWER   elapsed=1.3~1.4s
+DRIVER     elapsed=2.5~4.0s  (WebDriver 연결 완료)
+PAGE_GET   elapsed=16~24s
+CRAWL      posts=2~3
+CLEANUP    elapsed=25~32s
+AdsPower Stop API 완료
+→ 다음 URL 반복 (4개 URL 전체)
+```
+
+### Repository Interface (260622~260623)
+- modules/infra/repository_interface.py — ABC (fetch_one/fetch_all/update/insert/delete)
+- modules/infra/airtable_repository.py — AirtableRepository 구현체 (offset 페이지네이션, log_api_call 내장)
+- 기존 airtable_bridge.py 수정 금지 (호환성 유지)
+- **연결 0% — 기존 코드 수정 없음, Phase 2 대기**
+
+### Known Facts
+- airtable_usage_logger._lock: RLock으로 교체 완료 (재진입 안전)
+- _job_fb_crawl 스케줄러 자동 실행: 14:17:51 KST (interval 30분)
+- 다음 정기 실행: 16:47 KST
+- scheduler_err.log에 STAGE 로그 기록됨 (app.log 동일 핸들러)
+- fb_crawl 완료: {'account1': 1} — 1건 처리 (중복 이미지 skip 정상)
+- pytesseract 없음 경고: 비치명적, 통과 처리
+
+### P0 Backlog (다음 세션)
+1. Instagram_Posts 도매꾹 출처 게시물 품질 육안 확인
+2. 카테고리 추가 검토 (D003 등)
+3. 48시간 FB Crawler 안정성 모니터링
+4. Repository Interface Phase 2 연결 계획 수립
