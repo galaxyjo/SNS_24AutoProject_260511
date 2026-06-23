@@ -126,8 +126,6 @@ def get_driver(adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
         options.add_argument(f'--proxy-server={proxy_opts["proxy_server"]}')
         logger.info(f"[FB Crawler] proxy 적용 | {proxy_opts['proxy_server']}")
     service = Service(executable_path=CHROMEDRIVER_PATH)
-    from selenium.webdriver.remote.remote_connection import RemoteConnection
-    RemoteConnection.set_timeout(10)
     driver = webdriver.Chrome(service=service, options=options)
     driver.set_page_load_timeout(45)
     driver.set_script_timeout(30)
