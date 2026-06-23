@@ -22,7 +22,7 @@ load_dotenv(
 
 _USAGE_FILE = Path(__file__).resolve().parents[2] / "logs" / "airtable_usage.jsonl"
 _WARN_THRESHOLD = 100_000
-_lock = threading.Lock()
+_lock = threading.RLock()  # 재진입 가능: log_api_call → get_monthly_count 중첩 호출 허용
 
 _BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 _CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
