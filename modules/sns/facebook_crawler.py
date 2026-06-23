@@ -35,8 +35,7 @@ def _stage_log(stage: str, t0: float, extra: str = "") -> None:
 def load_supplier_blocklist() -> list:
     """Airtable Supplier_Blocklist 1회 로드 — author_name, page_name 반환."""
     import requests as _req
-    from urllib3.util.timeout import Timeout as _U3Timeout
-    from requests.adapters import HTTPAdapter as _HTTPAdapter
+    import threading as _thr
     _api_key = os.getenv('AIRTABLE_API_KEY', '')
     _base_id = os.getenv('AIRTABLE_BASE_ID', '')
     if not _api_key or not _base_id:
@@ -44,18 +43,33 @@ def load_supplier_blocklist() -> list:
         return []
     _url = f'https://api.airtable.com/v0/{_base_id}/Supplier_Blocklist'
     _hdrs = {'Authorization': f'Bearer {_api_key}'}
+    _resp = [None]
+    _err = [None]
+
+    def _fetch():
+        try:
+            # socket + requests 이중 timeout: SSL handshake 포함
+            socket.setdefaulttimeout(10)
+            _resp[0] = _req.get(_url, headers=_hdrs, timeout=(3, 7))
+        except Exception as e:
+            _err[0] = e
+        finally:
+            socket.setdefaulttimeout(None)
+
+    # daemon thread + join(12s): Windows SSL hang 포함 모든 경우 wall-clock 강제 종료
+    _t = _thr.Thread(target=_fetch, daemon=True)
+    _t.start()
+    _t.join(timeout=12)
+
+    if _t.is_alive():
+        logger.warning('[Blocklist] 로드 실패 — 12s wall-clock 초과 (SSL hang) — 빈 목록 반환')
+        return []
+    if _err[0] is not None:
+        logger.warning(f'[Blocklist] 로드 실패 — 빈 목록 반환 | {_err[0]}')
+        return []
     try:
-        # socket 전역 timeout: SSL handshake 단계까지 커버
-        socket.setdefaulttimeout(10)
-        # urllib3 Timeout: connect=3s, read=7s (총 10s 이내 강제 종료)
-        _u3t = _U3Timeout(connect=3, read=7)
-        _adapter = _HTTPAdapter()
-        _adapter.poolmanager.connection_pool_kw["timeout"] = _u3t
-        _session = _req.Session()
-        _session.mount("https://", _adapter)
-        r = _session.get(_url, headers=_hdrs, timeout=(3, 7))
         log_api_call("Supplier_Blocklist", "GET")
-        records = r.json().get('records', [])
+        records = _resp[0].json().get('records', [])
         blocklist = []
         for rec in records:
             fields = rec.get('fields', {})
@@ -69,8 +83,6 @@ def load_supplier_blocklist() -> list:
     except Exception as exc:
         logger.warning(f'[Blocklist] 로드 실패 — 빈 목록 반환 | {exc}')
         return []
-    finally:
-        socket.setdefaulttimeout(None)  # 전역 timeout 복원
 
 
 def is_blocked_supplier(author_name: str, blocklist: list) -> dict:
