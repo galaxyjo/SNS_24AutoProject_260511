@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import time
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -34,6 +35,8 @@ def _stage_log(stage: str, t0: float, extra: str = "") -> None:
 def load_supplier_blocklist() -> list:
     """Airtable Supplier_Blocklist 1회 로드 — author_name, page_name 반환."""
     import requests as _req
+    from urllib3.util.timeout import Timeout as _U3Timeout
+    from requests.adapters import HTTPAdapter as _HTTPAdapter
     _api_key = os.getenv('AIRTABLE_API_KEY', '')
     _base_id = os.getenv('AIRTABLE_BASE_ID', '')
     if not _api_key or not _base_id:
@@ -42,7 +45,15 @@ def load_supplier_blocklist() -> list:
     _url = f'https://api.airtable.com/v0/{_base_id}/Supplier_Blocklist'
     _hdrs = {'Authorization': f'Bearer {_api_key}'}
     try:
-        r = _req.get(_url, headers=_hdrs, timeout=10)
+        # socket 전역 timeout: SSL handshake 단계까지 커버
+        socket.setdefaulttimeout(10)
+        # urllib3 Timeout: connect=3s, read=7s (총 10s 이내 강제 종료)
+        _u3t = _U3Timeout(connect=3, read=7)
+        _adapter = _HTTPAdapter()
+        _adapter.poolmanager.connection_pool_kw["timeout"] = _u3t
+        _session = _req.Session()
+        _session.mount("https://", _adapter)
+        r = _session.get(_url, headers=_hdrs, timeout=(3, 7))
         log_api_call("Supplier_Blocklist", "GET")
         records = r.json().get('records', [])
         blocklist = []
@@ -58,6 +69,8 @@ def load_supplier_blocklist() -> list:
     except Exception as exc:
         logger.warning(f'[Blocklist] 로드 실패 — 빈 목록 반환 | {exc}')
         return []
+    finally:
+        socket.setdefaulttimeout(None)  # 전역 timeout 복원
 
 
 def is_blocked_supplier(author_name: str, blocklist: list) -> dict:
