@@ -23,6 +23,14 @@ CHROMEDRIVER_PATH = r"C:\Users\admin\AppData\Roaming\adspower_global\cwd_global\
 MAX_POSTS = int(os.getenv("FB_MAX_POSTS", "10"))
 
 
+def _stage_log(stage: str, t0: float, extra: str = "") -> None:
+    elapsed = round(time.time() - t0, 2)
+    msg = f"[STAGE:{stage}] elapsed={elapsed}s"
+    if extra:
+        msg += f" | {extra}"
+    logger.info(msg)
+
+
 def load_supplier_blocklist() -> list:
     """Airtable Supplier_Blocklist 1회 로드 — author_name, page_name 반환."""
     import requests as _req
@@ -65,9 +73,24 @@ def is_blocked_supplier(author_name: str, blocklist: list) -> dict:
 
 def start_browser(adspower_user_id: str = "k1bto3j4"):
     import urllib.request
-    r = urllib.request.urlopen(f"http://local.adspower.net:50325/api/v1/browser/start?user_id={adspower_user_id}")
+    r = urllib.request.urlopen(
+        f"http://local.adspower.net:50325/api/v1/browser/start?user_id={adspower_user_id}",
+        timeout=10,
+    )
     data = json.loads(r.read())
     return data["data"]["debug_port"]
+
+
+def stop_browser(adspower_user_id: str) -> None:
+    import requests as _req
+    try:
+        _req.get(
+            f"http://local.adspower.net:50325/api/v1/browser/stop?user_id={adspower_user_id}",
+            timeout=(3, 7),
+        )
+        logger.info(f"[AdsPower] Stop API 완료 | user={adspower_user_id}")
+    except Exception as exc:
+        logger.warning(f"[AdsPower] Stop API 실패 | {exc}")
 
 
 def get_driver(adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
@@ -78,7 +101,11 @@ def get_driver(adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
         options.add_argument(f'--proxy-server={proxy_opts["proxy_server"]}')
         logger.info(f"[FB Crawler] proxy 적용 | {proxy_opts['proxy_server']}")
     service = Service(executable_path=CHROMEDRIVER_PATH)
+    from selenium.webdriver.remote.remote_connection import RemoteConnection
+    RemoteConnection.set_timeout(10)
     driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(45)
+    driver.set_script_timeout(30)
     return driver
 
 
@@ -192,12 +219,18 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
 
 
 def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
-    logger.info(f"[FB Crawler] 시작 | user={adspower_user_id} | url={target_url}")
-    _blocklist = load_supplier_blocklist()  # DRY_RUN용 blocklist 1회 로드
+    _t0 = time.time()
+    _stage_log("JOB_START", _t0, f"user={adspower_user_id} url={target_url}")
+    _blocklist = load_supplier_blocklist()
+
+    _stage_log("ADSPOWER", _t0, f"user={adspower_user_id}")
     driver = get_driver(adspower_user_id, proxy_opts)
+    _stage_log("DRIVER", _t0, "WebDriver 연결 완료")
+
     try:
         driver.get(target_url)
         time.sleep(12)  # 초기 렌더링 대기 (7 → 12초)
+        _stage_log("PAGE_GET", _t0, f"url={target_url}")
 
         # 스크롤 다운 → lazy-load 이미지 강제 렌더링 후 상단 복귀
         driver.execute_script("window.scrollBy(0, 800);")
@@ -212,6 +245,7 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
             logger.warning(f"[FB Crawler] 포스트 없음 | url={target_url}")
             return []
 
+        _stage_log("CRAWL", _t0, f"posts={len(posts)}")
         results = []
         for i, post in enumerate(posts[:max_posts], start=1):
             # 각 포스트를 뷰포트 중앙으로 스크롤 → lazy-load 트리거
@@ -253,10 +287,19 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
 
         return results
     finally:
+        _stage_log("CLEANUP", _t0, f"user={adspower_user_id}")
         try:
             driver.quit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"[CLEANUP] driver.quit 실패 | {exc}")
+        try:
+            stop_browser(adspower_user_id)
+        except Exception as exc:
+            logger.warning(f"[CLEANUP] AdsPower Stop API 실패 | {exc}")
+        try:
+            pass  # lock release placeholder (현재 분산 lock 미사용)
+        except Exception as exc:
+            logger.warning(f"[CLEANUP] lock release 실패 | {exc}")
 
 
 def run_all_accounts(max_posts=MAX_POSTS) -> dict:
