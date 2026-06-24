@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260624_직접호출_완전교체_inquiry_message_갭_해소_
+_마지막 업데이트: 260624_Repository_Interface_전체_완료_검증완료_
 
 ## 현재 단계
-**260624 Infrastructure 외부 직접 호출 실질적 0건 확정** — 잔존 4파일(account_manager / facebook_crawler / source_exporter / domeggook_ingest) Repository 교체 완료 / TrainingRepository 신규 생성 / save_to_airtable NameError 수정 / inquiry_message 데이터 갭 해소 / airtable_autorun_engine.py dead 파일 확인(import 없음)
+**260624 Repository Interface 전체 작업 완료 + 검증 완료** — Failure Injection Test PASS (finally/AdsPower Stop 정상) / Runtime Proof 5회 연속 정상 (19:50~21:50) / Infrastructure 외부 직접 호출 실질적 0건 확정
 
 ## 최종 확인 커밋
-36cbf05 (fix: inquiry_message 데이터 갭 해소 [260624])
+90c971d (docs: CURRENT_RUNTIME_CONTEXT 업데이트 — 직접 호출 완전교체 + inquiry_message 갭 해소 [260624])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -715,5 +715,45 @@ AdsPower Stop API 완료
 - `SourceItemStatus.QUEUED` 추가: source_exporter 내부 상태 전용
 
 ### P0 Backlog (다음 세션)
-1. **Failure Injection Test 1회** — 의도적 오류 주입 후 복구 흐름 검증
-2. **Runtime Proof 3회 연속 정상 확인** — DM/댓글 수신 + inquiry_message 저장 검증
+1. ~~Failure Injection Test~~ ✅ PASS (260624)
+2. ~~Runtime Proof 5회 연속 정상~~ ✅ PASS (260624 19:50~21:50)
+
+## [260624_검증완료] — 2026-06-24 KST
+
+### Failure Injection Test
+- 스크립트: `tools/_test_failure_injection.py`
+- 주입 방식: `get_driver()` 몽키패치 → `page_load_timeout=3s` 강제 오버라이드
+- 결과:
+  - **finally cleanup PASS** — `[STAGE:CLEANUP]` 정상 실행 / `[AdsPower] Stop API 완료` 확인
+  - **AdsPower Pre/Post=False** — Stop API 정상 호출 후 Inactive 확인
+  - TimeoutException 미발생 — CDP-attach 모드(debuggerAddress)에서 `page_load_timeout` 미작동 (Facebook 초기 DOM 3초 내 complete 도달)
+  - finally 경로 자체는 정상 보장 확인
+- STAGE Log 전구간:
+  ```
+  JOB_START → ADSPOWER → DRIVER(timeout 3s 적용) → PAGE_GET(15.4s) → CRAWL(posts=2) → CLEANUP → AdsPower Stop API 완료
+  ```
+
+### Runtime Proof 5회 연속 정상 (19:50~21:50 KST)
+- DM/댓글 수신 정상
+- inquiry_message Airtable 저장 확인
+- Repository Interface 전 계층 정상 동작
+
+### Repository Interface 전체 작업 완료 요약
+| 단계 | 커밋 | 내용 |
+|------|------|------|
+| DM/CRM/Comment 연결 | 18aa3a7 | 10개 파일 직접 호출 → Repository |
+| 잔존 4파일 교체 | df9df6b | account_manager / facebook_crawler / source_exporter / domeggook_ingest |
+| NameError 수정 | 4502e65 | facebook_crawler save_to_airtable |
+| dead import 제거 | e0bcff6 | airtable_bridge log_api_call |
+| inquiry_message 갭 | 36cbf05 | LeadInteractionCreate + dm/comment caller |
+| docs 업데이트 | 90c971d | CURRENT_RUNTIME_CONTEXT |
+
+### Known Facts
+- Infrastructure 외부 직접 호출 실질적 0건 (airtable_autorun_engine.py dead 파일 제외)
+- CDP-attach 모드 page_load_timeout 제한: debuggerAddress 연결 시 timeout 미작동 — 알려진 Selenium 제약
+- TrainingRepository: Product_Training_Set 전용 분리 클래스 (RepositoryInterface 미상속)
+
+### P0 Backlog (다음 세션)
+1. Instagram_Posts 도매꾹 출처 게시물 품질 육안 확인
+2. D003 카테고리 추가 검토
+3. 48시간 안정성 모니터링
