@@ -4,11 +4,15 @@
 import os
 import json as _json
 import logging
-import uuid
 import requests
 from datetime import datetime, timezone
 
+from modules.infra.airtable_repository import AirtableRepository
+from modules.infra.repository_interface import LeadInteractionCreate
+
 logger = logging.getLogger(__name__)
+
+_repo = AirtableRepository()
 
 _AUTO_REPLY_ENABLED = os.getenv("COMMENT_AUTO_REPLY_ENABLED", "false").lower() == "true"
 
@@ -88,34 +92,14 @@ def reply_to_comment(comment_id: str, message: str) -> bool:
 # ── Airtable 기록 (Lead_Interactions, channel=instagram_comment) ───────────────
 
 def _record_comment(username: str, text: str, comment_id: str, media_id: str) -> None:
-    base = os.getenv("AIRTABLE_BASE_ID", "")
-    headers = {
-        "Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", ""),
-        "Content-Type": "application/json; charset=utf-8",
-    }
-    code = "CM-" + uuid.uuid4().hex[:8].upper()
-    body = _json.dumps({
-        "fields": {
-            "interaction_code":     code,
-            "inquiry_user_handle":  username,
-            "inquiry_message":      text[:500],
-            "bridge_status":        "comment_received",
-            "lead_status":          "new",
-            "conversation_channel": "instagram_comment",
-            "relay_scheduled_at":   datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }
-    }, ensure_ascii=False).encode("utf-8")
     try:
-        resp = requests.post(
-            f"https://api.airtable.com/v0/{base}/Lead_Interactions",
-            headers=headers,
-            data=body,
-            timeout=15,
-        )
-        if resp.ok:
-            logger.info(f"[Comment] Airtable 기록 | code={code} | from={username}")
-        else:
-            logger.warning(f"[Comment] Airtable 기록 실패 | {resp.status_code} {resp.text[:100]}")
+        _repo.create_lead_interaction(LeadInteractionCreate(
+            igsid=username,
+            source="instagram_comment",
+            interaction_type="comment_received",
+            occurred_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        ))
+        logger.info(f"[Comment] Airtable 기록 완료 | from={username}")
     except Exception as exc:
         logger.warning(f"[Comment] Airtable 기록 예외 | {exc}")
 

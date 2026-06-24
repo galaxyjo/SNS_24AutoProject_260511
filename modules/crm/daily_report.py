@@ -6,26 +6,21 @@ import requests
 from datetime import datetime, timezone, timedelta
 
 from modules.common.logger import get_logger
+from modules.infra.airtable_repository import AirtableRepository
+
 logger = get_logger(__name__)
+
+_repo = AirtableRepository()
 
 
 def _fetch_today_leads() -> dict:
     """오늘 0시(KST) 이후 생성된 Lead_Interactions 집계."""
-    base = os.getenv("AIRTABLE_BASE_ID", "")
-    now_utc    = datetime.now(timezone.utc)
-    # KST 기준 오늘 00:00 → UTC 전날 15:00
-    kst_today  = (now_utc + timedelta(hours=9)).replace(hour=0, minute=0, second=0, microsecond=0)
-    utc_start  = (kst_today - timedelta(hours=9)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    now_utc   = datetime.now(timezone.utc)
+    kst_today = (now_utc + timedelta(hours=9)).replace(hour=0, minute=0, second=0, microsecond=0)
+    utc_start = (kst_today - timedelta(hours=9)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-    formula = f"{{relay_scheduled_at}}>='{utc_start}'"
     try:
-        resp = requests.get(
-            f"https://api.airtable.com/v0/{base}/Lead_Interactions",
-            headers={"Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", "")},
-            params={"filterByFormula": formula, "maxRecords": 200},
-            timeout=15,
-        )
-        records = resp.json().get("records", [])
+        records = _repo.fetch_today_lead_stats(utc_start, limit=200)
     except Exception as exc:
         logger.error(f"[Report] Airtable 조회 실패 | {exc}")
         return {}
@@ -35,9 +30,8 @@ def _fetch_today_leads() -> dict:
     stats["total"] = len(records)
 
     for rec in records:
-        f      = rec.get("fields", {})
-        status = f.get("lead_status", "new")
-        grade  = f.get("lead_grade", "cold")
+        status = rec.get("lead_status", "new")
+        grade  = rec.get("lead_grade", "cold")
         if status in stats:
             stats[status] += 1
         if grade in stats:

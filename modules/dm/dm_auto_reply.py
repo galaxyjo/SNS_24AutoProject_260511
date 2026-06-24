@@ -8,7 +8,11 @@ import requests
 from datetime import datetime, timezone
 
 from modules.common.logger import get_logger
+from modules.infra.airtable_repository import AirtableRepository
+
 logger = get_logger(__name__)
+
+_repo = AirtableRepository()
 
 MARGIN_RATE = 0.10
 
@@ -26,47 +30,10 @@ REPLY_TEMPLATE = (
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
 
-def _at_headers() -> dict:
-    return {
-        "Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", ""),
-        "Content-Type": "application/json; charset=utf-8",
-    }
-
-
-def _at_patch(table: str, record_id: str, fields: dict) -> None:
-    base = os.getenv("AIRTABLE_BASE_ID", "")
-    body = _json.dumps({"fields": fields}, ensure_ascii=False).encode("utf-8")
-    resp = requests.patch(
-        f"https://api.airtable.com/v0/{base}/{table}/{record_id}",
-        headers=_at_headers(),
-        data=body,
-        timeout=15,
-    )
-    if not resp.ok:
-        logger.error(f"[AutoReply] Airtable PATCH 실패 | {resp.status_code} {resp.text[:200]}")
-
-
 def _has_recent_auto_replied(sender_igsid: str, minutes: int = 3) -> bool:
     """sender_igsid 기준 최근 N분 이내 auto_replied 레코드 존재 여부 확인."""
-    import urllib.parse
-    from datetime import timedelta
-    base = os.getenv("AIRTABLE_BASE_ID", "")
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    safe_id = sender_igsid.replace("'", "\\'")
-    formula = (
-        f"AND({{inquiry_user_handle}}='{safe_id}',"
-        f"{{bridge_status}}='auto_replied',"
-        f"IS_AFTER(CREATED_TIME(),'{cutoff}'))"
-    )
     try:
-        r = requests.get(
-            f"https://api.airtable.com/v0/{base}/Lead_Interactions",
-            headers=_at_headers(),
-            params={"filterByFormula": formula, "maxRecords": 1, "fields[]": "replied_at"},
-            timeout=8,
-        )
-        records = r.json().get("records", [])
-        return len(records) > 0
+        return _repo.has_recent_auto_reply(sender_igsid, within_minutes=minutes)
     except Exception as exc:
         logger.warning(f"[AutoReply] 중복 체크 실패 — 발송 허용 | {exc}")
         return False
@@ -80,27 +47,12 @@ def detect_price_inquiry(text: str) -> bool:
 
 
 def get_base_price() -> float | None:
-    """Instagram_Posts 중 price 값이 있는 최신 레코드를 조회한다. 없으면 env 기본값."""
-    base = os.getenv("AIRTABLE_BASE_ID", "")
-    h = {"Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", "")}
+    """Instagram_Posts 중 price>0 최신값. 없으면 DEFAULT_BASE_PRICE env 폴백."""
     try:
-        r = requests.get(
-            f"https://api.airtable.com/v0/{base}/Instagram_Posts",
-            headers=h,
-            params={
-                "filterByFormula": "{price}>0",
-                "sort[0][field]": "scheduled_upload_at",
-                "sort[0][direction]": "desc",
-                "maxRecords": 1,
-            },
-            timeout=10,
-        )
-        records = r.json().get("records", [])
-        if records:
-            price = records[0]["fields"].get("price")
-            if price:
-                logger.info(f"[AutoReply] Airtable 기준가 조회 성공 | price={price}")
-                return float(price)
+        price = _repo.get_base_price()
+        if price is not None:
+            logger.info(f"[AutoReply] Airtable 기준가 조회 성공 | price={price}")
+            return price
     except Exception as exc:
         logger.warning(f"[AutoReply] 가격 조회 실패 | {exc}")
 
@@ -164,13 +116,7 @@ def send_ig_reply(sender_igsid: str, message: str) -> bool:
 
 
 def update_lead_replied(record_id: str, delay_sec: int) -> None:
-    _at_patch("Lead_Interactions", record_id, {
-        "bridge_status":      "auto_replied",
-        "lead_status":        "qualified",
-        "replied_at":         datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "response_delay_sec": delay_sec,
-        "last_error_msg":     "",
-    })
+    _repo.update_lead_replied(record_id, delay_sec)
     logger.info(f"[AutoReply] Lead 상태 업데이트 | record={record_id} | qualified / auto_replied")
 
 

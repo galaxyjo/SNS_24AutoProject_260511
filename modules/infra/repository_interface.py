@@ -25,6 +25,17 @@ class InstagramPostStatus(str, Enum):
     FAILED    = "failed"
 
 
+class LeadBridgeStatus(str, Enum):
+    DM_RECEIVED     = "dm_received"
+    AUTO_REPLIED    = "auto_replied"
+    FOLLOWUP1_SENT  = "followup1_sent"
+    FOLLOWUP2_SENT  = "followup2_sent"
+    FOLLOWUP3_SENT  = "followup3_sent"
+    LOST            = "lost"
+    CLOSED          = "closed"
+    CONVERTED       = "converted"
+
+
 # ── TypedDict ─────────────────────────────────────────────────────────────────
 
 class SupplierBlockEntry(TypedDict):
@@ -68,6 +79,22 @@ class PostPublishResult(TypedDict):
     status:           str
     platform_post_id: str
     error_code:       str
+
+
+class LeadInteraction(TypedDict, total=False):
+    id:                  str
+    igsid:               str
+    bridge_status:       str
+    lead_status:         str
+    lead_grade:          str
+    relay_scheduled_at:  str
+
+
+class LeadInteractionCreate(TypedDict):
+    igsid:            str
+    source:           str   # "instagram_dm" | "instagram_comment"
+    interaction_type: str
+    occurred_at:      str
 
 
 # ── 예외 ──────────────────────────────────────────────────────────────────────
@@ -136,3 +163,63 @@ class RepositoryInterface(ABC):
     @abstractmethod
     def mark_post_result(self, post_id: str, result: PostPublishResult) -> None:
         """업로드 결과(성공/실패)를 게시물 레코드에 기록."""
+
+    # ── Lead / DM / Followup ──────────────────────────────────────────────────
+
+    @abstractmethod
+    def get_base_price(self) -> float | None:
+        """Instagram_Posts에서 price>0 최신값 반환. 없으면 None."""
+
+    @abstractmethod
+    def has_recent_auto_reply(self, igsid: str, within_minutes: int = 3) -> bool:
+        """igsid 기준 N분 이내 auto_replied 레코드 존재 여부."""
+
+    @abstractmethod
+    def create_lead_interaction(self, data: LeadInteractionCreate) -> str:
+        """Lead_Interactions 신규 레코드 생성. record_id 반환."""
+
+    @abstractmethod
+    def is_repeat_inquiry(self, igsid: str) -> bool:
+        """동일 igsid의 dm_received 이외 이전 레코드 존재 여부 (재문의 판단)."""
+
+    @abstractmethod
+    def fetch_leads_due(
+        self,
+        statuses: list[LeadBridgeStatus],
+        before_iso: str,
+        limit: int = 20,
+    ) -> list[LeadInteraction]:
+        """relay_scheduled_at <= before_iso 이고 지정 상태인 레코드 목록 반환."""
+
+    @abstractmethod
+    def fetch_today_lead_stats(self, since_utc: str, limit: int = 200) -> list[LeadInteraction]:
+        """relay_scheduled_at >= since_utc 레코드 목록 반환 (일일 리포트용)."""
+
+    @abstractmethod
+    def update_lead_replied(self, record_id: str, delay_sec: int) -> None:
+        """bridge_status=auto_replied, lead_status=qualified, replied_at, response_delay_sec 갱신."""
+
+    @abstractmethod
+    def update_lead_score(self, record_id: str, score: int, grade: str) -> None:
+        """lead_score, lead_grade 갱신."""
+
+    @abstractmethod
+    def update_followup_status(
+        self,
+        record_id: str,
+        status: LeadBridgeStatus,
+        next_scheduled_at: str | None = None,
+    ) -> None:
+        """bridge_status 및 relay_scheduled_at 갱신 (팔로업 단계 전진)."""
+
+    @abstractmethod
+    def mark_lead_lost(self, record_id: str, reason: str = "followup_timeout") -> None:
+        """bridge_status=lost, lead_status=disqualified, lost_reason, lost_at 갱신."""
+
+    @abstractmethod
+    def mark_lead_closed(self, record_id: str) -> None:
+        """bridge_status=closed, lead_status=converted, closed_at 갱신."""
+
+    @abstractmethod
+    def mark_lead_converted(self, record_id: str) -> None:
+        """bridge_status=converted, lead_status=converted, converted_at 갱신."""

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -21,6 +23,9 @@ from modules.infra.repository_interface import (
     CrawlTarget,
     InstagramPost,
     InstagramPostStatus,
+    LeadBridgeStatus,
+    LeadInteraction,
+    LeadInteractionCreate,
     PostPublishResult,
     RepositoryError,
     RepositoryInterface,
@@ -339,3 +344,274 @@ class AirtableRepository(RepositoryInterface):
             _raise(e, "Instagram_Posts")
         except requests.RequestException as e:
             raise RepositoryUnavailableError(str(e)) from e
+
+    # ── Private: Lead_Interactions PATCH 공통 ────────────────────────────────
+
+    def _patch_lead_interaction(self, record_id: str, fields: dict) -> None:
+        try:
+            r = requests.patch(
+                _url("Lead_Interactions", record_id),
+                headers=_headers(json_body=True),
+                json={"fields": fields},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "PATCH")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+    # ── 11. 기준 단가 조회 ────────────────────────────────────────────────────
+
+    def get_base_price(self) -> float | None:
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                params={
+                    "filterByFormula":    "{price}>0",
+                    "sort[0][field]":     "scheduled_upload_at",
+                    "sort[0][direction]": "desc",
+                    "maxRecords":         1,
+                    "fields[0]":          "price",
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if records:
+            price = records[0].get("fields", {}).get("price")
+            if price is not None:
+                return float(price)
+        return None
+
+    # ── 12. 최근 자동응답 중복 확인 ───────────────────────────────────────────
+
+    def has_recent_auto_reply(self, igsid: str, within_minutes: int = 3) -> bool:
+        from datetime import timedelta
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(minutes=within_minutes)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        safe    = igsid.replace("'", "\\'")
+        formula = (
+            f"AND({{inquiry_user_handle}}='{safe}',"
+            f"{{bridge_status}}='auto_replied',"
+            f"IS_AFTER(CREATED_TIME(),'{cutoff}'))"
+        )
+        try:
+            r = requests.get(
+                _url("Lead_Interactions"),
+                headers=_headers(),
+                params={"filterByFormula": formula, "maxRecords": 1, "fields[0]": "replied_at"},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return bool(r.json().get("records"))
+
+    # ── 13. Lead Interaction 생성 ─────────────────────────────────────────────
+
+    def create_lead_interaction(self, data: LeadInteractionCreate) -> str:
+        source = data.get("source", "instagram_dm")
+        prefix = "CM" if source == "instagram_comment" else "LI"
+        code   = f"{prefix}-" + uuid.uuid4().hex[:8].upper()
+        fields = {
+            "interaction_code":     code,
+            "inquiry_user_handle":  data["igsid"],
+            "bridge_status":        data["interaction_type"],
+            "lead_status":          "new",
+            "conversation_channel": source,
+            "relay_scheduled_at":   data["occurred_at"],
+        }
+        try:
+            r = requests.post(
+                _url("Lead_Interactions"),
+                headers=_headers(json_body=True),
+                json={"fields": fields},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "POST")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return r.json().get("id", "")
+
+    # ── 14. 재문의 여부 확인 ──────────────────────────────────────────────────
+
+    def is_repeat_inquiry(self, igsid: str) -> bool:
+        safe    = igsid.replace("'", "\\'")
+        formula = (
+            f"AND({{inquiry_user_handle}}='{safe}',"
+            f"NOT({{bridge_status}}='dm_received'))"
+        )
+        try:
+            r = requests.get(
+                _url("Lead_Interactions"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": formula,
+                    "maxRecords":      1,
+                    "fields[0]":       "inquiry_user_handle",
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return bool(r.json().get("records"))
+
+    # ── 15. 팔로업 / LOST 대상 조회 ──────────────────────────────────────────
+
+    def fetch_leads_due(
+        self,
+        statuses: list[LeadBridgeStatus],
+        before_iso: str,
+        limit: int = 20,
+    ) -> list[LeadInteraction]:
+        or_parts = ",".join(f"{{bridge_status}}='{s.value}'" for s in statuses)
+        formula  = f"AND(OR({or_parts}),{{relay_scheduled_at}}<='{before_iso}')"
+        try:
+            r = requests.get(
+                _url("Lead_Interactions"),
+                headers=_headers(),
+                params={
+                    "filterByFormula":    formula,
+                    "sort[0][field]":     "relay_scheduled_at",
+                    "sort[0][direction]": "asc",
+                    "maxRecords":         limit,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        result: list[LeadInteraction] = []
+        for rec in r.json().get("records", []):
+            f = rec.get("fields", {})
+            result.append(LeadInteraction(
+                id=rec["id"],
+                igsid=f.get("inquiry_user_handle", ""),
+                bridge_status=f.get("bridge_status", ""),
+                lead_status=f.get("lead_status", ""),
+                relay_scheduled_at=f.get("relay_scheduled_at", ""),
+            ))
+        return result
+
+    # ── 16. 오늘 Lead 목록 조회 (일일 리포트용) ──────────────────────────────
+
+    def fetch_today_lead_stats(self, since_utc: str, limit: int = 200) -> list[LeadInteraction]:
+        formula = f"{{relay_scheduled_at}}>='{since_utc}'"
+        try:
+            r = requests.get(
+                _url("Lead_Interactions"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": formula,
+                    "maxRecords":      limit,
+                    "fields[0]":       "lead_status",
+                    "fields[1]":       "lead_grade",
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        result: list[LeadInteraction] = []
+        for rec in r.json().get("records", []):
+            f = rec.get("fields", {})
+            result.append(LeadInteraction(
+                id=rec["id"],
+                igsid="",
+                bridge_status=f.get("bridge_status", ""),
+                lead_status=f.get("lead_status", ""),
+                lead_grade=f.get("lead_grade", "cold"),
+                relay_scheduled_at="",
+            ))
+        return result
+
+    # ── 17. 자동응답 완료 상태 갱신 ──────────────────────────────────────────
+
+    def update_lead_replied(self, record_id: str, delay_sec: int) -> None:
+        self._patch_lead_interaction(record_id, {
+            "bridge_status":      LeadBridgeStatus.AUTO_REPLIED.value,
+            "lead_status":        "qualified",
+            "replied_at":         datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "response_delay_sec": delay_sec,
+            "last_error_msg":     "",
+        })
+
+    # ── 18. Lead 스코어 갱신 ──────────────────────────────────────────────────
+
+    def update_lead_score(self, record_id: str, score: int, grade: str) -> None:
+        self._patch_lead_interaction(record_id, {
+            "lead_score": score,
+            "lead_grade": grade,
+        })
+
+    # ── 19. 팔로업 단계 갱신 ─────────────────────────────────────────────────
+
+    def update_followup_status(
+        self,
+        record_id: str,
+        status: LeadBridgeStatus,
+        next_scheduled_at: str | None = None,
+    ) -> None:
+        fields: dict = {"bridge_status": status.value, "last_error_msg": ""}
+        if next_scheduled_at:
+            fields["relay_scheduled_at"] = next_scheduled_at
+        self._patch_lead_interaction(record_id, fields)
+
+    # ── 20. LOST 처리 ─────────────────────────────────────────────────────────
+
+    def mark_lead_lost(self, record_id: str, reason: str = "followup_timeout") -> None:
+        self._patch_lead_interaction(record_id, {
+            "bridge_status": LeadBridgeStatus.LOST.value,
+            "lead_status":   "disqualified",
+            "lost_reason":   reason,
+            "lost_at":       datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+
+    # ── 21. CLOSE 처리 ────────────────────────────────────────────────────────
+
+    def mark_lead_closed(self, record_id: str) -> None:
+        self._patch_lead_interaction(record_id, {
+            "bridge_status": LeadBridgeStatus.CLOSED.value,
+            "lead_status":   "converted",
+            "closed_at":     datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+
+    # ── 22. 주문 전환 처리 ────────────────────────────────────────────────────
+
+    def mark_lead_converted(self, record_id: str) -> None:
+        self._patch_lead_interaction(record_id, {
+            "bridge_status": LeadBridgeStatus.CONVERTED.value,
+            "lead_status":   "converted",
+            "converted_at":  datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })

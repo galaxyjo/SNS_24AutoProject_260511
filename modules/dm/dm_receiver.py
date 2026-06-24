@@ -8,13 +8,14 @@ import os
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
-import json as _json
 import logging
-import uuid
 import requests
 from datetime import datetime, timezone
 
 from flask import Flask, request, jsonify, abort
+
+from modules.infra.airtable_repository import AirtableRepository
+from modules.infra.repository_interface import LeadInteractionCreate
 
 from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry
 from modules.dm.dm_followup_scheduler import start_scheduler
@@ -27,9 +28,7 @@ IG_USER_ID        = os.getenv("INSTA_IG_USER_ID")
 VERIFY_TOKEN      = os.getenv("WEBHOOK_VERIFY_TOKEN", "snssecret2024")
 WEBHOOK_PORT      = int(os.getenv("WEBHOOK_PORT", "5000"))
 
-_AT_KEY           = os.getenv("AIRTABLE_API_KEY")
-_AT_BASE          = os.getenv("AIRTABLE_BASE_ID")
-INTERACTION_TABLE = "Lead_Interactions"
+_repo = AirtableRepository()
 
 _TG_TOKEN         = os.getenv("TELEGRAM_BOT_TOKEN")
 _TG_CHAT          = os.getenv("TELEGRAM_CHAT_ID")
@@ -46,28 +45,10 @@ from modules.ingest.domeggook_ingest import domeggook_ingest_bp
 app.register_blueprint(domeggook_ingest_bp)
 
 
-# ── Airtable 직접 호출 (data=bytes 강제 → latin-1 인코딩 버그 우회) ──────────
-
-def _at_post(fields: dict) -> dict:
-    url = f"https://api.airtable.com/v0/{_AT_BASE}/{INTERACTION_TABLE}"
-    headers = {
-        "Authorization": "Bearer " + _AT_KEY,
-        "Content-Type": "application/json; charset=utf-8",
-    }
-    body = _json.dumps({"fields": fields}, ensure_ascii=False).encode("utf-8")
-    resp = requests.post(url, headers=headers, data=body, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
-
-
 # ── 헬퍼 ─────────────────────────────────────────────────────────────────────
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _gen_code() -> str:
-    return "LI-" + uuid.uuid4().hex[:8].upper()
 
 
 def send_telegram(sender_igsid: str, message_text: str) -> None:
@@ -92,17 +73,13 @@ def send_telegram(sender_igsid: str, message_text: str) -> None:
 
 def record_interaction(sender_igsid: str, message_text: str) -> str:
     """수신된 DM 1건을 Lead_Interactions에 기록하고 record_id를 반환한다."""
-    record = _at_post({
-        "interaction_code":     _gen_code(),
-        "inquiry_user_handle":  sender_igsid,
-        "inquiry_message":      message_text,
-        "bridge_status":        "dm_received",
-        "lead_status":          "new",
-        "conversation_channel": "instagram_dm",
-        "relay_scheduled_at":   _now_iso(),
-    })
-    record_id = record.get("id", "")
-    logger.info(f"[Lead_Interactions] CREATED | code={record.get('fields', {}).get('interaction_code')} | from={sender_igsid}")
+    record_id = _repo.create_lead_interaction(LeadInteractionCreate(
+        igsid=sender_igsid,
+        source="instagram_dm",
+        interaction_type="dm_received",
+        occurred_at=_now_iso(),
+    ))
+    logger.info(f"[Lead_Interactions] CREATED | from={sender_igsid} | record={record_id}")
     return record_id
 
 

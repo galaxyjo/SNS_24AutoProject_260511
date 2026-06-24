@@ -13,7 +13,12 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from modules.common.logger import get_logger
+from modules.infra.airtable_repository import AirtableRepository
+from modules.infra.repository_interface import LeadBridgeStatus, LeadInteraction
+
 logger = get_logger(__name__)
+
+_repo = AirtableRepository()
 
 # 단계별 딜레이 (분) — 모든 단계 동일 간격 사용
 STAGE_DELAY_MINUTES = int(os.getenv("FOLLOWUP_STAGE_DELAY_MINUTES",
@@ -51,111 +56,29 @@ _scheduler: BackgroundScheduler | None = None
 LOST_TIMEOUT_MINUTES = int(os.getenv("LOST_TIMEOUT_MINUTES", "4320"))
 
 
-def _at_get_lost_candidates() -> list[dict]:
-    """LOST 전환 대상 조회 — followup3_sent + relay_scheduled_at <= now."""
-    base    = os.getenv("AIRTABLE_BASE_ID", "")
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    formula = (
-        "AND("
-        "{bridge_status}='followup3_sent',"
-        f"{{relay_scheduled_at}}<='{now_iso}'"
-        ")"
-    )
-    try:
-        resp = requests.get(
-            f"https://api.airtable.com/v0/{base}/Lead_Interactions",
-            headers={"Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", "")},
-            params={"filterByFormula": formula, "maxRecords": 20},
-            timeout=15,
-        )
-        return resp.json().get("records", [])
-    except Exception as exc:
-        logger.error(f"[LOST] 조회 실패 | {exc}")
-        return []
-
-
-def mark_lost(record_id: str, reason: str = "followup_timeout") -> bool:
+def mark_lost(record_id: str, reason: str = "followup_timeout") -> None:
     """레코드를 LOST 상태로 전환."""
-    lost_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    return _at_patch(record_id, {
-        "bridge_status": "lost",
-        "lead_status":   "disqualified",
-        "lost_reason":   reason,
-        "lost_at":       lost_at,
-    })
+    _repo.mark_lead_lost(record_id, reason)
 
 
 def process_lost_candidates() -> None:
     """5분마다 실행 — LOST 전환 대상 처리 (DRY_RUN 모드)."""
     dry_run = os.getenv("LOST_DRY_RUN", "true").lower() != "false"
-    records = _at_get_lost_candidates()
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    records: list[LeadInteraction] = _repo.fetch_leads_due(
+        [LeadBridgeStatus.FOLLOWUP3_SENT], before_iso=now_iso
+    )
     if not records:
         return
     logger.info(f"[LOST] 대상 {len(records)}건 | dry_run={dry_run}")
     for rec in records:
         record_id = rec["id"]
-        fields    = rec.get("fields", {})
-        igsid     = fields.get("inquiry_user_handle", "")
+        igsid     = rec.get("igsid", "")
         if dry_run:
             logger.warning(f"[LOST][DRY_RUN] 전환 대상 | record={record_id} | igsid={igsid}")
         else:
-            ok = mark_lost(record_id, reason="followup_timeout")
-            logger.warning(f"[LOST] 전환 완료 | record={record_id} | igsid={igsid} | ok={ok}")
-
-
-# ── Airtable 헬퍼 ─────────────────────────────────────────────────────────────
-
-def _at_headers() -> dict:
-    return {
-        "Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", ""),
-        "Content-Type": "application/json; charset=utf-8",
-    }
-
-
-def _at_patch(record_id: str, fields: dict) -> bool:
-    base = os.getenv("AIRTABLE_BASE_ID", "")
-    body = _json.dumps({"fields": fields}, ensure_ascii=False).encode("utf-8")
-    resp = requests.patch(
-        f"https://api.airtable.com/v0/{base}/Lead_Interactions/{record_id}",
-        headers=_at_headers(),
-        data=body,
-        timeout=15,
-    )
-    if not resp.ok:
-        logger.error(f"[Followup] PATCH 실패 | {resp.status_code} {resp.text[:200]}")
-    return resp.ok
-
-
-def _at_get_due_records() -> list[dict]:
-    """팔로업 대상 레코드 조회 — 1/2/3차 모두 포함."""
-    base    = os.getenv("AIRTABLE_BASE_ID", "")
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    formula = (
-        "AND("
-        "OR("
-        "{bridge_status}='auto_replied',"
-        "{bridge_status}='followup1_sent',"
-        "{bridge_status}='followup2_sent'"
-        "),"
-        f"{{relay_scheduled_at}}<='{now_iso}'"
-        ")"
-    )
-    try:
-        resp = requests.get(
-            f"https://api.airtable.com/v0/{base}/Lead_Interactions",
-            headers={"Authorization": "Bearer " + os.getenv("AIRTABLE_API_KEY", "")},
-            params={
-                "filterByFormula": formula,
-                "sort[0][field]":     "relay_scheduled_at",
-                "sort[0][direction]": "asc",
-                "maxRecords":         20,
-            },
-            timeout=15,
-        )
-        return resp.json().get("records", [])
-    except Exception as exc:
-        logger.error(f"[Followup] 폴링 조회 실패 | {exc}")
-        return []
+            mark_lost(record_id, reason="followup_timeout")
+            logger.warning(f"[LOST] 전환 완료 | record={record_id} | igsid={igsid}")
 
 
 # ── Page Messages API ─────────────────────────────────────────────────────────
@@ -231,7 +154,9 @@ def set_followup_schedule(record_id: str) -> None:
     scheduled_at = (
         datetime.now(timezone.utc) + timedelta(minutes=STAGE_DELAY_MINUTES)
     ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    _at_patch(record_id, {"relay_scheduled_at": scheduled_at})
+    _repo.update_followup_status(
+        record_id, LeadBridgeStatus.AUTO_REPLIED, next_scheduled_at=scheduled_at
+    )
     logger.info(f"[Followup] 1차 팔로업 예약 | record={record_id} | at={scheduled_at}")
 
 
@@ -239,24 +164,29 @@ def set_followup_schedule(record_id: str) -> None:
 
 def process_due_followups() -> None:
     """5분마다 실행 — 발송 시각 도래한 팔로업 레코드를 단계별 처리."""
-    records = _at_get_due_records()
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    records: list[LeadInteraction] = _repo.fetch_leads_due(
+        [LeadBridgeStatus.AUTO_REPLIED, LeadBridgeStatus.FOLLOWUP1_SENT, LeadBridgeStatus.FOLLOWUP2_SENT],
+        before_iso=now_iso,
+    )
     if not records:
         return
 
     logger.info(f"[Followup] 처리 대상 {len(records)}건")
 
     for rec in records:
-        record_id    = rec["id"]
-        fields       = rec.get("fields", {})
-        igsid        = fields.get("inquiry_user_handle", "")
-        cur_status   = fields.get("bridge_status", "")
-        next_status  = STAGE_NEXT_STATUS.get(cur_status)
-        template     = STAGE_TEMPLATES.get(cur_status, "")
+        record_id   = rec["id"]
+        igsid       = rec.get("igsid", "")
+        cur_status  = rec.get("bridge_status", "")
+        next_status = STAGE_NEXT_STATUS.get(cur_status)
+        template    = STAGE_TEMPLATES.get(cur_status, "")
 
         if not igsid or not next_status or not template:
             logger.warning(f"[Followup] 상태 불명 — skip | record={record_id} status={cur_status}")
-            _at_patch(record_id, {"bridge_status": "followup_error",
-                                  "last_error_msg": f"unknown stage: {cur_status}"})
+            _repo._patch_lead_interaction(record_id, {
+                "bridge_status": "followup_error",
+                "last_error_msg": f"unknown stage: {cur_status}",
+            })
             continue
 
         stage_num = {"followup1_sent": "1차", "followup2_sent": "2차", "followup3_sent": "3차"}.get(
@@ -275,19 +205,20 @@ def process_due_followups() -> None:
             rq.enqueue("ig_followup", {"igsid": igsid, "text": template})
             logger.warning(f"[Followup] DM 발송 실패 → retry queue 등록 | to={igsid}")
 
-        update: dict = {
-            "bridge_status": next_status if sent else "followup_error",
-            "last_error_msg": "" if sent else "IG DM send failed",
-        }
-
         # 다음 단계 예약 — 3차 발송 시 LOST 타임아웃 기준 시각 설정
         if sent:
             delay = LOST_TIMEOUT_MINUTES if next_status == "followup3_sent" else STAGE_DELAY_MINUTES
-            update["relay_scheduled_at"] = (
+            next_at = (
                 datetime.now(timezone.utc) + timedelta(minutes=delay)
             ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-        _at_patch(record_id, update)
+            _repo.update_followup_status(
+                record_id, LeadBridgeStatus(next_status), next_scheduled_at=next_at
+            )
+        else:
+            _repo._patch_lead_interaction(record_id, {
+                "bridge_status": "followup_error",
+                "last_error_msg": "IG DM send failed",
+            })
 
         if sent:
             _send_telegram_followup(igsid, stage_num, template)
