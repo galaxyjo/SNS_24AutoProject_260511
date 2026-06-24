@@ -103,26 +103,11 @@ class Account:
 
 def _load_crawl_urls_from_airtable() -> list[str]:
     """Airtable Crawl_Targets에서 active facebook URL 목록 반환."""
-    import requests as _req
-    api_key = os.getenv('AIRTABLE_API_KEY', '')
-    base_id = os.getenv('AIRTABLE_BASE_ID', '')
-    if not api_key or not base_id:
-        logger.warning('[AccountManager] Airtable 키 없음 — crawl_urls 로드 실패')
-        return []
+    from modules.infra.airtable_repository import AirtableRepository
     try:
-        r = _req.get(
-            f'https://api.airtable.com/v0/{base_id}/Crawl_Targets',
-            headers={'Authorization': f'Bearer {api_key}'},
-            params={
-                'filterByFormula': "AND({status}='Active',{platform}='facebook')",
-                'sort[0][field]': 'priority',
-                'sort[0][direction]': 'asc',
-                'maxRecords': 50,
-            },
-            timeout=10,
-        )
-        records = r.json().get('records', [])
-        urls = [rec['fields']['target_url'] for rec in records if rec.get('fields', {}).get('target_url')]
+        repo = AirtableRepository()
+        targets = repo.fetch_active_crawl_targets()
+        urls = [t['target_url'] for t in targets if t.get('platform') == 'facebook' and t.get('target_url')]
         logger.info(f'[AccountManager] Airtable crawl_urls 로드 | {len(urls)}건')
         return urls
     except Exception as exc:

@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 import re
-import socket
 import time
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -34,50 +33,18 @@ def _stage_log(stage: str, t0: float, extra: str = "") -> None:
 
 def load_supplier_blocklist() -> list:
     """Airtable Supplier_Blocklist 1회 로드 — author_name, page_name 반환."""
-    import requests as _req
-    import threading as _thr
-    _api_key = os.getenv('AIRTABLE_API_KEY', '')
-    _base_id = os.getenv('AIRTABLE_BASE_ID', '')
-    if not _api_key or not _base_id:
-        logger.warning('[Blocklist] API_KEY/BASE_ID 없음 — 빈 목록 반환')
-        return []
-    _url = f'https://api.airtable.com/v0/{_base_id}/Supplier_Blocklist'
-    _hdrs = {'Authorization': f'Bearer {_api_key}'}
-    _resp = [None]
-    _err = [None]
-
-    def _fetch():
-        try:
-            # socket + requests 이중 timeout: SSL handshake 포함
-            socket.setdefaulttimeout(10)
-            _resp[0] = _req.get(_url, headers=_hdrs, timeout=(3, 7))
-        except Exception as e:
-            _err[0] = e
-        finally:
-            socket.setdefaulttimeout(None)
-
-    # daemon thread + join(12s): Windows SSL hang 포함 모든 경우 wall-clock 강제 종료
-    _t = _thr.Thread(target=_fetch, daemon=True)
-    _t.start()
-    _t.join(timeout=12)
-
-    if _t.is_alive():
-        logger.warning('[Blocklist] 로드 실패 — 12s wall-clock 초과 (SSL hang) — 빈 목록 반환')
-        return []
-    if _err[0] is not None:
-        logger.warning(f'[Blocklist] 로드 실패 — 빈 목록 반환 | {_err[0]}')
-        return []
+    from modules.infra.airtable_repository import AirtableRepository
     try:
-        log_api_call("Supplier_Blocklist", "GET")
-        records = _resp[0].json().get('records', [])
-        blocklist = []
-        for rec in records:
-            fields = rec.get('fields', {})
-            blocklist.append({
-                'author_name': fields.get('author_name', '').strip().lower(),
-                'page_name': fields.get('page_name', '').strip().lower(),
-                'reason_code': fields.get('reason_code', ''),
-            })
+        repo = AirtableRepository()
+        entries = repo.list_blocked_suppliers()
+        blocklist = [
+            {
+                'author_name': e.get('supplier_name', '').strip().lower(),
+                'page_name': '',
+                'reason_code': e.get('reason_code', ''),
+            }
+            for e in entries
+        ]
         logger.info(f'[Blocklist] 로드 완료 | {len(blocklist)}건')
         return blocklist
     except Exception as exc:

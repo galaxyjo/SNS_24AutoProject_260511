@@ -13,6 +13,7 @@ from typing import TypedDict
 
 class SourceItemStatus(str, Enum):
     NEW      = "NEW"
+    QUEUED   = "QUEUED"
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
     EXPORTED = "EXPORTED"
@@ -49,16 +50,27 @@ class SourceItemRef(TypedDict):
 
 
 class SourceItem(TypedDict, total=False):
-    source_item_id: str
-    content_hash:   str
-    image_url:      str
-    text:           str
-    category_code:  str
-    keyword:        str
-    quality_status: str
-    filter_reason:  str
-    collected_at:   str
-    pipeline_status: str
+    record_id:            str   # Airtable 내부 record ID (recXXXXX) — PATCH 호출용
+    source_item_id:       str
+    content_hash:         str
+    image_url:            str
+    text:                 str
+    category_code:        str
+    keyword:              str
+    quality_status:       str
+    filter_reason:        str
+    collected_at:         str
+    pipeline_status:      str
+    title:                str
+    source_url:           str
+    target_id:            str
+    original_image_url:   str
+    image_url_hash:       str
+    media_type:           str
+    export_retry_count:   int
+    export_started_at:    str
+    export_last_error:    str
+    export_next_retry_at: str
 
 
 class InstagramPost(TypedDict, total=False):
@@ -223,3 +235,31 @@ class RepositoryInterface(ABC):
     @abstractmethod
     def mark_lead_converted(self, record_id: str) -> None:
         """bridge_status=converted, lead_status=converted, converted_at 갱신."""
+
+    # ── Source_Items export pipeline ─────────────────────────────────────────
+
+    @abstractmethod
+    def fetch_source_items_for_export(
+        self,
+        batch_size: int = 3,
+        target_id: str | None = None,
+    ) -> list[SourceItem]:
+        """NEW + READY + retry_at <= now 인 Source_Items batch 반환. record_id 포함."""
+
+    @abstractmethod
+    def recover_stale_queued_source_items(self, threshold_iso: str) -> int:
+        """QUEUED + export_started_at < threshold → NEW 복구. 처리 건수 반환."""
+
+    @abstractmethod
+    def claim_source_item_for_export(self, record_id: str, started_at_iso: str) -> None:
+        """pipeline_status → QUEUED, export_started_at 설정."""
+
+    @abstractmethod
+    def update_source_item_retry(
+        self,
+        record_id: str,
+        error_code: str,
+        retry_count: int,
+        next_retry_iso: str,
+    ) -> None:
+        """retry 카운트·에러·예약시각 갱신. retry_count >= 3 → FAILED, 미만 → NEW."""

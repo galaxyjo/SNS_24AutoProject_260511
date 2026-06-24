@@ -1,7 +1,8 @@
 import os, hmac, hashlib, logging
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
-import requests as _req
+
+from modules.infra.training_repository import TrainingRepository
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +28,6 @@ def _gate(title):
     return 'FILTERED', 'NO_TARGET_PRODUCT_MATCH'
 
 def _upsert_training(item, pilot_run_id, target_id, subcategory):
-    base = os.getenv('AIRTABLE_BASE_ID')
-    key = os.getenv('AIRTABLE_API_KEY')
-    headers = {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}
-    url = 'https://api.airtable.com/v0/' + base + '/' + TRAINING_TABLE
-
     training_record_id = pilot_run_id + ':' + item['source_item_id']
     gate_status, gate_reason = _gate(item.get('title', ''))
 
@@ -63,21 +59,13 @@ def _upsert_training(item, pilot_run_id, target_id, subcategory):
 
     fields = {k: v for k, v in fields.items() if v is not None}
 
-    # 중복 확인 (training_record_id 기준 필터)
-    safe_id = training_record_id.replace("'", "\\'")
-    chk = _req.get(url, headers={'Authorization': 'Bearer ' + key},
-                   params={'maxRecords': 1,
-                           'filterByFormula': "training_record_id='" + safe_id + "'"})
-    existing = chk.json().get('records', [])
-
-    if existing:
-        return 'duplicate'
-
-    r = _req.post(url, headers=headers, json={'fields': fields})
-    if r.status_code in (200, 201):
+    try:
+        repo = TrainingRepository()
+        repo.upsert_training_record(training_record_id, fields)
         return gate_status
-    logger.error('[ingest] Airtable 저장 실패: ' + str(r.status_code))
-    return 'error'
+    except Exception as exc:
+        logger.error(f'[ingest] Training 저장 실패: {exc}')
+        return 'error'
 
 @domeggook_ingest_bp.route('/api/v1/ingest/domeggook/training', methods=['POST'])
 def ingest_training():

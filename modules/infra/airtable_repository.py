@@ -615,3 +615,131 @@ class AirtableRepository(RepositoryInterface):
             "lead_status":   "converted",
             "converted_at":  datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
+
+    # ── 23. export용 Source_Items 배치 조회 ──────────────────────────────────
+
+    def fetch_source_items_for_export(
+        self,
+        batch_size: int = 3,
+        target_id: str | None = None,
+    ) -> list[SourceItem]:
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        parts = [
+            "{quality_status}='READY'",
+            "{pipeline_status}='NEW'",
+            f"OR({{export_next_retry_at}}='',{{export_next_retry_at}}<='{now_iso}')",
+        ]
+        if target_id:
+            parts.append(f"{{target_id}}='{target_id}'")
+        formula = "AND(" + ",".join(parts) + ")"
+        try:
+            r = requests.get(
+                _url("Source_Items"),
+                headers=_headers(),
+                params={"filterByFormula": formula, "maxRecords": batch_size},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Source_Items", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Source_Items")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        result: list[SourceItem] = []
+        for rec in r.json().get("records", []):
+            f = rec.get("fields", {})
+            result.append(SourceItem(
+                record_id=rec["id"],
+                source_item_id=f.get("source_item_id", ""),
+                title=f.get("title", ""),
+                image_url=f.get("image_url", ""),
+                source_url=f.get("source_url", ""),
+                target_id=f.get("target_id", ""),
+                export_retry_count=int(f.get("export_retry_count", 0)),
+            ))
+        return result
+
+    # ── 24. STALE QUEUED → NEW 복구 ───────────────────────────────────────────
+
+    def recover_stale_queued_source_items(self, threshold_iso: str) -> int:
+        formula = (
+            f"AND({{pipeline_status}}='QUEUED',"
+            f"{{export_started_at}}!='',"
+            f"{{export_started_at}}<'{threshold_iso}')"
+        )
+        try:
+            r = requests.get(
+                _url("Source_Items"),
+                headers=_headers(),
+                params={"filterByFormula": formula, "maxRecords": 50},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Source_Items", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Source_Items")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        count = 0
+        for rec in r.json().get("records", []):
+            try:
+                patch = requests.patch(
+                    _url("Source_Items", rec["id"]),
+                    headers=_headers(json_body=True),
+                    json={"fields": {"pipeline_status": "NEW", "export_last_error": "STALE_QUEUED_RECOVERED"}},
+                    timeout=_TIMEOUT,
+                )
+                patch.raise_for_status()
+                log_api_call("Source_Items", "PATCH")
+                count += 1
+            except Exception:
+                pass
+        return count
+
+    # ── 25. export 선점 (NEW → QUEUED) ────────────────────────────────────────
+
+    def claim_source_item_for_export(self, record_id: str, started_at_iso: str) -> None:
+        try:
+            r = requests.patch(
+                _url("Source_Items", record_id),
+                headers=_headers(json_body=True),
+                json={"fields": {"pipeline_status": "QUEUED", "export_started_at": started_at_iso}},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Source_Items", "PATCH")
+        except requests.HTTPError as e:
+            _raise(e, "Source_Items")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+    # ── 26. export 재시도 필드 갱신 ───────────────────────────────────────────
+
+    def update_source_item_retry(
+        self,
+        record_id: str,
+        error_code: str,
+        retry_count: int,
+        next_retry_iso: str,
+    ) -> None:
+        status = "FAILED" if retry_count >= 3 else "NEW"
+        try:
+            r = requests.patch(
+                _url("Source_Items", record_id),
+                headers=_headers(json_body=True),
+                json={"fields": {
+                    "pipeline_status":      status,
+                    "export_retry_count":   retry_count,
+                    "export_last_error":    error_code,
+                    "export_next_retry_at": next_retry_iso,
+                }},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Source_Items", "PATCH")
+        except requests.HTTPError as e:
+            _raise(e, "Source_Items")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
