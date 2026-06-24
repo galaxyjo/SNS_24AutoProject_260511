@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260623_Repository_Interface_1차_연결_완료_
+_마지막 업데이트: 260624_DM_CRM_Comment_Repository_연결_완료_
 
 ## 현재 단계
-**260623 Repository Interface 1차 연결 완료** — RepositoryInterface 10개 메서드 ABC / AirtableRepository 구현체 / launcher/main.py + facebook_crawler.py 직접 Airtable 호출 교체 완료 / Runtime 정상
+**260624 DM/CRM/Comment Repository Interface 연결 완료** — 10개 파일 Airtable 직접 호출 0건 검증 / LeadBridgeStatus Enum / LeadInteraction·LeadInteractionCreate TypedDict / 추상 메서드 12개 (#11~#22) + AirtableRepository 구현 완료
 
 ## 최종 확인 커밋
-c52e00b (feat: Repository Interface 연결 — 직접 Airtable 호출 교체 [260623])
+18aa3a7 (feat: DM/CRM/Comment Repository Interface 연결 완료 [260624])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -625,3 +625,49 @@ AdsPower Stop API 완료
 2. CRM 모듈 (lead_scorer / lead_closer / order_detector / daily_report) Repository 연결
 3. Comment 모듈 (comment_auto_reply / comment_poller) Repository 연결
 4. source_exporter.py Repository 연결 (호출 11개 — 최대 규모)
+
+## [260624_DM_CRM_Comment_Repository_연결] — 2026-06-24 KST
+
+### 완료 작업
+
+#### Interface 확장 (repository_interface.py)
+- Enum 추가: LeadBridgeStatus (dm_received / auto_replied / followup1~3_sent / lost / closed / converted)
+- TypedDict 추가: LeadInteraction (id / igsid / bridge_status / lead_status / lead_grade / relay_scheduled_at) / LeadInteractionCreate (igsid / source / interaction_type / occurred_at)
+- 추상 메서드 12개 추가 (#11~#22): get_base_price / has_recent_auto_reply / create_lead_interaction / is_repeat_inquiry / fetch_leads_due / fetch_today_lead_stats / update_lead_replied / update_lead_score / update_followup_status / mark_lead_lost / mark_lead_closed / mark_lead_converted
+
+#### AirtableRepository 구현 (airtable_repository.py)
+- 12개 메서드 Airtable HTTP 구현 + _patch_lead_interaction() private helper
+- fetch_today_lead_stats: lead_grade 필드 반환 추가
+
+#### 직접 호출 교체 (10개 파일)
+| 파일 | 교체 내용 | 직접 호출 |
+|------|----------|----------|
+| dm_auto_reply.py | _at_headers/_at_patch 제거 → has_recent_auto_reply / get_base_price / update_lead_replied | 3→0 |
+| dm_receiver.py | _at_post/_gen_code 제거 → create_lead_interaction | 1→0 |
+| dm_followup_scheduler.py | _at_get_due/lost/_at_patch 제거 → fetch_leads_due / update_followup_status / mark_lead_lost | 3→0 |
+| comment_auto_reply.py | _record_comment 직접 POST → create_lead_interaction | 1→0 |
+| lead_scorer.py | 직접 GET/PATCH → is_repeat_inquiry / update_lead_score | 2→0 |
+| lead_closer.py | 직접 PATCH 2건 → mark_lead_closed | 2→0 |
+| order_detector.py | 직접 PATCH 2건 → mark_lead_converted | 2→0 |
+| daily_report.py | 직접 GET → fetch_today_lead_stats | 1→0 |
+| repository_interface.py | LeadInteraction lead_grade 필드 추가 | — |
+| airtable_repository.py | fetch_today_lead_stats lead_grade 반환 추가 | — |
+
+### Known Facts
+- DM/CRM/Comment 영역 Airtable 직접 호출 0건 검증 완료 (Grep 확인)
+- "followup_error" 비표준 상태: LeadBridgeStatus 외부 → _patch_lead_interaction() private 직접 사용
+- inquiry_message / comment_id / media_id: LeadInteractionCreate 미포함 데이터 갭 (허용)
+- lead_grade (hot/warm/cold): LeadInteraction TypedDict 추가 후 fetch_today_lead_stats 반환에 포함
+- BOM 체크 10개 파일 전부 OK
+
+### 잔존 직접 호출 (다음 세션 대상)
+| 파일 | 라인 | 테이블 |
+|------|------|--------|
+| modules/common/account_manager.py | L114 | Crawl_Targets GET |
+| modules/common/airtable_autorun_engine.py | L19 | BASE_URL 상수 |
+| modules/crawlers/source_exporter.py | L9 | BASE_URL 상수 (다수 호출) |
+| modules/ingest/domeggook_ingest.py | L33 | TRAINING_TABLE POST |
+| modules/sns/facebook_crawler.py | L44 | Supplier_Blocklist GET |
+
+### P0 Backlog (다음 세션)
+1. account_manager / airtable_autorun_engine / source_exporter / domeggook_ingest / facebook_crawler Repository 연결
