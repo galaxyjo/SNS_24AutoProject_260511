@@ -1,6 +1,5 @@
 import os
 from pyairtable import Api
-from modules.infra.airtable_usage_logger import log_api_call
 
 # ENV LOCK
 API_KEY = os.getenv("AIRTABLE_API_KEY")
