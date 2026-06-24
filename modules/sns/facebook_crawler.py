@@ -15,7 +15,6 @@ from modules.sns.content_filter import detect_and_translate, passes_keyword_filt
 from modules.sns.post_id_generator import generate_sku, get_source_group, get_platform_code
 from modules.sns.image_hosting import upload_to_imgbb
 from modules.common.logger import get_logger
-from modules.infra.airtable_usage_logger import log_api_call
 
 logger = get_logger(__name__)
 
@@ -156,7 +155,6 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
     _original = original_text or text
     try:
-        # [Phase4] imgbb ???
         original_image_url = image_url
         post_status = "failed"
         from urllib.parse import urlparse as _urlparse
@@ -167,22 +165,36 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
                 if _r.get("success"):
                     image_url = _r["public_url"]
                     post_status = "ready"
-                    import logging; logging.getLogger(__name__).info("[ImgBB] ?? | " + image_url[:80])
+                    logger.info("[ImgBB] 업로드 성공 | " + image_url[:80])
                 else:
-                    import logging; logging.getLogger(__name__).warning("[ImgBB] ?? | " + str(_r.get("error")))
+                    logger.warning("[ImgBB] 업로드 실패 | " + str(_r.get("error")))
             except Exception as _e:
-                import logging; logging.getLogger(__name__).warning("[ImgBB] ?? | " + str(_e))
+                logger.warning("[ImgBB] 예외 | " + str(_e))
         elif not caption:
-            import logging; logging.getLogger(__name__).warning("[ImgBB] caption?? failed | " + original_image_url[:80])
-        res = _req.post(_url, headers=_hdrs, json={"fields": {"image_url": image_url, "original_image_url": original_image_url, "image_url_hash": image_url_hash, "source_url": source_url, "post_status": post_status, "caption": caption, "hashtag": hashtags, "original_text": _original, "converted_text": text, "media_type": media_type, "insta_post_code": sku_code}}, timeout=10)
-        log_api_call("Instagram_Posts", "POST")
-    except Exception as exc:
-        logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}")
-        return
-    if res.ok:
+            logger.warning("[ImgBB] caption 없음 — imgbb 생략 | " + original_image_url[:80])
+
+        import re as _re
+        _m = _re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", image_url)
+        _hash_key = _m.group(1) if _m else image_url
+        image_url_hash = hashlib.sha256(_hash_key.encode()).hexdigest()
+
+        payload = {
+            "image_url":          image_url,
+            "original_image_url": original_image_url,
+            "image_url_hash":     image_url_hash,
+            "source_url":         source_url,
+            "post_status":        post_status,
+            "caption":            caption,
+            "hashtag":            hashtags,
+            "original_text":      _original,
+            "converted_text":     text,
+            "media_type":         media_type,
+            "insta_post_code":    sku_code,
+        }
+        repo.save_instagram_post(payload)
         print(f"[AIRTABLE] 저장 완료: {image_url[:80]}...")
-    else:
-        logger.error(f"[AIRTABLE] 저장 실패 | {res.status_code} | {res.text[:200]}")
+    except Exception as exc:
+        logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}: {exc}")
 
 
 def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
