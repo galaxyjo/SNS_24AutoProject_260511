@@ -98,6 +98,7 @@ def _record_comment(username: str, text: str, comment_id: str, media_id: str) ->
             source="instagram_comment",
             interaction_type="comment_received",
             occurred_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            inquiry_message=text,
         ))
         logger.info(f"[Comment] Airtable 기록 완료 | from={username}")
     except Exception as exc:

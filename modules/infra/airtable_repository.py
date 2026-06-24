@@ -434,6 +434,7 @@ class AirtableRepository(RepositoryInterface):
             "lead_status":          "new",
             "conversation_channel": source,
             "relay_scheduled_at":   data["occurred_at"],
+            "inquiry_message":      data.get("inquiry_message", ""),
         }
         try:
             r = requests.post(

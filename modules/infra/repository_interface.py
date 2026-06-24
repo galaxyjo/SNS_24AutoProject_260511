@@ -107,6 +107,7 @@ class LeadInteractionCreate(TypedDict):
     source:           str   # "instagram_dm" | "instagram_comment"
     interaction_type: str
     occurred_at:      str
+    inquiry_message:  str
 
 
 # ── 예외 ──────────────────────────────────────────────────────────────────────

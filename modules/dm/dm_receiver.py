@@ -78,6 +78,7 @@ def record_interaction(sender_igsid: str, message_text: str) -> str:
         source="instagram_dm",
         interaction_type="dm_received",
         occurred_at=_now_iso(),
+        inquiry_message=message_text,
     ))
     logger.info(f"[Lead_Interactions] CREATED | from={sender_igsid} | record={record_id}")
     return record_id
