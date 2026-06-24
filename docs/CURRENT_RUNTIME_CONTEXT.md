@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260624_DM_CRM_Comment_Repository_연결_완료_
+_마지막 업데이트: 260624_직접호출_완전교체_inquiry_message_갭_해소_
 
 ## 현재 단계
-**260624 DM/CRM/Comment Repository Interface 연결 완료** — 10개 파일 Airtable 직접 호출 0건 검증 / LeadBridgeStatus Enum / LeadInteraction·LeadInteractionCreate TypedDict / 추상 메서드 12개 (#11~#22) + AirtableRepository 구현 완료
+**260624 Infrastructure 외부 직접 호출 실질적 0건 확정** — 잔존 4파일(account_manager / facebook_crawler / source_exporter / domeggook_ingest) Repository 교체 완료 / TrainingRepository 신규 생성 / save_to_airtable NameError 수정 / inquiry_message 데이터 갭 해소 / airtable_autorun_engine.py dead 파일 확인(import 없음)
 
 ## 최종 확인 커밋
-18aa3a7 (feat: DM/CRM/Comment Repository Interface 연결 완료 [260624])
+36cbf05 (fix: inquiry_message 데이터 갭 해소 [260624])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -671,3 +671,49 @@ AdsPower Stop API 완료
 
 ### P0 Backlog (다음 세션)
 1. account_manager / airtable_autorun_engine / source_exporter / domeggook_ingest / facebook_crawler Repository 연결
+
+## [260624_직접호출_완전교체] — 2026-06-24 KST
+
+### 완료 작업
+
+#### 잔존 4파일 Repository 교체 (df9df6b)
+| 파일 | 변경 내용 |
+|------|-----------|
+| `account_manager.py` | `_load_crawl_urls_from_airtable()` — requests 제거 → `repo.fetch_active_crawl_targets()` + platform 필터 list comprehension |
+| `facebook_crawler.py` | `load_supplier_blocklist()` — requests+threading+socket 제거 → `repo.list_blocked_suppliers()` / `socket` top-level import 제거 |
+| `source_exporter.py` | 직접 호출 11건 전체 → Repository 교체. `BASE_URL/_headers()/_base()` 제거. 신규 메서드 4개(fetch_source_items_for_export / recover_stale_queued / claim_source_item_for_export / update_source_item_retry) 추가 |
+| `domeggook_ingest.py` | Training 직접 호출 → `TrainingRepository.upsert_training_record()` |
+| `training_repository.py` | 신규 생성 — Product_Training_Set 전용 (GET 중복확인 → PATCH/POST upsert) |
+| `repository_interface.py` | `SourceItemStatus.QUEUED` 추가 / `SourceItem` 필드 확장 / 추상 메서드 4개 추가 (#23~#26) |
+| `airtable_repository.py` | 메서드 23~26 구현 (서버사이드 filterByFormula 적용) |
+
+#### save_to_airtable NameError 수정 (4502e65)
+- `facebook_crawler.py` `save_to_airtable()` — `_req/_url/_hdrs/image_url_hash` 미정의 변수 NameError 수정
+- `_req.post()` + `log_api_call()` → `repo.save_instagram_post(payload)` 교체
+- `hashlib.sha256` 인라인 계산 추가
+- `import logging` 인라인 3개 → `logger` 통일
+
+#### airtable_bridge dead import 제거 (e0bcff6)
+- `airtable_bridge.py` — `log_api_call` import 제거 (호출 없는 dead import)
+
+#### inquiry_message 데이터 갭 해소 (36cbf05)
+- `LeadInteractionCreate` — `inquiry_message: str` 필드 추가
+- `create_lead_interaction()` — `fields["inquiry_message"]` Airtable 저장 추가
+- `dm_receiver.py` — `record_interaction()` 호출 시 `inquiry_message=message_text` 전달
+- `comment_auto_reply.py` — `_record_comment()` 호출 시 `inquiry_message=text` 전달
+- 효과: dashboard.py 메시지 표시 / kpi_collector price/neg 집계 실데이터 기반 동작
+
+### Infrastructure 외부 직접 호출 최종 검증
+- `Select-String api.airtable.com` grep 결과 운영 코드 내 잔존:
+  - `airtable_autorun_engine.py` 1건 — **dead 파일 확정** (import 없음, 250723 복사 산물)
+  - `airtable_repository.py` / `training_repository.py` — infra 계층 허용
+- **실질적 직접 호출 0건 확정**
+
+### Known Facts
+- `airtable_autorun_engine.py`: 250723 복사 파일, 어디서도 import 없음, dead 판정 (삭제 불필요)
+- `domeggook_ingest.py` 중복 반환값 변경: duplicate → upsert 내부 처리 (PATCH), 카운터 집계 방식 변경
+- `SourceItemStatus.QUEUED` 추가: source_exporter 내부 상태 전용
+
+### P0 Backlog (다음 세션)
+1. **Failure Injection Test 1회** — 의도적 오류 주입 후 복구 흐름 검증
+2. **Runtime Proof 3회 연속 정상 확인** — DM/댓글 수신 + inquiry_message 저장 검증
