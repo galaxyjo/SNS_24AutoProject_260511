@@ -45,6 +45,7 @@ def generate_caption(text: str) -> tuple[str, str]:
         "Rules:\n"
         "- Caption: Summarize in 2-3 natural English sentences with emojis\n"
         "- Hashtags: 5-10 relevant keywords with #, separated by spaces\n"
+        "- Hashtags: Korea-related tags only. Do NOT include other country names (Myanmar, Vietnam, Philippines, China, Japan, etc.)\n"
         "- Output MUST be in English only\n"
         "- Response format (use exactly this format):\n"
         "CAPTION: <caption text>\n"

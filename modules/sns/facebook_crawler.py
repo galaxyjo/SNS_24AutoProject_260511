@@ -10,7 +10,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
-from modules.sns.caption_generator import generate_caption, generate_caption_clone
+from modules.sns.caption_generator import generate_caption
 from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts, passes_image_filter, clean_fb_metadata
 from modules.sns.post_id_generator import generate_sku, get_source_group, get_platform_code
 from modules.sns.image_hosting import upload_to_imgbb
@@ -151,7 +151,7 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
     if repo.exists_post_by_image_url(image_url):
         print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return
-    caption, hashtags = generate_caption_clone(text)
+    caption, hashtags = generate_caption(text)
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
     _original = original_text or text
     try:

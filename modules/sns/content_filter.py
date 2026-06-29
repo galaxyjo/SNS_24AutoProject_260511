@@ -88,6 +88,9 @@ def clean_fb_metadata(text: str) -> str:
     _time_pat = re.compile(r'^\s*\d+\s*(분|시간|일|주|개월)\s*[·•]?\s*$')
     _dot_pat   = re.compile(r'^\s*[·•]\s*$')
     _comment_pat = re.compile(r'^.{1,30}\s*(이름으로\s*댓글\s*달기|으로\s*댓글\s*달기)')
+    _ui_pat = re.compile(
+        r'^\s*(원본\s*보기|번역\s*평가하기|번역\s*평가|좋아요|댓글\s*달기|공유하기|저장)\s*$'
+    )
     cleaned = []
     skip_next = False
     for i, line in enumerate(lines):
@@ -102,6 +105,8 @@ def clean_fb_metadata(text: str) -> str:
         if _dot_pat.match(line):
             continue
         if _comment_pat.match(line):
+            continue
+        if _ui_pat.match(line):
             continue
         cleaned.append(line)
     return "\n".join(cleaned).strip()
