@@ -414,3 +414,15 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | dome_export | target_id=None / batch_size=5 확장 |
 | exported | 3건 (D001+D002 혼합) Gemini 성공 |
 | 다음 세션 | 품질 확인 + 카테고리 확장 검토 |
+
+---
+
+## [260629_세션_CaptionBlocklist추가] 2026-06-29 KST
+
+| 항목 | 내용 |
+|------|------|
+| 변경 파일 | modules/sns/content_filter.py |
+| 내용 | CAPTION_BLOCKLIST 추가 (coslife, lily) + passes_keyword_filter() 선행 차단 로직 |
+| 근거 | pytesseract 미설치로 OCR ImageFilter 무력화 확인 (ERR-044) |
+| 효과 | 번역된 caption 텍스트에 coslife/lily 포함 시 keyword filter 단계에서 즉시 차단 |
+| 다음 세션 | lily 오탐 모니터링 + pytesseract 설치 여부 검토 |

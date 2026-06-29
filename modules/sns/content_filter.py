@@ -20,6 +20,13 @@ BRAND_ALLOWLIST = [
     "snuggle",
 ]
 
+# 캡션 텍스트 기준 차단 브랜드 — OCR 없이 텍스트 매칭으로 차단
+# "lily"는 범용 단어이므로 오탐 주의 (필요 시 제거 가능)
+CAPTION_BLOCKLIST = [
+    "coslife",
+    "lily",
+]
+
 # 중국어/베트남어 유니코드 범위
 def _has_excluded_language(text: str) -> bool:
     chinese = any('一' <= c <= '鿿' for c in text)
@@ -50,6 +57,9 @@ def detect_and_translate(text: str) -> str:
 # 키워드 필터
 def passes_keyword_filter(text: str) -> bool:
     lower = text.lower()
+    if any(bl in lower for bl in CAPTION_BLOCKLIST):
+        logger.info(f"[CaptionBlocklist] 차단 감지 — 제외")
+        return False
     return (
         any(kw in lower for kw in KEYWORDS)
         or any(br in lower for br in BRAND_ALLOWLIST)
