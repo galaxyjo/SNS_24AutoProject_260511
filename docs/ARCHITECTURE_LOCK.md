@@ -334,3 +334,38 @@ FB 크롤링 -> FB CDN URL 추출 -> imgbb 업로드 -> 공개 URL -> Airtable i
 - modules/sns/instagram_publish_api.py — Flask Blueprint
 - dm_receiver.py Blueprint 등록
 - Runtime Proof: 테스트용 Record 1건 실제 게시
+---
+
+## [260624] Repository Interface 전면 교체 완료
+
+_확정일: 2026-06-24_
+
+### 선언
+Infrastructure 외부 직접 호출 실질적 **0건** 달성.
+모든 Airtable 접근은 AirtableRepository (RepositoryInterface 구현체) 경유로 통일.
+
+### 확정된 메서드 (22개)
+| 카테고리 | 메서드 |
+|----------|--------|
+| 차단 공급업체 | list_blocked_suppliers |
+| 소스 피드 | list_crawl_urls, list_source_feeds, get_source_feed, upsert_source_feed |
+| 소스 아이템 | list_pending_source_items, get_source_item, upsert_source_item, mark_source_item_exported |
+| Instagram 게시물 | list_instagram_posts, get_instagram_post, upsert_instagram_post, mark_post_uploading, mark_post_uploaded, mark_post_failed |
+| Lead/DM | create_lead_interaction, list_due_followups, mark_followup_sent, list_pending_comments, mark_comment_replied |
+| 공통 | exists_post_by_image_url |
+
+### 교체 완료 파일 (커밋 체인 18aa3a7 → df9df6b)
+- dm/auto_responder.py, followup_scheduler.py, dm_receiver.py
+- crm/lead_scorer.py, order_detector.py
+- comment/comment_poller.py, comment_auto_reply.py
+- modules/common/account_manager.py
+- modules/sns/facebook_crawler.py, source_exporter.py
+- modules/dome/domeggook_ingest.py
+
+### 예외 (아키텍처 허용)
+- irtable_autorun_engine.py — dead 파일, 실행 경로 없음, 교체 불필요
+- TrainingRepository — Product_Training_Set 전용 분리 클래스 (RepositoryInterface 미상속 허용)
+
+### Failure Injection Test (260624 PASS)
+- AdsPower Stop finally 경로 정상 실행 확인
+- Runtime Proof 5회 연속 (19:50~21:50 KST) 정상

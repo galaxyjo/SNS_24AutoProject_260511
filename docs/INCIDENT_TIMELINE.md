@@ -274,3 +274,17 @@
 | 260616 1900 | VERIFIED 3건 복구 / INVALID 75건 클리어 |
 | 260616 2000 | launcher/main.py 버그 수정 commit |
 | 260617 1200 | Phase4: facebook_crawler.py imgbb 연동 commit |
+---
+
+## INC-022 | 워터마크 브랜드(COSLIFE·Lily) 이미지 오업로드 위험 — OCR 필터 무력화 (2026-06-29)
+**발생:** 2026-06-29 (scheduler_err.log L33394 기준 최초 확인: 2026-06-28 05:29)
+**요약:** pytesseract 미설치로 passes_image_filter() OCR 필터가 실질적으로 무력화. _IMAGE_BLOCK_KEYWORDS에 coslife 패턴이 등록돼 있었으나 한 번도 실행되지 않음. COSLIFE·Lily 워터마크 이미지가 이미지 필터를 통과하는 구조적 위험 상태.
+**영향:** 잠재적 타사 브랜드 워터마크 이미지 Instagram 업로드 위험. 실제 업로드 여부는 미확인 (keyword 필터에서 대부분 차단된 것으로 추정).
+**근본 원인:** ImageFilter OCR fail-open 설계 + pytesseract 미설치 방치 (FP-032).
+**조치:**
+- CAPTION_BLOCKLIST = ["coslife", "lily"] 추가 (content_filter.py)
+- passes_keyword_filter() 선두에서 번역 캡션 텍스트 기준 선행 차단 (d79a3b3)
+- clean_fb_metadata() UI 잔여물 패턴 확장 (_ui_pat 추가, 998215e)
+- generate_caption_clone → generate_caption 교체 (Gemini 재생성, 998215e)
+**해결:** 2026-06-29 커밋 후 watchdog 재기동 완료. 48시간 모니터링 중 (종료: 2026-07-01 21:34).
+**재발 방지:** FP-032 등록 / ERR-044 등록 / pytesseract 설치 검토 필요.

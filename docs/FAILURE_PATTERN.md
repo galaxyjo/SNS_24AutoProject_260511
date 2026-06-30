@@ -389,3 +389,22 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 - modules/sns/image_hosting.py
 - modules/sns/facebook_crawler.py (save_to_airtable)
 - tools/backfill_failed_images.py
+---
+
+## FP-031 | FB Crawler HUNG — RLock deadlock (AdsPower Stop finally 미실행)
+**발생일:** 2026-06-24
+**증상:** facebook_crawler.run() 호출 후 프로세스가 무한 대기 상태로 진입. AdsPower Stop API가 finally 블록에서 호출되지 않아 브라우저 세션 누적. 스케줄러 잡이 hang 상태 지속.
+**근본 원인:** get_driver() 내부 RLock 획득 후 예외 발생 시 lock 해제 누락 → deadlock. finally 블록 도달 불가.
+**해결:** finally 경로 보장 + AdsPower Stop API 호출 위치 재배치. Failure Injection Test로 finally 정상 실행 확인 (260624 PASS).
+**예방:** driver 획득·해제는 반드시 try/finally 쌍으로 구성. RLock 사용 시 with 문 또는 명시적 release 보장.
+**관련:** ERR-044, 커밋 체인 260624
+
+---
+
+## FP-032 | pytesseract 미설치 — ImageFilter OCR 무력화로 워터마크 브랜드 통과
+**발생일:** 2026-06-29
+**증상:** passes_image_filter() 내 pytesseract.image_to_string() 호출 시 ModuleNotFoundError 발생. except 블록이 True 반환 → 모든 이미지 필터 통과. COSLIFE·Lily 워터마크 이미지가 차단되지 않음.
+**근본 원인:** pytesseract 미설치 상태에서 예외를 통과 처리(fail-open)로 설계. ImageFilter가 사실상 무력화.
+**해결:** CAPTION_BLOCKLIST = ["coslife", "lily"] 추가 → passes_keyword_filter() 에서 번역 캡션 텍스트 기준 선행 차단 적용 (d79a3b3). OCR 없이 텍스트 레벨에서 대체 차단.
+**예방:** OCR 의존 필터는 fail-open 금지. 미설치 시 경고 + 텍스트 대체 필터 명시 적용 필수. pytesseract 설치 여부 startup 시 점검 권장.
+**관련:** ERR-044, 커밋 d79a3b3

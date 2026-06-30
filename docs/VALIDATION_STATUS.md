@@ -60,3 +60,5 @@
 | backup_3_confirmed_260526 | `C:\backup_(3)_260526 1350_SNS_24AutoProject_260511.zip` 백업 완료 확인. |
 | virtual_autoreply_proof_260528 | Flask :5000 PID 14256 + ngrok :4040 PID 8956 LISTENING 확인. 로컬 POST 200 OK. detect_price_inquiry=True. DEFAULT_BASE_PRICE=50000 적용. Airtable LI-2B0A72F7 생성·qualified/auto_replied 확인. IG 발송 실패는 TEST_SENDER_004 가상 ID 정상 예상 결과. backup_(7)_260528_1338 완료. |
 
+| repository_interface_260624 | AirtableRepository 22개 메서드 전면 교체 완료 — Infrastructure 외부 직접 호출 0건 확정. Failure Injection Test PASS (finally/AdsPower Stop 정상). Runtime Proof 5회 연속 정상 (19:50~21:50 KST). 커밋 체인: 18aa3a7→df9df6b→4502e65→e0bcff6→36cbf05. |
+| caption_generate_260629 | generate_caption_clone → generate_caption 교체 완료. clean_fb_metadata _ui_pat 추가(원본보기·번역평가·좋아요·공유하기·저장). 해시태그 Korea-related only 프롬프트 규칙 추가. 커밋 998215e. |

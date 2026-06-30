@@ -757,3 +757,37 @@ AdsPower Stop API 완료
 1. Instagram_Posts 도매꾹 출처 게시물 품질 육안 확인
 2. D003 카테고리 추가 검토
 3. 48시간 안정성 모니터링
+
+---
+
+## [260629] 워터마크/필터 수정 + Caption 교체
+
+_업데이트: 260629 21:34 KST_
+
+### 변경 내용
+
+| 항목 | Before | After | 커밋 |
+|------|--------|-------|------|
+| COSLIFE·Lily 차단 | ImageFilter OCR (pytesseract 미설치로 무력화) | CAPTION_BLOCKLIST 텍스트 매칭 | d79a3b3 |
+| FB UI 잔여물 제거 | 경과시간·댓글달기만 제거 | 원본보기·번역평가·좋아요·공유하기·저장 추가(_ui_pat) | 998215e |
+| Caption 생성 | generate_caption_clone() — 텍스트 원본 보존 | generate_caption() — Gemini 재생성 | 998215e |
+| 해시태그 필터 | 국가명 제한 없음 | Korea-related tags only (Myanmar·Vietnam 등 제외 명시) | 998215e |
+| DOME_EXPORT_ENABLED | true (260619 활성화 완료) | 유지 | — |
+
+### CAPTION_BLOCKLIST (content_filter.py)
+`python
+CAPTION_BLOCKLIST = ["coslife", "lily"]
+`
+- passes_keyword_filter() 선두에서 번역 캡션 체크 → 매칭 시 즉시 False 반환
+- pytesseract 미설치 상태에서 텍스트 레벨 대체 차단 (ERR-044)
+
+### 48시간 모니터링
+- 시작: 2026-06-29 21:34 KST
+- 종료: 2026-07-01 21:34 KST
+- 확인 항목: [CaptionBlocklist] 차단 감지 로그 / lily 오탐 여부 / Gemini caption 품질
+
+### P0 Backlog (갱신)
+1. lily 오탐 모니터링 → 오탐 발생 시 "lily cosmetics"로 구체화
+2. pytesseract 설치 여부 검토 (ERR-044 근본 해소)
+3. Instagram_Posts 도매꾹 품질 육안 확인
+4. D003 카테고리 추가 검토

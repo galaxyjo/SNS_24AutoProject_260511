@@ -1,4 +1,4 @@
-# MERGE_JOURNAL
+﻿# MERGE_JOURNAL
 
 > 생성일: 2026-05-16 20:34
 > 목적: 250723 참조 저장소 → 260511 Active 저장소 수동 이식 작업 기록
@@ -417,6 +417,22 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 
 ---
 
+
+---
+
+## [260624_세션9_RepositoryInterface완료] 2026-06-24 KST
+
+| 항목 | 내용 |
+|------|------|
+| 커밋 체인 | 18aa3a7 → df9df6b → 4502e65 → e0bcff6 → 36cbf05 → 90c971d → 04e4b31 |
+| 목표 | Infrastructure 외부 직접 호출 완전 교체 — AirtableRepository 단일 경로 확립 |
+| 교체 파일 | dm(3) + crm(2) + comment(2) + account_manager + facebook_crawler + source_exporter + domeggook_ingest |
+| 확정 메서드 | 22개 (list_blocked_suppliers, list_crawl_urls, upsert_source_feed 등) |
+| Failure Injection | AdsPower Stop finally 경로 정상 실행 확인 PASS |
+| Runtime Proof | 5회 연속 (19:50~21:50 KST) 정상 — DM·댓글·inquiry_message Airtable 저장 확인 |
+| 외부 직접 호출 | 실질적 0건 확정 (airtable_autorun_engine.py dead 파일 제외) |
+| inquiry_message 갭 | LeadInteractionCreate 누락 → 36cbf05 해소 |
+| 다음 세션 | 260629 필터/caption 수정 |
 ## [260629_세션_CaptionBlocklist추가] 2026-06-29 KST
 
 | 항목 | 내용 |
@@ -426,3 +442,4 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | 근거 | pytesseract 미설치로 OCR ImageFilter 무력화 확인 (ERR-044) |
 | 효과 | 번역된 caption 텍스트에 coslife/lily 포함 시 keyword filter 단계에서 즉시 차단 |
 | 다음 세션 | lily 오탐 모니터링 + pytesseract 설치 여부 검토 |
+
