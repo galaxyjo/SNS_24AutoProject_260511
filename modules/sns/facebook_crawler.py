@@ -174,8 +174,8 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
             logger.warning("[ImgBB] caption 없음 — imgbb 생략 | " + original_image_url[:80])
 
         import re as _re
-        _m = _re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", image_url)
-        _hash_key = _m.group(1) if _m else image_url
+        _m = _re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", original_image_url)
+        _hash_key = _m.group(1) if _m else original_image_url
         image_url_hash = hashlib.sha256(_hash_key.encode()).hexdigest()
 
         payload = {
