@@ -176,7 +176,7 @@ def _job_dome_crawl():
 
     conn = DomeggookApiConnector()
     for rec in targets:
-        f = rec["fields"]
+        f = rec
         target = {
             "target_id":     f.get("target_id", ""),
             "kw":            f.get("keyword", ""),

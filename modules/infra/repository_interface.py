@@ -82,9 +82,13 @@ class InstagramPost(TypedDict, total=False):
     ig_media_id: str
 
 
-class CrawlTarget(TypedDict):
-    target_url: str
-    platform:   str
+class CrawlTarget(TypedDict, total=False):
+    target_url:    str
+    platform:      str
+    target_id:     str
+    keyword:       str
+    category_code: str
+    max_posts:     int
 
 
 class PostPublishResult(TypedDict):

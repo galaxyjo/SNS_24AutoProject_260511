@@ -162,6 +162,10 @@ class AirtableRepository(RepositoryInterface):
                     "filterByFormula": "{status}='Active'",
                     "fields[0]": "target_url",
                     "fields[1]": "platform",
+                    "fields[2]": "target_id",
+                    "fields[3]": "keyword",
+                    "fields[4]": "category_code",
+                    "fields[5]": "max_posts",
                     "pageSize": 100,
                 },
                 timeout=_TIMEOUT,
@@ -181,6 +185,10 @@ class AirtableRepository(RepositoryInterface):
                     CrawlTarget(
                         target_url=f["target_url"],
                         platform=f.get("platform", "facebook"),
+                        target_id=f.get("target_id", ""),
+                        keyword=f.get("keyword", ""),
+                        category_code=f.get("category_code", ""),
+                        max_posts=int(f.get("max_posts", 10)),
                     )
                 )
         return result
