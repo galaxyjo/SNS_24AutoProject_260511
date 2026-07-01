@@ -408,3 +408,13 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **해결:** CAPTION_BLOCKLIST = ["coslife", "lily"] 추가 → passes_keyword_filter() 에서 번역 캡션 텍스트 기준 선행 차단 적용 (d79a3b3). OCR 없이 텍스트 레벨에서 대체 차단.
 **예방:** OCR 의존 필터는 fail-open 금지. 미설치 시 경고 + 텍스트 대체 필터 명시 적용 필수. pytesseract 설치 여부 startup 시 점검 권장.
 **관련:** ERR-044, 커밋 d79a3b3
+
+---
+
+## FP-033 | 24/7 상시 구동 시스템에 OS reboot/sleep 대응 부재
+**발생일:** 2026-07-01
+**증상:** Windows 자체 재부팅(10:02) 이후 watchdog.ps1 미재기동으로 launcher/main.py, Flask, Streamlit, ngrok 전체가 최대 약 13시간(10:02~23:35) 무감시 상태로 방치. 중간에 크롤러 간헐 재개 구간(12:47~17:57 추정) 있었으나 이후 재중단, 수동 확인 전까지 알림 없음.
+**근본 원인:** watchdog.ps1은 "별도 터미널 수동 실행" 전제로 설계, OS 재부팅/로그온 시 자동 기동 등록 없음. watchdog 자체가 죽으면 Slack 알림 포함 어떤 자동 복구/알림 경로도 없는 구조적 단일 장애점(SPOF).
+**해결:** 2026-07-01 23:35 수동으로 run_scheduler.ps1 + watchdog.ps1 재기동.
+**예방:** watchdog.ps1을 Task Scheduler "시스템 시작 시" 트리거로 등록. Modern Standby/절전 비활성화 검토.
+**관련:** ERR-045, INC-023

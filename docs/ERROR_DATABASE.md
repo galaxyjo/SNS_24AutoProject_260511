@@ -444,3 +444,14 @@ Cannot overwrite variable Error because it is read-only or constant.
 **Prevention:** ImageFilter가 pytesseract 의존이면 설치 확인 필수. 혹은 OCR 실패 시 경고 + 대체 텍스트 필터 명시적 적용.
 **Status:** ✅ MITIGATED (2026-06-29) — 커밋 예정 | pytesseract 미설치 자체는 미해결
 **Evidence:** scheduler_err.log L33394 `No module named 'pytesseract'` 2026-06-28 05:29:14 반복 확인
+
+---
+
+## ERR-045 | Windows 재부팅 후 watchdog.ps1 미재기동 → 장시간 파이프라인 중단
+**Type:** Infrastructure / OS-level (not application code)
+**Raw:** `scheduler_err.log` 10:01:25 이후 라인 없음 (crash traceback 없음). Windows System 이벤트로그: `2026-07-01 10:02:48 [Event 109] Kernel API — Power Action Shutdown Off` (시스템 자체 재부팅)
+**Root Cause:** 10:02경 Windows가 자체 재부팅(Kernel API 트리거, Windows Update 추정 — 미확정) 실행. watchdog.ps1은 부팅 시 자동 기동 메커니즘(시작 프로그램/예약 작업) 없어 재부팅 후 재기동되지 않음. 이후 launcher/main.py도 감시 주체 없이 방치되다 17:57 이후 프로세스 소멸(정확한 원인 UNKNOWN — watchdog 부재로 crash 로그 없음). 23:32 확인 시점 python/streamlit/ngrok/watchdog 프로세스 전무.
+**Fix:** 수동으로 run_scheduler.ps1 실행 → watchdog.ps1 백그라운드 기동 (2026-07-01 23:35). Flask/Streamlit/ngrok/python 정상 기동, facebook_crawler 23:38 정상 재개 확인.
+**Prevention:** watchdog.ps1을 Windows Task Scheduler("시스템 시작 시"/"로그온 시" 트리거)에 등록해 재부팅 후 자동 재기동 보장 필요. Modern Standby 비활성화 병행 검토.
+**Status:** 🟡 MITIGATED (수동 복구 완료) — 재발 방지책(자동 기동 등록) 미적용, 재발 가능
+**Evidence:** Get-WinEvent(Kernel-Power) / scheduler_err.log(3506줄, 마지막 10:01:25) / watchdog.log(마지막 00:39:28) / core_log_initializer.log(00:39:24 이후 재초기화 없음) / Get-Process(23:32 python·streamlit·ngrok 0개)

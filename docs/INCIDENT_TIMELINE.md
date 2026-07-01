@@ -288,3 +288,17 @@
 - generate_caption_clone → generate_caption 교체 (Gemini 재생성, 998215e)
 **해결:** 2026-06-29 커밋 후 watchdog 재기동 완료. 48시간 모니터링 중 (종료: 2026-07-01 21:34).
 **재발 방지:** FP-032 등록 / ERR-044 등록 / pytesseract 설치 검토 필요.
+
+---
+
+## INC-023 | Windows 재부팅 → watchdog 미재기동 → 전체 파이프라인 최대 13시간 중단 (2026-07-01)
+**발생:** 2026-07-01 10:02 (Windows 재부팅) ~ 23:35 (수동 복구)
+**요약:** Kernel-Power 이벤트(10:02:48, Reason: Kernel API)로 시스템 자체 재부팅. watchdog.ps1 부팅 후 미재기동으로 launcher/main.py(Flask+APScheduler+RetryQueue), Streamlit, ngrok 전체 감시 주체 없이 방치. 재부팅 직후 Modern Standby 반복(11:36~12:59). FB 크롤러 12:47경 일시 재개 흔적 있으나 17:57 이후 재중단, 23:32 확인 시점 python/streamlit/ngrok/watchdog 프로세스 전무.
+**영향:** 최대 약 13.5시간 FB 크롤링/Instagram 업로드/DM 자동응답/팔로업/CRM 파이프라인 중단 가능성. Slack 알림 없음(watchdog 자체 미기동으로 발송 주체 부재). 실제 리드 유실 여부 미확인.
+**근본 원인:** OS 재부팅(원인 미확정) + watchdog.ps1 자동 기동 메커니즘 부재 (FP-033).
+**조치:**
+- run_scheduler.ps1 실행 → ngrok, launcher/main.py, Streamlit 재기동 (23:35:14~23:35:36)
+- watchdog.ps1 백그라운드 재기동
+- facebook_crawler 정상 크롤 재개 확인 (23:38:58~23:39:04, 136 라인)
+**해결:** 2026-07-01 23:39 전체 스택 정상 확인 완료.
+**재발 방지:** watchdog.ps1 Task Scheduler 자동 기동 등록 필요 (미적용). Modern Standby 비활성화 검토 (미적용).
