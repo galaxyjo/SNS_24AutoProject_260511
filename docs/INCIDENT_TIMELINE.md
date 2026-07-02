@@ -302,3 +302,17 @@
 - facebook_crawler 정상 크롤 재개 확인 (23:38:58~23:39:04, 136 라인)
 **해결:** 2026-07-01 23:39 전체 스택 정상 확인 완료.
 **재발 방지:** watchdog.ps1 Task Scheduler 자동 기동 등록 필요 (미적용). Modern Standby 비활성화 검토 (미적용).
+
+---
+
+## INC-024 | Supplier_Blocklist 매칭 8일간 무력화 — DI 리팩터링 회귀 (2026-06-24~2026-07-02)
+**발생:** 2026-06-24 (df9df6b 커밋) ~ 2026-07-02 (금일 감사로 발견, 미해결 지속 중)
+**요약:** Dependency Inversion/Repository Interface 리팩터링 과정에서 `facebook_crawler.py`의 공급자 차단(Supplier_Blocklist) 로직이 잘못된 Airtable 필드명(`supplier_name` vs 실제 `author_name`)을 사용하는 Repository 계층으로 교체되며 무증상 회귀 발생. `is_blocked_supplier()`가 항상 `None`을 반환해 등록된 5개 공급자(Mooncher Kim/M&Y GLOBAL, Lily Yoon, Cosmetics Station, Athena Magnayon/Cosmetics Station, COSLIFE) 중 어느 것도 실제로 차단되지 않음.
+**영향:** Lily Yoon·COSLIFE는 별도 메커니즘(`CAPTION_BLOCKLIST` 키워드 필터, `ERR-044`/`FP-032` 대응으로 2026-06-29 도입)이 우연히 방어 중이나, Mooncher Kim(M&Y GLOBAL 워터마크)과 Athena Magnayon(Cosmetics Station, 비한국 공급자)은 8일간 무방비 상태. 실제로 이 기간 중 해당 공급자 게시물이 크롤링되어 Instagram에 업로드되었는지는 미확인(UNKNOWN).
+**근본 원인:** FP-034 (DI 리팩터링이 정상 동작 코드를 결함 있는 추상화로 교체).
+**조치:**
+- (미적용) 코드 수정 없음 — Gate 3 Read-only 조사 규칙에 따름
+- 라이브 테스트로 결함 재현 및 확정 완료 (`is_blocked_supplier()` 6/6 전건 `None`)
+- git blame으로 정확한 회귀 시점 특정 완료 (758d29d 도입, df9df6b 소비 시작)
+**해결:** 미해결 — 필드명 수정(`supplier_name`→`author_name`, `page_name` 매핑 추가) 필요, 별도 트랙에서 진행 예정
+**재발 방지:** FP-034 등록. DI 리팩터링 커밋에 대한 회귀 테스트 의무화 검토 필요. 실제 유출(비차단 업로드) 여부 확인을 위해 2026-06-24~07-02 사이 업로드된 Instagram_Posts 중 위 5개 공급자 author_name 일치 건 조회 권장.

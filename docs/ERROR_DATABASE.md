@@ -455,3 +455,14 @@ Cannot overwrite variable Error because it is read-only or constant.
 **Prevention:** watchdog.ps1을 Windows Task Scheduler("시스템 시작 시"/"로그온 시" 트리거)에 등록해 재부팅 후 자동 재기동 보장 필요. Modern Standby 비활성화 병행 검토.
 **Status:** 🟡 MITIGATED (수동 복구 완료) — 재발 방지책(자동 기동 등록) 미적용, 재발 가능
 **Evidence:** Get-WinEvent(Kernel-Power) / scheduler_err.log(3506줄, 마지막 10:01:25) / watchdog.log(마지막 00:39:28) / core_log_initializer.log(00:39:24 이후 재초기화 없음) / Get-Process(23:32 python·streamlit·ngrok 0개)
+
+---
+
+## ERR-046 | Supplier_Blocklist author 매칭 무력화 — supplier_name/author_name 필드명 불일치
+**Type:** Data mapping bug (Repository Interface 필드명 오류)
+**Raw:** `is_blocked_supplier('Lily Yoon', bl)` → `None` (실시간 재현 확인, 2026-07-02). Airtable에는 `Lily Yoon`이 `author_name='Lily Yoon'`으로 등록되어 있음에도 매칭 실패.
+**Root Cause:** `modules/infra/airtable_repository.py:105`의 `list_blocked_suppliers()`가 `f.get("supplier_name", "")`로 Airtable raw field를 읽으나, 실제 `Supplier_Blocklist` 테이블의 필드명은 `author_name` — `supplier_name` 키 자체가 존재하지 않아 항상 빈 문자열 반환. `modules/infra/repository_interface.py:42-44`의 `SupplierBlockEntry` TypedDict도 `supplier_name`만 정의하고 `page_name` 필드는 계약에 아예 없음. `modules/sns/facebook_crawler.py:41-42`의 `load_supplier_blocklist()`가 이 빈 값을 그대로 `author_name: ''`으로 재구성하고 `page_name`도 하드코딩 `''`으로 채움 → `is_blocked_supplier()`의 `if item['author_name'] and ...` 조건이 항상 False → 등록된 어떤 공급자도 실제로 차단되지 않음.
+**Fix:** (미적용) `airtable_repository.py:105`의 `f.get("supplier_name", "")` → `f.get("author_name", "")`로 수정, `SupplierBlockEntry`에 `page_name` 필드 추가 및 실제 Airtable `page_name` 값 매핑 필요.
+**Prevention:** Repository 패턴 도입 시 raw Airtable 필드명과 DTO 필드명이 다르면 통합 테스트(실제 매칭 성공 케이스 1건) 없이는 회귀를 잡을 수 없음. 필드 매핑 변경 시 최소 1건 실제 매칭 검증 필수화 권장.
+**Status:** 🔴 CONFIRMED, 미수정 (Gate 3 Read-only 규칙상 코드 수정 미실시)
+**Evidence:** 라이브 테스트 `is_blocked_supplier()` 6/6 전건 `None` 반환 (Lily Yoon, Mooncher Kim, M&Y GLOBAL, Cosmetics Station, Athena Magnayon, COSLIFE 전부, 2026-07-02) / `git show 758d29d`(`supplier_name=f.get("supplier_name","")` 최초 도입, 2026-06-23) / `git show df9df6b`(facebook_crawler.py가 직접 호출 `fields.get('author_name','')`에서 Repository 경유 `e.get('supplier_name','')`로 교체, 2026-06-24) / Airtable `Supplier_Blocklist` 실제 필드 5건 raw 확인
