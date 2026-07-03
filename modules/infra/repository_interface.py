@@ -40,7 +40,8 @@ class LeadBridgeStatus(str, Enum):
 # ── TypedDict ─────────────────────────────────────────────────────────────────
 
 class SupplierBlockEntry(TypedDict):
-    supplier_name: str
+    author_name:   str
+    page_name:     str
     reason_code:   str
 
 

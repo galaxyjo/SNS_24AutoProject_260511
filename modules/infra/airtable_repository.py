@@ -102,7 +102,8 @@ class AirtableRepository(RepositoryInterface):
             f = rec.get("fields", {})
             result.append(
                 SupplierBlockEntry(
-                    supplier_name=f.get("supplier_name", ""),
+                    author_name=f.get("author_name", ""),
+                    page_name=f.get("page_name", ""),
                     reason_code=f.get("reason_code", ""),
                 )
             )

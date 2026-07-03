@@ -38,8 +38,8 @@ def load_supplier_blocklist() -> list:
         entries = repo.list_blocked_suppliers()
         blocklist = [
             {
-                'author_name': e.get('supplier_name', '').strip().lower(),
-                'page_name': '',
+                'author_name': e.get('author_name', '').strip().lower(),
+                'page_name': e.get('page_name', '').strip().lower(),
                 'reason_code': e.get('reason_code', ''),
             }
             for e in entries
