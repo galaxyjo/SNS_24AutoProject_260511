@@ -305,14 +305,19 @@
 
 ---
 
-## INC-024 | Supplier_Blocklist 매칭 8일간 무력화 — DI 리팩터링 회귀 (2026-06-24~2026-07-02)
-**발생:** 2026-06-24 (df9df6b 커밋) ~ 2026-07-02 (금일 감사로 발견, 미해결 지속 중)
+## INC-024 | Supplier_Blocklist 매칭 8일간 무력화 — DI 리팩터링 회귀 (2026-06-24~2026-07-03 종결)
+**발생:** 2026-06-24 (df9df6b 커밋) ~ 2026-07-02 (금일 감사로 발견) ~ 2026-07-03 (수정 및 종결)
 **요약:** Dependency Inversion/Repository Interface 리팩터링 과정에서 `facebook_crawler.py`의 공급자 차단(Supplier_Blocklist) 로직이 잘못된 Airtable 필드명(`supplier_name` vs 실제 `author_name`)을 사용하는 Repository 계층으로 교체되며 무증상 회귀 발생. `is_blocked_supplier()`가 항상 `None`을 반환해 등록된 5개 공급자(Mooncher Kim/M&Y GLOBAL, Lily Yoon, Cosmetics Station, Athena Magnayon/Cosmetics Station, COSLIFE) 중 어느 것도 실제로 차단되지 않음.
 **영향:** Lily Yoon·COSLIFE는 별도 메커니즘(`CAPTION_BLOCKLIST` 키워드 필터, `ERR-044`/`FP-032` 대응으로 2026-06-29 도입)이 우연히 방어 중이나, Mooncher Kim(M&Y GLOBAL 워터마크)과 Athena Magnayon(Cosmetics Station, 비한국 공급자)은 8일간 무방비 상태. 실제로 이 기간 중 해당 공급자 게시물이 크롤링되어 Instagram에 업로드되었는지는 미확인(UNKNOWN).
 **근본 원인:** FP-034 (DI 리팩터링이 정상 동작 코드를 결함 있는 추상화로 교체).
-**조치:**
+**조치 (2026-07-02, 조사):**
 - (미적용) 코드 수정 없음 — Gate 3 Read-only 조사 규칙에 따름
 - 라이브 테스트로 결함 재현 및 확정 완료 (`is_blocked_supplier()` 6/6 전건 `None`)
 - git blame으로 정확한 회귀 시점 특정 완료 (758d29d 도입, df9df6b 소비 시작)
-**해결:** 미해결 — 필드명 수정(`supplier_name`→`author_name`, `page_name` 매핑 추가) 필요, 별도 트랙에서 진행 예정
-**재발 방지:** FP-034 등록. DI 리팩터링 커밋에 대한 회귀 테스트 의무화 검토 필요. 실제 유출(비차단 업로드) 여부 확인을 위해 2026-06-24~07-02 사이 업로드된 Instagram_Posts 중 위 5개 공급자 author_name 일치 건 조회 권장.
+**조치 (2026-07-03, 종결):**
+- 사용자 승인 후 3파일 수정 적용 — `repository_interface.py`(`SupplierBlockEntry`에 `page_name` 추가) / `airtable_repository.py`(`author_name`/`page_name` 매핑) / `facebook_crawler.py`(하드코딩 `page_name: ''` 제거)
+- Gate 6 ISOLATED INTEGRATION PROOF — 격리 테스트 테이블 `Supplier_Blocklist_Test`에 실 레코드 POST/GET(mock 없음)으로 BUGGY 재현 및 FIXED 정상 매칭 사전 확인
+- 운영 `Supplier_Blocklist` 대상 Runtime Proof — `is_blocked_supplier()` 6/6 전건(Lily Yoon/Mooncher Kim/M&Y GLOBAL/Cosmetics Station/Athena Magnayon/COSLIFE) 매칭 성공 확인
+- pytest 회귀 없음 확인 (100 passed, pre-existing 4 failed는 stash 비교로 무관 확인)
+**해결:** ✅ 완료 (2026-07-03) — 필드명 수정(`supplier_name`→`author_name`, `page_name` 매핑 추가) 적용 및 실증 완료
+**재발 방지:** FP-034 등록/해결. DI 리팩터링 커밋에 대한 회귀 테스트 의무화 체계 자체는 미구축 — 향후 트랙. 실제 유출(비차단 업로드) 여부 확인을 위한 2026-06-24~07-02 사이 업로드된 Instagram_Posts 중 위 5개 공급자 author_name 일치 건 조회는 **미실시 — 별도 확인 필요**.

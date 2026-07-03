@@ -29,6 +29,7 @@
 | watchdog_flask_dual_fixed_260527 | ✅ PASS | 2026-05-27 |
 | dual_scheduler_resolved_260527 | ✅ PASS | 2026-05-27 |
 | virtual_autoreply_proof_260528 | ✅ PASS | 2026-05-28 |
+| supplier_blocklist_fieldmap_fix_260703 | ✅ PASS | 2026-07-03 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -62,3 +63,4 @@
 
 | repository_interface_260624 | AirtableRepository 22개 메서드 전면 교체 완료 — Infrastructure 외부 직접 호출 0건 확정. Failure Injection Test PASS (finally/AdsPower Stop 정상). Runtime Proof 5회 연속 정상 (19:50~21:50 KST). 커밋 체인: 18aa3a7→df9df6b→4502e65→e0bcff6→36cbf05. |
 | caption_generate_260629 | generate_caption_clone → generate_caption 교체 완료. clean_fb_metadata _ui_pat 추가(원본보기·번역평가·좋아요·공유하기·저장). 해시태그 Korea-related only 프롬프트 규칙 추가. 커밋 998215e. |
+| supplier_blocklist_fieldmap_fix_260703 | ERR-046/FP-034/INC-024 해결. `repository_interface.py`/`airtable_repository.py`/`facebook_crawler.py` 3파일 `supplier_name`→`author_name`+`page_name` 매핑 수정. Gate 6 ISOLATED INTEGRATION PROOF(격리 테스트 테이블 `Supplier_Blocklist_Test`, 실 HTTP 왕복) 사전 통과 + 운영 `Supplier_Blocklist` 5건 대상 Runtime Proof 6/6 매칭 성공. pytest 100 passed, pre-existing 4 failed는 stash 비교로 무관 확인. |

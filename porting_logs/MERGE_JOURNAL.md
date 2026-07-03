@@ -443,3 +443,17 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | 효과 | 번역된 caption 텍스트에 coslife/lily 포함 시 keyword filter 단계에서 즉시 차단 |
 | 다음 세션 | lily 오탐 모니터링 + pytesseract 설치 여부 검토 |
 
+## [260703_세션_ERR046_SupplierBlocklist_필드매핑수정] 2026-07-03 KST
+
+| 항목 | 내용 |
+|------|------|
+| 관련 | ERR-046, FP-034, INC-024 (2026-06-24 df9df6b 도입, 2026-07-02 감사로 발견, 2026-07-03 종결) |
+| 변경 파일 | `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / `modules/sns/facebook_crawler.py` |
+| 내용 | `SupplierBlockEntry`에 `page_name` 필드 추가, `list_blocked_suppliers()` `f.get("supplier_name","")` → `f.get("author_name","")`/`f.get("page_name","")` 매핑 수정, `load_supplier_blocklist()` 하드코딩 `page_name: ''` 제거 |
+| Gate 6 검증 | ISOLATED INTEGRATION PROOF — 격리 신규 테이블 `Supplier_Blocklist_Test`(tbll1UZHjGEYOcgya) 생성 → 실 레코드 POST/GET(mock 없음) → BUGGY 매핑 재현(무증상 통과 확인) → FIXED 매핑 정상 매칭 확인 → 테스트 레코드 삭제(테이블은 재검증용 유지) |
+| Runtime Proof | 운영 `Supplier_Blocklist` 5건 대상 `is_blocked_supplier()` 재실행 — Lily Yoon/Mooncher Kim/M&Y GLOBAL/Cosmetics Station/Athena Magnayon/COSLIFE 6/6 전건 매칭 성공 |
+| 회귀 검증 | pytest 100 passed / 4 failed(pre-existing, git stash 비교로 수정과 무관 확인) / 3 xfailed |
+| 미실시 항목 | 2026-06-24~07-02 무방비 기간 중 실제 비차단 업로드 유출 여부(Instagram_Posts author_name 일치 조회) — 별도 확인 필요 |
+| 절차 | Gate 3 Read-only 조사(2026-07-02) → 사용자 승인 후 코드 수정(2026-07-03) → 문서화 |
+| 다음 세션 | Instagram_Posts 유출 여부 조회, DI 리팩터링 회귀 테스트 의무화 체계 수립 검토 |
+

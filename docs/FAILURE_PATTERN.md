@@ -425,6 +425,6 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **발생일:** 2026-06-24 (df9df6b 커밋 기준 회귀 발생, 결함 자체는 2026-06-23 758d29d에서 최초 도입)
 **증상:** `facebook_crawler.py`의 supplier blocklist 매칭이 무증상으로 무력화됨. 차단 대상 author의 게시물이 있어도 `[Blocklist] 통과` 로그만 남아 정상 게시물과 구분 불가.
 **근본 원인:** `758d29d`(Repository Interface 최초 도입)에서 `SupplierBlockEntry`/`list_blocked_suppliers()`가 잘못된 필드명(`supplier_name`)으로 작성됨. `df9df6b`(잔존 직접 호출 Repository 교체)에서 `facebook_crawler.py`가 기존에 정상 동작하던 직접 Airtable 호출(`fields.get('author_name','')`)을 이 결함 있는 Repository 경유 코드로 교체하며 정상 기능이 회귀됨. DI 리팩터링이 "직접 호출 제거" 목표는 달성했으나 교체 대상 추상화 자체의 필드 매핑 정합성은 검증되지 않음.
-**해결:** (미적용)
-**예방:** 직접 호출을 Repository로 교체하는 모든 커밋에 대해 교체 전/후 동일 입력→동일 출력 회귀 테스트 1건 이상 필수화. 특히 blocklist/권한 체크 등 "실패 시 무증상 통과"되기 쉬운 필터링 로직은 우선순위 높게 검증.
+**해결:** ✅ 완료 (2026-07-03) — ERR-046 필드명 수정(`supplier_name`→`author_name`, `page_name` 매핑 추가) 적용. 격리 테스트 테이블 기반 ISOLATED INTEGRATION PROOF(Gate 6) 및 운영 Supplier_Blocklist 대상 Runtime Proof(6/6 매칭) 완료.
+**예방:** 직접 호출을 Repository로 교체하는 모든 커밋에 대해 교체 전/후 동일 입력→동일 출력 회귀 테스트 1건 이상 필수화. 특히 blocklist/권한 체크 등 "실패 시 무증상 통과"되기 쉬운 필터링 로직은 우선순위 높게 검증. (미적용 잔여: DI 리팩터링 커밋 대상 회귀 테스트 의무화 체계 자체는 아직 미구축 — 향후 트랙)
 **관련:** ERR-046, INC-024
