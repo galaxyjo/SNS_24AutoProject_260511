@@ -457,3 +457,20 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 | 절차 | Gate 3 Read-only 조사(2026-07-02) → 사용자 승인 후 코드 수정(2026-07-03) → 문서화 |
 | 다음 세션 | Instagram_Posts 유출 여부 조회, DI 리팩터링 회귀 테스트 의무화 체계 수립 검토 |
 
+## RUNTIME STATUS (2026-07-04 세션 완료) — DI Canary #2
+
+260704: airtable_integrity.py DI 전환 (Canary #2, Canary #1 auto_liker.py 후속)
+- DI 스코프 전수 스캔(260704 grep_result) 기준 재판정 완료
+- 신규 메서드 fetch_posted_missing_media_id() 추가:
+  - repository_interface.py: ABC 계약 선언 (fetch_posted_with_media_id 다음 위치)
+  - airtable_repository.py: 구현 — filterByFormula AND({post_status}='posted', {ig_media_id}='')
+  - 기존 fetch_posted_with_media_id(!='' 필터)와 반대 조건, 재사용 불가 확인 후 신규 작성
+- airtable_integrity.py: get_table("Instagram_Posts").all(formula=...) 3줄 → AirtableRepository().fetch_posted_missing_media_id() 1줄 치환
+- tests/test_smoke_metrics.py: airtable_bridge.get_table mock → AirtableRepository.fetch_posted_missing_media_id mock 갱신 (2개 테스트)
+- Blast Radius: 운영 소비처 core/run_engine.py 1곳(6시간 간격 스케줄), 테스트 소비처 tests/test_smoke_metrics.py 1파일(3건) — 그 외 없음 확인
+- Runtime Proof: 타겟 3건 PASSED / 전체 100 passed·4 failed(pre-existing)·3 xfailed(260703 baseline 일치)
+- BOM 확인: airtable_integrity.py / test_smoke_metrics.py 2개 파일 BOM 없음 확인(repository_interface.py / airtable_repository.py는 BOM 미검증)
+- 부수 확인: services/slack_notifier.send_alert 실존 확인 (이전 미확인 상태 해소)
+최신 commit: f6194ac
+push: 436bdf7..f6194ac master -> master
+

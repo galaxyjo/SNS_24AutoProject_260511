@@ -30,6 +30,7 @@
 | dual_scheduler_resolved_260527 | ✅ PASS | 2026-05-27 |
 | virtual_autoreply_proof_260528 | ✅ PASS | 2026-05-28 |
 | supplier_blocklist_fieldmap_fix_260703 | ✅ PASS | 2026-07-03 |
+| di_canary2_airtable_integrity_260704 | ✅ PASS | 2026-07-04 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -64,3 +65,4 @@
 | repository_interface_260624 | AirtableRepository 22개 메서드 전면 교체 완료 — Infrastructure 외부 직접 호출 0건 확정. Failure Injection Test PASS (finally/AdsPower Stop 정상). Runtime Proof 5회 연속 정상 (19:50~21:50 KST). 커밋 체인: 18aa3a7→df9df6b→4502e65→e0bcff6→36cbf05. |
 | caption_generate_260629 | generate_caption_clone → generate_caption 교체 완료. clean_fb_metadata _ui_pat 추가(원본보기·번역평가·좋아요·공유하기·저장). 해시태그 Korea-related only 프롬프트 규칙 추가. 커밋 998215e. |
 | supplier_blocklist_fieldmap_fix_260703 | ERR-046/FP-034/INC-024 해결. `repository_interface.py`/`airtable_repository.py`/`facebook_crawler.py` 3파일 `supplier_name`→`author_name`+`page_name` 매핑 수정. Gate 6 ISOLATED INTEGRATION PROOF(격리 테스트 테이블 `Supplier_Blocklist_Test`, 실 HTTP 왕복) 사전 통과 + 운영 `Supplier_Blocklist` 5건 대상 Runtime Proof 6/6 매칭 성공. pytest 100 passed, pre-existing 4 failed는 stash 비교로 무관 확인. |
+| di_canary2_airtable_integrity_260704 | Canary #2 — modules/metrics/airtable_integrity.py의 airtable_bridge.get_table() 직접 호출을 AirtableRepository.fetch_posted_missing_media_id()로 치환. repository_interface.py(ABC 계약 추가) + airtable_repository.py(구현, AND({post_status}='posted', {ig_media_id}='') 필터) + tests/test_smoke_metrics.py(mock 대상 갱신) 동시 수정. Runtime Proof: 타겟 테스트 13/13 passed, 전체 suite 100 passed / 4 failed(pre-existing, test_dm_close.py 무관) / 3 xfailed — 260703 baseline과 정확히 일치. BOM 확인 — airtable_integrity.py / test_smoke_metrics.py 2개 파일 BOM 없음 확인(repository_interface.py / airtable_repository.py는 BOM 미검증). commit f6194ac, push 436bdf7..f6194ac 완료. |
