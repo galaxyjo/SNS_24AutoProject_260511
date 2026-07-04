@@ -116,10 +116,10 @@ def test_check_ig_media_id_no_missing(monkeypatch):
 
 def test_check_ig_media_id_airtable_error(monkeypatch):
     """Airtable 조회 실패 시 missing=0 반환 (에러 전파 없음)."""
-    from modules.common import airtable_bridge
-    def _bad_get_table(_):
+    from modules.infra.airtable_repository import AirtableRepository
+    def _bad_fetch(self):
         raise RuntimeError("connection error")
-    monkeypatch.setattr(airtable_bridge, "get_table", _bad_get_table)
+    monkeypatch.setattr(AirtableRepository, "fetch_posted_missing_media_id", _bad_fetch)
 
     from modules.metrics.airtable_integrity import check_ig_media_id
     result = check_ig_media_id()
@@ -128,18 +128,17 @@ def test_check_ig_media_id_airtable_error(monkeypatch):
 
 def test_check_ig_media_id_with_missing(monkeypatch):
     """누락 레코드가 있을 때 count와 record_ids 반환."""
-    from modules.common import airtable_bridge
+    from modules.infra.airtable_repository import AirtableRepository
 
     fake_records = [
-        {"id": "recAAA", "fields": {"post_status": "posted", "ig_media_id": ""}},
-        {"id": "recBBB", "fields": {"post_status": "posted", "ig_media_id": ""}},
+        {"id": "recAAA", "post_status": "posted", "ig_media_id": ""},
+        {"id": "recBBB", "post_status": "posted", "ig_media_id": ""},
     ]
 
-    class _FakeTable:
-        def all(self, formula=None):
-            return fake_records
-
-    monkeypatch.setattr(airtable_bridge, "get_table", lambda _: _FakeTable())
+    monkeypatch.setattr(
+        AirtableRepository, "fetch_posted_missing_media_id",
+        lambda self: fake_records,
+    )
 
     # Slack 발송 억제
     import services.slack_notifier as sn

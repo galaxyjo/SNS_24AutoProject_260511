@@ -187,6 +187,12 @@ class RepositoryInterface(ABC):
         """post_status='posted' AND ig_media_id!='' 인 게시물 최대 limit 건,
         raw Airtable record dict({id, createdTime, fields}) 리스트로 반환."""
 
+    @abstractmethod
+    def fetch_posted_missing_media_id(self) -> list[dict]:
+        """post_status='posted' 이면서 ig_media_id 가 비어있는 레코드 조회.
+        반환: [{"id": str, ...fields}, ...]
+        """
+
     # ── Lead / DM / Followup ──────────────────────────────────────────────────
 
     @abstractmethod

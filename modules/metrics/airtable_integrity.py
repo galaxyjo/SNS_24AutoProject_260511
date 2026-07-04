@@ -24,11 +24,9 @@ def check_ig_media_id() -> dict:
     반환: {"missing": int, "record_ids": list[str]}
     """
     try:
-        from modules.common.airtable_bridge import get_table
-        table   = get_table("Instagram_Posts")
-        records = table.all(
-            formula="AND({post_status}='posted', {ig_media_id}='')"
-        )
+        from modules.infra.airtable_repository import AirtableRepository
+        repo    = AirtableRepository()
+        records = repo.fetch_posted_missing_media_id()
     except Exception as exc:
         logger.error(f"[Integrity] Airtable 조회 실패 | {exc}")
         return {"missing": 0, "record_ids": []}
