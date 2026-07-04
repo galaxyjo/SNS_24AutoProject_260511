@@ -17,7 +17,7 @@ import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
-from modules.common.airtable_bridge import get_table
+from modules.infra.airtable_repository import AirtableRepository
 from modules.common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -156,13 +156,8 @@ def like_new_comments(max_posts: int = MAX_POSTS) -> dict:
         logger.warning("[AutoLiker] INSTA_ACCESS_TOKEN 미설정 — 생략")
         return {"liked": 0, "skipped": 0}
 
-    table   = get_table("Instagram_Posts")
-    records = table.all(formula="AND({post_status}='posted', {ig_media_id}!='')")
-    records = sorted(
-        records,
-        key=lambda r: r.get("createdTime", r["fields"].get("createdTime", "")),
-        reverse=True,
-    )[:max_posts]
+    repo = AirtableRepository()
+    records = repo.fetch_posted_with_media_id(limit=max_posts)
 
     liked = skipped = 0
     for rec in records:

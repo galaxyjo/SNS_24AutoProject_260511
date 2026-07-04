@@ -354,6 +354,27 @@ class AirtableRepository(RepositoryInterface):
         except requests.RequestException as e:
             raise RepositoryUnavailableError(str(e)) from e
 
+    def fetch_posted_with_media_id(self, limit: int = 10) -> list[dict]:
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": "AND({post_status}='posted', {ig_media_id}!='')",
+                    "maxRecords": limit,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+        records = r.json().get("records", [])
+        records.sort(key=lambda rec: rec.get("createdTime", ""), reverse=True)
+        return records
+
     # ── Private: Lead_Interactions PATCH 공통 ────────────────────────────────
 
     def _patch_lead_interaction(self, record_id: str, fields: dict) -> None:

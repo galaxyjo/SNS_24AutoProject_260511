@@ -182,6 +182,11 @@ class RepositoryInterface(ABC):
     def mark_post_result(self, post_id: str, result: PostPublishResult) -> None:
         """업로드 결과(성공/실패)를 게시물 레코드에 기록."""
 
+    @abstractmethod
+    def fetch_posted_with_media_id(self, limit: int = 10) -> list[dict]:
+        """post_status='posted' AND ig_media_id!='' 인 게시물 최대 limit 건,
+        raw Airtable record dict({id, createdTime, fields}) 리스트로 반환."""
+
     # ── Lead / DM / Followup ──────────────────────────────────────────────────
 
     @abstractmethod
