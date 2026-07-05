@@ -31,12 +31,13 @@ kpi = collect_kpi('30d')     # 최근 30일
 
 # 반환 구조
 {
-    'upload':   {'total': int, 'success': int, 'fail': int, 'rate': float},
-    'lead':     {'total': int, 'converted': int, 'rate': float},
-    'followup': {'sent': int, 'success': int, 'rate': float},
-    'comment':  {'polled': int, 'replied': int},
-    'queue':    {'pending': int, 'failed': int}
+    'upload':   {'total': int, 'posted': int, 'ready': int, 'failed': int, 'success_rate': float},
+    'lead':     {'total': int, 'converted': int, 'conversion_rate': float, 'hot': int, 'warm': int, 'cold': int},
+    'followup': {'pipeline': dict, 'followup_sent': int, 'followup_rate': float},
+    'comment':  {'total': int, 'price_inquiry': int, 'negative': int},
+    'queue':    dict  # get_retry_queue().stats() 반환 그대로, 필드 미고정
 }
+# 실제 구현: modules/metrics/kpi_collector.py _upload_stats/_lead_stats/_followup_stats/_comment_stats/_queue_stats 참조
 ```
 
 ---

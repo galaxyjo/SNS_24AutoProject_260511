@@ -344,7 +344,7 @@ _확정일: 2026-06-24_
 Infrastructure 외부 직접 호출 실질적 **0건** 달성.
 모든 Airtable 접근은 AirtableRepository (RepositoryInterface 구현체) 경유로 통일.
 
-### 확정된 메서드 (22개)
+### 확정된 메서드 (25개)
 | 카테고리 | 메서드 |
 |----------|--------|
 | 차단 공급업체 | list_blocked_suppliers |
@@ -353,6 +353,7 @@ Infrastructure 외부 직접 호출 실질적 **0건** 달성.
 | Instagram 게시물 | list_instagram_posts, get_instagram_post, upsert_instagram_post, mark_post_uploading, mark_post_uploaded, mark_post_failed |
 | Lead/DM | create_lead_interaction, list_due_followups, mark_followup_sent, list_pending_comments, mark_comment_replied |
 | 공통 | exists_post_by_image_url |
+| Instagram 게시물 (KPI/집계) | fetch_posted_missing_media_id, fetch_all_instagram_posts, fetch_all_lead_interactions |
 
 ### 교체 완료 파일 (커밋 체인 18aa3a7 → df9df6b)
 - dm/auto_responder.py, followup_scheduler.py, dm_receiver.py
@@ -361,6 +362,8 @@ Infrastructure 외부 직접 호출 실질적 **0건** 달성.
 - modules/common/account_manager.py
 - modules/sns/facebook_crawler.py, source_exporter.py
 - modules/dome/domeggook_ingest.py
+- modules/metrics/airtable_integrity.py (DI Canary #2, 커밋 f6194ac)
+- modules/metrics/kpi_collector.py (DI Canary #3, 커밋 f21e4b8)
 
 ### 예외 (아키텍처 허용)
 - irtable_autorun_engine.py — dead 파일, 실행 경로 없음, 교체 불필요

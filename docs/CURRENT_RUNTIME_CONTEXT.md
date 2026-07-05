@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260624_Repository_Interface_전체_완료_검증완료_
+_마지막 업데이트: 260705_DI_Canary3_kpi_collector_완료_
 
 ## 현재 단계
 **260624 Repository Interface 전체 작업 완료 + 검증 완료** — Failure Injection Test PASS (finally/AdsPower Stop 정상) / Runtime Proof 5회 연속 정상 (19:50~21:50) / Infrastructure 외부 직접 호출 실질적 0건 확정
 
 ## 최종 확인 커밋
-90c971d (docs: CURRENT_RUNTIME_CONTEXT 업데이트 — 직접 호출 완전교체 + inquiry_message 갭 해소 [260624])
+a24d318 (docs: record DI Canary #3 (kpi_collector.py) validation and merge journal [260705])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -791,3 +791,24 @@ CAPTION_BLOCKLIST = ["coslife", "lily"]
 2. pytesseract 설치 여부 검토 (ERR-044 근본 해소)
 3. Instagram_Posts 도매꾹 품질 육안 확인
 4. D003 카테고리 추가 검토
+
+## [260703~260705] DI Canary #2/#3 + Supplier_Blocklist 회귀 수정
+
+### 260703 — Supplier_Blocklist 필드 매핑 회귀 수정 (ERR-046/FP-034/INC-024)
+- repository_interface.py / airtable_repository.py / facebook_crawler.py 3파일 supplier_name→author_name+page_name 매핑 수정
+- Gate 6 ISOLATED INTEGRATION PROOF 통과 + 운영 Supplier_Blocklist 5건 대상 Runtime Proof 6/6 매칭 성공
+- pytest 100 passed, pre-existing 4 failed는 stash 비교로 무관 확인
+
+### 260704 — DI Canary #2 (airtable_integrity.py)
+- 신규 메서드 fetch_posted_missing_media_id() 추가 (repository_interface.py + airtable_repository.py)
+- airtable_integrity.py get_table() 직접호출 → AirtableRepository 치환
+- 타겟 3건 PASSED, 전체 100 passed·4 failed(pre-existing)·3 xfailed
+- 커밋: 코드 f6194ac / 문서 57b5c00
+
+### 260705 — DI Canary #3 (kpi_collector.py)
+- 신규 메서드 2개 추가: fetch_all_instagram_posts() / fetch_all_lead_interactions(since_utc)
+- kpi_collector.py _fetch_leads()/_fetch_posts() get_table() 직접호출 2곳 → AirtableRepository 치환
+- 신규 테스트 4건 추가 (tests/test_smoke_metrics.py)
+- 타겟 17/17 PASSED, 전체 104 passed·4 failed(pre-existing, test_dm_close.py)·3 xfailed
+- 신규 HOLD: airtable_repository.py 전체 GET 메서드 offset 페이지네이션 미구현
+- 커밋: 코드 f21e4b8 / 문서 a24d318
