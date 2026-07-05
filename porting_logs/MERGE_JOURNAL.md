@@ -474,3 +474,19 @@ Runtime Infra Recovery Complete / Business Flow Verification Pending
 최신 commit: f6194ac
 push: 436bdf7..f6194ac master -> master
 
+## RUNTIME STATUS (2026-07-05 세션 완료) — DI Canary #3
+
+260705: kpi_collector.py DI 전환 (Canary #3, Canary #2 airtable_integrity.py 후속)
+- 신규 메서드 2개 추가:
+  - repository_interface.py: fetch_all_instagram_posts() / fetch_all_lead_interactions(since_utc) ABC 계약 선언
+  - airtable_repository.py: 구현 — 무필터 전체 조회 (offset 페이지네이션 미구현, 기존 코드베이스 전체 공통 한계로 확인)
+- 기존 유사 메서드 5개(fetch_pending_posts/fetch_posted_with_media_id/fetch_posted_missing_media_id/get_base_price/fetch_today_lead_stats) 재사용 불가 확인 후 신규 작성 — 상태 필터·필드 제한·limit 상한 중 하나 이상 불일치
+- kpi_collector.py: _fetch_leads()/_fetch_posts() 내부 get_table() 직접호출 2곳 → AirtableRepository 메서드 호출로 치환, airtable_bridge import 제거
+- tests/test_smoke_metrics.py: 신규 테스트 4건 추가 (test_fetch_leads_calls_repository_with_start / test_fetch_leads_returns_empty_list_on_exception / test_fetch_posts_calls_repository / test_fetch_posts_returns_empty_list_on_exception)
+- Blast Radius: 운영 소비처 core/run_engine.py(1시간 interval) + launcher/main.py(1시간 interval, 이중 진입점 기존 구조) + dashboard.py(collect_kpi/load_snapshots 간접 소비) — 그 외 없음 확인
+- Runtime Proof: 타겟 4건 PASSED (17/17 파일 전체) / 전체 104 passed·4 failed(pre-existing, test_dm_close.py)·3 xfailed(baseline 일치)
+- BOM 확인: repository_interface.py / airtable_repository.py / kpi_collector.py / tests/test_smoke_metrics.py 4개 파일 전부 BOM 없음 확인
+- 신규 HOLD: airtable_repository.py 전체 GET 메서드 offset 페이지네이션 미구현 (100건 초과 시 첫 페이지만 반환, 이번 신규 2개 포함 기존 코드베이스 전체 공통 한계)
+최신 commit: (커밋 후 갱신)
+push: (승인 후 진행)
+
