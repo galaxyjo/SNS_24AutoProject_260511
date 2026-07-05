@@ -428,3 +428,13 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **해결:** ✅ 완료 (2026-07-03) — ERR-046 필드명 수정(`supplier_name`→`author_name`, `page_name` 매핑 추가) 적용. 격리 테스트 테이블 기반 ISOLATED INTEGRATION PROOF(Gate 6) 및 운영 Supplier_Blocklist 대상 Runtime Proof(6/6 매칭) 완료.
 **예방:** 직접 호출을 Repository로 교체하는 모든 커밋에 대해 교체 전/후 동일 입력→동일 출력 회귀 테스트 1건 이상 필수화. 특히 blocklist/권한 체크 등 "실패 시 무증상 통과"되기 쉬운 필터링 로직은 우선순위 높게 검증. (미적용 잔여: DI 리팩터링 커밋 대상 회귀 테스트 의무화 체계 자체는 아직 미구축 — 향후 트랙)
 **관련:** ERR-046, INC-024
+
+---
+
+## FP-035 | "등록 완료" 문서화가 실제 재기동 보장을 의미하지 않음 — Task Scheduler 자동 기동 검증 부재
+**발생일:** 2026-06-29(등록) ~ 2026-07-05(무재실행 9회 발견)
+**증상:** FP-033의 재발 방지책으로 `SNS_Watchdog_AutoStart` 스케줄 작업을 등록(260529)하고 CURRENT_RUNTIME_CONTEXT.md에 "✅ 등록 완료"로 기록했으나, 실제로는 등록 직후 1회만 실행되고 이후 9회의 실제 재부팅(cold boot, Fast Startup 비활성 확인)에도 단 한 번도 재실행되지 않음. watchdog.log는 07-01 23:36:55 이후 4일간 공백.
+**근본 원인:** "작업이 존재/Enabled 상태"와 "트리거 발동 시 실제 실행됨"을 구분하지 않고 등록 완료 = 문제 해결로 판단. `Logon Mode: Interactive only` 등 실행 조건이 재부팅 후 실제 발동을 막을 가능성을 검증하지 않음 (Runtime Proof 없이 문서만 갱신 — CLAUDE.md "Evidence 없는 완료 선언 금지" 원칙 위반 사례).
+**해결:** 미해결 — 사용자 승인 대기 중 (문서화만 우선 완료).
+**예방:** 자동 기동/재시작 안전장치를 "등록 완료"로 종결하지 말 것. 등록 후 실제 재부팅 1회 이상 발생시켜 `Last Run Time` 갱신 여부로 Runtime Proof 필수. 이후에도 주기적(예: 주 1회) `schtasks /Query` 점검을 상시 점검 항목에 추가 검토.
+**관련:** ERR-047, FP-033, INC-023, INC-025

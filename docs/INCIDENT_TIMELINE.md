@@ -321,3 +321,19 @@
 - pytest 회귀 없음 확인 (100 passed, pre-existing 4 failed는 stash 비교로 무관 확인)
 **해결:** ✅ 완료 (2026-07-03) — 필드명 수정(`supplier_name`→`author_name`, `page_name` 매핑 추가) 적용 및 실증 완료
 **재발 방지:** FP-034 등록/해결. DI 리팩터링 커밋에 대한 회귀 테스트 의무화 체계 자체는 미구축 — 향후 트랙. 실제 유출(비차단 업로드) 여부 확인을 위한 2026-06-24~07-02 사이 업로드된 Instagram_Posts 중 위 5개 공급자 author_name 일치 건 조회는 **미실시 — 별도 확인 필요**.
+
+---
+
+## INC-025 | watchdog.ps1 4일+ 감시 공백 — 스케줄 자동 기동 무재실행 (2026-07-01 23:36 ~ 진행 중, 2026-07-05 발견)
+**발생:** 2026-07-01 23:36:55 (watchdog.log 마지막 기록) ~ 2026-07-05 20:2x (세션 점검으로 발견, 미해결)
+**요약:** INC-023 복구(07-01 23:35 수동 재기동) 직후 watchdog.log가 23:36:55을 끝으로 기록이 끊김 — watchdog.ps1 감시 루프 자체가 재기동 직후 다시 조기 종료된 것으로 추정(원인 미확정). 이후 4일간(9회의 실제 재부팅 포함) `SNS_Watchdog_AutoStart` 스케줄 작업이 단 한 번도 재실행되지 않음(Last Run Time 06-29 20:12:06 고정, Last Result -1073741510/CTRL+C성 종료). 세션 점검 시점 watchdog.ps1 프로세스는 전무하나 launcher/main.py(python)는 2026-07-05 20:10:28에 별도/불명 경로로 기동 중 — 감시·자동재시작·Slack 알림 주체 없이 단독 운영 중인 상태로 확인.
+**영향:** 최소 4일간 프로세스 크래시 시 자동 재시작 보장 없음. Slack 알림(watchdog 트리거 기반) 발송 불가 상태 지속. 이 기간 중 실제 다운타임 발생 여부는 별도 로그(scheduler_err.log 등) 대조 확인 필요 — 미실시.
+**근본 원인:** ERR-047 / FP-035 (Task Scheduler "등록 완료"가 실제 재기동을 보장하지 않음, `Logon Mode: Interactive only` 등 미검증 실행 조건 가능성).
+**조치 (2026-07-05, 발견 및 문서화):**
+- `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V` 로 Last Run Time 고정 확인
+- `Get-WinEvent -Id 12`(Kernel-General)로 06-29 이후 실제 cold boot 9회 확인, `powercfg /a`로 Fast Startup 비활성 확인(hibernate-resume 오탐 배제)
+- `Get-CimInstance Win32_Process`로 watchdog.ps1 미실행 확인
+- ERROR_DATABASE.md ERR-047 / FAILURE_PATTERN.md FP-035 등록
+- (미적용) watchdog.ps1 재시작 — 사용자 승인 대기, 문서화만 우선 진행하기로 결정
+**해결:** 🔴 미해결 — watchdog.ps1 재기동 및 Task Scheduler 조건 수정은 사용자 확인 후 별도 진행 예정
+**재발 방지:** ERR-047/FP-035 Prevention 항목 참조 (Task Scheduler 조건 재검토, 상위 감시 계층 이중화, 정기 `schtasks /Query` 점검).

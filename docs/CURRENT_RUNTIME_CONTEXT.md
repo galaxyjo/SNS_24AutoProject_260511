@@ -58,7 +58,7 @@ a24d318 (docs: record DI Canary #3 (kpi_collector.py) validation and merge journ
 - Windows venv shim: .venv\Scripts\python.exe(268KB) → Python310\python.exe(103KB) 자식 프로세스 — 2 PID 정상 (1 논리 인스턴스)
 - 중복 발송 버그 → **260528 해소 완료** (_has_recent_auto_replied() CREATED_TIME() 기준 3분 window)
 - _rule.reason AttributeError → **260528 해소 완료** (getattr fallback)
-- SNS_Watchdog_AutoStart 작업 스케줄러 등록 → ✅ **등록 완료** (260529 관리자 권한으로 등록)
+- SNS_Watchdog_AutoStart 작업 스케줄러 등록 → ✅ **등록 완료** (260529 관리자 권한으로 등록) → ⚠️ **260705 정정: "등록 완료"≠"실제 재기동 보장" 확인** — 06-29 이후 실제 재부팅 9회에도 Last Run Time 갱신 없음, watchdog.log 07-01 23:36 이후 4일+ 무기록. 상세: ERR-047 / FP-035 / INC-025 (미해결, OPEN)
 - accounts.json 빈 배열 → crawl_urls skip → **260529 해소 완료** (account1 + crawl_url 등록)
 - Airtable caption 필드 없음 → 422 UNKNOWN_FIELD_NAME → **260529 해소** → **260612 재발 → 재해소** (API로 multilineText 필드 추가, field_id=fldcxTzLzYCzD9aYe)
 - FB 크롤러 2회 연속 정상 완료 → **260529 19:43 / 20:13 확인**
