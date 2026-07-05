@@ -394,6 +394,40 @@ class AirtableRepository(RepositoryInterface):
         records = r.json().get("records", [])
         return [{"id": rec["id"], **rec.get("fields", {})} for rec in records]
 
+    def fetch_all_instagram_posts(self) -> list[dict]:
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+        return [{"id": rec["id"], **rec.get("fields", {})} for rec in r.json().get("records", [])]
+
+    def fetch_all_lead_interactions(self, since_utc: str | None = None) -> list[dict]:
+        params = {}
+        if since_utc:
+            params["filterByFormula"] = f"{{relay_scheduled_at}}>='{since_utc}'"
+        try:
+            r = requests.get(
+                _url("Lead_Interactions"),
+                headers=_headers(),
+                params=params,
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+        return [{"id": rec["id"], **rec.get("fields", {})} for rec in r.json().get("records", [])]
+
     # ── Private: Lead_Interactions PATCH 공통 ────────────────────────────────
 
     def _patch_lead_interaction(self, record_id: str, fields: dict) -> None:

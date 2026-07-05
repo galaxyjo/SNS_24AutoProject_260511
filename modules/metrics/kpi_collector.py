@@ -18,7 +18,7 @@ import sqlite3
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from modules.common.airtable_bridge import get_table
+from modules.infra.airtable_repository import AirtableRepository
 from modules.common.retry_queue import get_retry_queue
 from modules.common.logger import get_logger
 
@@ -55,10 +55,8 @@ def _utc_start(period: str) -> str | None:
 
 def _fetch_leads(start: str | None) -> list[dict]:
     try:
-        table = get_table("Lead_Interactions")
-        formula = f"{{relay_scheduled_at}}>='{start}'" if start else None
-        records = table.all(formula=formula) if formula else table.all()
-        return [r.get("fields", {}) for r in records]
+        repo = AirtableRepository()
+        return repo.fetch_all_lead_interactions(since_utc=start)
     except Exception as exc:
         logger.error(f"[KPI] Lead_Interactions 조회 실패 | {exc}")
         return []
@@ -66,8 +64,8 @@ def _fetch_leads(start: str | None) -> list[dict]:
 
 def _fetch_posts() -> list[dict]:
     try:
-        records = get_table("Instagram_Posts").all()
-        return [r.get("fields", {}) for r in records]
+        repo = AirtableRepository()
+        return repo.fetch_all_instagram_posts()
     except Exception as exc:
         logger.error(f"[KPI] Instagram_Posts 조회 실패 | {exc}")
         return []

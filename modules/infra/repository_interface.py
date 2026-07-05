@@ -193,6 +193,14 @@ class RepositoryInterface(ABC):
         반환: [{"id": str, ...fields}, ...]
         """
 
+    @abstractmethod
+    def fetch_all_instagram_posts(self) -> list[dict]:
+        """Instagram_Posts 전체 레코드 반환 (필터 없음, KPI 집계용)."""
+
+    @abstractmethod
+    def fetch_all_lead_interactions(self, since_utc: str | None = None) -> list[dict]:
+        """Lead_Interactions 전체 필드 반환. since_utc 지정 시 relay_scheduled_at >= since_utc 필터, None이면 전체 반환."""
+
     # ── Lead / DM / Followup ──────────────────────────────────────────────────
 
     @abstractmethod

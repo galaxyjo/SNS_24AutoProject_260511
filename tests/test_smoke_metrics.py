@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 
 import modules.metrics.crawl_monitor as cm_mod
 from modules.metrics.kpi_collector import _utc_start
+from unittest.mock import patch
+from modules.metrics.kpi_collector import _fetch_leads, _fetch_posts
 
 
 # ── crawl_monitor ─────────────────────────────────────────────────────────────
@@ -152,3 +154,39 @@ def test_check_ig_media_id_with_missing(monkeypatch):
     assert result["missing"] == 2
     assert "recAAA" in result["record_ids"]
     assert "recBBB" in result["record_ids"]
+
+
+# ── kpi_collector._fetch_leads / _fetch_posts ──────────────────────────────
+
+def test_fetch_leads_calls_repository_with_start():
+    with patch("modules.metrics.kpi_collector.AirtableRepository") as mock_repo_cls:
+        mock_repo = mock_repo_cls.return_value
+        mock_repo.fetch_all_lead_interactions.return_value = [{"id": "rec1", "lead_status": "converted"}]
+        result = _fetch_leads("2026-07-01T00:00:00.000Z")
+        mock_repo.fetch_all_lead_interactions.assert_called_once_with(since_utc="2026-07-01T00:00:00.000Z")
+        assert result == [{"id": "rec1", "lead_status": "converted"}]
+
+
+def test_fetch_leads_returns_empty_list_on_exception():
+    with patch("modules.metrics.kpi_collector.AirtableRepository") as mock_repo_cls:
+        mock_repo = mock_repo_cls.return_value
+        mock_repo.fetch_all_lead_interactions.side_effect = Exception("Airtable down")
+        result = _fetch_leads(None)
+        assert result == []
+
+
+def test_fetch_posts_calls_repository():
+    with patch("modules.metrics.kpi_collector.AirtableRepository") as mock_repo_cls:
+        mock_repo = mock_repo_cls.return_value
+        mock_repo.fetch_all_instagram_posts.return_value = [{"id": "rec2", "post_status": "posted"}]
+        result = _fetch_posts()
+        mock_repo.fetch_all_instagram_posts.assert_called_once_with()
+        assert result == [{"id": "rec2", "post_status": "posted"}]
+
+
+def test_fetch_posts_returns_empty_list_on_exception():
+    with patch("modules.metrics.kpi_collector.AirtableRepository") as mock_repo_cls:
+        mock_repo = mock_repo_cls.return_value
+        mock_repo.fetch_all_instagram_posts.side_effect = Exception("Airtable down")
+        result = _fetch_posts()
+        assert result == []
