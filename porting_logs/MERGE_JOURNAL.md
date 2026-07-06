@@ -490,3 +490,14 @@ push: 436bdf7..f6194ac master -> master
 최신 commit: (커밋 후 갱신)
 push: (승인 후 진행)
 
+## RUNTIME STATUS (2026-07-06 세션) — launcher/main.py 중복 기동 사고 정리 (ERR-048/FP-036/INC-026)
+
+260706: 코드 변경 없음 — 운영 프로세스 정리 + 문서화만 진행
+- 세션 중 `Start-Process launcher\main.py` 반복 실행으로 5세대(10프로세스) 동시 생존 발견 (시작 시각: 07-05 23:38:57 / 07-06 16:46:43 / 16:51:04 / 16:55:41 / 16:55:57)
+- watchdog.ps1 미기동(INC-025 지속) 확인 후 자동 재시작 경합 없이 8개 프로세스 `Stop-Process -Force` 정리
+- 단일 신규 인스턴스(PID 33148/6140) 재기동, app.log(17:11:05~18) 상 스케줄러 1세트만 정상 등록·Flask 정상 바인딩 확인
+- 잔존 미해결: PID 20448/5284(전날 기동, 동일 사용자임에도 Access denied) + `:5000` 유령 LISTENING PID 32944(Get-Process/Get-CimInstance 어디에도 미포착, 재현 확인) — 관리자 권한 세션 또는 재부팅 필요
+- ERROR_DATABASE.md ERR-048 / FAILURE_PATTERN.md FP-036 / INCIDENT_TIMELINE.md INC-026 / VALIDATION_STATUS.md launcher_duplicate_instance_cleanup_260706(🟡 PARTIAL) 등록
+최신 commit: (커밋 후 갱신)
+push: (승인 후 진행)
+

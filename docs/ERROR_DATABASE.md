@@ -478,3 +478,15 @@ Cannot overwrite variable Error because it is read-only or constant.
 **Status:** 🔴 OPEN — 미해결, watchdog.ps1 현재도 미기동 상태 (launcher/main.py는 2026-07-05 20:10:28 별도/불명 경로로 기동 중, watchdog 감시 없음)
 **Evidence:** `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V` 출력 / `logs/watchdog.log` tail(마지막 2026-07-01 23:36:55) / `Get-WinEvent -Id 12` 9건(06-29 20:12 이후) / `powercfg /a`(빠른 시작 "현재 시스템 정책에서 사용하지 않도록 설정" 확인 — cold boot 확정) / `Get-Process python` (PID 14740/5524, StartTime 2026-07-05 20:10:28~29) / `Get-CimInstance Win32_Process -Filter "Name='powershell.exe'"` (watchdog.ps1 실행 중인 프로세스 없음, 2026-07-05 20:2x 시점)
 **관련:** ERR-045, FP-033, INC-023, INC-025
+
+---
+
+## ERR-048 | launcher/main.py 중복 기동 — 세션 중 Start-Process 반복 실행으로 5세대(10프로세스) 동시 기동, 종료 후 유령 LISTENING PID 잔존
+**Type:** Operational / 수동 프로세스 관리 실수 (not application code)
+**Raw:** 세션 중 `Start-Process .venv\Scripts\python.exe launcher\main.py` 를 여러 차례 반복 실행. `Get-CimInstance Win32_Process -Filter "Name='python.exe'"` 로 확인한 결과, 서로 다른 시각에 시작된 `.venv` launcher 프로세스 4개 + 시스템 Python310(AdsPower/Selenium 연동 추정) 짝 프로세스 4개, 총 8개가 동시 생존(시작 시각: 16:46:43/44, 16:51:04/04, 16:55:41/42, 16:55:57/58) — 여기에 전날(2026-07-05 23:38:57)부터 떠있던 PID 20448/5284 쌍까지 포함하면 5세대 launcher가 동시에 각자의 APScheduler(`_job_fb_crawl` 30분, `_job_insta_upload` 5분, `process_due_followups`/`process_lost_candidates`/`poll_new_comments` 5분 등)를 병행 실행 중이었음. `Stop-Process -Force`로 8개는 정상 종료됐으나 PID 20448/5284는 동일 사용자(admin) 소유임에도 `Access is denied`로 종료 실패(메모리 사용량 각 1MB/5.7MB로 극소, 실제 launcher 본체로 보기 어려움 — 권한 승격 컨텍스트에서 기동된 것으로 추정). 이후 신규 인스턴스 1개(PID 33148/6140)만 재기동했음에도 `netstat -ano | findstr ":5000"` 에 정상 PID(6140) 외에 `Get-Process`/`Get-CimInstance` 어디에도 나타나지 않는 유령 PID 32944 가 동시에 `:5000` LISTENING 상태로 잡힘(반복 확인 시에도 동일 PID 재현).
+**Root Cause:** (1) 다중 기동: watchdog.ps1 미기동 상태(ERR-047/INC-025 지속) + 수동 Start-Process 반복 실행이 결합되어, 기존 인스턴스 생존 여부를 사전 확인하지 않고 새 인스턴스를 추가 기동 — 포트 바인딩 충돌 검사나 PID lock 파일 등 중복 실행 방지 장치가 launcher/main.py에 전혀 없음. (2) 유령 PID 32944: 정확한 원인 UNKNOWN — 커널 소켓 테이블에 남은 stale LISTENING 엔트리(정상 종료되지 않은 과거 Flask 프로세스의 잔존 소켓 핸들 추정) 또는 WMI/프로세스 열거 API가 포착하지 못하는 별도 보호 컨텍스트의 실프로세스일 가능성 — 재부팅 없이는 판별 불가.
+**Fix:** 8개 중복 프로세스 `Stop-Process -Force`로 정리 후 단일 인스턴스(PID 33148/6140) 재기동 완료, 앱 로그(`logs/summary/app.log` 17:11:05~18) 상 스케줄러 잡 1세트만 등록되고 Flask 정상 바인딩 확인. PID 20448/5284, 32944는 비관리자 세션에서 종료 불가 — 미해결 상태로 남음.
+**Prevention:** (1) launcher/main.py 시작 시 PID 파일 또는 포트 선점 체크로 중복 기동 자체를 차단하는 가드 추가 검토. (2) watchdog.ps1 정상화(ERR-047)가 최우선 선행 조건 — watchdog가 살아있었다면 애초에 수동 반복 기동 필요성 자체가 낮았을 것. (3) 관리자 권한 세션에서 PID 20448/5284/32944 재확인 및 필요 시 재부팅으로 커널 소켓 테이블 초기화 검토.
+**Status:** 🟡 부분 해결 — 신규 단일 인스턴스는 정상 동작 확인, 잔존 유령 프로세스(20448/5284/32944)는 비관리자 권한으로 종료 불가하여 미해결
+**Evidence:** `Get-CimInstance Win32_Process -Filter "Name='python.exe'"` 4회 스냅샷(중복 발견 시점 / 정리 후 / 재기동 후 / 재확인) / `Get-Process -Id <pid> | Select StartTime` 대조표 / `netstat -ano | findstr ":5000"` 3회(정리 전/정리 직후 비어있음/재기동 후 32944 재출현) / `logs/summary/app.log` 17:11:05~18 정상 단일 기동 로그 / `Invoke-CimMethod GetOwner` (20448/5284 소유자 admin 확인, Stop-Process 여전히 Access denied)
+**관련:** ERR-047, FP-035, INC-025, FP-036, INC-026

@@ -337,3 +337,20 @@
 - (미적용) watchdog.ps1 재시작 — 사용자 승인 대기, 문서화만 우선 진행하기로 결정
 **해결:** 🔴 미해결 — watchdog.ps1 재기동 및 Task Scheduler 조건 수정은 사용자 확인 후 별도 진행 예정
 **재발 방지:** ERR-047/FP-035 Prevention 항목 참조 (Task Scheduler 조건 재검토, 상위 감시 계층 이중화, 정기 `schtasks /Query` 점검).
+
+---
+
+## INC-026 | launcher/main.py 5세대 동시 기동 (2026-07-06 16:46 ~ 17:11, 세션 중 발견 및 정리 완료)
+**발생:** 2026-07-06 16:46:43 (1세대 기동) ~ 17:11:06 (정리 후 단일 인스턴스 재기동 완료)
+**요약:** watchdog.ps1 미기동(INC-025 지속) 상태에서 세션 중 `launcher/main.py`를 수동으로 여러 차례 `Start-Process` 실행 — 기존 인스턴스 생존 여부를 매번 확인하지 않아 서로 다른 시각(16:46:43, 16:51:04, 16:55:41, 16:55:57)에 시작된 4세대 + 전날(07-05 23:38:57)부터 떠있던 1세대까지 총 5세대 launcher가 동시 생존, 각자 독립된 APScheduler로 `_job_fb_crawl`/`_job_insta_upload`/`process_due_followups` 등 동일 잡을 병행 실행 중이었음. 각 세대는 `.venv` launcher 프로세스 + 시스템 Python310(AdsPower/Selenium 연동 추정) 프로세스 짝으로 구성.
+**영향:** 실제 중복 DM 발송/게시물 중복 업로드/AdsPower 세션 충돌 여부는 미확인 — app.log 상 명시적 크래시나 에러는 발견되지 않았으나, 5세대 병행 실행 자체가 잠재적 리소스 경합 및 정합성 위험 상태였음.
+**근본 원인:** ERR-048 / FP-036 (launcher/main.py에 중복 기동 방지 가드 부재 + watchdog.ps1 미기동으로 인한 수동 개입 누적).
+**조치 (2026-07-06):**
+- `Get-CimInstance Win32_Process` / `Get-Process -StartTime` 대조로 5세대(10프로세스) 존재 및 각 시작 시각 확인
+- `watchdog.ps1` 미실행 확인(자동 재시작 경합 없음 확인 후 정리 진행)
+- 8개 프로세스 `Stop-Process -Force`로 정리 (전날 기동 PID 20448/5284 2개는 Access denied로 종료 실패, 잔존)
+- `logs/summary/app.log` 확인 — 단일 신규 인스턴스(PID 33148/6140) 스케줄러 1세트만 정상 등록, Flask 정상 바인딩 확인
+- `:5000` 재확인 중 프로세스 열거 도구에 나타나지 않는 유령 LISTENING PID 32944 발견 — 원인 미확정, ERR-048에 기록
+- ERROR_DATABASE.md ERR-048 / FAILURE_PATTERN.md FP-036 등록
+**해결:** 🟡 부분 해결 — 단일 신규 인스턴스는 정상 동작 확인, PID 20448/5284/32944는 비관리자 권한으로 종료/식별 불가하여 미해결 (관리자 권한 세션 또는 재부팅 필요)
+**재발 방지:** ERR-048/FP-036 Prevention 항목 참조 (launcher 중복 기동 가드 추가, watchdog.ps1 정상화(ERR-047) 최우선).
