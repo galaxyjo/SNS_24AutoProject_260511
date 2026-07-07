@@ -533,3 +533,35 @@ push: (승인 후 진행)
 
 commit: 미실행 — 5개 문서 diff 확인 후 별도 승인 필요
 push: 미실행 — commit 후 별도 승인 필요
+
+---
+
+## [260707] quality_gate.py relevance filter — 한국어+영어 이중언어 재설계
+
+### 배경
+260706 canary 실패(ERR-049/FP-037/INC-027) — `git checkout HEAD -- modules\crawlers\quality_gate.py`로 rollback 후 재설계 착수.
+
+### 정책 확정
+- category_code='Healthy' → 무조건 READY (title 검사 없음)
+- category_code='BEAUTY' → COSMETIC_KEYWORDS/IRRELEVANT_HINTS(한국어+영어) 매칭, 미매칭 시 기본 FILTERED
+- 미용기기(LED마스크/마사지기 등) → 우선 제외 (2026-07-07 14:09 ICT 기록, 세부기준 DEFER)
+
+### Dry-run 검증
+- 실제 Domeggook title(한국어) 30건 기준, 사용자 승인 라벨과 대체로 일치
+- Edge case 1건(상품유형 키워드 없는 title) — 기본 FILTERED 정책상 known limitation으로 승인
+
+### Canary 편집 및 Runtime Proof
+- `modules\crawlers\quality_gate.py`에 5번째 규칙(`relevance`, `_is_irrelevant_category`) 추가
+- launcher/main.py PID 지정 재시작 중 중복 기동 이슈 발생, 단일화 완료. 단, 별도 런타임 이슈로 분리.
+- Runtime Proof: D001(BEAUTY) fetch=10 ready=2, D002(Healthy) fetch=10 ready=10 — 정책대로 정상 동작 확인
+
+### DEFER
+- 키워드 보강(팩/패치/시트/수분/진정/미백/주름/피부 등)
+- UNKNOWN 3단계 상태 도입 검토 (READY/FILTERED만 저장하는 현 구조 제약)
+- FILTERED 로그 별도 저장
+
+### 문서화
+- VALIDATION_STATUS.md `quality_gate_relevance_filter_redesign_260707` 🟡 PARTIAL 반영 완료(working tree)
+
+### Commit 대상
+이번 commit 후보는 `modules\crawlers\quality_gate.py`, `docs\VALIDATION_STATUS.md`, `porting_logs\MERGE_JOURNAL.md`. ERROR_DATABASE/FAILURE_PATTERN/INCIDENT_TIMELINE은 44cefec에서 이미 commit/push 완료되어 이번 commit 대상 아님. commit/push는 최종 diff 확인 후 별도 승인.
