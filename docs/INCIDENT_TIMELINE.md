@@ -354,3 +354,18 @@
 - ERROR_DATABASE.md ERR-048 / FAILURE_PATTERN.md FP-036 등록
 **해결:** 🟡 부분 해결 — 단일 신규 인스턴스는 정상 동작 확인, PID 20448/5284/32944는 비관리자 권한으로 종료/식별 불가하여 미해결 (관리자 권한 세션 또는 재부팅 필요)
 **재발 방지:** ERR-048/FP-036 Prevention 항목 참조 (launcher 중복 기동 가드 추가, watchdog.ps1 정상화(ERR-047) 최우선).
+
+---
+
+## INC-027 | quality_gate.py relevance filter canary — 영어-only 키워드 오적용으로 Domeggook 크롤 100% 차단 및 rollback (2026-07-06)
+**발생:** 2026-07-06 13:02 (재시작 후 첫 dome_crawl 사이클) ~ 같은 날 rollback 완료
+**요약:** `quality_gate.py`에 관련성(relevance) 필터를 canary 편집으로 추가하는 과정에서, dry-run 검증을 Instagram_Posts의 영문 번역 `caption` 필드 20건 기준으로 수행해 20/20 MATCH를 확인했으나, 이를 실제 runtime proof로 오판. 실제 `run_gate()`가 검사하는 필드는 Domeggook API 원본 `title`이며 이는 한국어다. 영어-only 키워드가 한국어 title에 매칭되지 않아, launcher/main.py 재시작 직후 첫 `_job_dome_crawl` 실행에서 D001(화장품)/D002(건강식품) 모두 `fetch=10 ready=0` — 정상 화장품/건강식품 상품까지 전량 FILTERED되는 100% 크롤 차단 발생.
+**영향:** Domeggook 크롤 파이프라인 1회 사이클(13:02~13:11 KST 구간, 다음 사이클 전) 전체 차단. 실제 게시물 게시 중단 여부는 이 사이클 한정, 이전 누적 ready 레코드(source_exporter 대상)는 영향 없음.
+**근본 원인:** dry-run 검증 필드(`caption`, 영문)와 실제 runtime 입력 필드(`title`, 한국어)의 불일치. 검증 완료가 배포 안전을 보장한다는 가정이, "무엇을 검증했는가"와 "실제 무엇이 실행되는가"의 일치 여부 확인 없이 성립됨.
+**조치:**
+- `git checkout HEAD -- modules\crawlers\quality_gate.py` 로 원본 4규칙(adult_only/title/unit_price/image_url) rollback
+- launcher/main.py PID 지정 재시작(Stop-Process -Id 지정 후 재기동)으로 런타임 반영 확인
+- rollback 후 다음 dome_crawl 사이클에서 `fetch=10 ready=10` 복귀 자연 스케줄 대기로 검증 예정
+**해결:** ✅ ROLLED BACK (2026-07-06) — quality_gate.py는 원본 4규칙 상태로 복원 완료. 관련성 필터 재설계는 미착수(한국어+영어 이중언어 키워드 기준 재설계 필요).
+**재발 방지:** FP-037 참조 — dry-run 검증 시 실제 runtime 필드명/언어/raw 샘플 사용 필수.
+**관련:** ERR-049, FP-037

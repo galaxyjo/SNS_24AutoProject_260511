@@ -490,3 +490,15 @@ Cannot overwrite variable Error because it is read-only or constant.
 **Status:** 🟡 부분 해결 — 신규 단일 인스턴스는 정상 동작 확인, 잔존 유령 프로세스(20448/5284/32944)는 비관리자 권한으로 종료 불가하여 미해결
 **Evidence:** `Get-CimInstance Win32_Process -Filter "Name='python.exe'"` 4회 스냅샷(중복 발견 시점 / 정리 후 / 재기동 후 / 재확인) / `Get-Process -Id <pid> | Select StartTime` 대조표 / `netstat -ano | findstr ":5000"` 3회(정리 전/정리 직후 비어있음/재기동 후 32944 재출현) / `logs/summary/app.log` 17:11:05~18 정상 단일 기동 로그 / `Invoke-CimMethod GetOwner` (20448/5284 소유자 admin 확인, Stop-Process 여전히 Access denied)
 **관련:** ERR-047, FP-035, INC-025, FP-036, INC-026
+
+---
+
+## ERR-049 | quality_gate.py relevance filter canary — 영어-only 키워드가 한국어 title에 전량 미매칭, Domeggook 크롤 100% 차단
+**Type:** Logic Error / Language Mismatch / Uncommitted canary edit loaded into active runtime
+**Raw:** launcher/main.py 재시작 후 첫 `_job_dome_crawl` 실행 로그: `[dome_crawl] D001 fetch=10 ready=0`, `[dome_crawl] D002 fetch=10 ready=0` (2026-07-06 13:02:18) — 직전까지 8회 연속 `fetch=10 ready=10`였던 것과 대비되는 100% 필터링.
+**Root Cause:** `quality_gate.py`에 5번째 규칙(`relevance`, `_is_irrelevant_category`)을 canary 편집으로 추가하면서, dry-run 검증은 Instagram_Posts의 영문 번역 `caption` 필드 20건 기준으로 20/20 MATCH를 확인했으나, 실제 runtime에서 `run_gate()`가 검사하는 필드는 Domeggook API 원본 `title`이며 이는 한국어("이켈 포맨 프리미엄 콜라겐 기초세트... 남성화장품 로션 스킨" 등)였다. `COSMETIC_KEYWORDS`/`HEALTH_KEYWORDS`가 전부 영어 단어("cream", "serum", "organic" 등)로 작성되어 한국어 title에 매칭 불가 → `_is_irrelevant_category()`가 화장품/건강식품 포함 전 상품을 `True`(FILTERED)로 반환.
+**Fix:** `git checkout HEAD -- modules\crawlers\quality_gate.py` 로 원본 4규칙(adult_only/title/unit_price/image_url)으로 rollback. launcher/main.py PID 지정 재시작(Stop-Process -Id 지정 + 재기동)으로 런타임 반영 확인.
+**Prevention:** dry-run 검증은 반드시 실제 runtime이 검사하는 필드(이 경우 `title`, 언어=한국어)로 수행해야 함. 캡션(번역/가공 필드) 기준 검증은 원본 필드 언어와 다를 경우 무의미. 관련성 필터 재설계 시 한국어+영어 이중언어 키워드 세트 필수.
+**Status:** ✅ ROLLED BACK (2026-07-06) — 재설계 미착수, quality_gate.py는 원본 4규칙 상태
+**Evidence:** dome_crawl 로그(8회 fetch=10/ready=10 정상 → 1회 fetch=10/ready=0 이상) / `_test_relevance_function.py` 오프라인 테스트 — 한국어 title 5건 전부 `irrelevant=True` 오분류 확인 / Gate 9~11에서 rollback 후 `quality_gate.py` 원본 4규칙 및 HEAD diff clean 확인
+**관련:** FP-037 / INC-027 예정. INC-026은 launcher 5세대 중복 기동 사고로 별도 분리.

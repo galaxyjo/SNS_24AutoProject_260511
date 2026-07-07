@@ -448,3 +448,14 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **해결:** 8개 중복 프로세스 정리 후 단일 인스턴스로 재기동 완료(ERR-048 Fix 참조).
 **예방:** launcher/main.py 기동 스크립트(또는 이를 감싸는 절차)에 "기동 전 `:5000` 바인딩 및 동일 커맨드라인 프로세스 존재 여부 체크 → 이미 있으면 기동 중단" 가드를 표준 절차화. watchdog.ps1이 정상 동작한다면 수동 기동 자체가 예외적 상황으로 한정되므로 ERR-047 해결이 최우선.
 **관련:** ERR-048, ERR-047, INC-026, INC-025
+
+---
+
+## FP-037 | Dry-run 검증 필드/언어가 실제 runtime 입력과 불일치 — caption 기준 검증을 title 기준 runtime proof로 오판
+**발생일:** 2026-07-06
+**증상:** `quality_gate.py` relevance filter canary 검증 시 Instagram_Posts의 영문 번역 `caption` 필드 20건으로 dry-run 20/20 MATCH를 확인하고 이를 runtime proof로 오판. 그러나 실제 `run_gate()`가 검사하는 필드는 Domeggook API 원본 `title`이며, 이는 한국어다. 영어-only 키워드(`COSMETIC_KEYWORDS`/`HEALTH_KEYWORDS`)가 한국어 title에 매칭되지 않아, 화장품/건강식품 포함 정상 상품까지 전량 `FILTERED` — D001/D002 `fetch=10 ready=0`.
+**근본 원인:** dry-run 검증에 사용한 필드(`caption`, 영문)와 실제 runtime이 검사하는 필드(`title`, 한국어)가 서로 다름. 검증 완료 = 배포 안전이라는 가정이, "무엇을 검증했는가"가 "실제 무엇이 실행되는가"와 일치하는지 확인 없이 성립됨.
+**증상 재현 조건:** dry-run 대상 데이터의 필드명/언어가 실제 프로덕션 코드 경로의 입력 필드명/언어와 다를 때.
+**해결:** `git checkout HEAD -- modules\crawlers\quality_gate.py` 로 원본 4규칙(adult_only/title/unit_price/image_url) rollback. launcher/main.py PID 지정 재시작으로 런타임 반영 확인.
+**예방:** dry-run 검증 시 반드시 (1) 실제 runtime 코드가 참조하는 정확한 필드명, (2) 그 필드의 실제 언어/포맷, (3) 실제 raw 샘플 데이터를 사용해야 함. 캡션·요약·번역 등 가공 필드로 검증한 결과는 원본 필드 검증을 대체할 수 없음.
+**관련:** ERR-049, INC-027(예정)

@@ -501,3 +501,35 @@ push: (승인 후 진행)
 최신 commit: (커밋 후 갱신)
 push: (승인 후 진행)
 
+
+---
+## [260706] quality_gate.py relevance filter canary — 언어 불일치 P0 및 rollback (사고 A)
+
+### 요약
+`quality_gate.py` Domeggook 관련성 필터 canary 편집 → dry-run 검증 오판 → 전량 차단 P0 → rollback 완료.
+
+### 사고 경위
+- dry-run 검증: Instagram_Posts 영문 `caption` 필드 20건 기준, 20/20 MATCH 확인
+- 실제 runtime: `run_gate()`가 검사하는 필드는 Domeggook API 원본 `title`(한국어)
+- `COSMETIC_KEYWORDS`/`HEALTH_KEYWORDS` 영어-only 키워드 → 한국어 title 매칭 불가
+- 결과: launcher/main.py 재시작 후 첫 `_job_dome_crawl`에서 D001(화장품)/D002(건강식품) 모두 `fetch=10 ready=0` — Domeggook 크롤 100% 차단
+
+### 조치
+- `git checkout HEAD -- modules\crawlers\quality_gate.py` 로 원본 4규칙(adult_only/title/unit_price/image_url) rollback
+- launcher/main.py PID 지정 재시작(Stop-Process -Id 지정 후 재기동)으로 런타임 반영 확인
+- 재시작 과정에서 launcher 5세대 중복 기동 발생(별도 사고 B, ERR-048/FP-036/INC-026 참조)
+
+### 문서화
+- ERROR_DATABASE.md ERR-049 working tree 문서화 완료, commit 전
+- FAILURE_PATTERN.md FP-037 working tree 문서화 완료, commit 전
+- INCIDENT_TIMELINE.md INC-027 working tree 문서화 완료, commit 전
+- VALIDATION_STATUS.md 상태 표 + 근거 표 working tree 반영 완료, commit 전
+
+### 현재 상태
+`modules\crawlers\quality_gate.py` 기준 원본 4규칙 상태로 복원 완료. Gate 9~11에서 해당 파일 HEAD diff clean 및 relevance rule 잔존 없음 확인. 관련성 필터 재설계는 미착수.
+
+### 다음 작업
+한국어+영어 이중언어 키워드 기준 relevance filter 재설계 — 실제 Domeggook title(한국어) 원본 샘플로 dry-run 재검증 후 canary 편집 진행 예정.
+
+commit: 미실행 — 5개 문서 diff 확인 후 별도 승인 필요
+push: 미실행 — commit 후 별도 승인 필요
