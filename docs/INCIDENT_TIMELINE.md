@@ -335,7 +335,12 @@
 - `Get-CimInstance Win32_Process`로 watchdog.ps1 미실행 확인
 - ERROR_DATABASE.md ERR-047 / FAILURE_PATTERN.md FP-035 등록
 - (미적용) watchdog.ps1 재시작 — 사용자 승인 대기, 문서화만 우선 진행하기로 결정
-**해결:** 🔴 미해결 — watchdog.ps1 재기동 및 Task Scheduler 조건 수정은 사용자 확인 후 별도 진행 예정
+
+**조치 (2026-07-08, 추가):**
+- Task Action을 watchdog_task_wrapper.ps1 경유로 전환(ERR-050 임시 Fix)
+- wrapper 경유 인스턴스 1h46m 자연 생존 확인(10:16:55~12:02, watchdog.log heartbeat 연속) — direct 실행의 60초 조기사망과 대비
+- 이중 watchdog(PID 22908 direct + 29076/30888 wrapper) 동시 감시 발견 → 사용자 승인 하 wrapper 계열 정리(FP-017 재발 패턴)
+**해결:** 🟡 임시 완화 (Mitigated), 검증 불완전 — wrapper 우회로 direct 실행의 60초 조기사망 문제는 회피 확인됨. wrapper 경유 인스턴스(PID=29076)는 1h46m 정상 생존 후, 별도 발견된 이중 감시(FP-017 재발) 정리를 위해 의도적으로 종료됨(12:03:12, Stop-Process — 크래시 아님) — 자연 수명 검증은 아직 안 됨, 방해 없이 얼마나 오래 갈 수 있는지는 여전히 미확인. 근본원인(direct가 왜 죽는지) 및 재부팅 시 BootTrigger/LogonTrigger 자동 발동 여부 모두 OPEN (ERR-050 참조)
 **재발 방지:** ERR-047/FP-035 Prevention 항목 참조 (Task Scheduler 조건 재검토, 상위 감시 계층 이중화, 정기 `schtasks /Query` 점검).
 
 ---

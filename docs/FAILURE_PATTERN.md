@@ -159,6 +159,8 @@ git log --oneline -3
 **예방:** watchdog 기동 대상 정의 시 "이 서비스가 다른 프로세스 내부에도 포함되는가" 반드시 확인. 포함되면 watchdog 직접 감시 제거.
 **관련:** ERR-021 / 2026-05-27 해결 확인
 
+**재발 사례 (2026-07-08):** ERR-050 완화 작업 중 PID 22908(direct, 새벽 수동 복구)과 PID 29076/30888(wrapper, Task Scheduler 트리거)이 동시 생존 확인 → 세션 승인 하에 wrapper 계열 정리. 동일 패턴이 watchdog 자체의 이중 감시 형태로 재발함을 확인.
+
 ---
 
 ## FP-018 | PowerShell chcp 65001 미설정 — 한글 깨짐

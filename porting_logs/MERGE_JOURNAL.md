@@ -1,4 +1,4 @@
-﻿# MERGE_JOURNAL
+# MERGE_JOURNAL
 
 > 생성일: 2026-05-16 20:34
 > 목적: 250723 참조 저장소 → 260511 Active 저장소 수동 이식 작업 기록
@@ -565,3 +565,8 @@ push: 미실행 — commit 후 별도 승인 필요
 
 ### Commit 대상
 이번 commit 후보는 `modules\crawlers\quality_gate.py`, `docs\VALIDATION_STATUS.md`, `porting_logs\MERGE_JOURNAL.md`. ERROR_DATABASE/FAILURE_PATTERN/INCIDENT_TIMELINE은 44cefec에서 이미 commit/push 완료되어 이번 commit 대상 아님. commit/push는 최종 diff 확인 후 별도 승인.
+### 260708 watchdog wrapper 생존 재검증 및 이중 감시 정리
+- ERR-050 재확인: wrapper 인스턴스 실제 생존 1h46m(기존 기록 "2분+"보다 상향 확정)
+- 12:03:12 WRAPPER END는 자연사 아닌 의도적 정리(이중 watchdog, FP-017 재발) — 근본 원인 오판 방지
+- INC-025 임시 완화(Mitigated)로 갱신, VALIDATION_STATUS에 watchdog_task_wrapper_260708 🟡 PARTIAL 등록
+- 미해결 잔여: 재부팅 시 BootTrigger/LogonTrigger 자동 발동 검증(ERR-047), direct 실행 60초 사망 근본원인
