@@ -567,7 +567,24 @@ Cannot overwrite variable Error because it is read-only or constant.
 
 **Prevention:** (1) watchdog Task Action 호출 후 프로세스 생성 여부를 자체적으로 이중 확인하는 감시 계층 필요성 재확인(ERR-050 Prevention과 동일 맥락 강화). (2) `LastTaskResult=0`만으로 실행 성공을 판정하지 않고, `129/100/200/201/102` 이벤트 시퀀스 존재 여부를 실행 성공의 필요조건으로 삼는 모니터링 검토.
 
-**Status:** 🟡 재현 불가(13:22 이후 0건 재발) — 근본원인 UNKNOWN, 종결 아님(재발 시 재조사 필요)
+**Status:** 🔴 260709 재현됨(5/5, 100%) — 근본원인 여전히 UNKNOWN, RunLevel 후보는 배제 확정
+
+**260709 후속 조사 — RunLevel=Limited 실증 + 100% 재현:**
+
+Task B(`SNS_WatchdogAB_TestB`)의 RunLevel을 (4)번 후보 미검증 상태였던 Highest→Limited로 관리자 권한 `Set-ScheduledTask -Principal`로 변경(22:26:55) 후 `Start-ScheduledTask`로 22:28:01 및 22:29:28~22:30:21 사이 총 6회 트리거.
+
+- 6/6 전부 동일 launch-only 패턴 재현: `LastTaskResult=0`(성공) 기록되나 이벤트 로그는 매번 `110`(launched)+`325`(queued, **Warning**)에서 멈추고 `100/200/201/102` 전무
+- 마커 파일(`_ab_test_marker.txt`) 6회 전부 미갱신 — 트리거 전후 mtime 동일(2026-07-09 16:56:12.7566, 이전 세션 마지막 정상 실행 그대로)
+- **신규 발견**: Task 전체 `State` 속성이 트리거 직후부터 최소 30초 이상(5초 간격 6회 연속 폴링) `"Queued"`로 고착, `Ready`로 복귀하지 않음 — 이전(260707) 조사에서는 미관측 항목
+- `Settings.MultipleInstances = Parallel` 확인 — 인스턴스 제한 정책이 큐잉 원인이 아님을 재확인
+- 트리거 완료 후 시점 기준 `powershell.exe` 프로세스 0개 — 실제 프로세스 미생성 재확인
+
+**후보 변수 갱신:**
+(4) RunLevel — **배제 확정.** Limited로 실제 변경 후에도 동일 실패 100% 재현되어 RunLevel(Highest든 Limited든)이 원인이 아님을 확증. 이전 항목의 "미검증 상태로 남음" 해소.
+
+**해석:** 이번 재현은 지난 12:51~13:17 구간(26분 한정, 이후 자연 소멸)과 달리 시간 구간에 무관하게 즉시·지속적으로 재현됨 — 트리거 조건이 이전과 달라졌을 가능성(RunLevel 변경 자체가 트리거? 혹은 관리자 권한으로 `Set-ScheduledTask`가 Task 정의를 갱신한 시점(22:26:55, 이벤트 Id 140)이 Task Scheduler 내부 상태를 손상시켰을 가능성) — 직접 근거는 아직 없음, 추가 조사 필요.
+
+**Prevention 갱신:** `State` 속성이 `Queued`에 고착되는지 여부를 launch-only 실패의 조기 감지 지표로 추가 검토(기존 `129/100/200/201/102` 이벤트 시퀀스 부재 판정과 병행).
 
 **Evidence:** `Get-WinEvent Microsoft-Windows-TaskScheduler/Operational`(Task 이름 필터 및 시스템 전역 조회 다회) / `Get-ScheduledTaskInfo`·`Get-ScheduledTask...Settings`·`...Principal` 다회 / WMI `Get-CimInstance Win32_Process` 폴링(0.2초×50회) / `auditpol /get /subcategory:{0CCE922B-69AE-11D9-BED3-505054503030}` / `Get-WinEvent` Windows Defender/Operational, CodeIntegrity/Operational, `MSFT_MpComputerStatus.SmartAppControlState` / `Get-WinEvent` System log(12:45~16:40, Id 507/172/566/3502/36871) / Security log(4624) / 마커 파일(`_ab_test_marker.txt`) raw 생성 확인 12회+
 

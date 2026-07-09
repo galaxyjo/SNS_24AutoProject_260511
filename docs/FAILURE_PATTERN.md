@@ -461,3 +461,14 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **해결:** `git checkout HEAD -- modules\crawlers\quality_gate.py` 로 원본 4규칙(adult_only/title/unit_price/image_url) rollback. launcher/main.py PID 지정 재시작으로 런타임 반영 확인.
 **예방:** dry-run 검증 시 반드시 (1) 실제 runtime 코드가 참조하는 정확한 필드명, (2) 그 필드의 실제 언어/포맷, (3) 실제 raw 샘플 데이터를 사용해야 함. 캡션·요약·번역 등 가공 필드로 검증한 결과는 원본 필드 검증을 대체할 수 없음.
 **관련:** ERR-049, INC-027(예정)
+
+---
+
+## FP-038 | Task Scheduler `LastTaskResult=0`이 실제 실행 성공을 보장하지 않음 — launch-only 상태에서도 성공 코드 반환
+**발생일:** 2026-07-07(최초 관측, ERR-051) / 2026-07-09(100% 재현, RunLevel 후보 배제 확정)
+**증상:** 진단용 Task(`SNS_WatchdogAB_TestB`)를 `Start-ScheduledTask`로 트리거 시 `Get-ScheduledTaskInfo`의 `LastTaskResult`가 항상 `0`(성공)을 반환하지만, 실제로는 (1) 마커 파일이 갱신되지 않고, (2) Task Scheduler Operational 로그에 `100/200/201/102`(프로세스 생성~완료) 이벤트가 전혀 기록되지 않으며, (3) Task 전체 `State`가 `Queued`에서 고착되어 `Ready`로 복귀하지 않는 launch-only 실패가 발생. 260709 재조사에서 RunLevel=Limited로 변경 후 6회 트리거 전부(100%) 이 패턴으로 재현됨.
+**근본 원인:** UNKNOWN(ERR-051 참조) — 다만 `LastTaskResult` 필드 자체가 "Task Scheduler가 인스턴스를 launched로 기록했는가"만 반영하고 "Action이 실제로 프로세스를 생성해 완료됐는가"는 반영하지 않는 것으로 보임. 즉 이 필드는 실행 성공의 신뢰 가능한 지표가 아님.
+**증상 재현 조건:** 아직 특정 조건 미확정(ERR-051 조사 진행 중) — 최소 한 차례는 관리자 권한 `Set-ScheduledTask`로 Task 정의를 갱신한 직후 100% 재현됨(인과관계 미확정, 상관관계만 관측).
+**해결:** 미해결 — ERR-051 근본원인 조사 진행 중.
+**예방:** watchdog/운영 Task의 정상 실행 여부를 `LastTaskResult`만으로 판정하지 말 것. (1) `129/100/200/201/102` 이벤트 시퀀스 존재, (2) Task `State`가 `Queued`에 고착되지 않고 `Ready`로 복귀, (3) Action이 실제로 남기는 부산물(로그 파일, 마커 파일 등) 갱신 여부, 3가지를 실행 성공 판정의 필요조건으로 병행 확인해야 함.
+**관련:** ERR-051, ERR-050

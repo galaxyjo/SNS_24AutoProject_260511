@@ -631,5 +631,42 @@ push: 미실행 — commit 후 별도 승인 필요
 - RunLevel=Limited 실제 검증 미실시(cmdlet 정정 필요: `Set-ScheduledTask -Principal`)
 - 진단용 Task A/B/D는 증거 보전을 위해 삭제하지 않고 보존 — 정리 여부 별도 승인 필요
 
-commit: 미실행 — `docs/ERROR_DATABASE.md`, `porting_logs/MERGE_JOURNAL.md` working tree에만 반영, 별도 승인 필요
+commit: d07e80d 완료 (주: 본 섹션 하단의 "commit: 미실행" 표기는 커밋 반영 후 갱신 누락된 잔존 텍스트 — 260709 후속 세션에서 확인)
+push: 미실행 — commit 후 별도 승인 필요
+
+---
+
+## [260709] ERR-051 후속 — RunLevel=Limited 실증 + 100% 재현 (Task B, 관리자 권한)
+
+### 요약
+ERR-051에서 "미검증 상태로 남음" 처리됐던 후보(4) RunLevel=Limited를 실제로 검증. Task B(`SNS_WatchdogAB_TestB`)를 관리자 권한 PowerShell(UAC 승인)에서 `New-ScheduledTaskPrincipal -RunLevel Limited` + `Set-ScheduledTask -Principal`로 변경 후(22:26:55) `Start-ScheduledTask`로 총 6회(22:28:01, 22:29:28~22:30:21 5연속) 트리거. 6/6 전부 동일 launch-only 패턴으로 재현되어 RunLevel 후보를 배제 확정. 아울러 Task 전체 `State`가 트리거 후 `Queued`에 30초+ 고착되는 신규 증상을 관측(이전 조사에서는 미확인 항목).
+
+### 실행 절차
+1. `Get-ScheduledTask ... Principal` / `State` 조회 — 최초 RunLevel=Highest, State=Ready 확인
+2. 관리자 PowerShell 세션이 아니어서 `Set-ScheduledTask` 최초 시도 시 `Access is denied`(HRESULT 0x80070005) — 일반 권한 세션의 한계 확인
+3. `Start-Process powershell -Verb RunAs`로 관리자 창 기동(UAC 사용자 승인) → 스크립트 파일 경유로 `Set-ScheduledTask -Principal` 실행 → 결과 파일에 `SUCCESS` 기록 확인
+4. 변경 후 `Get-ScheduledTask ... Principal`로 RunLevel=Limited 반영 재확인
+5. `Start-ScheduledTask` 1회 트리거 → `LastTaskResult=0`이나 마커 파일 mtime 미변경(16:56:12 그대로) 최초 이상 감지
+6. 이벤트 로그(`Microsoft-Windows-TaskScheduler/Operational`) 조회 — `110`+`325`만 존재, `100/200/201/102` 부재 확인
+7. 재현성 확보 위해 5회 추가 트리거(8초 간격 실행 + 5초 대기, 총 5세트) — 5/5 전부 동일 패턴(`LastTaskResult=0`, 마커 미갱신, 이벤트 `110`+`325`만)
+8. `Settings.MultipleInstances` 확인 — `Parallel`(인스턴스 제한 아님, 후보 1번과 별개로 재확인)
+9. Task `State` 5초 간격 6회 연속 폴링(30초) — 전부 `Queued`, `Ready` 미복귀 확인(신규 증상)
+10. `tasklist`로 powershell.exe 프로세스 존재 확인 — 0개
+
+### 근본원인 상태
+- ERR-051 근본원인: 여전히 UNKNOWN — 이번 조사로 원인을 특정하지 못함
+- 확정된 것: RunLevel(Highest/Limited 무관)은 원인이 아님, `LastTaskResult=0`은 실행 성공의 신뢰 가능한 지표가 아님(FP-038 신규 등록)
+- 미확정: 22:26:55 `Set-ScheduledTask`(Task 정의 갱신) 자체가 이번 100% 재현의 트리거였는지 여부 — 상관관계만 관측, 인과관계 미확정
+
+### 문서화
+- `docs/ERROR_DATABASE.md` — ERR-051 Status 갱신(🟡 재현 불가 → 🔴 260709 재현됨) + 260709 후속 조사 섹션 추가
+- `docs/FAILURE_PATTERN.md` — FP-038 신규 등록(`LastTaskResult=0` 허위 성공 신호 패턴)
+- `porting_logs/MERGE_JOURNAL.md` — 본 항목 추가
+
+### 다음 세션 승계
+- ERR-051 근본원인 조사 계속 필요 — 이번 100% 재현이 재현 조건(Task 정의 갱신 직후?)을 좁힐 단서일 수 있음, 다음 세션에서 "Set-ScheduledTask 갱신 없이 순수 반복 트리거만" A/B 테스트로 인과관계 격리 권장
+- Task `State=Queued` 고착 현상을 watchdog 자체 감시 로직에 조기 경보 지표로 추가할지 검토(FP-038 예방안 참조)
+- 진단용 Task A/B/D는 계속 보존 — TestB는 현재 RunLevel=Limited 상태로 변경된 채 남아있음(운영 Task와 무관하므로 원복 불필요, 단 인지 필요)
+
+commit: 미실행 — `docs/ERROR_DATABASE.md`/`docs/FAILURE_PATTERN.md`/`porting_logs/MERGE_JOURNAL.md` working tree에만 반영, 이번 커밋으로 함께 반영 예정
 push: 미실행 — commit 후 별도 승인 필요
