@@ -191,6 +191,9 @@ C:\SNS_24AutoProject_260511\
 - health monitor: `from modules.common.health_monitor import get_health`
   - 단독 실행: `python -m modules.common.health_monitor`
   - 반환: services(Flask/Streamlit/ngrok/launcher) / retry_queue 통계 / 최근 에러
+  - watchdog 생존 확인: `get_watchdog_status()` (`get_health()`와 별개 함수, 기존 4개 서비스 카드 미영향) — `logs/watchdog.log` 마지막 줄 타임스탬프 기준, 90초 초과 시 비정상(`down`) 판정
+  - 대시보드 `🐕 워치독` 탭(260709 추가, http://localhost:8501) — 명령어 없이 watchdog.ps1 생존 여부를 UI에서 확인 가능. 근거: ERR-047/ERR-050/ERR-051 조사에서 반복된 "감시 주체(watchdog) 자체가 죽어도 알 방법이 없었다" 문제(FP-033 계열) 해소 목적
+  - 주의: 이 기능은 watchdog이 죽었을 때 이를 **감지**하는 용도이며, watchdog이 죽지 않도록 **방지**하는 기능이 아님 — 근본원인(ERR-050/ERR-051, 여전히 UNKNOWN)은 이 기능과 별개로 미해결 상태
 - 다계정 관리: `from modules.common.account_manager import get_active_accounts`
   - 설정 파일: `configs/accounts.json` (없으면 .env 단일 계정 자동 폴백)
   - 계정 추가 후 `reload()` 또는 프로세스 재시작

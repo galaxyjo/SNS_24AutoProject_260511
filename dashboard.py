@@ -102,8 +102,8 @@ comment_df = leads_df[leads_df["채널"] == "instagram_comment"] if not leads_df
 
 # ── 탭 ───────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그", "\U0001f4ca KPI", "\U0001f5a5️ 헬스"]
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그", "\U0001f4ca KPI", "\U0001f5a5️ 헬스", "\U0001f415 워치독"]
 )
 
 
@@ -330,6 +330,11 @@ def load_kpi_history() -> list:
 def load_health() -> dict:
     from modules.common.health_monitor import get_health
     return get_health()
+
+@st.cache_data(ttl=15)
+def load_watchdog_status() -> dict:
+    from modules.common.health_monitor import get_watchdog_status
+    return get_watchdog_status()
 
 
 with tab5:
@@ -587,3 +592,43 @@ with tab6:
         )
 
         st.caption("15초 캐시 | 새로고침 버튼으로 즉시 갱신")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Tab 7: 워치독
+# ════════════════════════════════════════════════════════════════════════════
+with tab7:
+    with st.spinner("watchdog 상태 확인 중..."):
+        try:
+            wd = load_watchdog_status()
+        except Exception as e:
+            st.error(f"watchdog 상태 확인 실패: {e}")
+            wd = None
+
+    if wd:
+        wd_status = wd.get("status", "unknown")
+
+        _WD_BANNER = {
+            "ok":      ("#d4edda", "#155724", "✅", "정상"),
+            "down":    ("#f8d7da", "#721c24", "❌", "비정상 (응답 지연)"),
+            "unknown": ("#e2e3e5", "#383d41", "❓", "확인 불가"),
+        }
+        bg, fg, icon, label = _WD_BANNER.get(wd_status, _WD_BANNER["unknown"])
+
+        st.markdown(
+            f"""<div style="background:{bg};color:{fg};padding:14px 22px;
+            border-radius:8px;font-size:1.25em;font-weight:bold;margin-bottom:12px;">
+            {icon}&nbsp; watchdog 상태: {label}</div>""",
+            unsafe_allow_html=True,
+        )
+
+        wd_col1, wd_col2 = st.columns(2)
+        wd_col1.metric("마지막 HEARTBEAT", wd.get("last_heartbeat") or "확인 불가")
+        wd_col2.metric(
+            "경과 시간(초)",
+            wd.get("elapsed_sec") if wd.get("elapsed_sec") is not None else "확인 불가",
+        )
+
+        st.caption("logs/watchdog.log 마지막 줄 타임스탬프 기준, 90초 초과 시 비정상 판정")
+    else:
+        st.warning("watchdog 상태를 불러올 수 없습니다.")

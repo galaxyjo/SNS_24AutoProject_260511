@@ -30,11 +30,13 @@ logger = get_logger(__name__)
 _ROOT        = Path(__file__).resolve().parents[2]
 _ERROR_LOG   = _ROOT / "logs" / "error" / "error.log"
 _RQ_DB       = _ROOT / "db" / "retry_queue.db"
+_WATCHDOG_LOG = _ROOT / "logs" / "watchdog.log"
 
 # ── 엔드포인트 ────────────────────────────────────────────────────────────────
 _FLASK_URL      = "http://localhost:5000/health"
 _STREAMLIT_URL  = "http://localhost:8501"
 _HTTP_TIMEOUT   = 4
+_WATCHDOG_STALE_SEC = 90  # 마지막 로그 이후 이 시간(초)을 넘으면 비정상 판정
 
 
 # ── 개별 체크 함수 ────────────────────────────────────────────────────────────
@@ -111,6 +113,27 @@ def _check_errors(window_minutes: int = 60, tail: int = 5) -> dict:
         return {"last_1h": 0, "recent": []}
 
 
+def _check_watchdog() -> dict:
+    """logs/watchdog.log 마지막 줄 타임스탬프로 watchdog.ps1 생존 여부를 판정한다."""
+    if not _WATCHDOG_LOG.exists():
+        return {"status": "unknown", "last_heartbeat": None, "elapsed_sec": None}
+    try:
+        lines = _WATCHDOG_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
+        if not lines:
+            return {"status": "unknown", "last_heartbeat": None, "elapsed_sec": None}
+        # 로그 포맷: "[2026-07-09 17:16:32] [HEARTBEAT] alive"
+        ts = datetime.strptime(lines[-1][1:20], "%Y-%m-%d %H:%M:%S")
+        elapsed = (datetime.now() - ts).total_seconds()
+        status = "ok" if elapsed <= _WATCHDOG_STALE_SEC else "down"
+        return {
+            "status": status,
+            "last_heartbeat": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "elapsed_sec": int(elapsed),
+        }
+    except Exception:
+        return {"status": "unknown", "last_heartbeat": None, "elapsed_sec": None}
+
+
 # ── 통합 헬스 스냅샷 ──────────────────────────────────────────────────────────
 
 def get_health() -> dict[str, Any]:
@@ -153,6 +176,11 @@ def get_health() -> dict[str, Any]:
 
     logger.debug(f"[HealthMonitor] overall={overall} | services={services}")
     return snapshot
+
+
+def get_watchdog_status() -> dict[str, Any]:
+    """watchdog.ps1 생존 상태 스냅샷을 반환한다 (get_health()의 4개 서비스 카드와 별개)."""
+    return _check_watchdog()
 
 
 def print_health() -> None:
