@@ -542,3 +542,35 @@ Cannot overwrite variable Error because it is read-only or constant.
 - 사망 근본원인 여전히 UNKNOWN — 본 항목 Root Cause의 Hypothesis (1)~(4) 중 이번 재부팅 케이스로 검증된 것 없음. Task Scheduler 세션정리/PowerShell Host 종료/wrapper 내부 미포착 예외 모두 미확정.
 - "다음 세션 승계 (b) 재부팅 시 wrapper 생존 여부 검증"은 이번 실증으로 수행되었으나 결과는 "생존"이 아닌 "약 4분 24초 후 자연사망" — 완화(MITIGATED) 판정의 근거였던 wrapper 안정성 가정이 재부팅 조건에서는 뒷받침되지 않음.
 - Status 변경 없음 — 🟡 MITIGATED(근본원인 미해결, OPEN 유지).
+
+---
+
+## ERR-051 | Task Scheduler 진단 Task(A/B/D) 12:51~13:17 구간 한정 launch-only 무반응 — 8개 후보변수 배제, 근본원인 UNKNOWN, 13:22 이후 재발 0건
+
+**Type:** Infrastructure / Task Scheduler 간헐적 실행 실패 (not application code)
+
+**Raw:** ERR-047/ERR-050 재부팅 실증 후속 A/B 테스트(진단용 Task A/B/D, 운영 Task `SNS_Watchdog_AutoStart`와 완전 별개, 등록 위치·이름 모두 분리). 마커 파일 생성(`Out-File`)만 하는 최소 스크립트를 Action으로 등록 후 `Start-ScheduledTask`로 반복 트리거 — 12:51:15/12:53:24/12:55:27(Task A, PowerShell direct), 13:09:48(Task B), 13:17:53(Task D, cmd.exe)까지 총 5회 전부 동일 패턴으로 실패: `LastTaskResult=0`(성공) 기록되나 이벤트 로그는 매번 `325`(queued)+`110`(launched)에서 멈추고 `129/100/200/201/102`(프로세스 생성~완료) 계열 이벤트 전무, 마커 파일 미생성, WMI 폴링(0.2초 간격 10초간) PID 0건. 13:22:01 이후(같은 Task B, 설정 무변경)로는 16:56 현재까지 전부(7/7+) 정상 성공 — 전체 이벤트 시퀀스 정상, 마커 파일 정상 생성.
+
+**Root Cause:** 현상(Phenomenon): Confirmed — 12:51~13:17(약 26분) 구간에 한정해 Task Scheduler Action이 "launched" 기록 이후 프로세스 생성 단계에서 관측 불가 상태로 소실, 13:22 이후 자연 소멸(재현 0건). 원인(Mechanism): UNKNOWN — 아래 8개 후보 순차 배제(Confirmed 기각):
+(1) MultipleInstancesPolicy(IgnoreNew→Parallel 변경해도 동일 실패)
+(2) UseUnifiedSchedulingEngine(Task B=True, 운영 Task=True로 이미 일치 — 변수 아님)
+(3) 실행 엔진 종류(PowerShell 스크립트→cmd.exe로 교체해도 동일 실패)
+(4) RunLevel(Highest 그대로 유지된 채 재시도했는데 성공 — Highest 단독으로는 원인 아님. Limited로의 실제 변경은 `Set-ScheduledTaskPrincipal` cmdlet 부재로 미검증 상태로 남음)
+(5) 세션 불일치(도구 실행 세션·admin 대화형 세션 모두 SessionId=1로 동일 확인)
+(6) 프로세스 생성 감사 정책(`auditpol` "No Auditing" — 4688 자체가 없어 판별 불가일 뿐 원인 성립 근거도 아님)
+(7) Windows Defender/CodeIntegrity/SmartAppControl(3개 소스 모두 12:51~13:17 구간 차단·탐지 이벤트 0건, SmartAppControl=Off)
+(8) Task Scheduler 부하/큐 지연(동일 구간 시스템 예약 작업 4건은 전부 정상 완료) 및 절전(Modern Standby) 복귀·DeviceAssociationService 3502 반복 에러(12:46~13:19, 61초 간격, 실패 구간을 시간상 포괄) — 단 16:15~16:39 성공 구간에도 동일 밀도로 계속 발생해 기각
+
+13:17:53~13:22:01(전환 4분 창) System/Application 로그 정밀 조회 결과 3502 반복 외 다른 신호 없음 — 전환 원인 직접 증거 없음.
+
+**Fix:** 미적용 — 별도 조치 없이 13:22 이후 자연 소멸, 재현 불가 상태로 조사 종료.
+
+**Prevention:** (1) watchdog Task Action 호출 후 프로세스 생성 여부를 자체적으로 이중 확인하는 감시 계층 필요성 재확인(ERR-050 Prevention과 동일 맥락 강화). (2) `LastTaskResult=0`만으로 실행 성공을 판정하지 않고, `129/100/200/201/102` 이벤트 시퀀스 존재 여부를 실행 성공의 필요조건으로 삼는 모니터링 검토.
+
+**Status:** 🟡 재현 불가(13:22 이후 0건 재발) — 근본원인 UNKNOWN, 종결 아님(재발 시 재조사 필요)
+
+**Evidence:** `Get-WinEvent Microsoft-Windows-TaskScheduler/Operational`(Task 이름 필터 및 시스템 전역 조회 다회) / `Get-ScheduledTaskInfo`·`Get-ScheduledTask...Settings`·`...Principal` 다회 / WMI `Get-CimInstance Win32_Process` 폴링(0.2초×50회) / `auditpol /get /subcategory:{0CCE922B-69AE-11D9-BED3-505054503030}` / `Get-WinEvent` Windows Defender/Operational, CodeIntegrity/Operational, `MSFT_MpComputerStatus.SmartAppControlState` / `Get-WinEvent` System log(12:45~16:40, Id 507/172/566/3502/36871) / Security log(4624) / 마커 파일(`_ab_test_marker.txt`) raw 생성 확인 12회+
+
+**관련:** ERR-047, ERR-050, FP-017
+
+**진단용 Task 보존:** `SNS_WatchdogAB_TestA`/`TestB`/`TestD`는 증거 보전을 위해 삭제하지 않고 유지 중 — 운영 Task와 완전 별개, 삭제 여부 별도 승인 필요.

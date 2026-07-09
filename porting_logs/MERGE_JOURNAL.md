@@ -601,3 +601,35 @@ BootTrigger/LogonTrigger 자동 발동 여부 검증 Runbook(9단계) 실행 완
 
 commit: 미실행 — 4개 문서(ERROR_DATABASE.md/INCIDENT_TIMELINE.md/VALIDATION_STATUS.md/MERGE_JOURNAL.md) working tree에만 반영, 별도 승인 필요
 push: 미실행 — commit 후 별도 승인 필요
+
+---
+
+## [260709] Task Scheduler 진단 Task A/B/D — 12:51~13:17 간헐적 launch-only 실패 A/B 조사 (ERR-051)
+
+### 요약
+운영 Task와 완전 별개인 진단용 Task(`SNS_WatchdogAB_TestA`/`TestB`/`TestD`)로 Task Scheduler Action 실행 자체의 신뢰성을 검증. 12:51:15~13:17:53 구간(약 26분) 5회 시도 전부 "launched"만 기록되고 프로세스 생성 흔적 없이 무반응, 13:22:01 이후로는 동일 설정으로 7회+ 전부 정상 성공. 8개 후보 원인을 순차 격리 테스트로 배제했으나 근본원인은 특정하지 못함 — ERR-051로 등록.
+
+### 격리 테스트 순서 및 결과 (전부 기각)
+1. `MultipleInstancesPolicy` IgnoreNew→Parallel(Task B) — 동일 실패
+2. `UseUnifiedSchedulingEngine` — Task B/운영 Task 모두 True로 이미 일치, 변수 아님
+3. 실행 엔진(PowerShell→cmd.exe, Task D) — 동일 실패
+4. `RunLevel` Highest 유지 상태에서 재시도 성공 — Highest 단독 원인 아님(Limited 실제 검증은 cmdlet 부재로 미실시)
+5. 세션 불일치 — 도구 세션/admin 대화형 세션 모두 SessionId=1로 동일, 기각
+6. 프로세스 생성 감사 정책 — `auditpol` "No Auditing", 4688 자체 부재로 판별 불가
+7. Defender/CodeIntegrity/SmartAppControl — 3개 소스 모두 해당 구간 차단·탐지 이벤트 0건, SmartAppControl=Off
+8. Task Scheduler 부하 및 절전(Modern Standby) 복귀/DeviceAssociationService 3502 반복 에러(12:46~13:19) — 시간상 실패구간을 포괄했으나 16:15~16:39 성공구간에도 동일 밀도로 발생해 최종 기각
+
+### 전환 시점 조사
+13:20~16:30 구간 시스템 전역 Task Scheduler 로그 확인 결과 실패 이벤트(103/202) 0건, 13:22:01부터 모든 태스크 정상 완료 — 전환 시점을 13:17:53~13:22:01(4분 창)로 좁혔으나 System/Application 로그에 3502 반복 외 다른 신호 없어 직접 원인 미확보.
+
+### 문서화
+- `docs/ERROR_DATABASE.md` — ERR-051 신규 등록(working tree, commit 전)
+- `porting_logs/MERGE_JOURNAL.md` — 본 항목 추가
+
+### 다음 세션 승계
+- ERR-051 재발 시: `129/100/200/201/102` 이벤트 시퀀스 부재를 실행 실패 신호로 즉시 포착하는 모니터링 필요성 재확인
+- RunLevel=Limited 실제 검증 미실시(cmdlet 정정 필요: `Set-ScheduledTask -Principal`)
+- 진단용 Task A/B/D는 증거 보전을 위해 삭제하지 않고 보존 — 정리 여부 별도 승인 필요
+
+commit: 미실행 — `docs/ERROR_DATABASE.md`, `porting_logs/MERGE_JOURNAL.md` working tree에만 반영, 별도 승인 필요
+push: 미실행 — commit 후 별도 승인 필요
