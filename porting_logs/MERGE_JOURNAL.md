@@ -569,4 +569,35 @@ push: 미실행 — commit 후 별도 승인 필요
 - ERR-050 재확인: wrapper 인스턴스 실제 생존 1h46m(기존 기록 "2분+"보다 상향 확정)
 - 12:03:12 WRAPPER END는 자연사 아닌 의도적 정리(이중 watchdog, FP-017 재발) — 근본 원인 오판 방지
 - INC-025 임시 완화(Mitigated)로 갱신, VALIDATION_STATUS에 watchdog_task_wrapper_260708 🟡 PARTIAL 등록
-- 미해결 잔여: 재부팅 시 BootTrigger/LogonTrigger 자동 발동 검증(ERR-047), direct 실행 60초 사망 근본원인
+- 미해결 잔여(260708 시점): 재부팅 시 BootTrigger/LogonTrigger 자동 발동 검증(ERR-047), direct 실행 60초 사망 근본원인 → 260709 세션에서 실증 완료, 상세는 하단 [260709] 섹션 참조
+
+---
+
+## [260709] watchdog 재부팅 자동트리거 실증 — Task Action 발동 확인, wrapper 4분24초 자연사망
+
+### 요약
+BootTrigger/LogonTrigger 자동 발동 여부 검증 Runbook(9단계) 실행 완료. 결과: 실제 재부팅(2026-07-08 20:29 KST) 후 Task Action(wrapper 경유) 발동은 확인됨 — 단, wrapper(PID 2656)가 약 4분 24초(20:32:17~20:36:41) 만에 WRAPPER END 로그 없이 종료(silent death). 트리거 자체는 살아있으나 wrapper 자연사망 근본원인은 여전히 UNKNOWN.
+
+### Evidence
+- `logs/watchdog_wrapper.log`: WRAPPER START 20:32:17 PID=2656, WRAPPER END 미기록
+- `logs/watchdog_wrapper_stderr.log`: 0 bytes
+- `logs/watchdog.log`: 20:32:18~20:36:41 HEARTBEAT 이후 무기록
+- `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V`: Last Run Time 2026-07-08 20:32:05, Last Result -1073741510(0xC000013A)
+
+### 문서 반영 (4건, 모두 working tree — commit 전)
+- `docs/ERROR_DATABASE.md` — ERR-047에 Note 2, ERR-050에 Note 3 추가
+- `docs/INCIDENT_TIMELINE.md` — INC-025에 재부팅 실증 Note 추가
+- `docs/VALIDATION_STATUS.md` — `watchdog_task_wrapper_260708` 확인일 260708→260709 갱신, 상세설명 "미검증"→"실증 완료·부정적 결과"로 교체
+- `porting_logs/MERGE_JOURNAL.md` — 본 항목 추가
+
+### 근본원인 상태
+- ERR-047(재부팅 무재실행 근본원인), ERR-050(wrapper 사망 메커니즘) 모두 UNKNOWN 유지 — 이번 세션에서 해결 선언 없음
+- 실제 발동 트리거가 BootTrigger인지 LogonTrigger인지는 Operational Event Log 미확인으로 미확정
+
+### 다음 세션 승계
+- INC-022 번호 중복(line 235/279, 서로 다른 사건) — 이번 세션에서 다루지 않음, HOLD 유지, 별도 승인 시 처리
+- `Microsoft-Windows-TaskScheduler/Operational` Event Log로 BootTrigger/LogonTrigger 실제 발동 주체 확인
+- wrapper 4~5분 후 종료 주체 A/B 테스트(Task Scheduler 세션정리 / PowerShell Host 종료 / wrapper 내부 예외)
+
+commit: 미실행 — 4개 문서(ERROR_DATABASE.md/INCIDENT_TIMELINE.md/VALIDATION_STATUS.md/MERGE_JOURNAL.md) working tree에만 반영, 별도 승인 필요
+push: 미실행 — commit 후 별도 승인 필요

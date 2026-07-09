@@ -343,6 +343,8 @@
 **해결:** 🟡 임시 완화 (Mitigated), 검증 불완전 — wrapper 우회로 direct 실행의 60초 조기사망 문제는 회피 확인됨. wrapper 경유 인스턴스(PID=29076)는 1h46m 정상 생존 후, 별도 발견된 이중 감시(FP-017 재발) 정리를 위해 의도적으로 종료됨(12:03:12, Stop-Process — 크래시 아님) — 자연 수명 검증은 아직 안 됨, 방해 없이 얼마나 오래 갈 수 있는지는 여전히 미확인. 근본원인(direct가 왜 죽는지) 및 재부팅 시 BootTrigger/LogonTrigger 자동 발동 여부 모두 OPEN (ERR-050 참조)
 **재발 방지:** ERR-047/FP-035 Prevention 항목 참조 (Task Scheduler 조건 재검토, 상위 감시 계층 이중화, 정기 `schtasks /Query` 점검).
 
+**[2026-07-09 추가 Note — 재부팅 실증]:** 2026-07-08 20:32 실제 재부팅 트리거 시 Task Action(wrapper 경유) 자체는 발동 확인됨 — 단, 이는 INC-025 원 증상("06-29 이후 9회 재부팅에도 무재실행")과 조건이 다름(당시 Action=direct 실행, 이번=Note 상 08-08 wrapper 경유 전환 이후). 트리거 발동 자체가 회복됐다는 의미는 아님 — 원인 규명 없이 조건이 바뀐 상태에서의 별개 관찰. wrapper(PID 2656)는 발동 후 약 4분 24초(20:32:17~20:36:41) 만에 WRAPPER END 로그 없이 종료(silent death) — INC-025가 기술한 "감시 공백" 문제가 형태를 바꿔 재현됨: 기존은 "재실행 자체가 안 됨", 이번은 "재실행은 되나 단명 후 재차 감시 공백 발생". 근본원인 여전히 UNKNOWN(상세 raw 로그 근거: ERR-047 Note 2 / ERR-050 Note 3 참조, 동일 실증 — watchdog_wrapper.log/watchdog_wrapper_stderr.log/watchdog.log/schtasks 출력 교차확인 완료). INC-025 해결 상태 변경 없음 — 🟡 임시 완화(Mitigated)/OPEN 유지, 완료 아님.
+
 ---
 
 ## INC-026 | launcher/main.py 5세대 동시 기동 (2026-07-06 16:46 ~ 17:11, 세션 중 발견 및 정리 완료)

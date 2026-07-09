@@ -30,7 +30,7 @@
 | dual_scheduler_resolved_260527 | ✅ PASS | 2026-05-27 |
 | virtual_autoreply_proof_260528 | ✅ PASS | 2026-05-28 |
 | supplier_blocklist_fieldmap_fix_260703 | ✅ PASS | 2026-07-03 |
-| watchdog_task_wrapper_260708 | 🟡 PARTIAL | 2026-07-08 |
+| watchdog_task_wrapper_260708 | 🟡 PARTIAL | 2026-07-09 |
 | quality_gate_relevance_filter_canary_260706 | 🔴 FAILED → ROLLED_BACK | 2026-07-06 |
 | quality_gate_relevance_filter_redesign_260707 | 🟡 PARTIAL | 2026-07-07 |
 | di_canary2_airtable_integrity_260704 | ✅ PASS | 2026-07-04 |
@@ -75,4 +75,4 @@
 | quality_gate_relevance_filter_canary_260706 | ERR-049/FP-037/INC-027 working tree 문서화 완료, commit 전. `quality_gate.py`에 relevance filter canary 편집(5번째 규칙) 추가 시 dry-run 검증을 영문 `caption` 필드 20건 기준으로 수행해 20/20 MATCH를 확인했으나, 실제 runtime 입력 필드(`title`, 한국어)와 불일치 — 영어-only 키워드가 한국어 title에 매칭 안 되어 D001/D002 `fetch=10 ready=0`(100% 차단) 발생. `git checkout HEAD -- modules\crawlers\quality_gate.py`로 원본 4규칙 rollback, launcher/main.py PID 지정 재시작으로 반영 확인. 재설계 미착수 — 한국어+영어 이중언어 키워드 기준 dry-run 후 재설계 필요. |
 | quality_gate_relevance_filter_redesign_260707 | ERR-049/FP-037/INC-027(260706 canary 실패) 이후 재설계. 정책: category_code='Healthy'→무조건 READY, category_code='BEAUTY'→한국어+영어 COSMETIC_KEYWORDS/IRRELEVANT_HINTS 매칭(미매칭 시 기본 FILTERED). 30건 dry-run 기준 사용자 승인 라벨과 대체로 일치. 단, 상품유형 키워드가 없는 BEAUTY title edge case 1건은 기본 FILTERED 정책상 known limitation으로 승인됨. Canary 편집 후 launcher 재시작 중 중복 이슈 발생/정리 완료. Runtime Proof: D001(BEAUTY) fetch=10 ready=2, D002(Healthy) fetch=10 ready=10 — 정책대로 정상 동작 확인. DEFER: 키워드 보강(팩/패치/시트/수분/진정/미백/주름/피부 등), UNKNOWN 3단계 상태 도입 검토(READY/FILTERED만 저장하는 현 구조 제약), FILTERED 로그 별도 저장. commit/push 별도 승인 필요. |
 | launcher_duplicate_instance_cleanup_260706 | ERR-048/FP-036/INC-026 등록. 세션 중 수동 반복 기동으로 launcher/main.py 5세대(10프로세스) 동시 생존 발견 → 8개 `Stop-Process -Force` 정리 + 단일 인스턴스(PID 33148/6140) 재기동, app.log상 스케줄러 1세트 정상 등록 확인. PID 20448/5284(전날 기동, Access denied)와 `:5000` 유령 LISTENING PID 32944(프로세스 열거 도구에 미포착)는 비관리자 권한으로 종료/식별 불가하여 미해결 — PARTIAL. |
-| watchdog_task_wrapper_260708 | wrapper 경유 Task 트리거 시 direct(60초 내 사망)보다 오래 생존(1h46m, 정상 heartbeat 지속) — 이중 감시 정리 위해 의도적 종료(크래시 아님), 자연 수명·재부팅 자동 트리거는 미검증 |
+| watchdog_task_wrapper_260708 | wrapper 경유 Task 트리거 시 direct(60초 내 사망)보다 오래 생존(1h46m, 정상 heartbeat 지속) — 이중 감시 정리 위해 의도적 종료(크래시 아님). 재부팅 자동 트리거 실증 완료(260709) — Task Action 발동 확인되나 wrapper 4분 24초 만에 silent death, 근본원인 UNKNOWN(ERR-047 Note 2 / ERR-050 Note 3 / INC-025 Note 교차참조) |

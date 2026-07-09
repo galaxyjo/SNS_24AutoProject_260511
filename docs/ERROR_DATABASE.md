@@ -481,6 +481,23 @@ Cannot overwrite variable Error because it is read-only or constant.
 
 **[2026-07-08 추가 Note]:** 별도 세션에서 Start-ScheduledTask(수동 트리거)로는 Task 실행 자체가 확인됨(ERR-050 참조). 단, 이는 BootTrigger/LogonTrigger 자동 발동 여부를 검증한 것이 아니므로 본 항목의 근본원인(9회 재부팅 무재실행)은 여전히 UNKNOWN. ERR-047 Status는 변경 없음.
 
+**[2026-07-08 추가 Note 2 — 재부팅 실증, 별도 세션]:** 실제 Windows 재부팅(20:29 KST) 1회 실증 결과, 기존 본문의 "9회 재부팅 무재실행" 증상과 달리 **이번에는 Task Action이 재부팅 후 실행됨** — 단, 이는 Note 1 시점 이후 Task Action이 watchdog_task_wrapper.ps1 경유로 변경된 상태에서의 결과이며, 기존 9회 재부팅 시점의 Action(direct 실행)과 조건이 다름. 따라서 "무재실행 문제 해결"로 판단 불가 — 별개 조건에서의 신규 관찰로 취급.
+
+- Confirmed:
+  - 재부팅 후 Task Action 실행 확인 (LastRunTime 2026-07-08 18:54:25 → 20:32:05 갱신)
+  - wrapper(watchdog_task_wrapper.ps1) PID 2656 기동 확인 (20:32:17 WRAPPER START)
+  - watchdog loop 약 4분 24초 정상 동작 (20:32:17~20:36:41 HEARTBEAT; Streamlit/ngrok/launcher 재시작 성공, n8n 자체복구 포함)
+  - WRAPPER END 로그 없음 / stderr 빈 파일 / silent death
+  - LastTaskResult=3221225786 (0xC000013A) 재부팅 전후 동일
+- **Task Action 호출은 확인됨. 실제 발동 트리거(Boot/Logon)는 Operational Event Log 확인 전까지 UNKNOWN.**
+- UNKNOWN:
+  - 실제 발동한 트리거가 BootTrigger인지 LogonTrigger인지 — `Microsoft-Windows-TaskScheduler/Operational` Event Log 확인 전까지 미확정 (양쪽 모두 Enabled=True, Delay=PT1M로 동시 등록되어 있어 LastRunTime만으로 구분 불가)
+  - 4~5분 후 종료 주체 — Task Scheduler 세션/토큰 정리, PowerShell Host 종료, wrapper 내부 미포착 예외 중 어느 것인지 미확정 (전부 Hypothesis, 확정 아님)
+  - 0xC000013A가 이번 신규 종료와 인과관계가 있는지, 단순 이전 값 잔존인지 미확정
+- Status 변경 없음 — ERR-047 여전히 OPEN. 단, 증상 프로파일이 "무재실행"에서 "재실행은 되나 4~5분 내 silent death"로 갱신되었음을 다음 세션에 명시적으로 승계.
+- **Evidence:** `logs/watchdog_wrapper.log`(raw, 17행 `[2026-07-08 20:32:17] WRAPPER START`/18행 `PID=2656`, 이후 WRAPPER END 미기록) / `logs/watchdog_wrapper_stderr.log`(0 bytes, 빈 파일 확인) / `logs/watchdog.log`(1746~1764행, `20:32:18 watchdog 시작` ~ `20:36:41 HEARTBEAT` 이후 무기록, 파일 tail과 일치) / `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V`(Last Run Time 2026-07-08 20:32:05, Last Result -1073741510 = 0xC000013A 재확인)
+- 관련: ERR-050 (wrapper 자연사망 최초 증거 — 상세 근거는 ERR-050 항목 참조)
+
 ---
 
 ## ERR-048 | launcher/main.py 중복 기동 — 세션 중 Start-Process 반복 실행으로 5세대(10프로세스) 동시 기동, 종료 후 유령 LISTENING PID 잔존
@@ -519,3 +536,9 @@ Cannot overwrite variable Error because it is read-only or constant.
 **관련:** ERR-047, FP-017, ERR-021, INC-023
 
 **[2026-07-08 추가 Note 2]:** wrapper 인스턴스(PID 29076/자식 30888) 실제 생존 시간 재확인 — 최초 기록(10:16:57~10:19:03, "2분+")보다 훨씬 길게 10:16:55~12:02까지 약 1시간 46분간 정상 생존(watchdog.log heartbeat 연속 확인). 12:03:12 WRAPPER END — ExitCode=-1은 자연사가 아니라, 별도 세션(Claude Desktop)에서 PID 22908(새벽 수동 복구본, direct 실행)과 29076/30888(wrapper 경유)가 동시에 감시 중인 이중 watchdog 상태를 발견하고 사용자 승인 하에 Stop-Process -Id 30888/29076 -Force로 의도적 종료한 결과 — FP-017(watchdog 이중 감시 충돌 패턴)의 재발 사례. wrapper 자체의 자연 사망 사례는 이번엔 관찰되지 않음(오히려 안정성 증거 강화). 단, "다음 세션 승계" 항목 (a)(b) 재부팅 트리거 검증은 여전히 미실시 — Status 🟡 MITIGATED/OPEN 유지.
+
+**[2026-07-09 추가 Note 3 — 재부팅 실증, wrapper 자연사망 최초 관측]:** 2026-07-08 20:32:17 재부팅 트리거 케이스에서 wrapper(PID 2656)가 WRAPPER END 로그 없이 약 4분 24초(20:32:17~20:36:41) 만에 종료됨(silent death). Note 2의 "1h46m 생존"과 성격이 다름 — Note 2의 종료는 사용자의 의도적 Stop-Process(이중 watchdog 정리)였고 자연 수명이 아니었던 반면, 이번 4분 24초 종료는 사용자 개입 없이 재부팅 트리거 이후 자연 발생한 것으로, 관찰된 최초의 순수 wrapper 자연사망 사례. 두 사례는 트리거 방식(수동 Start-ScheduledTask vs 실제 재부팅)과 종료 원인(의도적 vs 자연)이 모두 달라 직접 비교·연장 해석 불가.
+- 상세 raw 로그 근거(watchdog_wrapper.log/watchdog_wrapper_stderr.log/watchdog.log/schtasks 출력): ERR-047 Note 2 참조(동일 실증, 중복 서술 생략)
+- 사망 근본원인 여전히 UNKNOWN — 본 항목 Root Cause의 Hypothesis (1)~(4) 중 이번 재부팅 케이스로 검증된 것 없음. Task Scheduler 세션정리/PowerShell Host 종료/wrapper 내부 미포착 예외 모두 미확정.
+- "다음 세션 승계 (b) 재부팅 시 wrapper 생존 여부 검증"은 이번 실증으로 수행되었으나 결과는 "생존"이 아닌 "약 4분 24초 후 자연사망" — 완화(MITIGATED) 판정의 근거였던 wrapper 안정성 가정이 재부팅 조건에서는 뒷받침되지 않음.
+- Status 변경 없음 — 🟡 MITIGATED(근본원인 미해결, OPEN 유지).
