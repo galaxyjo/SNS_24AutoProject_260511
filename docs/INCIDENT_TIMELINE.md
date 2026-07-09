@@ -376,3 +376,38 @@
 **해결:** ✅ ROLLED BACK (2026-07-06) — quality_gate.py는 원본 4규칙 상태로 복원 완료. 관련성 필터 재설계는 미착수(한국어+영어 이중언어 키워드 기준 재설계 필요).
 **재발 방지:** FP-037 참조 — dry-run 검증 시 실제 runtime 필드명/언어/raw 샘플 사용 필수.
 **관련:** ERR-049, FP-037
+
+---
+
+## INC-028 | watchdog.log 감시 공백 3시간12분 + 파이프라인 전체 다운 (2026-07-09 20:09:40 ~ 23:22:14)
+
+**발생:** 2026-07-09 20:09:40(watchdog.log 마지막 HEARTBEAT, 공백 시작 추정) ~ 2026-07-09 23:22:14(watchdog.ps1 재기동 로그 `===== watchdog 시작 =====`, 공백 종료) — 약 3시간 12분 34초
+**발견:** 2026-07-09 22:56경(`Get-CimInstance Win32_Process` *watchdog* 필터 / `logs\watchdog.pid` 조회로 최초 이상 징후 포착) ~ 23:01:54(프로세스/포트/watchdog.log/Task 이벤트 종합 조회로 확정) — 세션 중 정기 상태 점검 과정에서 발견, 별도 알림/자동 감지 없음
+
+**요약:** 세션 중 watchdog 운영 상태를 점검하던 중, `logs/watchdog.log`의 마지막 HEARTBEAT가 20:09:40에서 멈춰 있고 이후 약 3시간 12분간 신규 기록이 없음을 확인. 동시에 `launcher/main.py`(:5000)/Streamlit(:8501)/ngrok(:4040) 3개 핵심 서비스 프로세스가 전부 부재, 포트 3개 전부 미바인딩 상태였음. 발견 직후 재기동 절차(전수 프로세스 확인 → launcher → Streamlit → ngrok → watchdog.ps1 순차 기동)를 거쳐 23:22:14 watchdog.ps1 재시작, 4개 서비스 전부 정상화 확인.
+
+**발견 당시 상태 (raw 근거):**
+- `Get-CimInstance Win32_Process` 를 `python|pythonw|streamlit|ngrok|cmd.exe|pwsh` 등 조건으로 다회 조회한 결과 launcher/Streamlit/ngrok 프로세스 **0개** (매칭된 항목은 전부 무관 프로세스 — LG Software GSearch 인덱서, Chrome native host)
+- `netstat -ano | findstr ":5000 :8501 :4040"` → 출력 없음. 전체 LISTENING 목록 재조회에서도 3개 포트 전부 부재 — **포트 3개 전부 미바인딩**
+- `Get-ScheduledTaskInfo -TaskName "SNS_Watchdog_AutoStart"` → `LastRunTime: 2026-07-08 20:32:05`(발견 시점 기준 전날), `LastTaskResult: 3221225786`(0xC000013A) — **당일(07-09) 실행 이력 전무**
+- `logs/watchdog.pid` 파일 자체 부재 (`Get-Content`가 null 반환, `Get-Process -Id $null` 바인딩 오류로 확인)
+- `logs/watchdog.log` / `logs/watchdog_wrapper_stdout.log` 둘 다 마지막 라인이 `[2026-07-09 20:09:40] [HEARTBEAT] alive`에서 정지, 이후 신규 라인 없음(파일 mtime도 20:09:40 그대로)
+- `Get-WinEvent -LogName System -MaxEvents 30 | Where TimeCreated 2026-07-09 20:05:00~20:20:00` → **매칭 이벤트 0건.** System 로그 자체에 해당 15분 구간 관련 신호가 없었다는 사실만 확인됨 — 재부팅 인과관계는 UNKNOWN(아래 근본 원인 참조), 배제도 확정도 아님.
+
+**재기동 절차 및 결과 (raw 근거):**
+- 재기동 전 전수 프로세스 확인: python/streamlit/ngrok/powershell 전체 스캔 결과 파이프라인 관련 잔존·좀비 프로세스 **0개** 확인 후 진행
+- `Start-Process .venv\Scripts\python.exe launcher\main.py` → PID 30636(부모)/31416(자식) 생성, `netstat` 재확인 시 `:5000 LISTENING 31416` 일치 확인
+- `Start-Process .venv\Scripts\streamlit.exe run dashboard.py --server.port 8501` → PID 체인 최종 33476, `:8501 LISTENING 33476` 일치 확인
+- `Start-Process ngrok http --url=... 5000` → PID 19976, `:4040 LISTENING 19976` 일치 확인
+- 각 서비스 기동 후 프로세스 트리 최말단 PID와 netstat LISTENING PID가 정확히 1:1 일치 — **중복 기동 없이 클린 기동 성공**(ERR-048류 유령·중복 프로세스 재발 없음 확인)
+- `Start-Process powershell -Verb RunAs ... watchdog.ps1`(관리자 권한, UAC 승인) → `logs/watchdog.log`에 `[2026-07-09 23:22:14] ===== watchdog 시작 =====` 기록, 이후 HEARTBEAT 30초 간격으로 재개, 이후 재확인(23:26:16)까지 연속 정상 확인
+
+**근본 원인:** **UNKNOWN.** 공백 발생 원인(재부팅 여부 / foreground 세션 종료 / 기타)을 특정할 직접 증거가 없음. System 이벤트 로그 20:05~20:20 조회에서 매칭 이벤트 0건인 것은 "이 구간에 System 로그상 기록된 재부팅·절전 이벤트가 없었다"는 사실만 보여줄 뿐, 재부팅이 원인임을 배제하는 근거도 다른 원인(foreground 세션 종료 등)을 확정하는 근거도 아니다 — 조회 범위(System 로그, 15분 창)와 실제 원인 사이의 인과관계는 미확인 상태로 남는다. ERR-047(스케줄 작업 무재실행)/ERR-050(wrapper silent death)/ERR-051(Task Scheduler launch-only 실패) 세 건 모두 유사하게 "watchdog 감시가 예고 없이 끊기는" 패턴을 다루고 있어 근본원인이 서로 연결되어 있을 가능성이 있으나, 이번 사고를 이들과 통합 조사할지 별도 트랙으로 둘지는 다음 세션에서 판단 필요.
+
+**해결:** ✅ 서비스 복구 완료(2026-07-09 23:22:14, 재기동 후 4개 서비스 전부 LIVE 확인) — 단 **근본원인은 미해결.** 공백 재발 방지책 없이 서비스만 복구된 상태.
+
+**재발 방지:** ERR-047/ERR-050/ERR-051 Prevention 항목과 동일 맥락 — (1) watchdog.log 하트비트 정지를 감지하는 상위 감시 계층 필요(현재는 세션 중 수동 점검으로만 발견됨, 자동 알림 없음 — CLAUDE.md `get_watchdog_status()` 90초 기준 판정 로직이 존재하나 이번 3시간+ 공백 동안 실제로 알림·감지가 이루어졌는지는 미확인, 별도 검증 필요). (2) 근본원인 규명 전까지는 재발 가능성을 상수로 간주하고 정기 점검 주기화 검토.
+
+**별도 기록 (장애 아님, 노이즈):** watchdog.ps1 재기동 직후(23:22:20~23:23:11) n8n 관련 `[WARN] n8n 응답 없음` → `[ERROR] n8n 재시작 실패` → `[RECOVER] N8n 복구` 사이클이 30초 내 자동 발생·자동 해소됨. n8n은 CLAUDE.md 기준 "미설정, 정상" 상태이므로 실제 장애가 아니라 watchdog이 미구성 서비스를 체크하며 발생시키는 노이즈성 로그로 판단됨. 본 INC의 장애 범위에는 포함하지 않음 — 별도 FP·개선 항목 등록 여부는 승인 후 판단.
+
+**관련:** ERR-047, ERR-050, ERR-051, INC-023, INC-025

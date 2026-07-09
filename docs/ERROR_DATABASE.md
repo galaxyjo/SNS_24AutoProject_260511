@@ -477,7 +477,7 @@ Cannot overwrite variable Error because it is read-only or constant.
 **Prevention:** (1) Task Scheduler 조건 재확인 — "Run whether user is logged on or not"(S4U/비밀번호 저장)로 변경해 인터랙티브 로그온 의존성 제거 검토. (2) watchdog.ps1 자체에 self-heal 불가하므로, 상위 감시 계층(예: 별도 Scheduled Task가 30분 간격으로 watchdog.ps1 프로세스 생존 여부 점검 후 재기동) 이중화 검토. (3) Task Scheduler 히스토리(`Microsoft-Windows-TaskScheduler/Operational` Event Log)로 실제 트리거 시도 여부(시도했으나 실패 vs 아예 미시도) 구분 확인 필요 — 현재 미실시.
 **Status:** 🔴 OPEN — 미해결, watchdog.ps1 현재도 미기동 상태 (launcher/main.py는 2026-07-05 20:10:28 별도/불명 경로로 기동 중, watchdog 감시 없음)
 **Evidence:** `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V` 출력 / `logs/watchdog.log` tail(마지막 2026-07-01 23:36:55) / `Get-WinEvent -Id 12` 9건(06-29 20:12 이후) / `powercfg /a`(빠른 시작 "현재 시스템 정책에서 사용하지 않도록 설정" 확인 — cold boot 확정) / `Get-Process python` (PID 14740/5524, StartTime 2026-07-05 20:10:28~29) / `Get-CimInstance Win32_Process -Filter "Name='powershell.exe'"` (watchdog.ps1 실행 중인 프로세스 없음, 2026-07-05 20:2x 시점)
-**관련:** ERR-045, FP-033, INC-023, INC-025
+**관련:** ERR-045, FP-033, INC-023, INC-025, INC-028
 
 **[2026-07-08 추가 Note]:** 별도 세션에서 Start-ScheduledTask(수동 트리거)로는 Task 실행 자체가 확인됨(ERR-050 참조). 단, 이는 BootTrigger/LogonTrigger 자동 발동 여부를 검증한 것이 아니므로 본 항목의 근본원인(9회 재부팅 무재실행)은 여전히 UNKNOWN. ERR-047 Status는 변경 없음.
 
@@ -533,7 +533,7 @@ Cannot overwrite variable Error because it is read-only or constant.
 **Status:** 🟡 MITIGATED (근본원인 미해결, OPEN 유지)
 **Evidence:** watchdog_wrapper.log(PID=29076 START 기록) / watchdog_wrapper_stdout.log(HEARTBEAT 5회+) / Win32_Process 조회 3회(direct 임시 Task 소멸 확인, 22908 단독 재확인 2회) / Task XML Format-List(wrapper 경로 확정)
 **다음 세션 승계 (미실행):** (a) 실제 재부팅으로 BootTrigger/LogonTrigger 자동 발동 여부 검증(ERR-047 원인 규명), (b) 실제 재부팅으로 wrapper 경로 생존 여부 검증(ERR-050 완화 확인), (c) 조건 4개 분리 A/B 테스트(stdout/stderr redirect → -NoProfile → WorkingDirectory → 절대경로), (d) 사망 시점 LastTaskResult 종료코드 재조회, (e) PowerShell/Task Scheduler Operational 이벤트 로그 확인
-**관련:** ERR-047, FP-017, ERR-021, INC-023
+**관련:** ERR-047, FP-017, ERR-021, INC-023, INC-028
 
 **[2026-07-08 추가 Note 2]:** wrapper 인스턴스(PID 29076/자식 30888) 실제 생존 시간 재확인 — 최초 기록(10:16:57~10:19:03, "2분+")보다 훨씬 길게 10:16:55~12:02까지 약 1시간 46분간 정상 생존(watchdog.log heartbeat 연속 확인). 12:03:12 WRAPPER END — ExitCode=-1은 자연사가 아니라, 별도 세션(Claude Desktop)에서 PID 22908(새벽 수동 복구본, direct 실행)과 29076/30888(wrapper 경유)가 동시에 감시 중인 이중 watchdog 상태를 발견하고 사용자 승인 하에 Stop-Process -Id 30888/29076 -Force로 의도적 종료한 결과 — FP-017(watchdog 이중 감시 충돌 패턴)의 재발 사례. wrapper 자체의 자연 사망 사례는 이번엔 관찰되지 않음(오히려 안정성 증거 강화). 단, "다음 세션 승계" 항목 (a)(b) 재부팅 트리거 검증은 여전히 미실시 — Status 🟡 MITIGATED/OPEN 유지.
 
@@ -588,6 +588,6 @@ Task B(`SNS_WatchdogAB_TestB`)의 RunLevel을 (4)번 후보 미검증 상태였�
 
 **Evidence:** `Get-WinEvent Microsoft-Windows-TaskScheduler/Operational`(Task 이름 필터 및 시스템 전역 조회 다회) / `Get-ScheduledTaskInfo`·`Get-ScheduledTask...Settings`·`...Principal` 다회 / WMI `Get-CimInstance Win32_Process` 폴링(0.2초×50회) / `auditpol /get /subcategory:{0CCE922B-69AE-11D9-BED3-505054503030}` / `Get-WinEvent` Windows Defender/Operational, CodeIntegrity/Operational, `MSFT_MpComputerStatus.SmartAppControlState` / `Get-WinEvent` System log(12:45~16:40, Id 507/172/566/3502/36871) / Security log(4624) / 마커 파일(`_ab_test_marker.txt`) raw 생성 확인 12회+
 
-**관련:** ERR-047, ERR-050, FP-017
+**관련:** ERR-047, ERR-050, FP-017, INC-028
 
 **진단용 Task 보존:** `SNS_WatchdogAB_TestA`/`TestB`/`TestD`는 증거 보전을 위해 삭제하지 않고 유지 중 — 운영 Task와 완전 별개, 삭제 여부 별도 승인 필요.

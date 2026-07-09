@@ -670,3 +670,27 @@ ERR-051에서 "미검증 상태로 남음" 처리됐던 후보(4) RunLevel=Limit
 
 commit: 미실행 — `docs/ERROR_DATABASE.md`/`docs/FAILURE_PATTERN.md`/`porting_logs/MERGE_JOURNAL.md` working tree에만 반영, 이번 커밋으로 함께 반영 예정
 push: 미실행 — commit 후 별도 승인 필요
+
+---
+
+## [260709] INC-028 등록 — watchdog.log 감시 공백 3시간12분(20:09:40~23:22:14) + 파이프라인 전체 다운 및 재기동
+
+### 요약
+ERR-051 재현성 확인 작업 이후 운영 서비스 상태를 점검하는 과정에서, `logs/watchdog.log` 하트비트가 20:09:40에서 정지되어 있고 launcher/main.py(:5000)·Streamlit(:8501)·ngrok(:4040) 3개 서비스 프로세스가 전부 부재, 포트 3개 전부 미바인딩 상태임을 발견(22:56경 최초 포착, 23:01:54 종합 확인). 전수 프로세스 확인(잔존/좀비 0건)을 선행한 뒤 python/streamlit/ngrok을 순차 재기동하고, 관리자 권한(UAC 승인)으로 watchdog.ps1을 재기동해 23:22:14 HEARTBEAT 재개 확인. 4개 서비스 전부 정상화됐으나 공백의 근본 원인은 UNKNOWN으로 남음.
+
+### 문서화
+- `docs/INCIDENT_TIMELINE.md` — INC-028 신규 등록(발생/발견/요약/발견당시상태/재기동절차/근본원인 UNKNOWN 명시/해결/재발방지/n8n 노이즈 별도 기록)
+- `docs/ERROR_DATABASE.md` — ERR-047/ERR-050/ERR-051 관련 라인에 INC-028 상호 참조 추가(3곳)
+- `porting_logs/MERGE_JOURNAL.md` — 본 항목 추가
+
+### 근본원인 상태
+- INC-028 자체 원인: UNKNOWN — System 이벤트 로그(20:05~20:20) 매칭 0건은 원인 배제도 확정도 아님, 재부팅 여부·foreground 세션 종료 여부 모두 미확정으로 명시적 표기
+- ERR-047/ERR-050/ERR-051과의 통합 조사 여부는 미결정 — 다음 세션 판단 필요
+
+### 다음 세션 승계
+- INC-028과 ERR-047/050/051의 인과관계·통합 조사 여부 판단
+- watchdog 하트비트 정지에 대한 자동 감지/알림 계층이 실제로 이번 3시간+ 공백 동안 작동했는지(또는 왜 작동하지 않았는지) 검증 필요
+- n8n WARN→ERROR→RECOVER 노이즈 패턴에 대한 별도 FP 등록 여부는 미결정(승인 대기)
+
+commit: 미실행 — `docs/INCIDENT_TIMELINE.md`/`docs/ERROR_DATABASE.md`/`porting_logs/MERGE_JOURNAL.md` working tree에만 반영, 별도 승인 필요
+push: 미실행 — commit 후 별도 승인 필요
