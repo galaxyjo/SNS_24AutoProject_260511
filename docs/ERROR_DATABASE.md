@@ -591,3 +591,47 @@ Task B(`SNS_WatchdogAB_TestB`)의 RunLevel을 (4)번 후보 미검증 상태였�
 **관련:** ERR-047, ERR-050, FP-017, INC-028
 
 **진단용 Task 보존:** `SNS_WatchdogAB_TestA`/`TestB`/`TestD`는 증거 보전을 위해 삭제하지 않고 유지 중 — 운영 Task와 완전 별개, 삭제 여부 별도 승인 필요.
+
+---
+
+## ERR-052 | 250723(Reference Only) 참조전용 저장소를 가리키는 활성 Scheduled Task 2개 발견 — SNS_AUTO_PRODUCTION / SNS_Auto_Run
+
+**Type:** Infrastructure / Governance — 저장소 경계 규칙(250723 실행 금지) 위반 정황 (not application code)
+
+**발견 경위:** heartbeat_monitor.py의 Task Scheduler launch-only 실패(`SNS_HeartbeatMonitor_Independent`, 등록 직후 일시적 재현)를 조사하던 중, "지금 이 순간 Task Scheduler 전반이 정상인지" 기존 정상 Task로 교차검증할 목적으로 `SNS_Auto_Run`을 골라 `Start-ScheduledTask`로 수동 트리거했다가, 그 Action이 `C:\SNS_24AutoProject_250723\tools\run_production.py`를 가리키고 있음을 우연히 발견함 — 250723을 노린 의도된 감사가 아니었음을 명시한다.
+
+**Raw — Task 2건:**
+- `SNS_AUTO_PRODUCTION`: StartBoundary 2025-11-20T09:00:00, DailyTrigger(DaysInterval=1), Action=`python.exe C:\SNS_24AutoProject_250723\tools\run_production.py`, 발견 시점 State=Ready, LastRunTime=2026-07-09 09:37:51(자연 발동, 예정 09:00 대비 37분 지연), LastTaskResult=1
+- `SNS_Auto_Run`: StartBoundary 2026-01-13T09:00:00, DailyTrigger(DaysInterval=1), Action=`python C:\SNS_24AutoProject_250723\tools\run_production.py`, 발견 시점 State=Ready, LastRunTime=2026-07-10 04:52:58(본 세션 수동 트리거 기록), LastTaskResult=1
+- 두 Task 모두 Execute 절대경로 없음(`python`/`python.exe`만), WorkingDirectory 미지정
+
+**Root Cause:** 250723→260511 이전(porting) 작업 시 코드 파일은 옮겼으나, 해당 코드를 자동 실행하던 Task Scheduler 등록은 정리되지 않고 250723 경로를 그대로 가리킨 채 방치됨(구조적 원인 상세는 FP-039 참조).
+
+**정적 분석 결과 (raw 근거 — "추정", stderr 실측 아님, 250723 재실행 금지 원칙상 재실행 미실시):**
+- 1차 실패점 추정: `Get-Command python`/`python.exe` → `Source: C:\Python314\python.exe`(프로젝트 venv 아닌 시스템 전역 Python 3.14.6), 해당 인터프리터 `pip list` 조회 결과 `dotenv`/`requests` 매칭 0건 — `run_production.py` 최상단 `from dotenv import load_dotenv`에서 `ModuleNotFoundError` 발생 가능성
+- 2차 실패점 추정(1차를 넘겼다면): `modules\log_trace.py` 부재(`Test-Path`=False), 대신 `modules\log_trace_fixed.py` 존재 확인(개명됨) — `from modules.log_trace import init_log_db` 실패 가능성
+- 3차 실패점 추정(2차도 넘겼다면): `modules\account_runner.py` 저장소 전체 재귀 검색 결과 0건(완전 부재) — `from modules.account_runner import run_all_accounts` 실패 가능성
+
+**250723 자체 로그/DB 최종 수정 시각 (raw, "프로덕션 쓰기까지 도달한 흔적 낮음"의 근거로만 인용):**
+`db\trace_log.db` 2026-05-11 14:52:05(가장 최근) / `db\instagram.db` 2026-02-04 / `db\session.db` 2026-02-09 / `*.log` 전체 최신 2025-11-22 — 두 Task가 등록 이후 매일 발동해온 것으로 추정되는 기간 대비, 의미 있는 산출물 갱신 흔적이 극히 낮음.
+
+**공유 프로덕션 자원 확인 (raw):**
+250723 `.env`: `AIRTABLE_BASE_ID=apphJNTHWNoFcVb1D` / 260511 `.env`: `AIRTABLE_BASE_ID=apphJNTHWNoFcVb1D` — **동일 Base ID.** 250723과 260511이 같은 프로덕션 Airtable Base를 공유하는 상태이며, 위 3중 import 실패가 우연히 해소되는 시점부터 260511과 동시에 같은 Base에 쓰기가 발생할 수 있는 잠재 위험이 실재했음.
+
+**조치 (2026-07-10):**
+```
+Disable-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION"
+Disable-ScheduledTask -TaskName "SNS_Auto_Run"
+Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object TaskName, State
+```
+결과(raw): `SNS_AUTO_PRODUCTION State=Disabled` / `SNS_Auto_Run State=Disabled` — **삭제 아님, 증거 보존 목적으로 비활성화만 수행.**
+
+**Status:** 🟡 MITIGATED — Disable로 즉시 위험(자동 발동에 의한 잠재적 동시 쓰기) 차단 완료. 근본 정리(Task 완전 삭제 여부, 250723 저장소 자체의 처리 방향)는 미완료.
+
+**반드시 UNKNOWN으로 남기는 항목:**
+- 약 8개월(2025-11-20~2026-07-10, 추정) 동안 단 한 번이라도 위 3중 import 실패 지점을 넘겨 실제 프로덕션 쓰기(Airtable/Instagram)에 도달한 적이 있는지 — 정적 추론상 가능성은 낮아 보이나 stderr 실측이 없어 확정 불가
+- 애초에 이 두 Task가 250723 절대경로를 가리키도록 등록된 경위(누가/언제/왜, 의도적 이중화였는지 실수였는지) — UNKNOWN
+
+**Evidence:** `Get-ScheduledTask`/`Get-ScheduledTaskInfo`/Triggers/Actions Format-List 다회(양쪽 Task) / `Get-Command python`,`python.exe` / `C:\Python314\python.exe -m pip list` / `Test-Path`+`Get-ChildItem -Recurse`(log_trace/account_runner) / `Get-ChildItem *.log,*.db -Recurse`(250723 전체) / 260511·250723 양쪽 `.env` AIRTABLE_BASE_ID 대조 / `Disable-ScheduledTask` 실행 후 재조회
+
+**관련:** FP-039, INC-029

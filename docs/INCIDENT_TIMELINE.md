@@ -411,3 +411,20 @@
 **별도 기록 (장애 아님, 노이즈):** watchdog.ps1 재기동 직후(23:22:20~23:23:11) n8n 관련 `[WARN] n8n 응답 없음` → `[ERROR] n8n 재시작 실패` → `[RECOVER] N8n 복구` 사이클이 30초 내 자동 발생·자동 해소됨. n8n은 CLAUDE.md 기준 "미설정, 정상" 상태이므로 실제 장애가 아니라 watchdog이 미구성 서비스를 체크하며 발생시키는 노이즈성 로그로 판단됨. 본 INC의 장애 범위에는 포함하지 않음 — 별도 FP·개선 항목 등록 여부는 승인 후 판단.
 
 **관련:** ERR-047, ERR-050, ERR-051, INC-023, INC-025
+
+---
+
+## INC-029 | 250723 참조 활성 Task 발견 및 긴급 비활성화 (2025-11-20 추정 ~ 2026-07-10)
+
+**발생 추정:** 2025-11-20(SNS_AUTO_PRODUCTION 최초 등록, StartBoundary 기준) ~ 2026-07-10(오늘, 비활성화 완료) — 약 8개월
+**발견:** 2026-07-10 새벽, `heartbeat_monitor.py`(신규 독립 감시 스크립트) 검증 작업 중 "기존 정상 Task로 Task Scheduler 전반 정상 여부 교차검증" 목적으로 `SNS_Auto_Run`을 트리거하다 우연히 발견 — 250723을 노린 의도된 조사가 아니었음을 명시한다.
+
+**요약:** `SNS_AUTO_PRODUCTION`(2025-11-20 등록)과 `SNS_Auto_Run`(2026-01-13 등록) 두 Windows Scheduled Task가 매일 09:00 `C:\SNS_24AutoProject_250723\tools\run_production.py`(Reference Only, 실행 금지 원칙 적용 저장소의 코드)를 실행하도록 활성 상태로 남아 있었음. 250723과 260511은 동일 프로덕션 Airtable Base(`apphJNTHWNoFcVb1D`)를 공유하고 있어, 잠재적으로 동시 쓰기 위험이 있는 상태였음. 발견 즉시 두 Task를 `Disable-ScheduledTask`로 비활성화(삭제 아님, 증거 보존).
+
+**실제 피해 여부:** UNKNOWN. 정적 분석(ERR-052 참조 — python 인터프리터에 dotenv 미설치, 모듈 파일 개명·부재로 인한 3중 import 실패 추정, 250723 자체 로그/DB 갱신 흔적이 6개월+ 전에 멈춤)상으로는 실제 프로덕션 쓰기까지 도달했을 가능성이 낮아 보이나, 이는 stderr 실측이 아닌 정적 추론일 뿐이며 8개월 전체 기간 중 단 한 번도 성공 실행이 없었다고 단정할 근거는 없음.
+
+**해결:** 2026-07-10 `Disable-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION"` / `"SNS_Auto_Run"` 실행, `Get-ScheduledTask` 재조회로 두 Task 모두 `State=Disabled` 확인(raw). 자동 발동에 의한 위험은 즉시 차단됐으나, Task 완전 삭제 여부·250723 저장소 자체 처리 방향은 별도 결정 필요.
+
+**재발 방지:** 오늘 1차 전수 스캔(`Get-ScheduledTask` 전체 순회, Actions 문자열에 `"250723"` 매칭)을 완료해 이 2건 외 Task Scheduler상 추가 발견은 없음을 확인함. 단, Task Scheduler 이외의 다른 자동화 경로(Windows 시작프로그램, 별도 스케줄러/서비스, cron 유사 도구 등)는 이번 점검 대상에 포함되지 않았음 — **UNKNOWN, 별도 전수 재점검 필요.**
+
+**관련:** ERR-052, FP-039
