@@ -17,3 +17,18 @@ build/
 .claude/
 snapshots/
 data/temp_images/
+
+# 260709 세션 스크래치 파일 (조사/진단용, 운영 코드 아님)
+_diff_*.txt
+_verify_*.txt
+_check_*.py
+_dryrun_*.py
+_dry_run_*.py
+_ab_marker_script.ps1
+_ab_test_marker.txt
+diff_*.txt
+grep_result_*.txt
+envprobe_test.ps1
+tools/_*.py
+tools/_*.txt
+docs/system_prompt_v2.md
