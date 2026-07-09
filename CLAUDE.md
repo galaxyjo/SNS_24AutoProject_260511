@@ -288,3 +288,7 @@ Evidence 없는 완료 선언 금지:
 3. git status --short
 
 위 3개 확인 전 어떤 작업도 시작하지 않는다.
+
+### STALE STATE CHECK
+명령/조사를 설계하기 직전, 확인하려는 값의 현재 실제 출처(현재 활성 config vs 과거 백업/git 이력)를 먼저 특정한 뒤 명령을 설계한다.
+근거: 260709 — Task Action이 이미 wrapper 경유로 전환된 상태에서 direct 실행 시절 원본값을 조회하려다 조회 자체가 무의미해진 사례(상세: ERR-047/MERGE_JOURNAL 참조).
