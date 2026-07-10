@@ -640,7 +640,30 @@ Task B(`SNS_WatchdogAB_TestB`)의 RunLevel을 (4)번 후보 미검증 상태였�
 
 **관련:** ERR-047, ERR-050, FP-017, INC-028
 
-**진단용 Task 보존:** `SNS_WatchdogAB_TestA`/`TestB`/`TestD`는 증거 보전을 위해 삭제하지 않고 유지 중 — 운영 Task와 완전 별개, 삭제 여부 별도 승인 필요.
+**진단용 Task 보존:** `SNS_WatchdogAB_TestA`/`TestB`/`TestD`는 증거 보전을 위해 삭제하지 않고 유지 중 — 운영 Task와 완전 별개. **2026-07-10 `Disable-ScheduledTask`로 비활성화 완료**(삭제 아님, State=Disabled), 완전 삭제 여부는 여전히 별도 승인 필요.
+
+**[2026-07-10 추가 Note — 트리거 0개 상태에서 TestB 자연 성공 관측 + 진단 Task 3종 Disable 처리]:**
+
+세션 시작 점검 중 `_ab_test_marker.txt` 파일 mtime이 이전 세션 마지막 기록(2026-07-09 16:56:12, 정상 성공 기준선)보다 최신인 **2026-07-10 00:44:37**로 갱신되어 있음을 발견, 재조사함.
+
+**Confirmed (raw):**
+- `Get-ScheduledTaskInfo -TaskName "SNS_WatchdogAB_TestB"` → `LastRunTime: 2026-07-10 00:44:33`, `LastTaskResult: 0`
+- 마커 파일 내용: `ENTERED: 2026-07-10T00:44:37.2077689+07:00 PID=24764 SessionId=1` — **이번엔 정상 완주(마커 실제 갱신)**, 직전 6/6 launch-only 실패(627번째 줄)와 다른 결과
+- `(Get-ScheduledTask -TaskName "SNS_WatchdogAB_TestB").Triggers` → **빈 배열(트리거 0개)**. TestA는 트리거 1개(1회성 `StartBoundary`, 이미 경과), TestD는 0개 — TestB의 00:44:33 실행은 자동 트리거로는 설명 불가, `Start-ScheduledTask`(수동/on-demand) 호출로 추정되나 **누가/무엇이 호출했는지는 UNKNOWN**(이번 세션에서 Claude Code가 트리거한 적 없음)
+
+**해석 (Hypothesis, 확정 아님):** 00:44:33은 2026-07-09 20:10:53 확정된 실제 OS shutdown(INC-028 Note 3) 이후 시스템이 재부팅되어 있던 시간대와 겹침. `SessionId=1`이 재부팅 후 첫 세션일 가능성을 시사하나, 이것만으로 재부팅 자체가 트리거 원인이라 확정할 근거는 없음.
+
+**조치 (2026-07-10):** 예측 불가능한(비결정적) 재현 패턴을 고려해 추가 재현 실험보다 증거 보전 우선 판단 — TestA/TestB/TestD 3개 전부 `Disable-ScheduledTask`로 비활성화(삭제 아님). 최초 시도는 비관리자 권한 세션에서 `Access is denied`로 실패, 관리자 권한(UAC) 재시도로 성공 확인:
+```
+SNS_WatchdogAB_TestA : DISABLE OK
+SNS_WatchdogAB_TestB : DISABLE OK
+SNS_WatchdogAB_TestD : DISABLE OK
+```
+재조회 결과 3개 전부 `State: Ready → Disabled` 확인. 이 조치 과정에서 사용한 스크래치 파일(`_disable_abtest_wrapper_260710.ps1`, `_disable_abtest_result_260710.txt`)도 동일한 원칙으로 처리 — **삭제하지 않고 보존**, `.gitignore`에 추가해 추적 대상에서만 제외(Task를 삭제 대신 Disable한 것과 동일하게, 파일도 삭제 대신 추적제외만 적용).
+
+**남은 UNKNOWN:** (1) TestB의 00:44:33 실행을 누가/무엇이 트리거했는지, (2) 애초에 12:51~13:17(260707)/22:26~22:30(260709) 두 차례 관측된 launch-only 실패의 근본 메커니즘 — 여전히 미해결. 이번 발견은 근본원인을 해소한 것이 아니라, "이 현상이 100% 재현되는 결정론적 실패가 아니라 예측 불가능하게 성공/실패가 뒤섞이는 패턴"이라는 사실만 추가함.
+
+**관련:** FP-038(갱신)
 
 ---
 
