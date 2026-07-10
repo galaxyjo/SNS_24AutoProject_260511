@@ -747,3 +747,29 @@ commit: 위 14개 전부 이미 각각 개별 커밋됨(`144bd47`~`729dc88`) —
 push: 미실행 — commit 후 별도 승인 필요
 
 ---
+
+## [260710_1850] SNS_Watchdog_AutoStart WakeToRun 적용 + ERR-054/FP-040 Note/VALIDATION_STATUS 문서화
+
+### 요약
+PENDING-A 조사 과정에서 `SNS_Watchdog_AutoStart` Task도 `WakeToRun: False`(FP-040과 동일 클래스 취약점)로 등록되어 있음을 발견. 관리자 권한 PowerShell로 `WakeToRun=True` 변경 적용, before/after XML·taskinfo diff로 다른 필드 변경 없음과 예약 인스턴스 영향 없음을 raw로 실증 확인 후 ERR-054 신규 등록.
+
+### 실행 절차
+1. 비관리자 권한 세션에서 `Set-ScheduledTask` 1차 시도 → `Access is denied`(0x80070005) 확인, 변경 미반영 재확인
+2. 사용자가 관리자 권한 PowerShell에서 직접 3~7단계 재실행
+3. `Export-ScheduledTask`(before/after) + `Compare-Object` XML diff → `WakeToRun` 라인 1개 외 변경 없음 확인
+4. `Get-ScheduledTaskInfo`(before/after) diff → `LastRunTime`/`LastTaskResult` 완전 동일 확인
+5. 최종 `State: Ready` 유지, `WakeToRun: True` 반영 확인
+
+### 문서화
+- `docs/ERROR_DATABASE.md` — ERR-054 신규 등록
+- `docs/FAILURE_PATTERN.md` — FP-040 Note 추가(watchdog Task도 동일 클래스 취약점 확인)
+- `docs/VALIDATION_STATUS.md` — `watchdog_wakeup_applied_260710` 신규 행 추가(PASS, 설정 적용+무결성 확인 범위로 한정 표기)
+
+### 다음 세션 승계
+- `SNS_Watchdog_AutoStart`의 `WakeToRun=True` 적용 후 실제 Modern Standby 재현 구간에서의 효과는 검증되지 않음(애초에 반복 트리거 구조가 아니라 검증 대상 여부 자체가 불명확 — 다음 세션에서 검증 필요성 판단 권장)
+- PENDING-A(NSSM 서비스 전환) 최종 결정 — 여전히 사용자 승인 대기 중
+
+commit: `1966891` (ERR-054/FP-040 Note/VALIDATION_STATUS 3개 파일)
+push: 미실행 — commit 후 별도 승인 필요
+
+---
