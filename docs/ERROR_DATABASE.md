@@ -498,6 +498,40 @@ Cannot overwrite variable Error because it is read-only or constant.
 - **Evidence:** `logs/watchdog_wrapper.log`(raw, 17행 `[2026-07-08 20:32:17] WRAPPER START`/18행 `PID=2656`, 이후 WRAPPER END 미기록) / `logs/watchdog_wrapper_stderr.log`(0 bytes, 빈 파일 확인) / `logs/watchdog.log`(1746~1764행, `20:32:18 watchdog 시작` ~ `20:36:41 HEARTBEAT` 이후 무기록, 파일 tail과 일치) / `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V`(Last Run Time 2026-07-08 20:32:05, Last Result -1073741510 = 0xC000013A 재확인)
 - 관련: ERR-050 (wrapper 자연사망 최초 증거 — 상세 근거는 ERR-050 항목 참조)
 
+**[2026-07-10 추가 Note 4 — 절전모드(Modern Standby) 상관관계 조사]:**
+
+`powercfg /a` 확인 결과, 이 시스템은 S1/S2/S3 전통적 대기 모드가 전부 비활성화되어 있음(S1/S2: 펌웨어 미지원, S3: 펌웨어 미지원 + Device Guard가 추가로 비활성화, 하이브리드 절전: S3 불가 + 하이퍼바이저 미지원) — 실질적으로 **Modern Standby(S0 저전원 유휴)만 사용 가능**한 구성. Fast Startup도 "현재 시스템 정책에서 사용하지 않도록 설정됨" — 기존 ERR-045에서 cold boot 확정에 썼던 근거와 일치.
+
+2026-07-09 19:00~2026-07-10 현재 System 로그의 Kernel-Power Id 506(Modern Standby 진입)/507(해제) 이벤트 raw 전체(11개 구간):
+```
+21:40:28 → 21:44:19
+21:47:18 → 21:50:46
+22:04:55 → 22:13:58
+23:52:41 → 23:56:05
+00:54:30 → 04:11:29   (약 3시간17분)
+04:30:54 → 04:32:26
+05:04:30 → 05:19:25
+05:59:30 → 06:14:47
+06:14:47 → 06:14:53
+06:42:27 → 06:42:28
+06:45:29 → 06:48:31
+```
+
+INC-028의 2차 다운(heartbeat_monitor.py가 탐지한 watchdog 마지막 heartbeat `2026-07-10 03:04:09`)은 `00:54:30~04:11:29` Modern Standby 구간 한가운데에 위치 — **상관관계가 강함**(인과관계 확정 아님).
+
+반면 INC-028의 1차 다운(watchdog 마지막 heartbeat `2026-07-09 20:09:40`)은 가장 가까운 절전 구간(21:40:28)과도 1시간30분 이상 차이가 나 — 이번 조사로는 절전모드로 설명되지 않음.
+
+**결론(잠정):** ERR-047/ERR-050/ERR-051/INC-028을 단일 근본원인으로 묶어온 전제 자체를 재검토할 필요가 있을 수 있음 — 최소 2개의 서로 다른 메커니즘(절전모드 관련 vs 미상)이 섞여 있을 가능성.
+
+**UNKNOWN으로 남기는 항목:**
+- INC-028 1차 다운(20:09:40)의 실제 원인 — 절전모드로 설명되지 않는다는 것 외에는 미상
+- Modern Standby가 왜 watchdog을 죽이는지의 메커니즘 — Windows가 절전 중 백그라운드 프로세스/Task Scheduler 트리거를 지연·억제하는 것은 일반적으로 알려진 동작이나, 이 컴퓨터에서 실제로 그렇게 작동했다는 직접 증거(프로세스 자체가 kill됐는지 vs 타이머만 지연됐는지 구분)는 아직 없음
+- `powercfg /sleepstudy` 리포트는 관리자 권한 필요로 미생성 — 향후 관리자 권한 세션에서 재시도 가능
+
+**Evidence:** `powercfg /a` / `Get-WinEvent -LogName System`(Kernel-Power Id 506/507, 2026-07-09 19:00~) / heartbeat_monitor.py의 `logs/heartbeat_monitor.log` 기록(last_heartbeat=2026-07-10 03:04:09) / INC-028 문서(1차 다운 20:09:40)
+
+**관련:** ERR-050, ERR-051, INC-028
+
 ---
 
 ## ERR-048 | launcher/main.py 중복 기동 — 세션 중 Start-Process 반복 실행으로 5세대(10프로세스) 동시 기동, 종료 후 유령 LISTENING PID 잔존
@@ -542,6 +576,12 @@ Cannot overwrite variable Error because it is read-only or constant.
 - 사망 근본원인 여전히 UNKNOWN — 본 항목 Root Cause의 Hypothesis (1)~(4) 중 이번 재부팅 케이스로 검증된 것 없음. Task Scheduler 세션정리/PowerShell Host 종료/wrapper 내부 미포착 예외 모두 미확정.
 - "다음 세션 승계 (b) 재부팅 시 wrapper 생존 여부 검증"은 이번 실증으로 수행되었으나 결과는 "생존"이 아닌 "약 4분 24초 후 자연사망" — 완화(MITIGATED) 판정의 근거였던 wrapper 안정성 가정이 재부팅 조건에서는 뒷받침되지 않음.
 - Status 변경 없음 — 🟡 MITIGATED(근본원인 미해결, OPEN 유지).
+
+**[2026-07-10 추가 Note 4 — 절전모드(Modern Standby) 상관관계 조사, ERR-047 Note 4와 연계]:**
+
+watchdog 관련 반복 사망 현상의 공통 원인 후보로 이 시스템의 절전 구성(Modern Standby만 사용 가능, S1/S2/S3 전부 비활성화, Fast Startup 비활성화)과 2026-07-09 19:00~2026-07-10 Modern Standby 진입/해제(Id 506/507) 이력을 조사함 — 전체 raw 이벤트 목록·상세 근거는 ERR-047 Note 4 참조(중복 서술 생략). INC-028의 2차 다운(watchdog 마지막 heartbeat 2026-07-10 03:04:09)이 00:54:30~04:11:29 Modern Standby 구간 한가운데에 위치해 상관관계가 강함(인과관계 확정 아님)으로 확인됐으나, 본 항목(ERR-050)이 다루는 07-08 20:32~20:36 wrapper silent death 사례는 이번 조사 대상 시간대(07-09 19:00 이후) 밖이라 직접 검증되지 않음 — 동일 메커니즘 여부는 UNKNOWN.
+Status 변경 없음 — 🟡 MITIGATED(근본원인 미해결, OPEN 유지).
+**관련:** ERR-047(Note 4 — 절전모드 상관관계 원본 근거)
 
 ---
 
