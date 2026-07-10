@@ -322,3 +322,80 @@ read-only 조사 명령(`Get-*`, `grep`, `diff`, `status` 조회, 이미 승인�
 ### ONE-LINE ELI10 PREFIX
 Claude Code가 작업 결과를 보고하거나 다음 행동을 제안하는 모든 응답의 맨 첫 줄에, 지금 하려는/한 작업이 무엇인지 10살 아이도 이해할 수 있는 아주 쉬운 한 문장을 먼저 쓴다. 그다음 빈 줄 하나, 그다음부터는 기존 응답 형식(결과 보고, raw 로그, 진행 상황 등)을 그대로 이어간다 — 순서·내용 변경 없이 맨 위에 한 줄만 추가하는 것이며, 이 한 줄 때문에 기존 raw 출력이나 상세 보고가 생략·축약되지 않는다.
 근거: 260709 세션 사용자 확정 요청 — 매 응답을 이해하기 쉽게 하기 위함.
+
+---
+
+## Multi-AI Review Policy
+
+### Objective
+Maximize code quality while minimizing unnecessary review overhead during the stabilization phase.
+
+### Roles
+- Claude Code
+  - Owns implementation.
+  - Executes code changes.
+  - Runs runtime tests.
+  - Produces evidence.
+- Codex
+  - Performs regression review.
+  - Reviews architecture consistency.
+  - Detects unintended side effects.
+  - Challenges implementation assumptions.
+- GPT
+  - Owns strategy.
+  - Prioritizes work.
+  - Reviews architectural direction.
+  - Resolves disagreements between reviewers.
+  - Maintains long-term project consistency.
+
+### Review Policy
+Not every change requires the full review pipeline.
+
+#### High-Risk Changes (Mandatory Full Review)
+Examples:
+- Repository Interface changes
+- Dependency Injection changes
+- Runtime behavior changes
+- Scheduler / Watchdog
+- Database schema
+- Cross-module refactoring
+- Production workflow modifications
+
+Workflow:
+Claude Code
+→ Codex Review
+→ Claude Revision
+→ GPT Architecture Audit
+→ Runtime Validation
+→ Approval
+
+#### Low-Risk Changes (Fast Path)
+Examples:
+- Read-only investigation
+- Logging improvements
+- Documentation
+- Small isolated fixes
+- UI text
+- Local helper functions
+
+Workflow:
+Claude Code
+→ Runtime Verification
+→ Report
+
+Codex and GPT review only if new evidence or unexpected behavior appears.
+
+### Repository Policy
+- Maintain a single Source of Truth project.
+- Do not create duplicate project folders.
+- All AI agents operate on the same active repository.
+- Separate responsibilities, not repositories.
+
+### Principle
+One Project.
+Multiple AI Roles.
+Evidence First.
+Runtime Before Opinion.
+Review Depth proportional to Risk.
+
+> 참고: 위 "Approval"은 리뷰 파이프라인 내부의 최종 검토 합의 단계를 의미하며, 실제 상태 변경/실행에 대한 승인 권한은 [H] STATE-CHANGE GATE 및 "승인 범위 명시 원칙"에 따라 사용자(회장)에게 있다. 이 섹션이 그 권한을 대체하지 않는다.
