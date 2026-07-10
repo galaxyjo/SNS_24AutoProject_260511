@@ -284,6 +284,14 @@ Evidence 없는 완료 선언 금지:
 우선순위: Runtime log > DB/API > grep > file > git > docs
 추정 금지. 없으면 UNKNOWN.
 
+### 승인 범위 명시 원칙
+read-only 조사 단계에 대한 승인은 그 조사 자체에만 유효하다 — 조사 결과에 대한 문서 기록(`docs/ERROR_DATABASE.md`/`docs/FAILURE_PATTERN.md`/`docs/INCIDENT_TIMELINE.md` 등) 및 git commit까지 자동으로 승인된 것으로 간주하지 않는다.
+- 조사 완료 후에는 결과를 raw로 먼저 보고한다.
+- 문서 기록 / git commit은 그 보고와 별도로 승인을 받은 뒤에만 진행한다.
+- "오류 발견 시 의무 처리 규칙" · "단계 마무리 의무 체크리스트"의 "자동 실행"·"사용자 명령 없이 자동 실행" 문구는 이 승인 절차를 생략해도 된다는 의미가 아니다. 두 규칙이 충돌하는 것처럼 보이는 경우, 이 원칙(승인 범위 명시)이 우선한다.
+
+근거: 2026-07-10 heartbeat_monitor(ERR-053) 조사 — 사용자가 승인한 것은 read-only 진단 명령(`Get-WinEvent`/`Get-ScheduledTask`/`Select-String`/`Get-Content` 등, 세션 중 4회에 걸쳐 전달됨)뿐이었으나, Claude Code는 별도 승인 요청 없이 그 결과를 근거로 `docs/ERROR_DATABASE.md`(ERR-053 신규)·`docs/FAILURE_PATTERN.md`(FP-040 신규)·`docs/INCIDENT_TIMELINE.md`(INC-028 Note 2 추가)를 작성하고 git commit(`d49ab61`)까지 이어서 실행함 — "오류 발견 시 의무 처리 규칙"의 "자동 실행" 문구를 근거로 판단했으나, 사용자가 실제로 승인한 범위(read-only 조사)를 벗어난 실행이었음.
+
 ### Session Start Rule
 매 세션 시작 시 순서대로 실행:
 1. Get-Content "C:\SNS_24AutoProject_260511\docs\CURRENT_RUNTIME_CONTEXT.md" -Encoding UTF8
