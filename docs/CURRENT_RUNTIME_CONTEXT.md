@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260705_DI_Canary3_kpi_collector_완료_
+_마지막 업데이트: 260710_heartbeat_monitor_절전대응+Governance_강화_ (⚠️ 260706~260709 구간 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조)
 
 ## 현재 단계
 **260624 Repository Interface 전체 작업 완료 + 검증 완료** — Failure Injection Test PASS (finally/AdsPower Stop 정상) / Runtime Proof 5회 연속 정상 (19:50~21:50) / Infrastructure 외부 직접 호출 실질적 0건 확정
 
 ## 최종 확인 커밋
-a24d318 (docs: record DI Canary #3 (kpi_collector.py) validation and merge journal [260705])
+e09fae5 (docs: CLAUDE.md 단계별 Bookending 원칙 추가 [260710])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -105,6 +105,12 @@ a24d318 (docs: record DI Canary #3 (kpi_collector.py) validation and merge journ
 - Shadow 모드 검증 완료 (260619): accounts.json=5건 vs Airtable=4건, 누락 그룹 610113703703488 감지
 - CRAWL_TARGET_SOURCE=airtable 전환 → Airtable 4건 URL 기반 크롤링 Runtime Proof 완료 (260619)
 - accounts.json: 계정/세션 정보 전용 유지 / crawl_urls: Airtable Crawl_Targets 단일 소스 (260619)
+- heartbeat_monitor.py 신규 추가 (b2aa30d) — watchdog.ps1과 독립된 Task Scheduler 기반(5분 주기) heartbeat 정지 감지 + Slack 알림
+- ERR-052/FP-039/INC-029: 250723 참조 활성 Task 2건(SNS_AUTO_PRODUCTION/SNS_Auto_Run) 발견 → Disable-ScheduledTask로 비활성화 완료
+- ERR-053/FP-040: heartbeat_monitor.py 예약 작업이 WakeToRun=False로 Modern Standby 중 71회(5시간47분) 미실행 근본원인 확정 → WakeToRun=True로 변경 완료(260710), 실제 절전 구간 재현 검증은 다음 세션 대기
+- INC-028 Note 3: 1차 다운(20:09:40)의 실제 원인 확정 — Modern Standby 아님, 실제 OS shutdown(StartMenuExperienceHost.exe 명의, 20:09:52 개시). 사람의 조작 가능성 Hypothesis(확정 아님)
+- PENDING-A(docs/PENDING_INVESTIGATIONS.md 신규): watchdog/heartbeat_monitor NSSM 전환 검토 — AdsPower Local API의 Session 0(S4U) 응답성 실증 SUCCESS 확인, 실제 전환 여부는 별도 결정 대기
+- CLAUDE.md governance 2건 추가: "승인 범위 명시 원칙"(read-only 조사 승인이 문서기록/commit까지 자동 포함하지 않음), "단계별 Bookending 원칙"(작업 전/후 상태 한 줄 확인)
 
 ## 미해결 항목 (Phase 후순위)
 - **[P0 — 다음 세션]** Instagram_Posts.execution_owner 필드 Airtable 추가
@@ -118,6 +124,11 @@ a24d318 (docs: record DI Canary #3 (kpi_collector.py) validation and merge journ
 - data/processed_comment_ids.json untracked 유지 (정상 — gitignore 대상)
 - 백업 필요 시점 도달 (마지막 백업: backup_(12)_260602_2207)
 - **[P1 — 다음 세션]** 도매꾹(domeggook) 크롤러 추가 — Crawl_Targets platform=domeggook 지원
+- **[P1 — 다음 세션]** heartbeat_monitor.py WakeToRun=True 변경 후 실제 Modern Standby 구간에서 로그가 이어지는지 실증 검증 대기
+- **[P1 — 다음 세션]** watchdog.ps1 자체의 절전/1차다운 근본 메커니즘 여전히 UNKNOWN (INC-028/ERR-047 계열, heartbeat_monitor 건과 별개)
+- **[P1]** ERR-047 핵심 증상(재부팅 후 SNS_Watchdog_AutoStart 무재실행) 자체는 여전히 미해결(OPEN)
+- **[P2]** ERR-051/FP-038 Task Scheduler launch-only 실패 근본원인 미확정
+- **[P2]** PENDING-A(NSSM 전환) 최종 결정 — 사용자 승인 필요
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -812,3 +823,34 @@ CAPTION_BLOCKLIST = ["coslife", "lily"]
 - 타겟 17/17 PASSED, 전체 104 passed·4 failed(pre-existing, test_dm_close.py)·3 xfailed
 - 신규 HOLD: airtable_repository.py 전체 GET 메서드 offset 페이지네이션 미구현
 - 커밋: 코드 f21e4b8 / 문서 a24d318
+
+## [260710] heartbeat_monitor 절전 대응 + Governance 강화
+
+### 완료 작업
+1. heartbeat_monitor.py 신규 (b2aa30d) — watchdog.ps1과 독립된 heartbeat 정지 감지, Task Scheduler 5분 주기(`SNS_HeartbeatMonitor_Independent`)
+2. ERR-052/FP-039/INC-029 (fe37ed4) — 250723 참조 활성 Task 2건(`SNS_AUTO_PRODUCTION`/`SNS_Auto_Run`) 발견, `Disable-ScheduledTask`로 즉시 비활성화
+3. ERR-047/050 INC-028 Modern Standby 상관관계 조사 (fdd1333) — 1차/2차 다운 메커니즘이 서로 다를 수 있음을 최초 제기
+4. ERR-049 증거 파일 정식 편입 + 스크래치 파일 gitignore 정리 (e8583ba)
+5. ERR-053/FP-040 (d49ab61) — heartbeat_monitor.py 예약 작업이 `WakeToRun=False`로 Modern Standby 중 71회(약 5시간47분) 미실행 근본원인 확정
+6. CLAUDE.md 승인 범위 명시 원칙 (3ab2e49) — read-only 조사 승인이 문서기록/commit까지 자동 포함하지 않음 (ERR-053 절차위반을 계기로 등록)
+7. INC-028 Note 3 (422f9bd) — 1차 다운(20:09:40) 실제 원인 확정: Modern Standby 아님, 실제 OS shutdown(`StartMenuExperienceHost.exe`, 20:09:52 개시). Update/로그오프 배제, 사람의 조작 Hypothesis(확정 아님)
+8. `docs/PENDING_INVESTIGATIONS.md` 신규 (b89e213) — PENDING-A(NSSM 전환 검토): AdsPower Local API가 Session 0(S4U)에서도 정상 응답함을 진단 Task로 실증 SUCCESS 확인
+9. CLAUDE.md 단계별 Bookending 원칙 (e09fae5) — 작업 전/후 상태를 한 줄로 확인하는 습관 등록
+10. `SNS_HeartbeatMonitor_Independent` Task `WakeToRun=True`로 변경 적용 — 실제 절전 구간 재현 검증은 다음 세션 대기
+
+### Known Facts
+- Flask(:5000)/Streamlit(:8501)/ngrok(:4040) 3개 포트 LISTENING 확인(260710 세션 중 재확인)
+- `SNS_HeartbeatMonitor_Independent` 최근 상태: `WakeToRun=True`, 나머지 Settings 필드 변경 없음
+- AdsPower Local API(`http://local.adspower.net:50325`)는 Session 0/S4U 비대화형 컨텍스트에서도 정상 응답(raw 실증 완료) — `facebook_crawler.py` 자체는 subprocess/GUI 의존 없음, 순수 HTTP 클라이언트
+
+### P0/P1 Backlog (다음 세션)
+1. WakeToRun=True 적용 후 실제 Modern Standby 구간 1~2회 확보해 heartbeat_monitor.log 기록 대조 검증
+2. watchdog.ps1 자체의 1차다운 근본 메커니즘(여전히 UNKNOWN) 별도 조사
+3. ERR-047 핵심 증상(재부팅 후 SNS_Watchdog_AutoStart 무재실행) 자체 해결책 검토
+4. PENDING-A(NSSM/서비스 전환) 최종 결정 — 사용자 승인 필요
+5. ⚠️ 260706~260709 커밋(ERR-048/050/051, INC-023/025/026/028, quality gate 재설계 등)은 이번 갱신에 미포함 — 필요 시 별도 backfill
+
+### 관련 문서
+- ERR-052/053, FP-039/040, INC-028(Note1~3)/029, PENDING-A — 전체 raw 근거는 각 문서 참조(중복 서술 최소화)
+
+---
