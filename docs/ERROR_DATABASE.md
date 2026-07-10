@@ -733,3 +733,35 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Evidence:** `Get-ScheduledTaskInfo`/`Get-ScheduledTask...Settings`(양쪽 Task) Format-List / `Get-WinEvent Microsoft-Windows-Kernel-Power`(8시간) / `Get-Content watchdog.log`(grep 06:0·06:1·재시작·restart·kill) / `Get-Content heartbeat_monitor.log`(tail) / `tools/heartbeat_monitor.py`, `README.md`, `watchdog.ps1` 소스 확인 / `Get-CimInstance Win32_Process`(부모-자식 PID 대조)
 
 **관련:** ERR-047, ERR-050, ERR-051, ERR-052, INC-028, FP-040
+
+---
+
+## ERR-054 | SNS_Watchdog_AutoStart 예약 작업도 WakeToRun=False로 등록되어 있었음(FP-040과 동일 클래스 취약점) — 관리자 권한으로 WakeToRun=True 적용, XML/taskinfo diff로 부작용 없음 실증
+
+**Type:** Infrastructure / Task Scheduler 설정 (not application code)
+
+**발견 경위:** ERR-053/FP-040(heartbeat_monitor.py Modern Standby 미실행) 조사 종료 후, PENDING-A(NSSM 전환 검토) 관련 작업 중 `SNS_Watchdog_AutoStart` Task 설정을 재확인하다 이 Task 역시 `WakeToRun: False`로 등록되어 있음을 확인.
+
+**Raw (변경 전):**
+- `Get-ScheduledTask ... Settings` → `WakeToRun: False`, `RestartCount: 3`, `RestartInterval: PT1M`, `DisallowStartIfOnBatteries: True`
+- Action: `powershell.exe -ExecutionPolicy Bypass -File watchdog_task_wrapper.ps1`
+- Trigger: `Delay: PT1M` 반복 패턴 2건(로그온/부팅 계열 추정)
+
+**1차 시도(비관리자 권한) 실패:** `Set-ScheduledTask` → `Access is denied` (HRESULT `0x80070005`). 변경 후 State/taskinfo 재확인 결과 변경 전과 완전 동일 — 부수효과 없이 순수 실패로 확인.
+
+**2차 시도(관리자 권한) 성공:**
+- `Export-ScheduledTask`로 before.xml/after.xml 스냅샷 확보(`snapshots/watchdog_wakeup_260710/`)
+- `Set-ScheduledTask -Settings`로 `WakeToRun=True` 적용
+- XML diff(`Compare-Object`): 변경 라인 단 1개(`<WakeToRun>true</WakeToRun>` 추가) — 다른 필드 변경/리셋 없음
+- taskinfo diff: `LastRunTime`/`LastTaskResult`(2147943467) 변경 전후 완전 동일 — 예약 인스턴스 영향 없음
+- 최종 확인: `State: Ready` 유지, `WakeToRun: True` 반영 확인
+
+**Root Cause:** N/A — 버그가 아니라 설정 누락(FP-040과 동일 원인 클래스: Task 등록 시 `WakeToRun` 기본값(False)을 점검하지 않음).
+
+**Fix:** 적용 완료 — `WakeToRun: True`로 변경(관리자 권한). 단, 이 Task는 로그온/부팅 1회성 트리거 + 상시 루프 프로세스 구조라 FP-040 본문이 규정한 "반복 트리거+Modern Standby" 재현조건과 완전히 같지는 않음 — 예방 차원 적용이며, 실제 Modern Standby 구간에서의 효과 검증은 대상 외.
+
+**Prevention:** FP-040 예방안("WakeToRun 점검 체크리스트화")을 heartbeat_monitor뿐 아니라 이 프로젝트의 모든 Task Scheduler 등록 Task에 전수 적용.
+
+**Evidence:** `snapshots/watchdog_wakeup_260710/{before,after}.xml`, `taskinfo_{before,after}.txt` (gitignore 대상, 로컬 보존, git 미추적)
+
+**관련:** FP-040, ERR-053

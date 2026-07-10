@@ -498,3 +498,7 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **해결:** 미해결 — ERR-053 Fix 후보 참조, 사용자 승인 대기.
 **예방:** (1) "watchdog을 감시하는 감시자"처럼 가용성이 핵심인 반복 Task는 등록 시 `WakeToRun=True` 여부를 필수 점검 항목화. (2) 상시 루프 프로세스(watchdog.ps1 방식)와 반복 트리거 프로세스(heartbeat_monitor.py 방식)는 절전 복원력이 다르다는 점을 설계 단계에서 인지 — 가용성이 중요한 감시 스크립트는 후자보다 전자 방식을 우선 검토. (3) `NumberOfMissedRuns`를 정기 점검 체크리스트(`get_watchdog_status()` 등)에 포함시키는 방안 검토.
 **관련:** ERR-053, ERR-047, INC-028
+
+**[2026-07-10 추가 Note — watchdog Task(`SNS_Watchdog_AutoStart`)에도 동일 클래스 취약점 확인 + WakeToRun=True 적용]:**
+ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py Task뿐 아니라 `SNS_Watchdog_AutoStart`(watchdog.ps1 기동용)에도 동일하게 등록되어 있었음을 확인(ERR-054). 단 이 Task는 반복(Repeating) 트리거가 아니라 로그온/부팅 1회성 트리거 + 상시 루프 프로세스 구조라, 본 패턴이 규정한 재현조건(반복 트리거+Modern Standby)과 완전히 동일하지는 않음 — 그럼에도 예방 차원에서 관리자 권한으로 `WakeToRun=True` 적용, XML/taskinfo diff로 다른 필드 변경 없음과 예약 인스턴스 영향 없음을 실증 확인(`snapshots/watchdog_wakeup_260710/`). 실제 Modern Standby 재현 구간에서의 효과 검증은 heartbeat_monitor.py와 마찬가지로 미완료.
+**관련(추가):** ERR-054
