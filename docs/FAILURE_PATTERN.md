@@ -502,3 +502,14 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **[2026-07-10 추가 Note — watchdog Task(`SNS_Watchdog_AutoStart`)에도 동일 클래스 취약점 확인 + WakeToRun=True 적용]:**
 ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py Task뿐 아니라 `SNS_Watchdog_AutoStart`(watchdog.ps1 기동용)에도 동일하게 등록되어 있었음을 확인(ERR-054). 단 이 Task는 반복(Repeating) 트리거가 아니라 로그온/부팅 1회성 트리거 + 상시 루프 프로세스 구조라, 본 패턴이 규정한 재현조건(반복 트리거+Modern Standby)과 완전히 동일하지는 않음 — 그럼에도 예방 차원에서 관리자 권한으로 `WakeToRun=True` 적용, XML/taskinfo diff로 다른 필드 변경 없음과 예약 인스턴스 영향 없음을 실증 확인(`snapshots/watchdog_wakeup_260710/`). 실제 Modern Standby 재현 구간에서의 효과 검증은 heartbeat_monitor.py와 마찬가지로 미완료.
 **관련(추가):** ERR-054
+
+---
+
+## FP-041 | 동일 스크립트를 실행하는 python.exe가 여러 PID로 보여도 자동으로 "중복 실행"은 아님 — 부모-자식 체인 확인 없이 종료하면 정상 프로세스를 불필요하게 죽일 위험
+
+**발생일:** 260706(ERR-048/FP-036, 실제 중복 사례) / 260711(이번, 실제로는 정상 부모-자식 구조였던 사례)
+**증상:** `.venv` python이 시스템 python을 자식으로 재실행하는 구조상, 동일 스크립트(launcher/main.py, dashboard.py) 실행 python.exe가 4개까지 보일 수 있음 — PID만 보면 FP-036(실제 중복)과 구분 안 됨.
+**근본원인:** venv 재실행 구조 자체는 정상 동작 — "문제"는 식별 절차 부재.
+**해결:** StartTime 근접 + ParentProcessId 체인 + 포트 소유(netstat) 3가지 대조로 논리적 서비스 개수 확인 후 판정.
+**예방:** python.exe 다중 PID 발견 시 즉시 종료 금지, 위 3단계 확인 절차 표준화.
+**관련:** FP-036, ERR-048

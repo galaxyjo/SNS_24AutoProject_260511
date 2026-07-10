@@ -765,3 +765,45 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Evidence:** `snapshots/watchdog_wakeup_260710/{before,after}.xml`, `taskinfo_{before,after}.txt` (gitignore 대상, 로컬 보존, git 미추적)
 
 **관련:** FP-040, ERR-053
+
+---
+
+## ERR-055 | backup(14) zip 크기 이상(9.14MB, backup(13) 172MB 대비 급감) — 프로세스 점유로 일부 파일 압축 누락 추정, 전체 정지 후 backup(15) 재생성(174,715KB)으로 정상 확인
+
+**Type:** Operational / 백업 무결성
+
+**발견 경위:** backup(14)(260710_2332) 생성 시 db 4개 파일은 SQLite Online Backup API로 무중단 안전복사 성공 + 오류 0건으로 정상 판정했으나, 사용자가 Windows 탐색기에서 backup(13)(172MB) 대비 파일 크기(9.14MB)를 비교하다 이상 발견.
+
+**Raw:**
+- backup(14) 생성 시점, launcher 중복 프로세스(30636/31416) + dashboard(4996/33476) + n8n(10248)이 db/log 파일을 점유 중이었음
+- 최초 순수 `Compress-Archive` 시도는 `db\retry_queue.db`, `logs\n8n.log`에서 각각 "being used by another process"로 실패(zip 미생성)
+- SQLite Online Backup API(db 4개) + `FileShare.ReadWrite` 강제 오픈(나머지 전체) 스테이징 방식으로 우회해 9.14MB zip 생성 — 이때 검증은 "파일 개수(2278개)"만 했고 직전 백업 대비 크기 비교를 하지 않아 이상 징후를 놓침
+- 정확히 어떤 파일이 최종 누락됐는지는 raw 로그로 재확인 안 됨 — "n8n.log 등 잠금 실패로 누락"은 추정이며 확정 아님
+
+**Root Cause:** 미확정(UNKNOWN). 조치(전체 프로세스 정지) 후 backup(15)가 174,715KB로 backup(13)과 동일 정상범위로 복귀한 것은 "프로세스 점유가 원인이었을 가능성이 높다"는 상관관계 증거일 뿐, 인과관계 확정은 아님.
+
+**Fix:** launcher(2개)+dashboard(2개)+n8n(1개, 관리자권한 필요) 전부 정지 → backup(15)(174,715KB) 재생성 + sha256 해시 생성 완료.
+
+**Prevention:** 백업 검증 절차에 "직전 백업 대비 크기 비교(예: ±20% 초과 시 경고)"를 파일개수 확인과 함께 표준 항목화. 프로세스 가동 중 백업 시 SQLite 외 일반 로그 파일도 잠금 충돌 가능성 있음을 사전 고지.
+
+**Evidence:** `Get-Item SizeMB` 대조(13=172MB/14=9.14MB/15=174,715KB), zip 엔트리 수(2278개), 최초 `Compress-Archive` 실패 로그 2건
+
+**관련:** 없음(신규, 이번 세션 ERR-054/WakeToRun 건과는 시간상 인접하나 논리적으로 무관)
+
+**Note:** backup(14).zip은 삭제하지 않고 보존(증거 가치, 삭제 여부는 이번 범위 밖 별도 판단).
+
+---
+
+## ERR-056 | n8n(PID 10248, :5678)이 설계단계(DESIGN_COMPLETE, execution_owner 미구현)임에도 승인 없이 LISTENING 상태로 가동 중 발견 — 가동 원인 UNKNOWN, 우선순위 낮음으로 추가조사 보류
+
+**발견 경위:** backup 작업 중 포트 점검(netstat) 과정에서 `:5678`(n8n 기본포트) LISTENING 발견. MASTERTREE_CONTRACT.md 기준 n8n은 WF-01~05 설계만 확정, execution_owner 미구현 — 실행 승인 이력 없는 컴포넌트.
+
+**Raw:** netstat PID 10248 `:5678` LISTENING / CommandLine 조회 시 권한제한으로 빈 값 / 비관리자 세션 Stop-Process 2회 시도 모두 Access denied
+
+**Root Cause:** UNKNOWN — 시작 주체/시점 미상.
+
+**Fix:** 이번 세션 재기동 목록에서 의도적 제외, 관리자 권한으로 최종 정지 완료.
+
+**Prevention:** 미정 — 사용자 판단상 우선순위 낮음, 현황만 기록. 단 "우선순위 낮음"은 재발방지 조치를 미루는 것이지 기록 생략 사유는 아님(Evidence Rule 우선 적용).
+
+**관련:** ERR-052
