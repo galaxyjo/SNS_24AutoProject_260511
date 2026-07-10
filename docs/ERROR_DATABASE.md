@@ -524,13 +524,23 @@ INC-028의 2차 다운(heartbeat_monitor.py가 탐지한 watchdog 마지막 hear
 **결론(잠정):** ERR-047/ERR-050/ERR-051/INC-028을 단일 근본원인으로 묶어온 전제 자체를 재검토할 필요가 있을 수 있음 — 최소 2개의 서로 다른 메커니즘(절전모드 관련 vs 미상)이 섞여 있을 가능성.
 
 **UNKNOWN으로 남기는 항목:**
-- INC-028 1차 다운(20:09:40)의 실제 원인 — 절전모드로 설명되지 않는다는 것 외에는 미상
+- INC-028 1차 다운(20:09:40)의 실제 원인 — 절전모드로 설명되지 않는다는 것 외에는 미상이었으나, 아래 Note 5(및 INC-028 Note 3)에서 해소됨(실제 OS shutdown 확인)
 - Modern Standby가 왜 watchdog을 죽이는지의 메커니즘 — Windows가 절전 중 백그라운드 프로세스/Task Scheduler 트리거를 지연·억제하는 것은 일반적으로 알려진 동작이나, 이 컴퓨터에서 실제로 그렇게 작동했다는 직접 증거(프로세스 자체가 kill됐는지 vs 타이머만 지연됐는지 구분)는 아직 없음
 - `powercfg /sleepstudy` 리포트는 관리자 권한 필요로 미생성 — 향후 관리자 권한 세션에서 재시도 가능
 
 **Evidence:** `powercfg /a` / `Get-WinEvent -LogName System`(Kernel-Power Id 506/507, 2026-07-09 19:00~) / heartbeat_monitor.py의 `logs/heartbeat_monitor.log` 기록(last_heartbeat=2026-07-10 03:04:09) / INC-028 문서(1차 다운 20:09:40)
 
 **관련:** ERR-050, ERR-051, INC-028
+
+**[2026-07-10 추가 Note 5 — INC-028 1차 다운(20:09:40) 실제 원인 확정: 실제 OS Shutdown, Modern Standby 아님]:**
+
+Note 4의 "UNKNOWN으로 남기는 항목" 중 "INC-028 1차 다운(20:09:40)의 실제 원인"을 재조사하여 확정함. 상세 이벤트 체인·Confirmed/Hypothesis/UNKNOWN 전체 구분은 INC-028 Note 3에 기록(중복 서술 생략) — 요약: `20:09:52` `StartMenuExperienceHost.exe`가 admin 세션 명의로 시스템 종료를 개시, `20:10:53` OS 종료 확정까지 정상적인 종료 시퀀스가 이어짐. Modern Standby 아님 — 직전 절전 해제(19:39:00, Id=507)부터 다음 절전 진입(21:40:28, Id=506)까지 약 2시간1분 동안 Modern Standby 이벤트가 전혀 없었고(`Get-WinEvent` Id=506,507 raw 확인), 1차 다운 전체 구간(20:09:40 마지막 heartbeat ~ 20:10:53 OS 종료 확정)이 이 공백 한가운데 위치함. Windows Update 강제 재부팅 아님, 명시적 사용자 로그오프/잠금 이벤트도 아님 — 전부 raw 로그로 배제 확인.
+
+시작 메뉴를 통한 사람의 직접 종료 조작일 가능성이 가장 유력하나(Hypothesis, 확정 아님), `20:10:03` 재시도 실패 기록과 `20:10:28` 실제 종료 재개 사이 25초 갭의 메커니즘은 여전히 UNKNOWN.
+
+이 발견으로 Note 4의 "결론(잠정) — 최소 2개의 서로 다른 메커니즘(절전모드 관련 vs 미상)이 섞여 있을 가능성"이 확정됨: 2차 다운(Modern Standby 상관관계 강함, ERR-053에서 heartbeat_monitor 쪽 메커니즘 확정) / 1차 다운(실제 OS shutdown, 사람의 조작 가능성) — 서로 다른 별개 사건으로 분리 확정.
+
+**관련(추가 5):** INC-028(Note 3 — 원본 근거)
 
 ---
 

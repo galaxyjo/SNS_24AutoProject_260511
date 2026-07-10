@@ -421,7 +421,7 @@
 - 즉 같은 "watchdog 감시 공백"으로 묶여온 1차/2차 다운이 서로 다른 메커니즘일 가능성이 있음 — ERR-047/050/051/본 INC를 단일 근본원인으로 묶어온 전제 재검토가 필요할 수 있음(잠정 결론, 확정 아님)
 
 **UNKNOWN 유지:**
-- 1차 다운(20:09:40)의 실제 원인
+- 1차 다운(20:09:40)의 실제 원인 — 아래 Note 3에서 해소됨(실제 OS shutdown 확인, Modern Standby 아님)
 - Modern Standby가 watchdog.ps1 자체를 실제로 어떻게 멈추는지의 메커니즘(프로세스 kill vs 타이머 지연 등 미구분) — 아래 Note 2는 heartbeat_monitor.py 쪽 메커니즘만 해소한 것이며, watchdog.ps1 자체의 메커니즘은 여전히 UNKNOWN
 - `powercfg /sleepstudy`는 관리자 권한 필요로 미생성(향후 재시도 가능)
 
@@ -436,6 +436,37 @@ Note 1에서 "Modern Standby가 watchdog을 실제로 어떻게 멈추는지의 
 - 즉 heartbeat_monitor.log가 06:11:29 이후 조용히 멈춘 것은 "프로세스 크래시"가 아니라 "애초에 Task Scheduler가 절전 중 트리거를 스킵해 프로세스가 생성되지 않았다"는 것으로 근본 원인이 확정됨(ERR-053/FP-040 참조)
 
 **관련(추가 2):** ERR-053, FP-040
+
+**[2026-07-10 추가 Note 3 — 1차 다운(20:09:40) 실제 원인 확정: Modern Standby 아님, 실제 OS Shutdown]:**
+
+Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 항목을 재조사함.
+
+**Confirmed:**
+1차 다운은 Modern Standby(절전)가 아니라 **실제 OS shutdown 이벤트**였음. 이벤트 체인(raw, 시간순):
+- `20:09:40` `watchdog.log` 마지막 HEARTBEAT
+- `20:09:52` System log, User32 Id=1074 — `StartMenuExperienceHost.exe`가 admin 세션 명의로 시스템 종료 개시 (`Reason Code: 0x0`, `기타(계획되지 않음)`, `Shutdown Type: 전원 끄기`)
+- `20:10:03` User32 Id=1073 — "The attempt by user ... to restart/shutdown ... failed" (재시도 실패 기록)
+- `20:10:28~20:10:53` — 서비스 순차 종료(explorer.exe/StSess.exe가 종료 지연, DHCP/WLAN/EventLog/TaskScheduler 서비스 순차 stop)
+- `20:10:44` Kernel-Power Id=105(전원 소스 변경) / `20:10:51` Id=109(종료 전환 개시, `Reason: Kernel API`) / `20:10:53` Id=577(재부팅 준비)
+- `20:10:53` Kernel-General Id=13 — "The operating system is shutting down"
+- 마지막 heartbeat(20:09:40)와 종료 개시(20:09:52) 사이 12초 — 시간 정합 확인됨
+
+**Confirmed(배제):**
+- Modern Standby 아님 — 직전 절전 해제(19:39:00, Id=507)부터 다음 절전 진입(21:40:28, Id=506)까지 약 2시간1분 동안 Modern Standby 이벤트가 전혀 없었고(`Get-WinEvent` Id=506,507 raw 확인), 1차 다운 전체 구간(20:09:40 마지막 heartbeat ~ 20:10:53 OS 종료 확정)이 이 공백 한가운데 위치함
+- Windows Update 강제 재부팅 아님 — `19:00~20:15` 구간 Update 관련 Provider/Message 매칭 이벤트 0건
+- 명시적 사용자 로그오프/화면 잠금도 아님 — Security 로그 4647/4634/4801/4800(`20:08~20:11`) 매칭 이벤트 0건
+
+**Hypothesis (확정 아님):**
+시작 메뉴에서 사람이 직접 전원 버튼을 눌렀을 가능성이 가장 유력 — `Id=1074`가 `StartMenuExperienceHost.exe`(시작 메뉴 UI 프로세스 자체) 명의로 기록됐기 때문. 단, 다른 프로세스가 동일 종료 API를 자동 호출했을 가능성을 배제할 로그 증거는 없어 100% 확정은 아님.
+
+**UNKNOWN (미해결):**
+`20:10:03` "재시도 실패" 기록과 `20:10:28` 실제 종료 재개 사이 25초 갭의 정확한 메커니즘 — 어떤 프로세스/조건이 1차 종료 시도를 지연·차단했다가 25초 뒤 종료가 재개됐는지 불명. 재발 시 재조사 대상으로 남김.
+
+**조사 방법(Evidence):** `Get-WinEvent` System/Security 로그 필터링 총 3회 라운드 — 1차(종료 체인 발견: User32/Kernel-Power/Kernel-General 이벤트, `watchdog.log` 타임스탬프 대조), 2차(Update 관련 Provider/Message 키워드 검색으로 배제, Security 4647/4634/4801/4800 조회로 로그오프/잠금 배제), 3차(Kernel-Power Id=506/507 전체 이력을 15:00~00:00 구간 시간순 정렬로 조회해 절전 공백 구간을 raw로 확정). `scheduler_err.log`/`Microsoft-Windows-TaskScheduler/Operational`도 같은 구간 조회했으나 이번 종료 체인과 직접 연관된 특이 항목은 확인되지 않음(대부분 종료 중 발생하는 일반 Task 실패 노이즈).
+
+**ERR 신규 등록 판단:** 이번 발견은 별도 ERR-NNN으로 등록하지 않음. 근거 — (1) 근본 원인이 "코드 결함"이나 "잘못된 인프라 설정"이 아니라 (가장 유력한 가설상) 사람의 종료 조작 또는 최소한 애플리케이션 레벨에서 통제 불가능한 OS 종료 이벤트이며, ERR 포맷의 핵심 요소인 Fix/Prevention을 "종료 자체를 막는다"는 방향으로 적용할 수 없음. (2) 실질적으로 필요한 후속 조치("재부팅 이후 watchdog이 안정적으로 자동 복구되어야 한다")는 이미 ERR-047의 Root Cause/Prevention 범위에 포함되어 있어, 동일 Prevention 계획을 이원화하면 중복·분산만 초래함. 이번 조사 결과는 본 Note와 ERR-047 Note 5(교차 기록)로만 남긴다.
+
+**관련(추가 3):** ERR-047
 
 ---
 
