@@ -772,4 +772,18 @@ PENDING-A 조사 과정에서 `SNS_Watchdog_AutoStart` Task도 `WakeToRun: False
 commit: `1966891` (ERR-054/FP-040 Note/VALIDATION_STATUS 3개 파일)
 push: 미실행 — commit 후 별도 승인 필요
 
+### 후반부 추가 작업 (260711 새벽)
+
+**1) backup(14) 부분 이상 → backup(15) 재생성**
+backup(14)(260710_2332, 9.14MB)이 backup(13)(172MB) 대비 비정상적으로 작음을 사용자가 파일탐색기 비교로 발견. 생성 당시 launcher(중복 2개)/dashboard(2개)/n8n(1개)이 db/log 파일을 점유한 상태로 압축을 시도했던 것이 원인으로 추정(확정 아님, ERR-055 참조). 전체 프로세스 정지(n8n은 관리자 권한 필요) 후 backup(15)(174,715KB) 재생성, backup(13)과 동일 정상범위 확인 + sha256 해시 생성 완료. backup(14).zip은 삭제하지 않고 보존.
+
+**2) n8n(PID 10248) 미승인 가동 발견 (ERR-056 등록)**
+MASTERTREE_CONTRACT.md 기준 설계만 완료(DESIGN_COMPLETE)·execution_owner 미구현 상태인 n8n이 `:5678`에서 LISTENING 중임을 backup 작업 중 발견. 가동 원인 UNKNOWN, 사용자 확인 결과 우선순위 낮음("급하지 않고 진행 중이던 작업 없음")으로 추가조사는 보류하되, ERR-052와 동일 유형(승인 안 된 컴포넌트 활성 상태 발견)이라 기록은 생략하지 않고 ERR-056으로 등록. 이번 세션에서는 재기동 목록에서 의도적으로 제외, 관리자 권한으로 최종 정지 완료.
+
+**3) launcher/dashboard 4개 프로세스 — 중복 아님, 부모-자식 정상 구조로 재확인 (FP-041 등록)**
+프로세스 재기동 후 python.exe 4개(38192→16548, 36064→39148)가 발견돼 최초엔 ERR-048/FP-036류 중복으로 의심했으나, StartTime(00:18:20~21 거의 동시)·ParentProcessId 체인·포트 소유(:5000/:8501 각각 단일) 대조 결과 `.venv` python이 시스템 python을 자식으로 재실행하는 정상 구조로 확인, 진짜 중복 아님으로 정정. 이번 대화 내에서도 동일한 "중복→정정" 왕복이 발생해 시간 낭비가 재현된 점을 근거로 FP-041(동일 스크립트 다중 PID 오판 방지)로 신규 등록.
+
+commit: `9c9cf6a` (ERR-055/ERR-056/FP-041/VALIDATION_STATUS 반영)
+push: 미실행 — commit 후 별도 승인 필요
+
 ---
