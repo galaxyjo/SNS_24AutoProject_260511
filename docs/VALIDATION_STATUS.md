@@ -36,6 +36,10 @@
 | di_canary2_airtable_integrity_260704 | ✅ PASS | 2026-07-04 |
 | di_canary3_kpi_collector_260705 | ✅ PASS | 2026-07-05 |
 | launcher_duplicate_instance_cleanup_260706 | 🟡 PARTIAL | 2026-07-06 |
+| inc028_1st_shutdown_root_cause_confirmed | ✅ PASS | 2026-07-10 |
+| heartbeat_wake_to_run_applied | 🟡 PARTIAL | 2026-07-10 |
+| pending_a_session0_adspower_verified | ✅ PASS | 2026-07-10 |
+| testabd_diagnostic_tasks_disabled | ✅ PASS | 2026-07-10 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -76,3 +80,7 @@
 | quality_gate_relevance_filter_redesign_260707 | ERR-049/FP-037/INC-027(260706 canary 실패) 이후 재설계. 정책: category_code='Healthy'→무조건 READY, category_code='BEAUTY'→한국어+영어 COSMETIC_KEYWORDS/IRRELEVANT_HINTS 매칭(미매칭 시 기본 FILTERED). 30건 dry-run 기준 사용자 승인 라벨과 대체로 일치. 단, 상품유형 키워드가 없는 BEAUTY title edge case 1건은 기본 FILTERED 정책상 known limitation으로 승인됨. Canary 편집 후 launcher 재시작 중 중복 이슈 발생/정리 완료. Runtime Proof: D001(BEAUTY) fetch=10 ready=2, D002(Healthy) fetch=10 ready=10 — 정책대로 정상 동작 확인. DEFER: 키워드 보강(팩/패치/시트/수분/진정/미백/주름/피부 등), UNKNOWN 3단계 상태 도입 검토(READY/FILTERED만 저장하는 현 구조 제약), FILTERED 로그 별도 저장. commit/push 별도 승인 필요. |
 | launcher_duplicate_instance_cleanup_260706 | ERR-048/FP-036/INC-026 등록. 세션 중 수동 반복 기동으로 launcher/main.py 5세대(10프로세스) 동시 생존 발견 → 8개 `Stop-Process -Force` 정리 + 단일 인스턴스(PID 33148/6140) 재기동, app.log상 스케줄러 1세트 정상 등록 확인. PID 20448/5284(전날 기동, Access denied)와 `:5000` 유령 LISTENING PID 32944(프로세스 열거 도구에 미포착)는 비관리자 권한으로 종료/식별 불가하여 미해결 — PARTIAL. |
 | watchdog_task_wrapper_260708 | wrapper 경유 Task 트리거 시 direct(60초 내 사망)보다 오래 생존(1h46m, 정상 heartbeat 지속) — 이중 감시 정리 위해 의도적 종료(크래시 아님). 재부팅 자동 트리거 실증 완료(260709) — Task Action 발동 확인되나 wrapper 4분 24초 만에 silent death, 근본원인 UNKNOWN(ERR-047 Note 2 / ERR-050 Note 3 / INC-025 Note 교차참조) |
+| inc028_1st_shutdown_root_cause_confirmed | INC-028 Note 3 / ERR-047 Note 5 — User32 Id=1074(20:09:52, StartMenuExperienceHost.exe 명의 종료 개시) → Kernel-Power/Kernel-General 종료 시퀀스(20:10:53 확정) raw 확인. Modern Standby(Id=506/507 공백 2시간1분 확인)·Windows Update·명시적 로그오프 전부 배제. 사람의 조작 가능성은 Hypothesis(확정 아님)로 남김. |
+| heartbeat_wake_to_run_applied | ERR-053/FP-040 — `SNS_HeartbeatMonitor_Independent` Task `WakeToRun=False→True` 변경 적용(Settings 나머지 필드 불변 확인). 실제 Modern Standby 구간에서 heartbeat_monitor.log가 이어지는지 실증은 미완료 — PARTIAL 판정. |
+| pending_a_session0_adspower_verified | `docs/PENDING_INVESTIGATIONS.md` PENDING-A — 진단 Task `SNS_DIAG_AdsPowerSession0Test`(LogonType S4U)로 AdsPower Local API 호출, `code=0`+`debug_port` 확인(SUCCESS). Task는 결과 확인 직후 Unregister로 제거, 재조회로 목록에서 사라짐 확인. |
+| testabd_diagnostic_tasks_disabled | ERR-051 Note(260710) — `SNS_WatchdogAB_TestA/TestB/TestD` 3개 전부 `Disable-ScheduledTask`로 State: Ready→Disabled 확인(관리자 권한 재시도로 성공). 삭제 아님, 증거 보전 목적 유지. |

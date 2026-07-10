@@ -694,3 +694,56 @@ ERR-051 재현성 확인 작업 이후 운영 서비스 상태를 점검하는 �
 
 commit: 미실행 — `docs/INCIDENT_TIMELINE.md`/`docs/ERROR_DATABASE.md`/`porting_logs/MERGE_JOURNAL.md` working tree에만 반영, 별도 승인 필요
 push: 미실행 — commit 후 별도 승인 필요
+
+---
+
+## [260710] heartbeat_monitor 절전 대응 + Governance 강화 + TestA/B/D 정리
+
+### 요약
+watchdog 감시 공백(ERR-047/050/051 계열) 후속 조사가 이전 세션(260709_2200)에서 시작해 자정을 넘겨 이번 세션(260710_1144)으로 이어짐. ERR-051 RunLevel=Limited 실증(100% 재현)과 INC-028 등록(watchdog 감시공백 3시간12분)을 시작으로, watchdog을 감시하기 위해 신규 추가한 heartbeat_monitor.py 자신도 Task Scheduler `WakeToRun=False`로 인해 Modern Standby 중 71회(5시간47분) 미실행됐음을 확인(ERR-053/FP-040). INC-028의 1차 다운(20:09:40) 원인을 실제 OS shutdown으로 확정(Note 3), 250723 참조 활성 Task 2건을 발견해 비활성화(ERR-052/FP-039/INC-029), watchdog/heartbeat_monitor의 NSSM 서비스 전환 검토를 위해 AdsPower Local API의 Session 0(S4U) 응답성을 신규 문서 `docs/PENDING_INVESTIGATIONS.md`(PENDING-A)로 실증(SUCCESS), `CURRENT_RUNTIME_CONTEXT.md` 260710 갱신, 증거보전용 진단 Task 3종(TestA/B/D) Disable 처리까지 완료. 세션 중 절차 위반(read-only 조사 승인 범위를 넘어 문서기록/commit까지 자동 실행)이 1건 발생해 CLAUDE.md에 "승인 범위 명시 원칙"과 "단계별 Bookending 원칙" 2개 governance 규칙을 신규 등록.
+
+### 커밋 목록
+**이전 세션(260709_2200)에서 시작, 자정 넘겨 이번 세션(260710_1144)로 이어짐:**
+1. `144bd47` — ERR-051 후속: RunLevel=Limited 실증 100% 재현, FP-038 등록
+2. `70a771f` — INC-028 등록: watchdog 감시공백 3시간12분 + 파이프라인 다운/재기동
+3. `fe37ed4` — ERR-052/FP-039/INC-029: 250723 참조 활성 Task 2건 발견 및 비활성화
+4. `b2aa30d` — heartbeat_monitor.py 신규: watchdog.ps1과 독립된 heartbeat 정지 감지
+5. `b1b3933` — README에 heartbeat_monitor.py 실행법/의존성 기록
+6. `fdd1333` — ERR-047/050 INC-028: 절전모드 상관관계 조사, 1차/2차 다운 메커니즘 분리
+7. `e8583ba` — ERR-049 증거 파일 정식 편입 + 스크래치 파일 gitignore 정리
+
+**이번 세션(260710_1144)에서 진행:**
+8. `d49ab61` — ERR-053/FP-040: heartbeat_monitor.py WakeToRun=False 근본원인 확정
+9. `3ab2e49` — CLAUDE.md 승인 범위 명시 원칙 추가
+10. `422f9bd` — INC-028 1차 다운(20:09:40) 원인 확정: 실제 OS shutdown
+11. `b89e213` — PENDING_INVESTIGATIONS.md 신규: PENDING-A AdsPower Session 0 실증 SUCCESS
+12. `e09fae5` — CLAUDE.md 단계별 Bookending 원칙 추가
+13. `7472cf4` — CURRENT_RUNTIME_CONTEXT.md 260710 갱신
+14. `729dc88` — TestA/B/D Disable 처리 + ERR-051/FP-038 문서반영 + 스크래치파일 gitignore
+
+### 근본원인 상태
+- ERR-051: Task Scheduler launch-only 실패는 100% 결정론적이 아니라 비결정적 패턴(TestB가 트리거 0개 상태에서 00:44:33 자연 성공)으로 재확인 — 근본원인 여전히 UNKNOWN
+- ERR-053/FP-040: heartbeat_monitor.py의 절전 취약성 메커니즘은 확정(WakeToRun=False). WakeToRun=True로 변경 적용했으나 실제 절전 구간 재현 검증은 다음 세션 대기(PENDING)
+- INC-028 1차 다운(20:09:40): 실제 OS shutdown으로 확정. 단 "누가/무엇이 종료를 트리거했는지"는 여전히 Hypothesis(사람의 조작 가능성, 확정 아님)
+- watchdog.ps1 자체의 근본 메커니즘(ERR-047 핵심 증상: 재부팅 후 무재실행)은 여전히 UNKNOWN — 이번 구간에서 해소되지 않음
+
+### 문서화
+- `docs/ERROR_DATABASE.md` — ERR-052, ERR-053 신규 등록 + ERR-047 Note 5(1차 다운 원인 확정) + ERR-051 Note(TestA/B/D 비결정적 성공 + Disable 처리)
+- `docs/FAILURE_PATTERN.md` — FP-039, FP-040 신규 등록 + FP-038 Note(비결정적 launch 패턴)
+- `docs/INCIDENT_TIMELINE.md` — INC-029 신규 등록 + INC-028 Note 2/3
+- `docs/PENDING_INVESTIGATIONS.md` — 신규 생성, PENDING-A 등록(결론남)
+- `docs/CURRENT_RUNTIME_CONTEXT.md` — 260710 갱신(260706~260709 구간은 미반영 명시)
+- `docs/VALIDATION_STATUS.md` — inc028_1st_shutdown_root_cause_confirmed / heartbeat_wake_to_run_applied(PARTIAL) / pending_a_session0_adspower_verified / testabd_diagnostic_tasks_disabled 4건 추가(별도 승인 대기)
+- `CLAUDE.md` — 승인 범위 명시 원칙, 단계별 Bookending 원칙 2개 신규 등록
+
+### 다음 세션 승계
+- heartbeat_monitor.py `WakeToRun=True` 적용 후 실제 Modern Standby 구간 1~2회로 실증 검증 필요
+- watchdog.ps1 자체의 재부팅 후 무재실행(ERR-047 핵심 증상) 및 1차다운 메커니즘 여전히 UNKNOWN — 별도 조사 필요
+- PENDING-A(NSSM/서비스 전환) 최종 결정 — 사용자 승인 필요
+- 260706~260709 구간(ERR-048/050/051, INC-023/025/026/028, quality gate 재설계 등)은 CURRENT_RUNTIME_CONTEXT.md에 아직 backfill 안 됨 — 별도 작업 권장(이번 세션에서 의도적으로 범위 제외)
+- `SNS_WatchdogAB_TestA/TestB/TestD`는 Disable(State=Disabled) 상태로 유지 — 완전 삭제 여부는 미결정
+
+commit: 위 14개 전부 이미 각각 개별 커밋됨(`144bd47`~`729dc88`) — 본 MERGE_JOURNAL 항목 자체는 이번에 별도 커밋 필요
+push: 미실행 — commit 후 별도 승인 필요
+
+---
