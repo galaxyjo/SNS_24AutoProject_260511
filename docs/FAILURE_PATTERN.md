@@ -483,3 +483,14 @@ image_url_hash = hashlib.sha256(_key.encode("utf-8")).hexdigest()
 **해결:** ERR-052 참조 — 발견된 2건은 `Disable-ScheduledTask`로 즉시 비활성화(삭제 아님).
 **예방:** 저장소 폐기/전환 체크리스트에 다음 항목 필수화 — "이 경로(예: `C:\SNS_24AutoProject_250723`)를 참조하는 Scheduled Task 전수 검색": `Get-ScheduledTask` 전체를 순회하며 Actions 문자열(`Execute`+`Arguments`)에 구경로 문자열이 포함되는지 매칭. Task Scheduler 외 다른 자동화 경로(시작프로그램, 다른 스케줄러 등)는 이번 점검 대상에 포함되지 않았음 — INC-029 재발 방지 항목 참조.
 **관련:** ERR-052
+
+---
+
+## FP-040 | 반복(Repeating) 트리거 기반 Task Scheduler 작업은 WakeToRun 미설정 시 Modern Standby 중 실패 로그 없이 조용히 스킵된다
+**발생일:** 상시(등록 시점부터 잠재), 확인 2026-07-10(ERR-053)
+**증상:** `SNS_HeartbeatMonitor_Independent`(5분 주기)가 약 5시간45분 동안 71회 미실행. `LastTaskResult=0`(직전 성공)만 남아있고 에러/경고 이벤트가 전혀 발생하지 않아 겉보기엔 "정상 등록된 Task"로 보임 — `NumberOfMissedRuns` 필드를 직접 조회하지 않으면 절대 드러나지 않는다.
+**근본 원인:** Windows Task Scheduler는 Modern Standby(또는 일반 절전) 상태에서 `WakeToRun=False`인 반복 트리거의 예정 시각이 지나가면, 시스템이 깨어날 때까지 그 발동을 재시도하지 않고 그냥 건너뛴다(catch-up 없음). 이 동작은 에러로 취급되지 않으므로 Task 자체의 `State`/`LastTaskResult`에는 아무 이상 신호가 남지 않는다.
+**증상 재현 조건:** (1) 반복(간격) 트리거 Task, (2) `WakeToRun=False`(기본값), (3) 시스템이 Modern Standby로 자주/장시간 전환되는 환경 — 이 3가지가 겹치면 항상 재현 가능.
+**해결:** 미해결 — ERR-053 Fix 후보 참조, 사용자 승인 대기.
+**예방:** (1) "watchdog을 감시하는 감시자"처럼 가용성이 핵심인 반복 Task는 등록 시 `WakeToRun=True` 여부를 필수 점검 항목화. (2) 상시 루프 프로세스(watchdog.ps1 방식)와 반복 트리거 프로세스(heartbeat_monitor.py 방식)는 절전 복원력이 다르다는 점을 설계 단계에서 인지 — 가용성이 중요한 감시 스크립트는 후자보다 전자 방식을 우선 검토. (3) `NumberOfMissedRuns`를 정기 점검 체크리스트(`get_watchdog_status()` 등)에 포함시키는 방안 검토.
+**관련:** ERR-053, ERR-047, INC-028

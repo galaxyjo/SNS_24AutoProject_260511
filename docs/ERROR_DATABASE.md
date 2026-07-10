@@ -675,3 +675,28 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Evidence:** `Get-ScheduledTask`/`Get-ScheduledTaskInfo`/Triggers/Actions Format-List 다회(양쪽 Task) / `Get-Command python`,`python.exe` / `C:\Python314\python.exe -m pip list` / `Test-Path`+`Get-ChildItem -Recurse`(log_trace/account_runner) / `Get-ChildItem *.log,*.db -Recurse`(250723 전체) / 260511·250723 양쪽 `.env` AIRTABLE_BASE_ID 대조 / `Disable-ScheduledTask` 실행 후 재조회
 
 **관련:** FP-039, INC-029
+
+---
+
+## ERR-053 | heartbeat_monitor.py 예약 작업(SNS_HeartbeatMonitor_Independent) — Modern Standby 구간에서 71회(약 5시간47분) 미실행, WakeToRun=False가 근본 원인으로 확정
+
+**Type:** Infrastructure / Task Scheduler 설정 (not application code)
+
+**발견 경위:** 세션 시작 점검 중 `logs/heartbeat_monitor.log` 마지막 기록이 `2026-07-10 06:11:29`에서 멈춰있고 이후 신규 기록이 전혀 없음을 발견. 최초에는 "heartbeat_monitor.py 프로세스가 죽었다"로 판단했으나, 이는 스크립트 실제 경로(`tools/heartbeat_monitor.py`, 프로젝트 루트 아님)를 잘못 가정한 조사에 근거한 성급한 결론이었음 — README.md 확인 후 5분 주기 Task Scheduler 트리거 기반 스크립트(상시 프로세스 아님)임을 파악하고 재조사함.
+
+**Raw:**
+- `Get-ScheduledTaskInfo -TaskName "SNS_HeartbeatMonitor_Independent"` → `LastRunTime: 2026-07-10 06:11:28`, `LastTaskResult: 0`, `NextRunTime: 2026-07-10 12:11:27`, **`NumberOfMissedRuns: 71`**
+- `Get-ScheduledTask ... | Select-Object Settings` → `WakeToRun: False`, `DisallowStartIfOnBatteries: True`, `StartWhenAvailable: True`
+- `Get-WinEvent Microsoft-Windows-Kernel-Power`(직전 8시간): 04:11~08:25 구간 15~40분 간격 Modern Standby 진입/탈출 반복, 이후 08:25:16 진입 → 11:16:28 Power Button 탈출까지 **약 2시간51분 연속 절전** — 이 구간 전체에서 트리거 재발동 기록 없음
+- 06:11:28(마지막 정상 실행) ~ 확인 시점(11:56) 경과 약 5시간45분 ÷ 5분 주기 ≈ 69회로, `NumberOfMissedRuns=71`과 근사 일치(오차는 StartBoundary 오프셋 기인 추정)
+- 비교 대상 `SNS_Watchdog_AutoStart`: `NumberOfMissedRuns: 0`, `NextRunTime:` 없음 — 이 Task는 로그온/부팅 시 1회성 트리거로 상시 프로세스(watchdog.ps1)를 기동하는 구조라 반복 트리거 자체가 없음. 그래서 절전에서 깨면 이미 떠 있던 프로세스가 자연히 재개되어 `watchdog.log`에 06:16:18부터 HEARTBEAT가 스스로 재개된 것으로 확인됨 — heartbeat_monitor.py 구조와의 핵심 차이.
+
+**Root Cause:** **확정.** `SNS_HeartbeatMonitor_Independent`는 5분 간격 반복 트리거 Task이며 `WakeToRun=False`로 등록되어 있어, 시스템이 Modern Standby 상태인 동안 Windows Task Scheduler가 트리거를 발동시키지 못하고 조용히 건너뜀(에러/경고 없이 `NumberOfMissedRuns`로만 집계). watchdog.ps1(로그온 1회 트리거 + 상시 루프 프로세스)과 heartbeat_monitor.py(반복 트리거 + 매회 신규 프로세스 기동)는 절전 복원력이 근본적으로 다른 구조이며, "watchdog이 죽어도 별도로 감시한다"는 heartbeat_monitor.py의 설계 목적 자체가 watchdog을 못 잡아내는 것과 동일한 원인(Modern Standby)에 의해 함께 무력화될 수 있는 구조적 결함으로 확인됨.
+
+**Fix:** 미적용 — 사용자 승인 대기 중. 후보: (1) 해당 Task `WakeToRun=True`로 변경(배터리 소모 트레이드오프 있음), (2) heartbeat_monitor.py를 watchdog.ps1처럼 상시 루프 프로세스로 재설계, (3) Modern Standby 자체를 이 머신에서 비활성화(전원 정책 변경, 별도 트랙 — 영향 범위 큼).
+
+**Prevention:** 반복 트리거 기반 Task Scheduler 작업 등록 시 `WakeToRun` 값을 점검 체크리스트에 명시적으로 포함할 것. `NumberOfMissedRuns`를 상시 감시 지표에 추가하는 방안 검토(현재 어떤 감시 계층도 이 필드를 참조하지 않음 — 이번 조사에서 최초로 참조됨).
+
+**Evidence:** `Get-ScheduledTaskInfo`/`Get-ScheduledTask...Settings`(양쪽 Task) Format-List / `Get-WinEvent Microsoft-Windows-Kernel-Power`(8시간) / `Get-Content watchdog.log`(grep 06:0·06:1·재시작·restart·kill) / `Get-Content heartbeat_monitor.log`(tail) / `tools/heartbeat_monitor.py`, `README.md`, `watchdog.ps1` 소스 확인 / `Get-CimInstance Win32_Process`(부모-자식 PID 대조)
+
+**관련:** ERR-047, ERR-050, ERR-051, ERR-052, INC-028, FP-040

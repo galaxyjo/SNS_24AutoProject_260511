@@ -422,10 +422,20 @@
 
 **UNKNOWN 유지:**
 - 1차 다운(20:09:40)의 실제 원인
-- Modern Standby가 watchdog을 실제로 어떻게 멈추는지의 메커니즘(프로세스 kill vs 타이머 지연 등 미구분)
+- Modern Standby가 watchdog.ps1 자체를 실제로 어떻게 멈추는지의 메커니즘(프로세스 kill vs 타이머 지연 등 미구분) — 아래 Note 2는 heartbeat_monitor.py 쪽 메커니즘만 해소한 것이며, watchdog.ps1 자체의 메커니즘은 여전히 UNKNOWN
 - `powercfg /sleepstudy`는 관리자 권한 필요로 미생성(향후 재시도 가능)
 
 **관련(추가):** ERR-047(Note 4 — 원본 근거)
+
+**[2026-07-10 추가 Note 2 — heartbeat_monitor.py 자체의 Modern Standby 취약성 메커니즘 확정, ERR-053]:**
+
+Note 1에서 "Modern Standby가 watchdog을 실제로 어떻게 멈추는지의 메커니즘"을 UNKNOWN으로 남겼던 것 중, **heartbeat_monitor.py(watchdog을 감시하기 위해 추가된 별도 스크립트) 자신의 절전 취약성 메커니즘은 이번에 확정됨** (watchdog.ps1 자체의 메커니즘은 여전히 UNKNOWN, 구분 필요).
+
+- `SNS_HeartbeatMonitor_Independent`(5분 주기 반복 트리거) `NumberOfMissedRuns=71`, `WakeToRun=False` 확인 — 06:11:28(마지막 정상 실행) 이후 약 5시간45분간 미실행, 이 구간은 04:11~11:16 사이의 Modern Standby 반복/연속 구간과 시간대가 겹침
+- 대조군 `SNS_Watchdog_AutoStart`(로그온 1회 트리거 + 상시 프로세스)는 `NumberOfMissedRuns=0` — 반복 트리거가 아니라 절전 영향을 받지 않고, 실제로 06:16경 스스로 heartbeat 재개함(watchdog.log 확인)
+- 즉 heartbeat_monitor.log가 06:11:29 이후 조용히 멈춘 것은 "프로세스 크래시"가 아니라 "애초에 Task Scheduler가 절전 중 트리거를 스킵해 프로세스가 생성되지 않았다"는 것으로 근본 원인이 확정됨(ERR-053/FP-040 참조)
+
+**관련(추가 2):** ERR-053, FP-040
 
 ---
 
