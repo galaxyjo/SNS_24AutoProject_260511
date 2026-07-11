@@ -884,6 +884,13 @@ push: 미실행 — 세션 종료 시 일괄 push 예정([[feedback_push_cadence
 
 `docs/CURRENT_RUNTIME_CONTEXT.md`(맨 위 요약 문서)가 260710 상태에서 멈춰있어 오늘 세션(ERR-057/058, PENDING-A 종결 등) 미반영 상태였음 — 최종 확인 커밋을 `fe50fec`로 갱신, "현재 단계"를 NSSM 전환 완료로 업데이트, "미해결 항목"에서 PENDING-A/watchdog.ps1 절전 관련 3개 항목을 완료 처리(취소선 + 사유), heartbeat_monitor.py 절전 실증만 유일하게 남은 항목으로 유지, 파일 끝에 `[260711]` 섹션 신규 추가.
 
+commit: `e5d3034`
+push: 미실행 — 세션 종료 시 일괄 push
+
+### 외부 감사 테이블 재평가 반영 (260711)
+
+사용자가 제공한 외부 감사 테이블(ERR-047/050/051/INC-028 계열 다수 항목, PENDING-A 완료 이전 시점 기준)을 오늘 작업 결과와 대조해 재평가. `docs/PENDING_INVESTIGATIONS.md`에 **PENDING-B** 신규 등록(재평가 표 + 갱신된 우선순위 4개), `docs/ERROR_DATABASE.md`의 ERR-047(Note 6)/ERR-050(Note 5)에 "NSSM 전환으로 구조적 해소(Moot)" 정리 추가 — Status를 🔴 OPEN/🟡 MITIGATED에서 🟢 구조적 해소(Moot)로 변경. ERR-051 등 오늘 조치와 무관한 항목은 그대로 유지.
+
 commit: 미실행 — 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push
 

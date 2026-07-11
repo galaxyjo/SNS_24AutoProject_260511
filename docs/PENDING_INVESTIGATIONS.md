@@ -42,4 +42,49 @@
 
 **관련(추가):** ERR-057, FP-042, INC-030
 
+**[2026-07-11 추가 Note 2 — 재부팅 실증 PASS, PENDING-A 완전 종결]:**
+
+사용자가 실제 재부팅 진행(12:09) → `Get-Service SNS_Watchdog` `Running/Automatic` 자동 기동 확인, `watchdog.log` 시작 배너 1번만 기록(12:08:11, 구 Task 재발 없음) — PASS. **PENDING-A 트랙 완전 종결.** 상세는 ERR-057 참조.
+
+부수적으로 실행 계정(admin→LocalSystem) 전환의 부작용으로 ngrok 실행 결함(ERR-058)이 드러나 같은 세션에서 해소 완료 — FP-043 신규 등록.
+
+**관련(추가 2):** ERR-057, ERR-058, FP-043, INC-030, INC-031
+
+---
+
+## PENDING-B | ERR-047/050/051/INC-028 계열 — watchdog NSSM 전환(PENDING-A) 이후 잔여 미해결 항목 재평가
+
+**상태:** 결론남 (재평가 완료, 개별 항목 처리방침 확정)
+
+**배경:** 외부 감사 테이블(사용자 제공, 260711)에 ERR-047/050/051/INC-028 관련 다수 항목이 미완료/보류로 남아있었음. 이 테이블은 PENDING-A(NSSM 전환) 완료 이전 시점 기준이라, 전환 이후에도 여전히 유효한 항목과 더 이상 유효하지 않은(대상 메커니즘 자체가 폐기된) 항목이 섞여 있어 재평가 필요.
+
+**재평가 결과:**
+
+| 항목 | 이전 상태 | 재평가 | 근거 |
+|---|---|---|---|
+| watchdog Windows Service 등록 | 🔴 미완료 | 🟢 완료 | ERR-057/058, PENDING-A 재부팅 실증 PASS |
+| ERR-047 Root Cause(재부팅 후 생존 경로) | 🔴 미완료 | 🟢 구조적 해소(Moot) | ERR-047 Note 6 — 대상 메커니즘(Task Scheduler) 폐기 |
+| Streamlit 완전 재시작 Proof | 🔴 미완료 | 🟢 완료 | 크래시 재시작 실증 중 watchdog이 Streamlit도 자동 복구(PID 18048→31652) 직접 관측 |
+| INC-028 1차 다운 Root Cause | 🔴 미완료 | 🟢 완료(260710) | INC-028 Note 3 — 실제 OS shutdown 확정(사람 조작 여부만 Hypothesis 잔존). 이 감사 테이블이 260710 이전 시점 기준이라 미반영됐던 것으로 추정 |
+| watchdog 2차 다운 복구 증명 | 🟠 진행중 | 🟡 실효성 낮음(재분류) | 대상이 옛 Task 기반 watchdog — 메커니즘 폐기로 이 특정 증거의 추가 조사 실익 낮음. NSSM 기준 신규 증거(크래시+재부팅 실증)로 사실상 대체 |
+| ERR-050 Root Cause(silent death) | 🔴 미완료 | 🟢 구조적 해소(Moot) | ERR-050 Note 5 — wrapper 방식 자체 폐기 |
+| 운영 Task XML vs 실패 Task XML diff | 🔴 미완료 | 🟡 Moot(낮은 우선순위) | 대상 메커니즘 폐기로 비교 실익 낮음. 완전 폐기 선언은 아니고, 필요시(다른 Task 이슈)엔 재사용 가능한 기법이라 낮은 우선순위로만 하향 |
+| Task Scheduler 서비스 재시작(보류) | 🟡 보류 | 🟡 리스크 완화(보류 유지) | watchdog은 더 이상 Task Scheduler 의존 안 함 — "운영 감시 영향" 우려가 watchdog 기준으로는 해소, 단 heartbeat_monitor.py/TestA·B·D 등 다른 Task엔 여전히 해당되어 보류 유지 |
+| ERR-051 Root Cause(Queued 고착) | 🔴 미완료 | 🔴 유지 | Test 진단 Task 자체 이슈로 오늘 조치와 무관, 낮은 우선순위로 계속 보류 |
+| down/unknown 분기 Runtime Proof | 🔴 미완료 | 🔴 유지 | health_monitor.py 로직 검증 이슈, 오늘 조치와 무관 |
+| Bookending 운영 규칙(강제 구조) | 🔴 미완료 | 🔴 유지 | CLAUDE.md에 원칙은 문서화됨(260710), 강제하는 자동화 구조는 없음 — 낮은 우선순위 |
+| untracked 파일 정리 | 🔴 미완료 | 🔴 유지 | 사용자 결정 필요, 오늘 미다룸 |
+| TestA/B/D 진단 Task 정리 | 🔴 미완료 | 🔴 유지(긴급도 하향) | Disabled 상태로 증거 보존 중, 삭제 여부는 여전히 사용자 결정 필요하나 근본원인(watchdog NSSM화)이 해소돼 긴급도는 낮아짐 |
+| 4688 Process Creation 감사 | 🟡 보류 | 🟡 유지 | 오늘 조치와 무관 |
+| Windows 업데이트/패치 조사 | 🟡 보류 | 🟡 유지 | 오늘 조치와 무관 |
+| 250723 저장소 장기 처리 | 🟡 보류 | 🟡 유지 | 오늘 조치와 무관, 별도 사용자 결정 필요 |
+
+**갱신된 우선순위(260711 기준):**
+1. 운영 정리 — untracked 파일/TestA·B·D 삭제 여부/250723 장기 처리 (사용자 결정 필요)
+2. heartbeat_monitor.py 실제 Modern Standby 구간 실증 검증 (watchdog.ps1과 별개 트랙, 유일하게 남은 절전 관련 미검증 항목)
+3. n8n 반복 실패 알림 정리 (낮은 우선순위, 보류 중)
+4. ERR-050/051 등 옛 Task 메커니즘 잔여 조사 — 필요성 낮음, 진행 여부만 판단(권장: 추가 조사 없이 현 상태 유지)
+
+**관련:** PENDING-A, ERR-047(Note 6), ERR-050(Note 5), ERR-057, ERR-058, FP-042, FP-043, INC-028(Note 3), INC-030, INC-031
+
 ---

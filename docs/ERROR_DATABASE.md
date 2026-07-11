@@ -475,7 +475,7 @@ Cannot overwrite variable Error because it is read-only or constant.
 **Root Cause:** `SNS_Watchdog_AutoStart` 작업은 `Schedule Type: At system start up` + `Logon Mode: Interactive only` (Run As User: admin, 인터랙티브 토큰 필요)로 등록됨. CURRENT_RUNTIME_CONTEXT.md에는 "260529 관리자 권한으로 등록 완료"로 기록되어 있으나, 실제로는 최초 1회(06-29 20:12, 등록 직후 최초 부팅 트리거) 실행된 이후 이어진 9회의 재부팅+admin 인터랙티브 로그온 상황에서도 재실행되지 않음 — 등록된 자동 기동 안전장치가 실질적으로 작동하지 않는 상태. 정확한 미작동 사유(트리거 조건 결락, 계정 토큰 만료, 정책 변경 등) 미확정 — UNKNOWN. watchdog.log 자체는 07-01 23:35:58 수동 재시작 후 23:36:55까지만 기록되고 중단 — INC-023 복구 작업(23:35~23:39) 도중 watchdog.ps1 루프 자체가 별도로 조기 종료된 것으로 추정되나 원인 미확정.
 **Fix:** 미적용 (문서화만 우선 진행, 사용자 승인 대기 중).
 **Prevention:** (1) Task Scheduler 조건 재확인 — "Run whether user is logged on or not"(S4U/비밀번호 저장)로 변경해 인터랙티브 로그온 의존성 제거 검토. (2) watchdog.ps1 자체에 self-heal 불가하므로, 상위 감시 계층(예: 별도 Scheduled Task가 30분 간격으로 watchdog.ps1 프로세스 생존 여부 점검 후 재기동) 이중화 검토. (3) Task Scheduler 히스토리(`Microsoft-Windows-TaskScheduler/Operational` Event Log)로 실제 트리거 시도 여부(시도했으나 실패 vs 아예 미시도) 구분 확인 필요 — 현재 미실시.
-**Status:** 🔴 OPEN — 미해결, watchdog.ps1 현재도 미기동 상태 (launcher/main.py는 2026-07-05 20:10:28 별도/불명 경로로 기동 중, watchdog 감시 없음)
+**Status:** 🟢 구조적 해소(Moot) — 260711 Note 6 참조. "왜 옛 Task가 재부팅 후 무재실행했는지"의 근본원인 자체는 영원히 UNKNOWN으로 남으나, 그 메커니즘(Task Scheduler 기반 watchdog) 자체를 폐기했으므로 증상 재발 가능성이 구조적으로 사라짐.
 **Evidence:** `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V` 출력 / `logs/watchdog.log` tail(마지막 2026-07-01 23:36:55) / `Get-WinEvent -Id 12` 9건(06-29 20:12 이후) / `powercfg /a`(빠른 시작 "현재 시스템 정책에서 사용하지 않도록 설정" 확인 — cold boot 확정) / `Get-Process python` (PID 14740/5524, StartTime 2026-07-05 20:10:28~29) / `Get-CimInstance Win32_Process -Filter "Name='powershell.exe'"` (watchdog.ps1 실행 중인 프로세스 없음, 2026-07-05 20:2x 시점)
 **관련:** ERR-045, FP-033, INC-023, INC-025, INC-028
 
@@ -542,6 +542,16 @@ Note 4의 "UNKNOWN으로 남기는 항목" 중 "INC-028 1차 다운(20:09:40)의
 
 **관련(추가 5):** INC-028(Note 3 — 원본 근거)
 
+**[2026-07-11 추가 Note 6 — NSSM 서비스 전환으로 구조적 해소, PENDING-A 종결]:**
+
+`docs/PENDING_INVESTIGATIONS.md` PENDING-A(260710 결론남) 후속으로, watchdog.ps1의 실행 주체를 Task Scheduler(`SNS_Watchdog_AutoStart`, 이 항목이 다루는 대상 자체)에서 NSSM Windows 서비스(`SNS_Watchdog`)로 완전히 교체(ERR-057). 크래시 재시작 실증(강제 종료 → 60초 내 자동 재기동) PASS + 실제 재부팅 실증(watchdog.log 시작 배너 1번만 기록, 구 Task 재발 없음) PASS 확인 — 상세는 ERR-057/058, `docs/PENDING_INVESTIGATIONS.md` PENDING-A 참조.
+
+이로써 본 항목이 추적해온 "다음 세션 승계 (a) 재부팅 시 BootTrigger/LogonTrigger 자동 발동 검증"은 **더 이상 유효한 질문이 아님** — 그 트리거 메커니즘 자체가 폐기됐기 때문. Note 1~5에서 남겨둔 UNKNOWN 항목들(direct silent death 원인, 트리거 종류 미확정 등)도 마찬가지로 대상 메커니즘이 사라져 규명 실익이 없어짐 — **조사 종결(Moot), 미해결로 방치된 것이 아니라 재발방지 목적 자체는 대체 수단으로 달성됨**을 명시.
+
+`SNS_Watchdog_AutoStart` Task 자체는 삭제하지 않고 `Disabled` 상태로 증거 보존 유지 중(260710/711 governance 원칙에 따름).
+
+**관련(추가 6):** ERR-057, ERR-058, PENDING-A
+
 ---
 
 ## ERR-048 | launcher/main.py 중복 기동 — 세션 중 Start-Process 반복 실행으로 5세대(10프로세스) 동시 기동, 종료 후 유령 LISTENING PID 잔존
@@ -574,7 +584,7 @@ Note 4의 "UNKNOWN으로 남기는 항목" 중 "INC-028 1차 다운(20:09:40)의
 **Root Cause:** 현상(Phenomenon): Confirmed — direct 실행은 Task Scheduler 트리거 후 60초 내 사망, wrapper 경유는 생존(재현 완료). 원인(Mechanism): Hypothesis, 미확정 — 이중 감시 충돌은 주 원인 가능성 낮아짐(동일하게 PID 22908과 병존한 상태에서도 direct만 사망, wrapper는 생존). 유력 후보(우선순위순, 미분리검증): (1) stdout/stderr redirect 차이 (2) -NoProfile 차이 (3) WorkingDirectory 고정 방식 (4) PowerShell 절대경로 차이.
 **Fix (임시):** Task Action을 watchdog_task_wrapper.ps1 경유로 전환(2026-07-08 완료) — 운영 안전 확보용 임시 조치, 근본 수정 아님.
 **Prevention:** LastTaskResult 단독으로 프로세스 생존 판정 금지 확인됨(RUNNING 표시 중 실제 사망 사례 확보) — 판정은 반드시 PID 기준 실물 확인. 조건 분리 A/B 테스트(stdout/stderr redirect부터) 필요, 다음 세션 승계.
-**Status:** 🟡 MITIGATED (근본원인 미해결, OPEN 유지)
+**Status:** 🟢 구조적 해소(Moot) — 260711 Note 5 참조. wrapper(watchdog_task_wrapper.ps1) 경유 방식 자체를 폐기했으므로 근본원인 규명 실익 없음.
 **Evidence:** watchdog_wrapper.log(PID=29076 START 기록) / watchdog_wrapper_stdout.log(HEARTBEAT 5회+) / Win32_Process 조회 3회(direct 임시 Task 소멸 확인, 22908 단독 재확인 2회) / Task XML Format-List(wrapper 경로 확정)
 **다음 세션 승계 (미실행):** (a) 실제 재부팅으로 BootTrigger/LogonTrigger 자동 발동 여부 검증(ERR-047 원인 규명), (b) 실제 재부팅으로 wrapper 경로 생존 여부 검증(ERR-050 완화 확인), (c) 조건 4개 분리 A/B 테스트(stdout/stderr redirect → -NoProfile → WorkingDirectory → 절대경로), (d) 사망 시점 LastTaskResult 종료코드 재조회, (e) PowerShell/Task Scheduler Operational 이벤트 로그 확인
 **관련:** ERR-047, FP-017, ERR-021, INC-023, INC-028
@@ -592,6 +602,12 @@ Note 4의 "UNKNOWN으로 남기는 항목" 중 "INC-028 1차 다운(20:09:40)의
 watchdog 관련 반복 사망 현상의 공통 원인 후보로 이 시스템의 절전 구성(Modern Standby만 사용 가능, S1/S2/S3 전부 비활성화, Fast Startup 비활성화)과 2026-07-09 19:00~2026-07-10 Modern Standby 진입/해제(Id 506/507) 이력을 조사함 — 전체 raw 이벤트 목록·상세 근거는 ERR-047 Note 4 참조(중복 서술 생략). INC-028의 2차 다운(watchdog 마지막 heartbeat 2026-07-10 03:04:09)이 00:54:30~04:11:29 Modern Standby 구간 한가운데에 위치해 상관관계가 강함(인과관계 확정 아님)으로 확인됐으나, 본 항목(ERR-050)이 다루는 07-08 20:32~20:36 wrapper silent death 사례는 이번 조사 대상 시간대(07-09 19:00 이후) 밖이라 직접 검증되지 않음 — 동일 메커니즘 여부는 UNKNOWN.
 Status 변경 없음 — 🟡 MITIGATED(근본원인 미해결, OPEN 유지).
 **관련:** ERR-047(Note 4 — 절전모드 상관관계 원본 근거)
+
+**[2026-07-11 추가 Note 5 — NSSM 전환으로 구조적 해소]:**
+
+ERR-047 Note 6와 동일 사유·동일 조치(watchdog.ps1을 NSSM Windows 서비스로 전환, ERR-057/058)로 본 항목도 종결. `watchdog_task_wrapper.ps1` 경유 방식 자체를 더 이상 사용하지 않으므로, Root Cause에서 남겨둔 Hypothesis(1)~(4)(stdout/stderr redirect 차이 등)와 "다음 세션 승계" 항목 (c)(d)(e)는 대상이 사라져 조사 실익 없음 — Moot 처리. wrapper 자연사망(Note 3) 자체는 역사적 기록으로 유지, 재조사 계획 없음.
+
+**관련(추가 5):** ERR-047(Note 6), ERR-057, ERR-058, PENDING-A
 
 ---
 
