@@ -1,11 +1,11 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260710_heartbeat_monitor_절전대응+Governance_강화_ (⚠️ 260706~260709 구간 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조)
+_마지막 업데이트: 260711_NSSM_전환_완료+ngrok_LocalSystem_결함_해소_ (⚠️ 260706~260709 구간 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조)
 
 ## 현재 단계
-**260624 Repository Interface 전체 작업 완료 + 검증 완료** — Failure Injection Test PASS (finally/AdsPower Stop 정상) / Runtime Proof 5회 연속 정상 (19:50~21:50) / Infrastructure 외부 직접 호출 실질적 0건 확정
+**260711 PENDING-A(watchdog.ps1 NSSM 서비스 전환) 완전 종결** — 구 Task Scheduler(`SNS_Watchdog_AutoStart`) 비활성화 + NSSM 서비스(`SNS_Watchdog`) 단독 운영 전환, 크래시 재시작 실증 PASS + 실제 재부팅 실증 PASS(ERR-057/058, FP-042/043, INC-030/031). 전환 과정에서 드러난 ngrok(Microsoft Store/MSIX + LocalSystem 인증정보 분리) 실행 결함도 당일 해소·Runtime Proof 완료. 이전 마일스톤(260624 Repository Interface 전체 작업)은 그대로 유효.
 
 ## 최종 확인 커밋
-e09fae5 (docs: CLAUDE.md 단계별 Bookending 원칙 추가 [260710])
+fe50fec (ERR-058/FP-043/INC-031/VALIDATION_STATUS/MERGE_JOURNAL: NSSM 재부팅 실증 PASS + ngrok LocalSystem 실행 결함 발견·해소 [260711])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -123,12 +123,13 @@ e09fae5 (docs: CLAUDE.md 단계별 Bookending 원칙 추가 [260710])
 - 워터마크 제외 로직 — **260616 부분 구현** (_IMAGE_BLOCK_KEYWORDS + Supplier_Blocklist 등록), passes_image_filter 이미지 픽셀 분석 미구현
 - data/processed_comment_ids.json untracked 유지 (정상 — gitignore 대상)
 - 백업 필요 시점 도달 (마지막 백업: backup_(12)_260602_2207)
-- **[P1 — 다음 세션]** 도매꾹(domeggook) 크롤러 추가 — Crawl_Targets platform=domeggook 지원
-- **[P1 — 다음 세션]** heartbeat_monitor.py WakeToRun=True 변경 후 실제 Modern Standby 구간에서 로그가 이어지는지 실증 검증 대기
-- **[P1 — 다음 세션]** watchdog.ps1 자체의 절전/1차다운 근본 메커니즘 여전히 UNKNOWN (INC-028/ERR-047 계열, heartbeat_monitor 건과 별개)
-- **[P1]** ERR-047 핵심 증상(재부팅 후 SNS_Watchdog_AutoStart 무재실행) 자체는 여전히 미해결(OPEN)
-- **[P2]** ERR-051/FP-038 Task Scheduler launch-only 실패 근본원인 미확정
-- **[P2]** PENDING-A(NSSM 전환) 최종 결정 — 사용자 승인 필요
+- ~~**[P1 — 다음 세션]** 도매꾹(domeggook) 크롤러 추가~~ → **완료**(260619 세션2~8, D001/D002 Active 실운영 중, dome_crawl/dome_export APScheduler 잡 정상 — 이 목록 자체가 오래 미정리된 상태였음)
+- **[P1 — 다음 세션]** heartbeat_monitor.py WakeToRun=True 변경 후 실제 Modern Standby 구간에서 로그가 이어지는지 실증 검증 대기 (유일하게 남은 절전 관련 미검증 항목)
+- ~~**[P1 — 다음 세션]** watchdog.ps1 자체의 절전/1차다운 근본 메커니즘 여전히 UNKNOWN~~ → **260711 구조적 해소**: watchdog.ps1을 Task Scheduler 기반에서 NSSM Windows 서비스로 전환, 크래시 재시작+재부팅 실증 PASS(ERR-057/058, PENDING-A 종결) — Task Scheduler 고유 결함(WakeToRun 등) 자체가 더 이상 해당 없음
+- ~~**[P1]** ERR-047 핵심 증상(재부팅 후 SNS_Watchdog_AutoStart 무재실행) 자체는 여전히 미해결(OPEN)~~ → **260711 해소**(위와 동일 사유, 구조 자체 교체)
+- **[P2]** ERR-051/FP-038 Task Scheduler launch-only 실패 근본원인 미확정 (watchdog.ps1은 더 이상 Task Scheduler 아니므로 영향 범위 축소, 다른 Task 대상 잔존 여부만 저위험으로 남음)
+- ~~**[P2]** PENDING-A(NSSM 전환) 최종 결정 — 사용자 승인 필요~~ → **260711 완전 종결**(ERR-057/058 참조)
+- **[P2 — 신규]** n8n(PID 10248 등) watchdog.ps1이 계속 재시작 시도·실패하며 알림만 반복 발생 — 의도적 정지 상태(ERR-056)와 알림 잡음 해소는 별개 문제, 우선순위 낮음으로 보류 중
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -852,5 +853,35 @@ CAPTION_BLOCKLIST = ["coslife", "lily"]
 
 ### 관련 문서
 - ERR-052/053, FP-039/040, INC-028(Note1~3)/029, PENDING-A — 전체 raw 근거는 각 문서 참조(중복 서술 최소화)
+
+---
+
+## [260711] NSSM 전환 완료 + ngrok LocalSystem 결함 발견·해소
+
+### 완료 작업
+1. 전날 노트북 종료로 자동화 전체 중단 → 재부팅 후 세션 재개, `SNS_Watchdog_AutoStart`(당시 아직 미비활성) 자동 재기동으로 1차 복구 확인
+2. AdsPower 미기동으로 FB 크롤링 전량 실패(WinError 10061) → 사용자 직접 재기동, 정상화 확인
+3. `.claude/settings.json` 신규 — PowerShell 도구 읽기 전용 명령 20개 자동 허용(권한 팝업 감소), git commit/push·프로세스 제어는 의도적으로 제외
+4. **ERR-057** — NSSM 서비스(`SNS_Watchdog`)와 구 Task(`SNS_Watchdog_AutoStart`)가 watchdog.ps1을 동시 이중 실행 중이던 것 발견(PENDING-A 전환의 Phase 3 누락) → 관리자 권한으로 `Disable-ScheduledTask` + 중복 프로세스 `Stop-Process` 정리
+5. **크래시 재시작 실증 PASS** — NSSM 관리 watchdog.ps1 강제 종료 → `AppRestartDelay` 경과 후 자동 재기동, 수동 개입 없이 전체 복구 확인
+6. **재부팅 실증 PASS** — 실제 재부팅 후 watchdog.log 시작 배너 1번만 기록(구 Task 재발 없음) → **PENDING-A(NSSM 서비스 전환) 완전 종결**
+7. **ERR-058** — 재부팅 실증 중 ngrok 실행 실패 신규 발견: (1) Microsoft Store(MSIX) 설치라 LocalSystem(비대화형) 컨텍스트에서 Execution Alias 실행 불가 (2) authtoken이 admin 사용자 프로필 전용이라 LocalSystem이 인증정보 미발견 — 오늘 아침엔 구 Task(admin 계정)가 우연히 가려온 잠복 결함. `watchdog.ps1` 포터블 exe 경로 지정 + authtoken을 LocalSystem 프로필에 복사로 해소, Runtime Proof 완료(`public_url` 정상 응답)
+8. FP-042(전환 중간상태 방치 패턴)/FP-043(서비스 계정 전환 시 의존 도구 전수점검 필요) 신규 등록
+
+### Known Facts
+- `SNS_Watchdog` NSSM 서비스: `LocalSystem` 계정, `AppExit Default=Restart`, `AppRestartDelay=60000ms`
+- `SNS_Watchdog_AutoStart` Task: `Disabled` 유지(삭제 아님, 증거 보존), 재부팅 실증으로 재발 없음 확인
+- ngrok: `C:\ngrok\ngrok-v3-stable-windows-amd64\ngrok.exe`(포터블, 실사용) vs `WindowsApps\ngrok.exe`(MSIX 심볼릭 링크, LocalSystem에서 사용 불가 — 더 이상 참조 안 함)
+- ngrok authtoken 이중 보관: `C:\Users\admin\AppData\Local\ngrok\ngrok.yml`(admin) + `C:\Windows\System32\config\systemprofile\AppData\Local\ngrok\ngrok.yml`(LocalSystem, 260711 신규 복사)
+- AdsPower Global: 260711 재부팅 시 Windows 시작 시 자동 기동 확인(12:10:33~40) — 오늘 아침 첫 재부팅 때만 예외적으로 꺼져있었음(원인 미상)
+- FB 크롤링: 재부팅 이후에도 정상 수집 지속 확인(12:34:07 1건 등)
+
+### P1/P2 Backlog (다음 세션)
+1. heartbeat_monitor.py 실제 Modern Standby 구간에서 로그가 이어지는지 실증 검증(유일하게 남은 절전 관련 미검증 항목, watchdog.ps1과 별개)
+2. n8n(PID 10248 등) watchdog.ps1의 반복 재시작 시도·알림 잡음 — 우선순위 낮음으로 보류
+3. ⚠️ 260706~260709 구간 여전히 별도 미반영(과거 Backlog #5 그대로 승계)
+
+### 관련 문서
+- ERR-057/058, FP-042/043, INC-030/031, PENDING-A(완전 종결) — 전체 raw 근거는 각 문서 참조
 
 ---

@@ -877,7 +877,14 @@ push: 완료 (`62cea04..4ff0b21`)
 - n8n(PID 10248 등) 반복 실패 알림은 여전히 그대로 — 의도적 정지 상태 유지, 코드 수정 안 함
 - Claude Desktop "원격 제어 연결 끊김"은 사용자 확인 결과 재현 안 됨으로 종결(이전 기록 참조)
 
+commit: `fe50fec`
+push: 미실행 — 세션 종료 시 일괄 push 예정([[feedback_push_cadence]] 방식 적용)
+
+### CURRENT_RUNTIME_CONTEXT.md 반영 (260711, 세션 마무리)
+
+`docs/CURRENT_RUNTIME_CONTEXT.md`(맨 위 요약 문서)가 260710 상태에서 멈춰있어 오늘 세션(ERR-057/058, PENDING-A 종결 등) 미반영 상태였음 — 최종 확인 커밋을 `fe50fec`로 갱신, "현재 단계"를 NSSM 전환 완료로 업데이트, "미해결 항목"에서 PENDING-A/watchdog.ps1 절전 관련 3개 항목을 완료 처리(취소선 + 사유), heartbeat_monitor.py 절전 실증만 유일하게 남은 항목으로 유지, 파일 끝에 `[260711]` 섹션 신규 추가.
+
 commit: 미실행 — 이 기록과 함께 커밋 예정
-push: 미실행 — commit 후 별도 승인 필요
+push: 미실행 — 세션 종료 시 일괄 push
 
 ---
