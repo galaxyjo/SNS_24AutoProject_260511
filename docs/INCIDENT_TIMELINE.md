@@ -484,3 +484,20 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** 오늘 1차 전수 스캔(`Get-ScheduledTask` 전체 순회, Actions 문자열에 `"250723"` 매칭)을 완료해 이 2건 외 Task Scheduler상 추가 발견은 없음을 확인함. 단, Task Scheduler 이외의 다른 자동화 경로(Windows 시작프로그램, 별도 스케줄러/서비스, cron 유사 도구 등)는 이번 점검 대상에 포함되지 않았음 — **UNKNOWN, 별도 전수 재점검 필요.**
 
 **관련:** ERR-052, FP-039
+
+---
+
+## INC-030 | NSSM 서비스와 구 Task Scheduler의 watchdog.ps1 이중 실행 — 발견 및 당일 정리 완료 (2026-07-11 09:07 ~ 11:5x)
+
+**발생:** 2026-07-11 09:07경(재부팅 직후) ~ 발견 및 정리 완료(같은 세션 내, 오전 중)
+**발견:** 세션 초반 상태 점검 중 watchdog.log에 `===== watchdog 시작 =====` 배너가 09:07:02/09:07:58 두 번 찍힌 것을 발견, 프로세스 부모-자식 체인 조사로 NSSM 서비스(`SNS_Watchdog`)와 구 Task(`SNS_Watchdog_AutoStart`)가 동시에 watchdog.ps1을 실행 중임을 확인(ERR-057).
+
+**요약:** 이전 세션(260710)에서 PENDING-A(NSSM 전환 검토) 결론에 따라 NSSM 서비스가 설치·`Automatic` 등록까지 진행되어 있었으나, 구 Task 비활성화(Phase 3)가 누락된 채 세션이 종료됨. 260711 재부팅 시 두 메커니즘이 동시에 기동해 Flask/Streamlit/ngrok/n8n에 대해 각자 독립적으로 상태 점검·재시작을 시도.
+
+**실제 피해 여부:** 완전한 서비스 중단은 없었음 — Flask(:5000)/Streamlit(:8501)/ngrok(:4040)는 전 구간 LISTENING 유지 확인. 관측된 영향은 (1) watchdog.log 시작 배너·재시작 로그 중복 기록, (2) n8n 재시작 실패 알림이 짧은 간격으로 반복 발생(단, n8n 자체는 ERR-056에 따라 원래도 의도적 정지 상태라 추가 실질 피해는 아님), (3) 두 watchdog 인스턴스가 동시에 프로세스를 재시작할 경우의 포트 바인딩 경합 등 잠재적 race condition 리스크(이번엔 실제 발현되지 않음, 리스크로만 기록).
+
+**해결:** 사용자가 관리자 PowerShell에서 `Disable-ScheduledTask -TaskName "SNS_Watchdog_AutoStart"` 실행(`schtasks /V`로 `Scheduled Task State: Disabled` 확인) → 구버전이 이미 띄운 PID 27664/28548을 `Stop-Process -Force`로 종료 → 재조회로 두 PID 소멸, NSSM 서비스(PID 13008)만 단독 운영 중임을 확인. Flask/Streamlit/ngrok 포트 전부 영향 없이 정상 유지.
+
+**재발 방지:** FP-042(신규) 등록 — 전환 작업의 중간 상태를 문서에 명시적으로 남기고, 세션 재개 시 raw 재확인을 우선하는 절차를 표준화.
+
+**관련:** ERR-057, FP-042, PENDING-A, ERR-053, ERR-054

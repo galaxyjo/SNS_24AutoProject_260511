@@ -513,3 +513,14 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **해결:** StartTime 근접 + ParentProcessId 체인 + 포트 소유(netstat) 3가지 대조로 논리적 서비스 개수 확인 후 판정.
 **예방:** python.exe 다중 PID 발견 시 즉시 종료 금지, 위 3단계 확인 절차 표준화.
 **관련:** FP-036, ERR-048
+
+---
+
+## FP-042 | 구성요소 전환(migration) 작업의 중간 상태(신규 메커니즘 설치 완료 + 구 메커니즘 미제거)가 세션 경계를 넘어 방치되면, 두 메커니즘이 동일 스크립트/서비스를 중복 실행한다
+
+**발생일:** 260711(ERR-057, NSSM/Task Scheduler 이중 watchdog) — 유사 패턴 260527(ERR-021/FP-017, Flask 이중 바인딩)
+**증상:** watchdog.ps1을 실행하는 메커니즘이 NSSM 서비스(`SNS_Watchdog`)와 Task Scheduler(`SNS_Watchdog_AutoStart`) 두 개로 동시에 존재, 재부팅마다 두 인스턴스가 병행 기동됨. watchdog.log에 시작 배너가 중복 기록되고 Streamlit/ngrok 재시작·n8n 실패 알림이 두 배로 남아, 실제로 조사해야 할 문제(예: n8n 반복 실패)를 진단할 때 잡음이 됨.
+**근본원인:** 전환 작업이 "신규 설치"와 "구 제거"라는 두 단계로 나뉘어 있을 때, 앞 단계만 완료된 중간 상태에서 세션이 종료되면 그 상태가 다음 세션 핸드오프 메모에 정확히 반영되지 않을 수 있다. 이번 건은 핸드오프 메모에 "NSSM Phase 2→3 경계, 아직 시작 안 함"이라 적혀 있었으나 실제로는 NSSM 서비스가 이미 `Running` 상태였음 — 문서(기억)와 실제 시스템 상태가 어긋난 STALE STATE 사례.
+**해결:** 세션 시작 시 문서 요약만 신뢰하지 않고, 실제 서비스/Task 상태를 raw로 재확인(`Get-Service`, `Get-ScheduledTask`, 프로세스 부모-자식 체인)한 뒤에 "다음 단계"를 판단.
+**예방:** (1) 전환 작업은 가능하면 설치+구 제거를 한 세션 내 원자적으로 묶어 처리. (2) 부득이 나눠야 한다면 `CURRENT_RUNTIME_CONTEXT.md`에 "신규 메커니즘 설치 완료, 구 메커니즘 아직 활성 — 다음 세션에서 반드시 제거 확인" 처럼 중간상태를 명시적으로 경고. (3) High-Risk(Scheduler/Watchdog) 재개 작업은 항상 재조사(read-only raw 확인)로 시작하고 메모를 그대로 신뢰하지 않는다 — CLAUDE.md STALE STATE CHECK 원칙의 구체 사례.
+**관련:** ERR-057, FP-017, FP-035, PENDING-A

@@ -40,6 +40,7 @@
 | heartbeat_wake_to_run_applied | 🟡 PARTIAL | 2026-07-10 |
 | pending_a_session0_adspower_verified | ✅ PASS | 2026-07-10 |
 | testabd_diagnostic_tasks_disabled | ✅ PASS | 2026-07-10 |
+| nssm_dual_watchdog_resolved_260711 | ✅ PASS | 2026-07-11 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -86,3 +87,4 @@
 | testabd_diagnostic_tasks_disabled | ERR-051 Note(260710) — `SNS_WatchdogAB_TestA/TestB/TestD` 3개 전부 `Disable-ScheduledTask`로 State: Ready→Disabled 확인(관리자 권한 재시도로 성공). 삭제 아님, 증거 보전 목적 유지. |
 | watchdog_wakeup_applied_260710 | ERR-054/FP-040 — `SNS_Watchdog_AutoStart` Task `WakeToRun=False→True` 변경 적용(1차 비관리자 시도 Access denied 실패 → 2차 관리자 권한 성공). XML diff(WakeToRun 라인 1개만 변경)·taskinfo diff(LastRunTime/LastTaskResult 완전 동일)로 다른 필드 리셋 없음과 예약 인스턴스 영향 없음 실증 — PASS(설정 적용 + 무결성 확인 완료 기준). `heartbeat_wake_to_run_applied`와 달리 이 Task는 애초에 반복 트리거 절전 재현 검증 대상이 아니므로(로그온 1회성 트리거 구조), 실제 Modern Standby 상황에서의 효과 검증은 범위 외 — 절전 실증 완료로 과다 해석 금지. |
 | backup_15_verified_260711 | ERR-055 — backup(14)(9.14MB, 크기 이상) 재검증 후 launcher/dashboard/n8n 전부 정지 → backup(15) 재생성(174,715KB, backup(13) 172MB와 동일 정상범위) + sha256 해시 생성 확인 — PASS. backup(14).zip은 삭제하지 않고 보존(증거 목적, 삭제 여부 별도 판단). |
+| nssm_dual_watchdog_resolved_260711 | ERR-057/FP-042/INC-030 — NSSM 서비스(`SNS_Watchdog`)와 구 Task(`SNS_Watchdog_AutoStart`)가 watchdog.ps1을 이중 실행 중임을 프로세스 부모-자식 체인(PID 13008 vs 27664→28548)으로 확인. 관리자 권한으로 `Disable-ScheduledTask` 실행 → `schtasks /V`로 `Scheduled Task State: Disabled` 확인, 이미 떠 있던 구버전 PID 27664/28548을 `Stop-Process -Force`로 종료 → 재조회로 소멸 확인. NSSM 서비스(PID 13008) 단독 운영 전환, Flask(:5000)/Streamlit(:8501)/ngrok(:4040) 전부 영향 없이 LISTENING 유지 — PASS. |

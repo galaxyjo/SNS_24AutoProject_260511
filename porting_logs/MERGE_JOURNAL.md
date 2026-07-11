@@ -786,4 +786,34 @@ MASTERTREE_CONTRACT.md 기준 설계만 완료(DESIGN_COMPLETE)·execution_owner
 commit: `9c9cf6a` (ERR-055/ERR-056/FP-041/VALIDATION_STATUS 반영)
 push: 미실행 — commit 후 별도 승인 필요
 
+## [260711_오전] 재부팅 후 자동화 재개 + NSSM/Task 이중 watchdog 발견·해소
+
+### 배경
+전날 노트북 종료로 자동화 전체 중단, 260711 재기동 세션. Session Start Rule 확인 결과 `SNS_Watchdog_AutoStart` Task가 재부팅 시 실제로 자동 발동해 Flask/Streamlit/ngrok/launcher를 복구한 것을 확인(ERR-047이 지적하던 "재부팅 후 무재실행" 증상이 이번엔 재현되지 않음 — 단 1회 관측, 근본 해소 확정 아님). AdsPower가 꺼져 있어 FB 크롤링이 전량 실패했으나 사용자가 직접 재기동, `local.adspower.net:50325` 연결 정상화 확인.
+
+### 1) 원격 예약 작업으로 FB 크롤링 정상화 검증
+`fb-crawl-check-260711-1142`(scheduled-tasks MCP) 1회성 작업 등록 — 이 과정에서 이 시스템의 실제 OS 타임존이 UTC+7이고 로그의 "KST" 표기는 라벨일 뿐임을 발견, fireAt을 최초 요청(KST+09:00 가정)에서 실제 시스템 로컬 기준으로 정정.
+
+### 2) `.claude/settings.json` 권한 자동화 (fewer-permission-prompts 스킬)
+세션 transcript 31개 스캔 → PowerShell 도구 호출이 압도적 다수(1212회)임을 확인, 읽기 전용 cmdlet(Get-Content/Get-Process/Get-ScheduledTask 등) 20개 패턴을 프로젝트 공용 `.claude/settings.json`에 신규 추가. `git add/commit/push`, 프로세스 제어(`Stop-Process`/`Start-Process` 등), 인터프리터(`python`/`powershell` 자체)는 의도적으로 제외 — 사용자가 "상태 변경 행동은 항상 먼저 물어볼 것"을 명시적으로 재확인.
+
+### 3) ERR-057 | NSSM 서비스 ↔ 구 Task Scheduler 이중 watchdog 발견 및 해소
+watchdog.log에 시작 배너가 09:07:02/09:07:58 두 번 기록된 것을 단서로 조사 — PENDING-A(260710 결론남) 전환에서 NSSM 서비스(`SNS_Watchdog`) 설치까지는 이미 완료돼 있었으나, 구 Task(`SNS_Watchdog_AutoStart`) 비활성화(Phase 3)가 누락된 채 방치되어 재부팅마다 두 메커니즘이 watchdog.ps1을 동시 실행 중이었음을 프로세스 부모-자식 체인으로 확인. 사용자가 관리자 PowerShell에서 `Disable-ScheduledTask` + `Stop-Process -Force`(PID 27664/28548) 실행 → 재조회로 완전 정리 확인, NSSM 서비스 단독 운영 전환. Flask/Streamlit/ngrok 포트는 작업 전 구간 영향 없이 유지.
+
+이전 세션 핸드오프 메모("NSSM Phase 2→3 경계, 아직 시작 안 함")가 실제 시스템 상태(이미 절반 진행됨)와 어긋나 있었던 STALE STATE 사례로, FP-042(신규)로 별도 등록.
+
+### 문서화
+- `docs/ERROR_DATABASE.md` — ERR-057 신규 등록
+- `docs/FAILURE_PATTERN.md` — FP-042 신규 등록
+- `docs/INCIDENT_TIMELINE.md` — INC-030 신규 등록
+- `docs/VALIDATION_STATUS.md` — `nssm_dual_watchdog_resolved_260711` 신규 행 추가(PASS)
+
+### 다음 세션 승계
+- n8n(PID 10248 등)은 여전히 의도적 정지 상태 유지 — watchdog.ps1이 계속 재시작을 시도하며 알림을 발생시키는 구조는 그대로 남아 있음(이번 세션에서 코드 수정 안 함, 필요 시 watchdog.ps1의 n8n 체크 제외 여부 별도 검토)
+- Claude Desktop "원격 제어 연결 끊김" 이슈는 저장소 문서에 근거 없음 — 사용자에게 현재도 재현되는지 확인 필요(이번 세션에서는 다루지 않음)
+- ERR-047(재부팅 후 무재실행) 근본 해소는 이번 1회 관측만으로 확정 불가, 계속 관찰 필요
+
+commit: 미실행 — 이 기록과 함께 커밋 예정
+push: 미실행 — commit 후 별도 승인 필요
+
 ---

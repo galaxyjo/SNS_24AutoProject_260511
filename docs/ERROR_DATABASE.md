@@ -807,3 +807,26 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** 미정 — 사용자 판단상 우선순위 낮음, 현황만 기록. 단 "우선순위 낮음"은 재발방지 조치를 미루는 것이지 기록 생략 사유는 아님(Evidence Rule 우선 적용).
 
 **관련:** ERR-052
+
+## ERR-057 | NSSM 서비스(SNS_Watchdog)와 구 Task Scheduler(SNS_Watchdog_AutoStart)가 watchdog.ps1을 동시에 이중 실행 — PENDING-A 전환의 Phase 3(구 Task 비활성화) 누락
+
+**발견 경위:** 260711 재부팅 후 세션에서 `logs/watchdog.log`에 `===== watchdog 시작 =====` 배너가 09:07:02와 09:07:58 두 번(56초 간격) 기록된 것을 발견. n8n 재시작 실패 알림이 짧은 간격으로 반복 발생하는 것을 계기로 원인 조사 시작.
+
+**Raw:**
+- `nssm --version` → 설치 확인(`C:\ProgramData\chocolatey\bin\nssm.exe`, 2.24-101)
+- `Get-Service SNS_Watchdog` → `Status=Running, StartType=Automatic`
+- `Get-CimInstance Win32_Service -Filter "Name='SNS_Watchdog'"` → `PathName=C:\ProgramData\chocolatey\lib\NSSM\tools\nssm.exe`, `ProcessId=6024`
+- `Get-CimInstance Win32_Process -Filter "Name='powershell.exe'"` → PID 13008(부모=6024, 생성 09:07:01, NSSM 경유) / PID 27664(부모=2244, 생성 09:07:55) → PID 28548(부모=27664, 생성 09:07:57) — 후자 체인이 구버전 watchdog.ps1
+- `Get-ScheduledTask -TaskName "SNS_Watchdog_AutoStart"` → `State=Running`(당시), `Get-ScheduledTaskInfo` → `LastRunTime=2026-07-11 09:07:57`
+- 소유자 확인(`GetOwner`): 27664/28548 모두 `admin`(동일 사용자) — 단 높은 무결성 수준으로 등록되어 있어 일반 권한 세션에서 `Disable-ScheduledTask`/`Stop-Process` 모두 `Access is denied`로 실패, 관리자 PowerShell에서만 실행 가능했음(raw 재현)
+
+**Root Cause:** `docs/PENDING_INVESTIGATIONS.md` PENDING-A(watchdog.ps1의 NSSM 전환 검토, 260710 결론남)에 따라 NSSM 서비스(`SNS_Watchdog`)가 이미 설치되어 `Automatic` 시작으로 등록되어 있었음(정확한 설치 시점·주체는 세션 기록에 없어 UNKNOWN). 그러나 기존 `SNS_Watchdog_AutoStart` Scheduled Task를 비활성화하는 후속 조치(전환의 "Phase 3")가 수행되지 않아, 재부팅마다 두 자동시작 메커니즘이 동일 스크립트(watchdog.ps1)를 병행 기동하는 상태로 방치되어 있었음. 두 인스턴스가 각자 Flask/Streamlit/ngrok/n8n 상태를 점검·재시작 시도하며 경쟁 — 이번 세션 시작 시점(09:07~09:10)의 watchdog.log에서 Streamlit/ngrok 재시작 로그와 n8n 실패 알림이 중복 기록된 것이 그 결과.
+
+**Fix:**
+1. 사용자가 관리자 PowerShell에서 `Disable-ScheduledTask -TaskName "SNS_Watchdog_AutoStart"` 실행 → `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V` 재조회로 `Scheduled Task State: Disabled` 확인(raw). (`Get-ScheduledTask`의 `State` 컬럼은 "이미 떠 있는 인스턴스가 실행 중"이면 Disable 후에도 `Running`으로 표시될 수 있다는 점을 확인 — Enabled/Disabled 여부는 `schtasks /V`의 `Scheduled Task State` 필드로만 확정 가능, `Get-ScheduledTask.State`와 혼동 주의)
+2. 구버전이 이미 띄워놓은 PID 27664/28548은 Disable만으로는 종료되지 않아, 사용자가 관리자 PowerShell에서 `Stop-Process -Id 27664 -Force` / `Stop-Process -Id 28548 -Force` 실행
+3. 재조회 결과: `Get-Process -Id 27664,28548` → 결과 없음(종료 확인) / 남은 `powershell.exe`는 NSSM 경유 PID 13008뿐(정상) / `Get-Service SNS_Watchdog` → `Running/Automatic` 유지 / Flask(:5000)·Streamlit(:8501)·ngrok(:4040) 전부 LISTENING 유지(이번 정리 작업으로 인한 서비스 영향 없음 확인)
+
+**Prevention:** FP-042 참조 — 전환(migration) 작업은 신규 설치와 구 메커니즘 제거를 한 세션 내에서 짝지어 완료하거나, 부득이 나눌 경우 `CURRENT_RUNTIME_CONTEXT.md`에 "구 메커니즘 아직 미비활성" 같은 중간상태를 명시적으로 남길 것.
+
+**관련:** PENDING-A, ERR-053, ERR-054, FP-040, FP-017, FP-042
