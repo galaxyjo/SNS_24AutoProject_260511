@@ -501,3 +501,20 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-042(신규) 등록 — 전환 작업의 중간 상태를 문서에 명시적으로 남기고, 세션 재개 시 raw 재확인을 우선하는 절차를 표준화.
 
 **관련:** ERR-057, FP-042, PENDING-A, ERR-053, ERR-054
+
+---
+
+## INC-031 | ngrok 터널 다운으로 Instagram DM 웹훅 수신 불가 (2026-07-11 09:07경 ~ 12:35:48, 약 3시간반)
+
+**발생:** 2026-07-11 09:07경(오늘 첫 재부팅, 이 시점부터 잠복 — 실제로는 그때도 구 Task가 우연히 살려서 정상이었음) ~ 실제 노출은 ERR-057 조치로 구 Task를 끈 이후(11:xx경)부터 ~ 12:35:48(해결)
+**발견:** ERR-057 조치 후 재부팅 실증(12:08) 과정에서 watchdog.log에 ngrok 반복 재시작 실패 로그 확인.
+
+**요약:** NSSM 서비스(LocalSystem 계정)가 watchdog.ps1의 유일한 실행 주체가 되면서, ngrok(Microsoft Store 설치 + admin 사용자 프로필 전용 authtoken)을 실행할 수 없게 됨(ERR-058). ngrok이 뜨지 못하면 `danuta-overdramatic-whirly.ngrok-free.dev`(Meta Webhook 콜백 URL로 등록된 고정 도메인)가 로컬 Flask(:5000)로 연결되지 않아, 이 구간 동안 Instagram DM/댓글 웹훅 수신이 실질적으로 불가능했을 것으로 추정.
+
+**실제 피해 여부:** 이 구간에 실제 수신 시도가 있었는지는 확인 안 됨(Meta 측 재시도/실패 로그는 우리 쪽에서 조회 불가) — UNKNOWN. Flask 자체(:5000)는 로컬에서는 계속 정상(`/health` 200)이었으므로, 외부에서 ngrok 경유로 들어오는 요청만 영향받았을 것으로 추정.
+
+**해결:** ERR-058 Fix 참조 — watchdog.ps1 ngrok 실행 경로를 포터블 exe로 변경 + authtoken 설정을 LocalSystem 프로필에 복사 → 12:35:48 `[RECOVER] Ngrok 복구` 확인, `public_url` 정상 응답 확인.
+
+**재발 방지:** FP-043(신규) 참조 — 서비스 계정 전환 시 의존 도구 전수 점검을 표준 절차화.
+
+**관련:** ERR-058, FP-043, ERR-057, FP-042

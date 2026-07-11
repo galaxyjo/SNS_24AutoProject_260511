@@ -42,6 +42,8 @@
 | testabd_diagnostic_tasks_disabled | ✅ PASS | 2026-07-10 |
 | nssm_dual_watchdog_resolved_260711 | ✅ PASS | 2026-07-11 |
 | nssm_crash_restart_verified_260711 | ✅ PASS | 2026-07-11 |
+| nssm_reboot_proof_260711 | ✅ PASS | 2026-07-11 |
+| ngrok_localsystem_fix_260711 | ✅ PASS | 2026-07-11 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -90,3 +92,5 @@
 | backup_15_verified_260711 | ERR-055 — backup(14)(9.14MB, 크기 이상) 재검증 후 launcher/dashboard/n8n 전부 정지 → backup(15) 재생성(174,715KB, backup(13) 172MB와 동일 정상범위) + sha256 해시 생성 확인 — PASS. backup(14).zip은 삭제하지 않고 보존(증거 목적, 삭제 여부 별도 판단). |
 | nssm_dual_watchdog_resolved_260711 | ERR-057/FP-042/INC-030 — NSSM 서비스(`SNS_Watchdog`)와 구 Task(`SNS_Watchdog_AutoStart`)가 watchdog.ps1을 이중 실행 중임을 프로세스 부모-자식 체인(PID 13008 vs 27664→28548)으로 확인. 관리자 권한으로 `Disable-ScheduledTask` 실행 → `schtasks /V`로 `Scheduled Task State: Disabled` 확인, 이미 떠 있던 구버전 PID 27664/28548을 `Stop-Process -Force`로 종료 → 재조회로 소멸 확인. NSSM 서비스(PID 13008) 단독 운영 전환, Flask(:5000)/Streamlit(:8501)/ngrok(:4040) 전부 영향 없이 LISTENING 유지 — PASS. |
 | nssm_crash_restart_verified_260711 | PENDING-A 크래시 재시작 실증 — 관리자 권한으로 NSSM 관리 watchdog.ps1(PID 13008)을 `Stop-Process -Force`로 강제 종료(11:54:58) → NSSM이 `AppRestartDelay=60000ms` 설정대로 자동 재기동(`watchdog.log` 새 시작 배너 11:56:35 확인, 약 97초 후) → 재기동된 watchdog.ps1이 Streamlit까지 자체 정상화(PID 18048→31652), Flask `/health` HTTP 200 확인. 수동 개입 없이 완전 자동 복구 — PASS. 재부팅 실증은 별도 트랙으로 미실시. |
+| nssm_reboot_proof_260711 | PENDING-A 재부팅 실증(잔여 트랙) — 사용자가 실제 재부팅 진행(12:09) 후 `Get-Service SNS_Watchdog` → `Running/Automatic` 자동 기동 확인, `watchdog.log`에 `===== watchdog 시작 =====` 배너가 이번엔 **1번만**(12:08:11) 기록됨(오늘 첫 재부팅 시 09:07:02/09:07:58 2번 기록됐던 것과 대비) — 구 Task 비활성화가 재부팅 전반에 걸쳐 유지됨을 실증. PASS로 PENDING-A(NSSM 서비스 전환) 완전 종결. |
+| ngrok_localsystem_fix_260711 | ERR-058/FP-043/INC-031 — NSSM(LocalSystem) 전환으로 드러난 ngrok 이중 실패(MSIX 실행 불가 + authtoken 프로필 분리) 해결. `watchdog.ps1` `$NGROK_EXE` 포터블 경로 도입 + 사용자가 관리자 권한으로 authtoken(`ngrok.yml`)을 LocalSystem 프로필에 복사 → `Restart-Service` 후 12:35:48 `[RECOVER] Ngrok 복구` 확인, `/api/tunnels` 조회로 `public_url=https://danuta-overdramatic-whirly.ngrok-free.dev` 정상 응답 — PASS. |

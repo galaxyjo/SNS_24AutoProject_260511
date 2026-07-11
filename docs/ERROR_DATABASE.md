@@ -830,3 +830,27 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** FP-042 참조 — 전환(migration) 작업은 신규 설치와 구 메커니즘 제거를 한 세션 내에서 짝지어 완료하거나, 부득이 나눌 경우 `CURRENT_RUNTIME_CONTEXT.md`에 "구 메커니즘 아직 미비활성" 같은 중간상태를 명시적으로 남길 것.
 
 **관련:** PENDING-A, ERR-053, ERR-054, FP-040, FP-017, FP-042
+
+## ERR-058 | NSSM 서비스 실행계정(LocalSystem) 전환의 부작용 — ngrok이 (1) Microsoft Store(MSIX) 앱이라 접근 불가 + (2) authtoken 설정이 admin 사용자 프로필 전용이라 이중으로 실패
+
+**발견 경위:** ERR-057(구 Task 비활성화) 조치 후 재부팅 실증(260711 12:08)에서 dual-watchdog 문제는 해소됐으나, `logs/watchdog.log`에 `[FATAL] Start-Ngrok 실패: This command cannot be run due to the error: The file cannot be accessed by the system.`가 반복 발생, `:4040` 미LISTENING 확인.
+
+**Raw:**
+- `where ngrok` → `C:\Users\admin\AppData\Local\Microsoft\WindowsApps\ngrok.exe`(심볼릭 링크) → 실제 대상 `C:\Program Files\WindowsApps\ngrok.ngrok_3.39.1.0_x64__1g87z0zv29zzc\ngrok.exe`(Microsoft Store/MSIX 패키지 보호 폴더)
+- `Get-CimInstance Win32_Service -Filter "Name='SNS_Watchdog'"` → `StartName=LocalSystem` / `nssm get SNS_Watchdog ObjectName` → `LocalSystem`
+- 대체 경로 확인: `C:\ngrok\ngrok-v3-stable-windows-amd64\ngrok.exe`(포터블 exe, MSIX 아님) 존재 및 `ngrok version` → `3.35.0` 정상 응답
+- 1차 수정(watchdog.ps1 `Start-Ngrok`을 포터블 exe 경로로 변경) 후에도 여전히 실패 — 단 `[FATAL]` 예외 없이 `Get-Process -Name ngrok` 결과만 없는 형태로 증상 변화
+- `ngrok config check` → `Valid configuration file at C:\Users\admin\AppData\Local/ngrok/ngrok.yml`(admin 사용자 프로필 전용) / `C:\Windows\System32\config\systemprofile\AppData\Local\ngrok` 경로는 애초에 존재하지 않음(LocalSystem 프로필에 authtoken 없음) 확인
+
+**Root Cause:** 두 가지 원인이 겹쳐 있었음.
+1. ngrok이 Microsoft Store(MSIX) 패키지로 설치되어 있어, Execution Alias(`WindowsApps\ngrok.exe`)를 통한 실행은 대화형 사용자 세션의 패키지 활성화 인프라를 필요로 함 — `LocalSystem` 계정(비대화형, Session 0)에서는 이 활성화가 실패하며 "The file cannot be accessed by the system" 오류로 나타남. 오늘 아침(ERR-057 조치 전)엔 구 Task(admin 계정, 대화형 컨텍스트)가 우연히 ngrok을 성공시켜 왔기 때문에 이 결함이 가려져 있었음 — ERR-057에서 구 Task를 비활성화하고 NSSM(LocalSystem) 단독 운영으로 전환하면서 비로소 드러난 잠복 결함.
+2. 1차 수정(포터블 exe 경로 지정)만으로는 불충분 — ngrok의 authtoken 설정(`ngrok.yml`)이 `LocalSystem`이 아닌 `admin` 사용자 프로필 하위에만 존재해, `LocalSystem` 컨텍스트에서 실행된 ngrok은 인증 정보를 찾지 못해 커스텀 도메인(`--url=danuta-overdramatic-whirly.ngrok-free.dev`) 터널을 열지 못함.
+
+**Fix:**
+1. `watchdog.ps1`의 `Start-Ngrok` 함수가 PATH 탐색(`"ngrok"`)이 아닌 명시적 포터블 경로(`C:\ngrok\ngrok-v3-stable-windows-amd64\ngrok.exe`, `$NGROK_EXE` 변수로 도입)를 사용하도록 수정
+2. 사용자가 관리자 PowerShell에서 `C:\Users\admin\AppData\Local\ngrok\ngrok.yml`을 `C:\Windows\System32\config\systemprofile\AppData\Local\ngrok\ngrok.yml`로 복사(`New-Item -ItemType Directory -Force` + `Copy-Item -Force`) — 이 경로는 일반 권한은 물론 비-SYSTEM 컨텍스트의 관리자 PowerShell에서도 조회(`Test-Path`)조차 거부되는 보호 폴더라, 실제 성공 여부는 사용자가 붙여넣은 명령 실행 결과(에러 없음)로만 간접 확인 가능했음
+3. 사용자가 관리자 PowerShell에서 `Restart-Service -Name "SNS_Watchdog" -Force` 실행 → watchdog.log 재확인 결과 12:33:45/12:34:48 재시도는 여전히 실패했으나 12:35:48 `[OK] ngrok 재시작 성공` + `[RECOVER] Ngrok 복구` 확인, `:4040` LISTENING(PID 23924), `http://localhost:4040/api/tunnels` 조회로 `public_url=https://danuta-overdramatic-whirly.ngrok-free.dev` 정상 응답 확인 — **최종 PASS**
+
+**Prevention:** FP-043 신규 등록 참조 — 서비스 실행 계정을 변경(예: 대화형 사용자 → LocalSystem)할 때는 그 계정이 의존하는 모든 외부 도구의 (a) 설치 형태(일반 exe vs Store/MSIX 패키지)와 (b) 인증정보 저장 위치(사용자 프로필 vs 시스템 전역)를 함께 점검해야 함 — 스크립트 경로만 바꾸는 것으로는 불충분.
+
+**관련:** ERR-057, FP-042, FP-043, PENDING-A

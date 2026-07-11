@@ -849,7 +849,35 @@ push: 완료 (`7765011..62cea04`)
 3. Flask(:5000 `/health`)/Streamlit(:8501)/ngrok(:4040) 정상 LISTENING 여부
 4. 확인 결과를 PENDING-A(`docs/PENDING_INVESTIGATIONS.md`)에 최종 Note로 추가 — PASS 시 PENDING-A 완전 종결, 실패 시 새 ERR 등록
 
-commit: 미실행 — 재부팅 전 준비 기록, 다음 커밋에 포함 예정
-push: 미실행
+commit: `4ff0b21`
+push: 완료 (`62cea04..4ff0b21`)
+
+### 재부팅 실증 결과 + ngrok 신규 결함 발견·해결 (260711 12:09~12:35)
+
+**1) 재부팅 실증 — PASS, PENDING-A 완전 종결**
+사용자가 12:09 재부팅 완료. 확인 결과: `Get-Service SNS_Watchdog` → `Running/Automatic` 자동 기동 / `watchdog.log` 시작 배너 **1번만**(12:08:11, 오늘 첫 재부팅 09:07:02+09:07:58 2번과 대비) — 구 Task 비활성화가 재부팅을 넘어 유지됨을 실증.
+
+**2) 신규 발견: ngrok 실행 실패 (ERR-058)**
+재부팅 실증 확인 중 `:4040` 미LISTENING, watchdog.log에 `Start-Ngrok 실패: The file cannot be accessed by the system` 반복 확인. 조사 결과 2중 원인: (1) ngrok이 Microsoft Store(MSIX) 설치라 LocalSystem(비대화형) 컨텍스트에서 Execution Alias 실행 자체가 막힘, (2) 포터블 exe로 우회해도 authtoken(`ngrok.yml`)이 admin 사용자 프로필 전용이라 LocalSystem이 인증 정보를 못 찾음 — 오늘 아침엔 구 Task(admin 계정, 대화형)가 우연히 살려왔던 것이라 ERR-057 조치 전까지 드러나지 않았던 잠복 결함.
+
+**Fix:**
+- `watchdog.ps1` — `Start-Ngrok`이 PATH 탐색 대신 명시적 포터블 경로(`$NGROK_EXE = "C:\ngrok\ngrok-v3-stable-windows-amd64\ngrok.exe"`) 사용하도록 수정
+- 사용자가 관리자 PowerShell에서 `ngrok.yml`을 `C:\Windows\System32\config\systemprofile\AppData\Local\ngrok\`(LocalSystem 프로필)로 복사
+- `Restart-Service -Name "SNS_Watchdog" -Force` → 12:35:48 `[RECOVER] Ngrok 복구` 확인, `/api/tunnels`로 `public_url` 정상 응답, Flask/Streamlit/ngrok 전체 정상 확인
+
+### 문서화
+- `docs/ERROR_DATABASE.md` — ERR-058 신규 등록
+- `docs/FAILURE_PATTERN.md` — FP-043 신규 등록(서비스 계정 전환 시 의존 도구 전수점검 필요)
+- `docs/INCIDENT_TIMELINE.md` — INC-031 신규 등록(웹훅 수신 불가 추정 구간)
+- `docs/PENDING_INVESTIGATIONS.md` — PENDING-A 최종 Note, 완전 종결
+- `docs/VALIDATION_STATUS.md` — `nssm_reboot_proof_260711` / `ngrok_localsystem_fix_260711` 신규 행 추가(모두 PASS)
+
+### 다음 세션 승계
+- PENDING-A(NSSM 전환) 전체 트랙 완전 종결 — 더 이상 승계 항목 없음
+- n8n(PID 10248 등) 반복 실패 알림은 여전히 그대로 — 의도적 정지 상태 유지, 코드 수정 안 함
+- Claude Desktop "원격 제어 연결 끊김"은 사용자 확인 결과 재현 안 됨으로 종결(이전 기록 참조)
+
+commit: 미실행 — 이 기록과 함께 커밋 예정
+push: 미실행 — commit 후 별도 승인 필요
 
 ---

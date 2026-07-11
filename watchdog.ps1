@@ -35,6 +35,7 @@ $FLASK_URL      = "http://localhost:5000/health"
 $STREAMLIT_URL  = "http://localhost:8501"
 $NGROK_URL      = "danuta-overdramatic-whirly.ngrok-free.dev"
 $NGROK_ARGS     = "http --url=$NGROK_URL 5000"
+$NGROK_EXE      = "C:\ngrok\ngrok-v3-stable-windows-amd64\ngrok.exe"
 $N8N_URL        = "http://localhost:5678"
 
 # 서비스별 연속 실패 카운터
@@ -124,7 +125,7 @@ function Start-Streamlit {
 
 function Start-Ngrok {
     try {
-        Start-Process -FilePath "ngrok" -ArgumentList $NGROK_ARGS -WindowStyle Hidden
+        Start-Process -FilePath $NGROK_EXE -ArgumentList $NGROK_ARGS -WindowStyle Hidden
         Start-Sleep -Seconds $RESTART_WAIT
     } catch {
         Write-Log "[FATAL] Start-Ngrok 실패: $($_.Exception.Message)"
