@@ -833,7 +833,23 @@ push: 완료 (`ef0aca3..7765011`, 사용자 승인 후 실행)
 - NSSM 재부팅 실증만 남음(Phase 2→3 나머지 트랙)
 - n8n(PID 10248 등) 반복 실패 알림은 여전히 그대로(watchdog.log 기준 11:55:27 시점 "연속 183회 실패" 누적 중) — 의도적 정지 상태 유지, 코드 수정 안 함
 
-commit: 미실행 — 이 기록과 함께 커밋 예정
-push: 미실행 — commit 후 별도 승인 필요
+commit: `62cea04`
+push: 완료 (`7765011..62cea04`)
+
+### 재부팅 실증 준비 (260711 12:00) — 다음 세션 시작 시 확인 필수
+
+**Baseline (재부팅 직전, 12:00:37):**
+- NSSM 서비스 `SNS_Watchdog`: Running / StartMode=Auto
+- 구 예약작업 `SNS_Watchdog_AutoStart`: `Scheduled Task State: Disabled` 확인됨(ERR-057에서 처리)
+- 크래시 재시작 실증은 같은 세션에서 이미 PASS 확인(위 항목 참조)
+
+**다음 세션(재부팅 후)에서 확인할 것:**
+1. `Get-Service SNS_Watchdog` → `Running` 이어야 함(수동 개입 없이 자동 기동)
+2. `logs/watchdog.log` tail — `===== watchdog 시작 =====` 배너가 **1번만** 찍혀야 정상(2번 찍히면 구 Task가 다시 살아난 것 — 이 경우 `schtasks /Query /TN "SNS_Watchdog_AutoStart" /V`로 재확인)
+3. Flask(:5000 `/health`)/Streamlit(:8501)/ngrok(:4040) 정상 LISTENING 여부
+4. 확인 결과를 PENDING-A(`docs/PENDING_INVESTIGATIONS.md`)에 최종 Note로 추가 — PASS 시 PENDING-A 완전 종결, 실패 시 새 ERR 등록
+
+commit: 미실행 — 재부팅 전 준비 기록, 다음 커밋에 포함 예정
+push: 미실행
 
 ---
