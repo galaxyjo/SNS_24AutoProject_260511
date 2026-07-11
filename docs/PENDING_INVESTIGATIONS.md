@@ -32,3 +32,14 @@
 **관련:** ERR-053, FP-040
 
 ---
+
+**[2026-07-11 추가 Note — 실제 전환 진행 상태 + 크래시 재시작 실증 완료]:**
+세션 재개 중 NSSM 서비스(`SNS_Watchdog`)가 이미 설치되어 `Automatic` 시작으로 Running 상태였음을 발견(설치 시점/주체는 세션 기록에 없어 UNKNOWN) — 단 구 Task(`SNS_Watchdog_AutoStart`) 비활성화가 누락되어 이중 실행 중이던 문제를 ERR-057/FP-042/INC-030으로 별도 등록·해소(관리자 권한으로 `Disable-ScheduledTask` + 구 PID `Stop-Process`).
+
+이어서 **크래시 재시작 실증**을 진행: 관리자 PowerShell에서 NSSM이 띄운 watchdog.ps1(PID 13008)을 `Stop-Process -Force`로 강제 종료 → 11:54:58 종료 확인 → 11:56:35 NSSM이 자동으로 새 watchdog.ps1 인스턴스 기동(`watchdog.log`에 새 시작 배너 확인, `AppRestartDelay=60000ms` 설정과 일치하는 타이밍) → 재기동된 watchdog.ps1이 자체 헬스체크로 Streamlit까지 함께 정상화(PID 18048→31652) → Flask(`/health` HTTP 200)/Streamlit/ngrok/NSSM 서비스 전부 수동 개입 없이 정상 복구 확인 — **PASS**.
+
+**남은 트랙:** 재부팅 실증(실제 OS reboot 후 NSSM 서비스만 단독으로 정상 기동하는지 확인)은 아직 미실시 — 사용자 편한 시점에 별도 진행 예정.
+
+**관련(추가):** ERR-057, FP-042, INC-030
+
+---

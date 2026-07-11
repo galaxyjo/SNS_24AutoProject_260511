@@ -813,6 +813,26 @@ watchdog.log에 시작 배너가 09:07:02/09:07:58 두 번 기록된 것을 단�
 - Claude Desktop "원격 제어 연결 끊김" 이슈는 저장소 문서에 근거 없음 — 사용자에게 현재도 재현되는지 확인 필요(이번 세션에서는 다루지 않음)
 - ERR-047(재부팅 후 무재실행) 근본 해소는 이번 1회 관측만으로 확정 불가, 계속 관찰 필요
 
+commit: `7765011` (ERR-057/FP-042/INC-030/VALIDATION_STATUS/MERGE_JOURNAL)
+push: 완료 (`ef0aca3..7765011`, 사용자 승인 후 실행)
+
+### 후속 작업 — 항목 1/2 순차 진행 (260711 오전, 계속)
+
+**항목 1) Claude Desktop "원격 제어 연결 끊김"** — 사용자 확인 결과 현재 재현 안 됨("지금정상"), 별도 조치 없이 종결.
+
+**항목 2) NSSM 크래시 재시작 실증 (PENDING-A 잔여 트랙)**
+관리자 권한으로 NSSM 관리 watchdog.ps1(PID 13008)을 `Stop-Process -Force`로 강제 종료(11:54:58) → NSSM이 `AppRestartDelay=60000ms` 설정대로 자동 재기동(`watchdog.log` 새 시작 배너 11:56:35, 약 97초 후) → 재기동된 watchdog.ps1이 자체 헬스체크로 Streamlit까지 정상화(PID 18048→31652) → Flask(`/health` HTTP 200)/Streamlit/ngrok/NSSM 서비스 전부 수동 개입 없이 정상 복구 확인 — PASS. 새 ERR/FP/INC 등록 없음(이상 없는 정상 검증 결과이므로 `docs/PENDING_INVESTIGATIONS.md` PENDING-A에 Note 추가 + `docs/VALIDATION_STATUS.md`에 `nssm_crash_restart_verified_260711` 행 추가로 기록).
+
+**잔여:** 재부팅 실증(실제 OS reboot 후 NSSM 서비스 단독 정상 기동 확인)은 아직 미실시 — 사용자 편한 시점에 별도 진행.
+
+### 문서화
+- `docs/PENDING_INVESTIGATIONS.md` — PENDING-A에 260711 Note 추가(크래시 재시작 실증 결과)
+- `docs/VALIDATION_STATUS.md` — `nssm_crash_restart_verified_260711` 신규 행 추가(PASS)
+
+### 다음 세션 승계
+- NSSM 재부팅 실증만 남음(Phase 2→3 나머지 트랙)
+- n8n(PID 10248 등) 반복 실패 알림은 여전히 그대로(watchdog.log 기준 11:55:27 시점 "연속 183회 실패" 누적 중) — 의도적 정지 상태 유지, 코드 수정 안 함
+
 commit: 미실행 — 이 기록과 함께 커밋 예정
 push: 미실행 — commit 후 별도 승인 필요
 
