@@ -895,3 +895,39 @@ commit: 미실행 — 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push
 
 ---
+
+### 학습 리뷰 그리드 — 안전 저장 파이프라인 + 영구 실행취소 + dashboard 실연결 (260712)
+
+`Training_Review_Queue` PASS/BLOCK 리뷰 그리드(tab8 "학습 검토")를 처음부터 끝까지 Codex 다단계 검토를 거치며 완성. 각 단계마다 별도 승인("N단계 진행하자")을 받아 진행([[feedback_plan_approval_vs_execution_gate]] 원칙의 실제 적용 사례).
+
+**신규 파일:**
+- `modules/infra/review_batch.py` — `build_review_payloads()` 순수 함수(batch_ids/block_ids → PASS/BLOCK payload)
+- `modules/infra/review_batch_committer.py` — `commit_batch_with_verification()`/`undo_batch_with_verification()`/`verify_only()`. 저장 실패 시 즉시 중단, 저장 후 GET 재검증, 진짜 값 불일치(`mismatched_ids`)와 확인 자체 실패(`verification_errors`, 상태코드·오류종류 보존)를 분리, 429/5xx/타임아웃만 제한적 재시도(403/404 등은 즉시 처리)
+- `modules/infra/review_grid_ui.py` — dashboard.py tab8 그리드 UI를 분리(테스트 가능하게). 저장 전 payload 미리보기 자동 표시, verification_errors 시 확정 버튼 잠금, 새 배치마다 선택 상태 초기화
+- `modules/infra/undo_state_store.py` — "직전 배치 실행취소" 상태를 SQLite(`db/review_undo_state.db`)에 영구 저장. prepared→committed/failed→cancelled/superseded 상태 전이, PATCH 전에 먼저 기록(SQLite 쓰기 실패 시 PATCH 시작 안 함), mark_committed/mark_failed 실패해도 화면이 안 죽고 다음 접속 시 GET-only로 자동 복구
+- 테스트 5개 파일(`tests/test_review_batch*.py`, `test_undo_state_store.py`, `test_repository_exceptions.py`) — 전부 FakeRepo/임시 SQLite만 사용, 실제 Airtable 접속 없이 검증
+
+**수정 파일:**
+- `modules/infra/repository_interface.py` — `get_review_status()` 추상 메서드 추가, `RepositoryError`에 `status_code`/`retry_after_seconds`/`original_error_type` 속성 추가
+- `modules/infra/airtable_repository.py` — `get_review_status()` 구현(404는 예외 아닌 None), `_raise()`가 HTTP 상태·Retry-After 헤더 전달
+- `dashboard.py` — tab8이 `render_review_grid(_repo, undo_store=UndoStateStore(...))`로 연결(db 폴더 존재 확인 후)
+
+**사고 및 정정 (ERR-059/FP-044/INC-032):**
+실제 운영 50건 배치 확정 시 저장은 100% 성공했으나 GET 재검증 단계가 모든 예외를 "값 불일치"로 오탐 표시 — 원인은 예외 은폐(`_safe_get_status`가 429/403/타임아웃 구분 없이 전부 None 처리). 최초 제기된 "속도 제한" 가설은 실제 PATCH 간격 로그(82초/50건, 1.4~1.6초 간격)로 기각. 근본 수정 후 Codex 재검토에서 (1) 실제 404 계약(None 반환)을 mismatched_ids로 잘못 분류, (2) GET 자체 실패도 즉시 failed 확정, (3) 복구 미해결 시에도 새 작업 진행 가능 등 3차례 추가 결함 발견·수정. 해당 50건 배치는 원본 선택 기록이 브라우저 새로고침으로 유실돼 완전 재검증 불가 — 확보 가능한 최선의 증거(47/50건 직접 재조회 확인)로 **조건부 종결**.
+
+**실제 운영 검증:** 신규 20건 배치를 수정된 파이프라인으로 실제 처리 — PATCH 20회 + GET 재검증, `PENDING 20→0 / PASS 39→40 / BLOCK 133→152` 정확히 일치, SQLite에 `committed` 상태로 payload 전체(19 BLOCK/1 PASS) 정확히 기록, 새로고침 후 실행취소 버튼 정상 복원까지 확인 — **PASS**.
+
+**부수 발견:** 오래 떠 있던 Streamlit 프로세스(NSSM, 2026-07-11 12:30 기동)가 구버전 `review_grid_ui.py`를 메모리에 캐시하고 있어 `undo_store` 연결 직후 `TypeError` 발생 — 관리자 권한으로 프로세스 재시작(watchdog 자동 복구, PID 22856→32636) 후 해소. 이후 화면에 나타난 "선택 건수 미갱신처럼 보이는" 현상은 AppTest 재현으로 코드 정상 확인 — 실제로는 서버 응답 시차였음(새로고침으로 해소).
+
+**함께 커밋되는 이전 세션 미커밋분 (이번 세션 승인 후 함께 정리):**
+- `.env.example`/`.gitignore`/`requirements.txt` — Naver 커넥터 관련 env 자리표시자, imagehash 의존성, training_snapshots gitignore (이전 세션 Phase 0 승인분)
+- `modules/sns/facebook_crawler.py` — `save_to_training_queue`/`run_for_training_photos` 등 학습용 FB 그룹 크롤러 함수 (이전 세션에 실제 192건 수집까지 검증 완료된 승인분)
+- `modules/infra/repository_interface.py`/`airtable_repository.py`의 Phase 0 스캐폴딩(`TrainingCandidate`, `insert_training_candidate` 등) — 오늘 수정분과 같은 파일에 섞여 있어 분리 불가, 이전 세션에 이미 승인된 내용
+- `modules/crawlers/naver_search_connector.py` — robots.txt 위반(AI 학습/RAG 명시적 금지)으로 폐기 결정된 코드. 삭제하지 않고 그대로 커밋(참고용, 실행 금지) — 삭제 여부는 별도 결정 사항
+
+**문서화:** `docs/ERROR_DATABASE.md`(ERR-059) / `docs/FAILURE_PATTERN.md`(FP-044) / `docs/INCIDENT_TIMELINE.md`(INC-032) / `docs/VALIDATION_STATUS.md`(2행) / `docs/VALIDATION_EVIDENCE_training_review_3B_260712.md`(신규, 3B 실제 Airtable 실증 원문 증거) 전부 260712 세션 중 작성.
+
+commit: 미실행 — 이 기록과 함께 커밋 예정
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---

@@ -102,8 +102,8 @@ comment_df = leads_df[leads_df["채널"] == "instagram_comment"] if not leads_df
 
 # ── 탭 ───────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
-    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그", "\U0001f4ca KPI", "\U0001f5a5️ 헬스", "\U0001f415 워치독"]
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    ["\U0001f4f8 콘텐츠", "\U0001f465 Lead CRM", "\U0001f4ac 댓글", "\U0001f4cb 로그", "\U0001f4ca KPI", "\U0001f5a5️ 헬스", "\U0001f415 워치독", "\U0001f3af 학습 리뷰"]
 )
 
 
@@ -632,3 +632,48 @@ with tab7:
         st.caption("logs/watchdog.log 마지막 줄 타임스탬프 기준, 90초 초과 시 비정상 판정")
     else:
         st.warning("watchdog 상태를 불러올 수 없습니다.")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Tab 8: 학습 리뷰 (Training_Review_Queue PASS/BLOCK)
+# ════════════════════════════════════════════════════════════════════════════
+with tab8:
+    from modules.infra.airtable_repository import AirtableRepository
+    _repo = AirtableRepository()
+
+    try:
+        _counts = _repo.count_candidates_by_status()
+    except Exception as e:
+        st.error(f"리뷰 큐 조회 실패: {e}")
+        _counts = {}
+
+    _pending = _counts.get("PENDING", 0)
+    _pass    = _counts.get("PASS", 0)
+    _block   = _counts.get("BLOCK", 0)
+    _total   = _pending + _pass + _block
+
+    rc1, rc2, rc3, rc4 = st.columns(4)
+    rc1.metric("전체", _total)
+    rc2.metric("\U0001f7e1 대기", _pending)
+    rc3.metric("\U00002705 합격", _pass)
+    rc4.metric("\U0000274c 불합격", _block)
+
+    st.divider()
+
+    if _total:
+        st.progress((_pass + _block) / _total, text=f"{_pass + _block} / {_total} 처리 완료")
+
+    # ────────────────────────────────────────────────────────────────────────
+    # 그리드 일괄 처리 — 버릴 것만 체크 → 나머지는 전부 자동 PASS
+    # ────────────────────────────────────────────────────────────────────────
+    from modules.infra.review_grid_ui import render_review_grid
+    from modules.infra.undo_state_store import UndoStateStore
+
+    _undo_db_dir = Path(__file__).parent / "db"
+    if not _undo_db_dir.is_dir():
+        st.error(f"db 폴더가 없습니다: {_undo_db_dir}")
+    else:
+        _undo_store = UndoStateStore(str(_undo_db_dir / "review_undo_state.db"))
+        render_review_grid(_repo, undo_store=_undo_store)
+
+    st.caption("PASS/BLOCK 판정은 시각·사업적 적합성 판정일 뿐입니다 — 실제 학습/재사용 여부는 별도 권한 필드가 통제합니다.")

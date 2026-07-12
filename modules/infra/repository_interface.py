@@ -37,6 +37,12 @@ class LeadBridgeStatus(str, Enum):
     CONVERTED       = "converted"
 
 
+class ReviewStatus(str, Enum):
+    PENDING = "PENDING"
+    PASS    = "PASS"
+    BLOCK   = "BLOCK"
+
+
 # ── TypedDict ─────────────────────────────────────────────────────────────────
 
 class SupplierBlockEntry(TypedDict):
@@ -107,6 +113,37 @@ class LeadInteraction(TypedDict, total=False):
     relay_scheduled_at:  str
 
 
+class TrainingCandidate(TypedDict, total=False):
+    """
+    review_status='PASS'는 시각적·사업적 적합성 판정일 뿐 사용 권한이 아니다.
+    실제 ML 학습 투입 전 ml_training_allowed, 실제 SNS 재사용 전 sns_reuse_allowed를
+    반드시 별도 확인해야 한다 — PASS가 권한 필드를 대체하지 않는다.
+    """
+    record_id:      str   # Airtable 내부 record ID — PATCH 호출용
+    candidate_id:   str
+    target_id_ref:  str
+    source_platform: str
+    search_query:   str
+    source_url:     str
+    image_url:      str   # 원본 이미지 URL — 재호스팅 안 함
+    text_content:   str
+    image_hash:     str
+    phash:          str
+    is_duplicate:   bool
+    collected_at:   str
+    review_status:  str
+    other_note:     str
+    reviewed_at:    str
+    storage_key:    str   # 상대경로: training_snapshots/{sha256}.{ext} — 절대경로 금지
+    mime_type:      str
+    post_id:        str   # 원본ID 우선, 없으면 canonical URL SHA256 해시, 불가시 빈칸
+    seller_id:      str   # 원본 작성자ID 우선, 없으면 정규화 프로필URL SHA256 해시, 불가시 빈칸
+    permission_status:         str   # allowed / blocked / unknown — 소스에서 상속
+    terms_checked_at:          str
+    terms_source_url:          str
+    candidate_block_override:  str   # 소스는 allowed여도 이 후보만 개별 차단할 사유
+
+
 class LeadInteractionCreate(TypedDict):
     igsid:            str
     source:           str   # "instagram_dm" | "instagram_comment"
@@ -116,9 +153,25 @@ class LeadInteractionCreate(TypedDict):
 
 
 # ── 예외 ──────────────────────────────────────────────────────────────────────
+# status_code/retry_after_seconds/original_error_type — 260712 GET 재검증 오탐 사고 이후 추가.
+# review_batch_committer가 429/5xx/타임아웃만 재시도하고 403/404는 즉시 오류 처리하려면
+# 예외에서 HTTP 상태·재시도 대기시간·원래 오류 종류(네트워크 예외가 래핑되어도 보존)를
+# 읽을 수 있어야 해서, 공통 예외 계층에 옵션 속성으로 추가했다. 기존 호출부는 그대로 동작.
 
 class RepositoryError(Exception):
     """저장소 기본 예외."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        retry_after_seconds: float | None = None,
+        original_error_type: str | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+        self.original_error_type = original_error_type
 
 
 class RepositoryUnavailableError(RepositoryError):
@@ -151,7 +204,11 @@ class RepositoryInterface(ABC):
 
     @abstractmethod
     def fetch_active_crawl_targets(self) -> list[CrawlTarget]:
-        """활성 크롤 대상 URL 목록 반환."""
+        """활성 크롤 대상 URL 목록 반환 (collection_purpose='training'인 대상은 제외 — 운영 자동게시 파이프라인 전용)."""
+
+    @abstractmethod
+    def fetch_active_training_targets(self, platform: str) -> list[CrawlTarget]:
+        """collection_purpose='training' 인 활성 크롤 대상만 반환 (사람 리뷰 큐 전용, Instagram_Posts로 가지 않음)."""
 
     @abstractmethod
     def find_source_item_by_hash(self, content_hash: str) -> SourceItemRef | None:
@@ -288,3 +345,38 @@ class RepositoryInterface(ABC):
         next_retry_iso: str,
     ) -> None:
         """retry 카운트·에러·예약시각 갱신. retry_count >= 3 → FAILED, 미만 → NEW."""
+
+    # ── Training_Review_Queue (학습 데이터 자동 수집·리뷰) ───────────────────
+
+    @abstractmethod
+    def insert_training_candidate(self, candidate: TrainingCandidate) -> str:
+        """Training_Review_Queue에 신규 후보 저장. review_status 기본 PENDING. record_id 반환."""
+
+    @abstractmethod
+    def exists_candidate_by_hash(self, image_hash: str) -> bool:
+        """동일 image_hash(SHA256 완전동일)의 후보가 이미 존재하는지 확인."""
+
+    @abstractmethod
+    def fetch_candidate_phashes(self, limit: int = 2000) -> list[str]:
+        """근사중복(phash) 비교용 — 기존 후보의 phash 값 목록 반환 (빈 값 제외)."""
+
+    @abstractmethod
+    def fetch_next_pending_candidate(self) -> TrainingCandidate | None:
+        """review_status='PENDING' 인 후보 1건 반환 (collected_at 오래된 순). 없으면 None."""
+
+    @abstractmethod
+    def fetch_pending_candidates(self, limit: int = 50) -> list[TrainingCandidate]:
+        """review_status='PENDING' 인 후보 최대 limit건 반환 (collected_at 오래된 순) — 그리드 일괄 리뷰용."""
+
+    @abstractmethod
+    def save_review_decision(self, record_id: str, decision: str, other_note: str = "") -> None:
+        """사람의 PASS/BLOCK 판정(+선택적 기타 메모)을 후보 레코드에 기록. review_status, reviewed_at 갱신."""
+
+    @abstractmethod
+    def get_review_status(self, record_id: str) -> str | None:
+        """record_id의 현재 review_status를 GET으로 재조회. 저장 직후 실제 반영 여부 검증용.
+        레코드가 없으면 None."""
+
+    @abstractmethod
+    def count_candidates_by_status(self) -> dict[str, int]:
+        """review_status별 건수 반환 (리뷰 화면 진행률 카운터용)."""

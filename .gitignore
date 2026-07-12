@@ -17,6 +17,7 @@ build/
 .claude/
 snapshots/
 data/temp_images/
+data/training_snapshots/
 
 # 260709 세션 스크래치 파일 (조사/진단용, 운영 코드 아님)
 _diff_*.txt

@@ -197,6 +197,191 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
         logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}: {exc}")
 
 
+def save_to_training_queue(image_url, source_url, text, target_id_ref):
+    """학습 데이터 리뷰 큐(Training_Review_Queue)에 저장 — Instagram_Posts와 완전히 분리된 경로.
+    imgbb 재호스팅 없음(원본 URL 그대로), content_filter 판정 없음 — 사람이 원본을 보고 PASS/BLOCK 판정한다.
+    """
+    if not image_url:
+        logger.info("[Training] 이미지 URL 없음 - 저장 생략")
+        return False
+    from datetime import datetime, timezone
+    from modules.infra.airtable_repository import AirtableRepository
+    repo = AirtableRepository()
+    image_hash = hashlib.sha256(image_url.encode()).hexdigest()
+    if repo.exists_candidate_by_hash(image_hash):
+        logger.info(f"[Training] 중복 이미지 - 저장 생략: {image_url[:80]}...")
+        return False
+    try:
+        repo.insert_training_candidate({
+            "source_platform":  "facebook",
+            "search_query":     target_id_ref,
+            "source_url":       source_url,
+            "image_url":        image_url,
+            "text_content":     text,
+            "image_hash":       image_hash,
+            "target_id_ref":    target_id_ref,
+            "collected_at":     datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "permission_status": "unknown",
+        })
+        logger.info(f"[Training] 저장 완료: {image_url[:80]}...")
+        return True
+    except Exception as exc:
+        logger.error(f"[Training] 저장 요청 실패 | {type(exc).__name__}: {exc}")
+        return False
+
+
+def run_for_training(target_url, target_id_ref, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
+    """학습 데이터 수집 전용 크롤 — Training_Review_Queue에만 저장, Instagram_Posts 미접촉.
+    content_filter의 키워드/이미지 판정(passes_keyword_filter/passes_image_filter)을 적용하지 않는다 —
+    룰이 걸러낼 사례까지 사람이 원본 그대로 보고 PASS/BLOCK 해야 룰의 오탐/누락을 학습할 수 있기 때문.
+    공급자 블록리스트(법적/평판 위험)만 유지한다.
+    """
+    _t0 = time.time()
+    _stage_log("TRAIN_JOB_START", _t0, f"user={adspower_user_id} url={target_url}")
+    _blocklist = load_supplier_blocklist()
+
+    driver = get_driver(adspower_user_id, proxy_opts)
+    _stage_log("TRAIN_DRIVER", _t0, "WebDriver 연결 완료")
+
+    saved = 0
+    try:
+        driver.get(target_url)
+        time.sleep(12)
+        driver.execute_script("window.scrollBy(0, 800);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(1)
+
+        feed = driver.find_element(By.CSS_SELECTOR, "div[role='feed']")
+        posts = feed.find_elements(By.XPATH, ".//div[@role='article']")
+
+        if not posts:
+            logger.warning(f"[Training Crawler] 포스트 없음 | url={target_url}")
+            return 0
+
+        _stage_log("TRAIN_CRAWL", _t0, f"posts={len(posts)}")
+        for i, post in enumerate(posts[:max_posts], start=1):
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post)
+            time.sleep(1.5)
+
+            image_url = extract_image_url(post, driver)
+            expand_see_more(post, driver)
+            raw_text = (post.text or "").encode("utf-8", errors="replace").decode("utf-8")
+            raw_text = clean_fb_metadata(raw_text)
+            _author_raw = raw_text.splitlines()[0] if raw_text else ""
+            _matched = is_blocked_supplier(_author_raw, _blocklist)
+            if _matched:
+                logger.warning(f"[Training][Blocklist] 차단 | author={_author_raw!r} | matched={_matched}")
+                continue
+            if not image_url:
+                logger.info(f"[Training Crawler] POST {i} 이미지 없음 - skip")
+                continue
+            if save_to_training_queue(image_url, target_url, raw_text, target_id_ref):
+                saved += 1
+
+        logger.info(f"[Training Crawler] 완료 | {saved}건 저장 | target={target_id_ref}")
+        return saved
+    finally:
+        _stage_log("TRAIN_CLEANUP", _t0, f"user={adspower_user_id}")
+        try:
+            driver.quit()
+        except Exception as exc:
+            logger.warning(f"[TRAIN_CLEANUP] driver.quit 실패 | {exc}")
+        try:
+            stop_browser(adspower_user_id)
+        except Exception as exc:
+            logger.warning(f"[TRAIN_CLEANUP] AdsPower Stop API 실패 | {exc}")
+
+
+def run_for_training_photos(target_url, target_id_ref, max_photos=50, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None, max_scrolls: int = 30, stagnant_limit: int = 5):
+    """그룹 전체 사진(미디어 갤러리)을 대상으로 학습 후보를 대량 수집한다.
+    메인 피드 방식(run_for_training)은 최근 게시물 몇 개만 훑어 수량이 부족하다 —
+    /media 그리드를 스크롤하며 그룹이 보유한 사진 전체에 접근해 물량을 확보한다.
+    캡션 텍스트는 없음(갤러리 뷰라 게시물 본문 접근 불가) — alt 속성만 참고로 저장.
+    """
+    _t0 = time.time()
+    media_url = target_url.rstrip("/") + "/media"
+    _stage_log("TRAIN_PHOTO_START", _t0, f"user={adspower_user_id} url={media_url}")
+
+    driver = get_driver(adspower_user_id, proxy_opts)
+    _stage_log("TRAIN_PHOTO_DRIVER", _t0, "WebDriver 연결 완료")
+
+    saved = 0
+    try:
+        driver.get(media_url)
+        time.sleep(8)
+
+        seen_srcs = set()
+        collected = []
+        scroll_attempts = 0
+        stagnant_rounds = 0
+
+        while len(collected) < max_photos and scroll_attempts < max_scrolls and stagnant_rounds < stagnant_limit:
+            imgs = driver.find_elements(By.TAG_NAME, "img")
+            new_found = 0
+            for img in imgs:
+                src = img.get_attribute("src") or ""
+                if not (src.startswith("https://") and "scontent" in src):
+                    continue
+                if any(p in src for p in _PROFILE_PATTERNS):
+                    continue
+                if src in seen_srcs:
+                    continue
+                seen_srcs.add(src)
+                alt = img.get_attribute("alt") or ""
+                collected.append((src, alt))
+                new_found += 1
+
+            stagnant_rounds = stagnant_rounds + 1 if new_found == 0 else 0
+            driver.execute_script("window.scrollBy(0, 1600);")
+            time.sleep(1.8)
+            scroll_attempts += 1
+
+        _stage_log("TRAIN_PHOTO_SCROLL", _t0, f"수집후보={len(collected)} scrolls={scroll_attempts}")
+
+        for src, alt in collected[:max_photos]:
+            if save_to_training_queue(src, media_url, alt, target_id_ref):
+                saved += 1
+
+        logger.info(f"[Training Photo Crawler] 완료 | {saved}건 저장 / 후보 {len(collected)}건 | target={target_id_ref}")
+        return saved
+    finally:
+        _stage_log("TRAIN_PHOTO_CLEANUP", _t0, f"user={adspower_user_id}")
+        try:
+            driver.quit()
+        except Exception as exc:
+            logger.warning(f"[TRAIN_PHOTO_CLEANUP] driver.quit 실패 | {exc}")
+        try:
+            stop_browser(adspower_user_id)
+        except Exception as exc:
+            logger.warning(f"[TRAIN_PHOTO_CLEANUP] AdsPower Stop API 실패 | {exc}")
+
+
+def run_all_training_targets(max_posts=MAX_POSTS) -> dict:
+    """collection_purpose='training' 인 활성 Crawl_Targets 전체 순회 — Training_Review_Queue 적재만 수행."""
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.common.account_manager import get_default_account
+
+    repo = AirtableRepository()
+    targets = repo.fetch_active_training_targets(platform="facebook")
+    acct = get_default_account()
+    if not acct:
+        logger.error("[Training Crawler] 활성 계정 없음 — 중단")
+        return {}
+
+    proxy_opts = acct.selenium_proxy_options()
+    summary = {}
+    for t in targets:
+        try:
+            n = run_for_training(t["target_url"], t["target_id"], max_posts, acct.adspower_user_id, proxy_opts)
+            summary[t["target_id"]] = n
+        except Exception as exc:
+            logger.error(f"[Training Crawler] 실패 | target={t['target_id']} | url={t['target_url']} | {exc}")
+            summary[t["target_id"]] = -1
+    logger.info(f"[Training Crawler] 전체 완료 | {summary}")
+    return summary
+
+
 def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
     _t0 = time.time()
     _stage_log("JOB_START", _t0, f"user={adspower_user_id} url={target_url}")

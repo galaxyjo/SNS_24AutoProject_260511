@@ -870,3 +870,35 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** FP-043 신규 등록 참조 — 서비스 실행 계정을 변경(예: 대화형 사용자 → LocalSystem)할 때는 그 계정이 의존하는 모든 외부 도구의 (a) 설치 형태(일반 exe vs Store/MSIX 패키지)와 (b) 인증정보 저장 위치(사용자 프로필 vs 시스템 전역)를 함께 점검해야 함 — 스크립트 경로만 바꾸는 것으로는 불충분.
 
 **관련:** ERR-057, FP-042, FP-043, PENDING-A
+
+---
+
+## ERR-059 | 학습 리뷰 그리드 실제 50건 저장 시 GET 재검증이 전부 "값 불일치"로 오탐 — 저장은 성공했으나 확인 로직이 예외를 은폐
+
+**발견 경위:** 260712 세션 — 학습 리뷰 그리드(Training_Review_Queue PASS/BLOCK, `modules/infra/review_grid_ui.py`) 실제 운영 50건 배치에서 사용자가 확정 버튼(44 BLOCK/6 PASS)을 클릭했으나 화면에 "저장 후 확인(GET)이 일치하지 않습니다" 오류와 함께 50개 record_id 전부가 나열됨. 사용자는 "실행이 잘 됐다는 내용이 안 나온다"고 보고.
+
+**Raw:**
+- `commit_batch_with_verification()`(당시 버전)이 PATCH 50건 + 확인용 GET 50건을 연달아 호출
+- 직접 재조회 결과(`get_review_status()` 47/50건 확인): 42건 BLOCK, 5건 PASS로 **정확히 저장돼 있었음** — 즉 저장(PATCH) 자체는 성공, 확인(GET) 단계만 실패로 잘못 표시됨
+- 최초 가설(속도 제한)은 사용자/Codex 재조사에서 기각됨 — 실제 PATCH는 약 82초 동안 1.4~1.6초 간격(초당 5회인 Airtable 공식 제한보다 훨씬 낮음)으로 진행된 로그 확인
+- 근본원인 확정: `_safe_get_status()`가 GET에서 발생하는 모든 예외(429/403/타임아웃/기타)를 구분 없이 `None`으로 변환 → `None != 기대값`이 되어 실제로는 저장 성공인 건까지 "값 불일치"로 잘못 보고
+
+**Root Cause:** GET 재검증 단계에서 "저장이 안 된 것"과 "확인 자체가 실패한 것"을 구분하지 않고 예외를 전부 은폐한 설계 결함. 429/403/타임아웃 등 서로 다른 성격의 오류가 전부 동일하게 처리됨.
+
+**Fix (`modules/infra/review_batch_committer.py`, `modules/infra/repository_interface.py`, `modules/infra/airtable_repository.py`, `modules/infra/review_grid_ui.py`):**
+1. `VerificationError`(record_id/status_code/error_type/message) 신설, `CommitResult`/`UndoResult`에 `verification_errors`를 `mismatched_ids`와 분리해서 추가
+2. `RepositoryError`에 `status_code`/`retry_after_seconds`/`original_error_type` 속성 추가, `_raise()`가 HTTP 상태·`Retry-After` 헤더를 그대로 전달, `get_review_status()`의 네트워크 예외도 원래 타입명 보존
+3. 429는 `Retry-After` 기반, 5xx·타임아웃은 지수 백오프(최대 3회)로 재시도, 403·404·기타는 즉시 오류 처리(재시도 없음)
+4. `actual is None`(실제 `get_review_status()`의 404 계약)을 `mismatched_ids`가 아니라 `status_code=404, error_type="NotFound"`인 `verification_errors`로 분리(1차 수정에서 누락됐던 부분, Codex 재검토로 확인 후 `_verify_one()` 공통 헬퍼로 3개 함수 통합하며 수정)
+5. `verify_only(repo, expected)` 신규 — PATCH 없이 GET만으로 기존 저장 결과를 재검증
+6. UI: `verification_errors` 발생 시 확정 버튼을 `disabled=True`로 잠그고 "확정 버튼을 다시 누르지 마세요" 안내, 새 배치를 받으면 자동 해제
+
+**해당 50건 배치의 최종 처리 — 조건부 종결:**
+- 원본 선택(체크 상태)은 브라우저 세션에만 있었는데, 오류 이후 해당 탭이 새로고침되어 session_state가 초기화됨 — 원본 44 BLOCK/6 PASS 선택 기록 자체가 유실됨
+- Airtable 현재값으로 "기대값"을 역산해서 재검증하면 자기 자신과 비교하는 무의미한 검증이 되므로(Codex 지적), 그 배치에 대한 완전한 재검증은 구조적으로 더 이상 불가능
+- 확보 가능한 최선의 증거로 종결: 47/50건 직접 재조회 결과 42 BLOCK + 5 PASS로 정확히 저장 확인, 나머지 3건은 UNKNOWN(화면 캡처 전사 과정의 오타로 추정되나 미확정), PENDING 건수가 그 배치 처리 전후로 50건 이상 감소해 지금 20건까지 줄어든 것과 정황상 일치
+- 회장님 결정(260712): 이 50건 건은 위 증거로 **조건부 종결**, 신규 20건 배치부터는 수정된 파이프라인으로 처음부터 정식 절차 진행
+
+**Prevention:** FP-044 신규 참조 — 검증(재확인) 로직에서 예외를 뭉뚱그려 처리하면 "확인 실패"와 "데이터 실패"를 구분할 수 없게 되고, 실제로는 성공한 작업이 실패로 오탐될 수 있다.
+
+**관련:** FP-044, INC-032, docs/VALIDATION_EVIDENCE_training_review_3B_260712.md

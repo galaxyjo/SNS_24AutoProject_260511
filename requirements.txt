@@ -7,3 +7,4 @@ google-genai>=0.7.0
 streamlit>=1.32.0
 flask>=3.0.0
 Pillow>=10.0.0
+imagehash>=4.3.1

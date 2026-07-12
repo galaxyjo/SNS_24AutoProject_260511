@@ -44,6 +44,8 @@
 | nssm_crash_restart_verified_260711 | ✅ PASS | 2026-07-11 |
 | nssm_reboot_proof_260711 | ✅ PASS | 2026-07-11 |
 | ngrok_localsystem_fix_260711 | ✅ PASS | 2026-07-11 |
+| training_review_grid_50batch_260712 | 🟡 PARTIAL(조건부 종결) | 2026-07-12 |
+| training_review_verification_error_fix_260712 | ✅ PASS | 2026-07-12 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 
@@ -94,3 +96,5 @@
 | nssm_crash_restart_verified_260711 | PENDING-A 크래시 재시작 실증 — 관리자 권한으로 NSSM 관리 watchdog.ps1(PID 13008)을 `Stop-Process -Force`로 강제 종료(11:54:58) → NSSM이 `AppRestartDelay=60000ms` 설정대로 자동 재기동(`watchdog.log` 새 시작 배너 11:56:35 확인, 약 97초 후) → 재기동된 watchdog.ps1이 Streamlit까지 자체 정상화(PID 18048→31652), Flask `/health` HTTP 200 확인. 수동 개입 없이 완전 자동 복구 — PASS. 재부팅 실증은 별도 트랙으로 미실시. |
 | nssm_reboot_proof_260711 | PENDING-A 재부팅 실증(잔여 트랙) — 사용자가 실제 재부팅 진행(12:09) 후 `Get-Service SNS_Watchdog` → `Running/Automatic` 자동 기동 확인, `watchdog.log`에 `===== watchdog 시작 =====` 배너가 이번엔 **1번만**(12:08:11) 기록됨(오늘 첫 재부팅 시 09:07:02/09:07:58 2번 기록됐던 것과 대비) — 구 Task 비활성화가 재부팅 전반에 걸쳐 유지됨을 실증. PASS로 PENDING-A(NSSM 서비스 전환) 완전 종결. |
 | ngrok_localsystem_fix_260711 | ERR-058/FP-043/INC-031 — NSSM(LocalSystem) 전환으로 드러난 ngrok 이중 실패(MSIX 실행 불가 + authtoken 프로필 분리) 해결. `watchdog.ps1` `$NGROK_EXE` 포터블 경로 도입 + 사용자가 관리자 권한으로 authtoken(`ngrok.yml`)을 LocalSystem 프로필에 복사 → `Restart-Service` 후 12:35:48 `[RECOVER] Ngrok 복구` 확인, `/api/tunnels` 조회로 `public_url=https://danuta-overdramatic-whirly.ngrok-free.dev` 정상 응답 — PASS. |
+| training_review_grid_50batch_260712 | ERR-059/INC-032 — 실제 50건 배치 저장이 GET 재검증 오탐으로 "실패" 표시됨. 47/50건 직접 재조회로 42 BLOCK+5 PASS 정확 저장 확인(3건 UNKNOWN). 오류 이후 브라우저 새로고침으로 원본 선택 세션 유실 — Airtable 현재값 역산은 자기 자신과 비교하는 무의미한 검증이라 판단해 완전 재검증 불가. 확보 증거로 **조건부 종결**, 신규 20건 배치부터 수정된 파이프라인으로 재개. |
+| training_review_verification_error_fix_260712 | ERR-059/FP-044 — `review_batch_committer.py`에 `VerificationError`(status_code/error_type 보존) 신설, `mismatched_ids`(진짜 값 불일치)와 분리. `repository_interface.py`/`airtable_repository.py`에 status_code/Retry-After/original_error_type 전달 추가. 429는 Retry-After 기반, 5xx·타임아웃은 지수 백오프(최대 3회) 재시도, 403·404·기타는 즉시 처리(재시도 없음). `actual is None`(404 계약)을 `_verify_one()` 공통 헬퍼로 3개 함수(commit/undo/verify_only) 모두 동일하게 verification_errors로 분리(1차 수정 누락분, Codex 재검토로 발견 후 수정). `verify_only(repo, expected)` 신규(PATCH 없음). UI: verification_errors 시 확정 버튼 disabled + 새 배치 시 자동 해제. FakeRepo/mock 테스트 총 191 passed(4 failed는 기존 무관 `test_dm_close.py`) — PASS. |

@@ -32,10 +32,12 @@ from modules.infra.repository_interface import (
     RepositoryNotFoundError,
     RepositoryUnavailableError,
     RepositoryValidationError,
+    ReviewStatus,
     SourceItem,
     SourceItemRef,
     SourceItemStatus,
     SupplierBlockEntry,
+    TrainingCandidate,
 )
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
@@ -61,13 +63,29 @@ def _url(table: str, record_id: str = "") -> str:
 def _raise(exc: requests.HTTPError, table: str) -> None:
     status = exc.response.status_code if exc.response is not None else 0
     body   = exc.response.text[:200] if exc.response is not None else ""
+    retry_after: float | None = None
+    if exc.response is not None:
+        ra = exc.response.headers.get("Retry-After")
+        if ra:
+            try:
+                retry_after = float(ra)
+            except ValueError:
+                retry_after = None
     if status in (401, 403):
-        raise RepositoryUnavailableError(f"[{table}] 인증 오류 {status}: {body}") from exc
+        raise RepositoryUnavailableError(
+            f"[{table}] 인증 오류 {status}: {body}", status_code=status, retry_after_seconds=retry_after,
+        ) from exc
     if status == 404:
-        raise RepositoryNotFoundError(f"[{table}] 레코드 없음: {body}") from exc
+        raise RepositoryNotFoundError(
+            f"[{table}] 레코드 없음: {body}", status_code=status, retry_after_seconds=retry_after,
+        ) from exc
     if status == 422:
-        raise RepositoryValidationError(f"[{table}] 입력 오류: {body}") from exc
-    raise RepositoryError(f"[{table}] HTTP {status}: {body}") from exc
+        raise RepositoryValidationError(
+            f"[{table}] 입력 오류: {body}", status_code=status, retry_after_seconds=retry_after,
+        ) from exc
+    raise RepositoryError(
+        f"[{table}] HTTP {status}: {body}", status_code=status, retry_after_seconds=retry_after,
+    ) from exc
 
 
 def _image_url_hash(image_url: str) -> str:
@@ -160,7 +178,7 @@ class AirtableRepository(RepositoryInterface):
                 _url("Crawl_Targets"),
                 headers=_headers(),
                 params={
-                    "filterByFormula": "{status}='Active'",
+                    "filterByFormula": "AND({status}='Active', NOT({collection_purpose}='training'))",
                     "fields[0]": "target_url",
                     "fields[1]": "platform",
                     "fields[2]": "target_id",
@@ -186,6 +204,50 @@ class AirtableRepository(RepositoryInterface):
                     CrawlTarget(
                         target_url=f["target_url"],
                         platform=f.get("platform", "facebook"),
+                        target_id=f.get("target_id", ""),
+                        keyword=f.get("keyword", ""),
+                        category_code=f.get("category_code", ""),
+                        max_posts=int(f.get("max_posts", 10)),
+                    )
+                )
+        return result
+
+    # ── 4-1. 학습용(training) 크롤 대상 조회 ─────────────────────────────────
+
+    def fetch_active_training_targets(self, platform: str) -> list[CrawlTarget]:
+        try:
+            r = requests.get(
+                _url("Crawl_Targets"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": (
+                        f"AND({{status}}='Active', {{collection_purpose}}='training', {{platform}}='{platform}')"
+                    ),
+                    "fields[0]": "target_url",
+                    "fields[1]": "platform",
+                    "fields[2]": "target_id",
+                    "fields[3]": "keyword",
+                    "fields[4]": "category_code",
+                    "fields[5]": "max_posts",
+                    "pageSize": 100,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Crawl_Targets", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Crawl_Targets")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        result: list[CrawlTarget] = []
+        for rec in r.json().get("records", []):
+            f = rec.get("fields", {})
+            if f.get("target_url"):
+                result.append(
+                    CrawlTarget(
+                        target_url=f["target_url"],
+                        platform=f.get("platform", ""),
                         target_id=f.get("target_id", ""),
                         keyword=f.get("keyword", ""),
                         category_code=f.get("category_code", ""),
@@ -827,3 +889,239 @@ class AirtableRepository(RepositoryInterface):
             _raise(e, "Source_Items")
         except requests.RequestException as e:
             raise RepositoryUnavailableError(str(e)) from e
+
+    # ── 27. Training_Review_Queue 신규 후보 저장 ─────────────────────────────
+
+    def insert_training_candidate(self, candidate: TrainingCandidate) -> str:
+        if not candidate.get("image_url"):
+            raise RepositoryValidationError("image_url 필수")
+        payload = {k: v for k, v in candidate.items() if k != "record_id" and v is not None}
+        payload.setdefault("review_status", ReviewStatus.PENDING.value)
+        try:
+            r = requests.post(
+                _url("Training_Review_Queue"),
+                headers=_headers(json_body=True),
+                json={"fields": payload},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "POST")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return r.json().get("id", "")
+
+    # ── 28. 완전동일(SHA256) 중복 확인 ────────────────────────────────────────
+
+    def exists_candidate_by_hash(self, image_hash: str) -> bool:
+        try:
+            r = requests.get(
+                _url("Training_Review_Queue"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": f"{{image_hash}}='{image_hash}'",
+                    "maxRecords": 1,
+                    "fields[0]": "image_hash",
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return bool(r.json().get("records"))
+
+    # ── 29. 근사중복(phash) 비교용 목록 조회 ──────────────────────────────────
+
+    def fetch_candidate_phashes(self, limit: int = 2000) -> list[str]:
+        # NOTE: offset 페이지네이션 미구현(기존 코드베이스 공통 한계, kpi_collector.py 등과 동일) —
+        # 단일 요청 기준 최대 100건(Airtable pageSize 상한)만 반환됨.
+        try:
+            r = requests.get(
+                _url("Training_Review_Queue"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": "NOT({phash}='')",
+                    "pageSize": min(limit, 100),
+                    "fields[0]": "phash",
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return [
+            rec["fields"]["phash"]
+            for rec in r.json().get("records", [])
+            if rec.get("fields", {}).get("phash")
+        ]
+
+    # ── 30. 리뷰 대기 후보 1건 조회 ───────────────────────────────────────────
+
+    def fetch_next_pending_candidate(self) -> TrainingCandidate | None:
+        try:
+            r = requests.get(
+                _url("Training_Review_Queue"),
+                headers=_headers(),
+                params={
+                    "filterByFormula":    f"{{review_status}}='{ReviewStatus.PENDING.value}'",
+                    "sort[0][field]":     "collected_at",
+                    "sort[0][direction]": "asc",
+                    "maxRecords":         1,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if not records:
+            return None
+        rec = records[0]
+        f = rec.get("fields", {})
+        return TrainingCandidate(
+            record_id=rec["id"],
+            candidate_id=f.get("candidate_id", ""),
+            target_id_ref=f.get("target_id_ref", ""),
+            source_platform=f.get("source_platform", ""),
+            search_query=f.get("search_query", ""),
+            source_url=f.get("source_url", ""),
+            image_url=f.get("image_url", ""),
+            text_content=f.get("text_content", ""),
+            review_status=f.get("review_status", ""),
+            storage_key=f.get("storage_key", ""),
+            mime_type=f.get("mime_type", ""),
+            post_id=f.get("post_id", ""),
+            seller_id=f.get("seller_id", ""),
+            permission_status=f.get("permission_status", ""),
+            candidate_block_override=f.get("candidate_block_override", ""),
+        )
+
+    # ── 30-1. 리뷰 대기 후보 다건 조회 (그리드 일괄 리뷰용) ───────────────────
+
+    def fetch_pending_candidates(self, limit: int = 50) -> list[TrainingCandidate]:
+        try:
+            r = requests.get(
+                _url("Training_Review_Queue"),
+                headers=_headers(),
+                params={
+                    "filterByFormula":    f"{{review_status}}='{ReviewStatus.PENDING.value}'",
+                    "sort[0][field]":     "collected_at",
+                    "sort[0][direction]": "asc",
+                    "maxRecords":         limit,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        result: list[TrainingCandidate] = []
+        for rec in r.json().get("records", []):
+            f = rec.get("fields", {})
+            result.append(TrainingCandidate(
+                record_id=rec["id"],
+                candidate_id=f.get("candidate_id", ""),
+                target_id_ref=f.get("target_id_ref", ""),
+                source_platform=f.get("source_platform", ""),
+                image_url=f.get("image_url", ""),
+                text_content=f.get("text_content", ""),
+                review_status=f.get("review_status", ""),
+            ))
+        return result
+
+    # ── 31. 사람 판정(PASS/BLOCK) 저장 ────────────────────────────────────────
+    # NOTE: review_status='PASS'는 시각적·사업적 적합성 판정일 뿐 사용 권한이 아니다.
+    # 이 메서드는 permission_status/ml_training_allowed/sns_reuse_allowed를 건드리지 않는다 —
+    # 실제 학습/재사용 소비 코드가 그 필드들을 별도로 확인해야 한다.
+
+    def save_review_decision(self, record_id: str, decision: str, other_note: str = "") -> None:
+        payload = {
+            "review_status": decision,
+            "reviewed_at":   datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "other_note":    other_note,
+        }
+        try:
+            r = requests.patch(
+                _url("Training_Review_Queue", record_id),
+                headers=_headers(json_body=True),
+                json={"fields": payload},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "PATCH")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+    # ── 31b. 저장 직후 GET 재검증용 — 현재 review_status 재조회 ──────────────
+
+    def get_review_status(self, record_id: str) -> str | None:
+        try:
+            r = requests.get(
+                _url("Training_Review_Queue", record_id),
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "GET")
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return None
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            # 상태 코드가 없는 네트워크 예외(타임아웃 등) — 원래 예외 종류를 보존해서
+            # review_batch_committer가 "Timeout"류만 재시도 대상으로 분류할 수 있게 한다.
+            raise RepositoryUnavailableError(str(e), original_error_type=type(e).__name__) from e
+
+        return r.json().get("fields", {}).get("review_status")
+
+    # ── 32. 상태별 후보 건수 (진행률 카운터) ──────────────────────────────────
+
+    def count_candidates_by_status(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        offset = None
+        while True:
+            params = {"fields[0]": "review_status", "pageSize": 100}
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(
+                    _url("Training_Review_Queue"),
+                    headers=_headers(),
+                    params=params,
+                    timeout=_TIMEOUT,
+                )
+                r.raise_for_status()
+                log_api_call("Training_Review_Queue", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Training_Review_Queue")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+
+            data = r.json()
+            for rec in data.get("records", []):
+                status = rec.get("fields", {}).get("review_status", "UNKNOWN")
+                counts[status] = counts.get(status, 0) + 1
+
+            offset = data.get("offset")
+            if not offset:
+                break
+        return counts
