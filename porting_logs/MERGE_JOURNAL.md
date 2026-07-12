@@ -927,6 +927,23 @@ push: 미실행 — 세션 종료 시 일괄 push
 
 **문서화:** `docs/ERROR_DATABASE.md`(ERR-059) / `docs/FAILURE_PATTERN.md`(FP-044) / `docs/INCIDENT_TIMELINE.md`(INC-032) / `docs/VALIDATION_STATUS.md`(2행) / `docs/VALIDATION_EVIDENCE_training_review_3B_260712.md`(신규, 3B 실제 Airtable 실증 원문 증거) 전부 260712 세션 중 작성.
 
+commit: `9307403`
+push: 완료 (당시 "commit: 미실행" 표기가 실제 커밋·push 후 갱신 안 된 채 남아있었음 — 아래 260712 후속 세션에서 뒤늦게 정정)
+
+---
+
+### NSSM 서비스(SNS_Watchdog) 본체 크래시 + 실행파일 소실 → 완전 재생성 (260712, 학습 리뷰 세션 이후)
+
+**발견 경위:** 학습 리뷰/크롤링 세션 종료 후 watchdog 상태 재확인 중 `Get-Service SNS_Watchdog`가 `Stopped`인데 `watchdog.log`는 계속 heartbeat를 남기는 모순 발견.
+
+**원인 조사:** `Get-WinEvent`(Service Control Manager)로 `2026-07-11 23:08:47`에 서비스 본체가 예기치 않게 종료(Event 7034)된 것 확인. 조사 결과 등록된 `nssm.exe` 실행파일 자체가 `C:\ProgramData\chocolatey\lib\NSSM\tools\`에서 사라져있었고, 파일을 재설치(`choco install nssm -y --force`)해도 서비스 레지스트리 등록 자체가 손상돼(`nssm get` 조회조차 실패) 시작이 안 되는 상태였음. git 커밋·프로젝트 파일 변경·chocolatey.log·Windows Defender 탐지 로그를 전부 대조했으나 크래시 시각과 인과관계가 있는 흔적을 찾지 못함 — **원인 UNKNOWN으로 확정 기록**(추정하지 않음).
+
+**해소:** 고아 상태로 남아있던 이전 watchdog.ps1 인스턴스 3세대(PID 23828/27220/1924) 정리 → `nssm remove`+`nssm install`로 서비스 완전 재생성(기존과 동일한 Application/AppParameters/AppExit/AppRestartDelay 설정 복원, `AppDirectory` 명시 추가) → `sc.exe failure`로 **서비스 본체 자체**의 크래시 복구 옵션 신규 추가(기존엔 NSSM `AppExit`가 자식 프로세스 크래시만 커버, 서비스 본체 크래시엔 무방비였던 것이 이번 사고의 직접 원인, FP-045). 검증: `Get-Service` Running/Automatic, `sc.exe qfailure` SUCCESS, watchdog.log 새 시작 배너, Flask/Streamlit/ngrok 동일 PID로 무중단 유지 — PASS.
+
+**문서화:** `docs/ERROR_DATABASE.md`(ERR-060) / `docs/FAILURE_PATTERN.md`(FP-045) / `docs/INCIDENT_TIMELINE.md`(INC-033, 약 24시간 무감독 구간) / `docs/VALIDATION_STATUS.md`(1행)
+
+**다음 세션 승계:** 없음 — 이번 건은 완결. 단, "왜 nssm.exe가 사라졌는지"는 영구 UNKNOWN으로 남으므로 향후 유사 증상(서비스 Stopped인데 자식은 살아있음) 재발 시 이 기록(ERR-060/FP-045) 우선 참조.
+
 commit: 미실행 — 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 

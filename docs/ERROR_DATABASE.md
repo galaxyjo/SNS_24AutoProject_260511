@@ -902,3 +902,29 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** FP-044 신규 참조 — 검증(재확인) 로직에서 예외를 뭉뚱그려 처리하면 "확인 실패"와 "데이터 실패"를 구분할 수 없게 되고, 실제로는 성공한 작업이 실패로 오탐될 수 있다.
 
 **관련:** FP-044, INC-032, docs/VALIDATION_EVIDENCE_training_review_3B_260712.md
+
+## ERR-060 | NSSM 서비스(SNS_Watchdog) 자체가 예기치 않게 종료 + 등록된 nssm.exe 실행파일이 디스크에서 사라짐 — 서비스 등록 완전 재생성으로 해소, 원인 UNKNOWN
+
+**발견 경위:** 260712 세션 재개 중 상태 재확인(`Get-Service SNS_Watchdog`) 결과 `Stopped` 확인 — watchdog.log는 계속 heartbeat를 남기고 있어 모순 발견, 조사 진행.
+
+**Raw:**
+- `Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; Id=7034}` → `2026-07-11 23:08:47 — The SNS_Watchdog service terminated unexpectedly. It has done this 1 time(s).`
+- 이후 `Get-Service SNS_Watchdog` → `Stopped`, `Start-Service` 시도 → `Cannot open SNS_Watchdog service` (일반 권한) / `Cannot start service` (관리자 권한에서도 실패)
+- `sc.exe failure SNS_Watchdog ...` (복구 옵션 설정 시도) → `[SC] ChangeServiceConfig2 FAILED 2: The system cannot find the file specified.`
+- `where nssm` → `C:\ProgramData\chocolatey\bin\nssm.exe`(shim)는 존재하나 실행 시 `Cannot find file at '..\lib\NSSM\tools\nssm.exe' ... 이것은 보통 파일이 없어졌거나 이동되었음을 나타냅니다` 오류
+- `C:\ProgramData\chocolatey\lib\nssm\` 폴더 확인 결과 `nssm.nupkg`/`.nuspec`/`.txt` 메타데이터만 존재, 실제 실행파일이 들어있어야 할 `tools\` 하위 폴더 자체가 없음
+- `nssm get SNS_Watchdog Application` (파일 복구 후 재시도) → `Error querying service "SNS_Watchdog"! QueryServiceConfig(): ...` — 서비스 레지스트리 등록 자체가 손상되어, 실행파일을 복구해도 조회조차 불가능한 상태로 확인
+- 원인 조사(read-only): `git log`/프로젝트 파일 mtime — 크래시 시각(23:08) 전후 30분 구간에 커밋·파일 변경 없음 / `chocolatey.log` — 그날 choco 실행은 새벽 01:01:28(`choco install nssm -y`, User-Agent에 `claude` 포함 — 이전 Claude 세션이 최초 설치한 기록으로 확인) 단 1건뿐, 23:00대 실행 없음 / `Get-MpThreatDetection`, Defender Operational 로그 — 실제 탐지·격리 이벤트 없음(23:08:21에 정기 상태보고 1151 이벤트가 있으나 22:08:21에도 동일 패턴 존재해 매시간 정기 보고로 판단, 크래시와 인과관계 낮음)
+
+**Root Cause:** **UNKNOWN.** `nssm.exe` 실행파일이 정확히 언제/왜 디스크에서 사라졌는지(우발적 삭제, 디스크 정리 도구, 백신 격리, chocolatey 자체 결함 등) 확정할 근거를 찾지 못함 — git/chocolatey.log/Defender 탐지 로그 어디에도 크래시 시각과 인과관계가 있는 흔적이 없음. 파일 소실 시점과 서비스 크래시(23:08:47) 시점의 선후 관계도 직접 증명되지 않음(둘이 근접했다는 정황뿐).
+
+**Fix:**
+1. 고아 상태로 남아있던 이전 watchdog.ps1 인스턴스(PID 23828/27220/1924 — 서로 다른 재시작 시점에 생성된 것으로 추정되는 3세대)를 순차 확인 후 `Stop-Process -Force`로 전부 정리(일부는 일반 권한, 일부는 관리자 권한 필요)
+2. `choco install nssm -y --force`로 실행파일 재설치 확인(`nssm version` 정상 응답) — 그러나 서비스 자체는 여전히 시작 불가(등록 손상은 별도 문제였음)
+3. `nssm remove SNS_Watchdog confirm` → `nssm install SNS_Watchdog "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" "-ExecutionPolicy Bypass -File C:\SNS_24AutoProject_260511\watchdog.ps1"`로 서비스 완전 재생성, `AppDirectory`/`Start=SERVICE_AUTO_START`/`AppExit Default=Restart`/`AppRestartDelay=60000` 재설정
+4. `sc.exe failure SNS_Watchdog reset= 86400 actions= restart/60000/restart/60000/restart/60000`로 **서비스 본체가 죽는 경우에도** Windows SCM이 자동 재시작하도록 신규 보강(기존엔 NSSM의 `AppExit`만 있어 자식 프로세스 크래시만 커버, 서비스 자체 크래시는 무방비였음 — 이번 사고의 직접 원인)
+5. 검증: `Get-Service` → `Running/Automatic`, `nssm get ...` 전체 조회 정상, `sc.exe qfailure` → `SUCCESS`(복구 옵션 3건 확인), `watchdog.log` 새 시작 배너 확인, Flask(:5000)/Streamlit(:8501)/ngrok(:4040) 동일 PID로 무중단 유지 확인 — **PASS**
+
+**Prevention:** FP-045 신규 참조 — `Get-Service`의 상태값과 실제 프로세스 생존 여부가 어긋날 수 있다는 것, 그리고 자식 프로세스 크래시 복구(NSSM `AppExit`)와 서비스 본체 크래시 복구(`sc.exe failure`)는 서로 다른 계층이라 둘 다 설정해야 한다는 것.
+
+**관련:** ERR-057, ERR-058, FP-042, FP-043, FP-045, INC-033, PENDING-A

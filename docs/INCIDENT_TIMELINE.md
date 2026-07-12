@@ -538,3 +538,20 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-044(신규) 참조 — 저장 후 재확인 로직에서 확인 자체의 예외와 값 불일치를 분리, 확정 버튼 오탐 시 잠금 처리 적용 완료.
 
 **관련:** ERR-059, FP-044, docs/VALIDATION_EVIDENCE_training_review_3B_260712.md
+
+---
+
+## INC-033 | NSSM 서비스(SNS_Watchdog) 예기치 않은 종료로 약 24시간 무감독 상태(2026-07-11 23:08:47 ~ 2026-07-12 23:46:14)
+
+**발생:** 2026-07-11 23:08:47(서비스 크래시, Event ID 7034) ~ 2026-07-12 23:46:14(서비스 완전 재생성 후 정상화 확인)
+**발견:** 2026-07-12 세션 재개 중 `Get-Service SNS_Watchdog`가 `Stopped`인데 watchdog.log는 계속 heartbeat를 남기고 있는 모순을 발견하며 조사 시작.
+
+**요약:** NSSM 서비스 본체가 예기치 않게 종료됐으나(ERR-060), 그 이전에 이미 떠있던 watchdog.ps1 자식 프로세스가 고아 상태로 계속 정상 작동해 Flask/Streamlit/ngrok을 무사히 유지 — 약 24시간 동안 겉보기엔 정상이었으나 실제로는 **아무 감독 없이 운 좋게 버틴 상태**였음. 이 구간에 watchdog.ps1이 단 한 번이라도 크래시했다면 아무도 복구하지 못했을 것.
+
+**실제 피해 여부:** 이 구간 동안 실제 서비스 중단은 없었음(Flask/Streamlit/ngrok 전부 연속 LISTENING 확인) — 잠재적 무방비 상태였을 뿐, 실현된 장애는 아님.
+
+**해결:** ERR-060 Fix 참조 — 고아 프로세스 정리, nssm.exe 재설치, 서비스 등록 완전 재생성, `sc.exe failure`로 서비스 본체 크래시 복구 옵션 신규 추가. `Get-Service` → `Running/Automatic`, `sc.exe qfailure` → `SUCCESS` 확인.
+
+**재발 방지:** FP-045(신규) 참조 — 서비스 본체 크래시 복구(`sc.exe failure`)를 자식 프로세스 크래시 복구(NSSM `AppExit`)와 별도로 반드시 설정.
+
+**관련:** ERR-060, FP-045, ERR-057, ERR-058, PENDING-A
