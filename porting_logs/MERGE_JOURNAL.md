@@ -963,3 +963,18 @@ commit: 미실행 — 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---
+
+### 학습용 FB 그룹 사진 크롤링 재개 — 전체 34개 타겟 실행 (2026-07-13 00:14~00:41)
+
+전날 세션에서 4개 타겟(A017/A009/A007/A023)만 실행됐던 것을 이어받아, `Crawl_Targets`(collection_purpose=training, platform=facebook) 활성 34건 전체를 대상으로 `run_for_training_photos()` 실행. 커밋되지 않은 1회성 러너 스크립트(`tools/_run_training_photo_crawl.py`, 반복 실행용이라 tools/ 관례대로 미커밋)로 전체 순회.
+
+**결과:** 34개 중 31개 성공, 3개 실패(A022/A012/A039 — Selenium 세션이 중간에 끊김: `invalid session id`/`no such window`, 일시적 오류로 판단, 재시도는 사용자 판단으로 보류). 신규 저장 99건(스크립트 카운터). 전날 이미 처리된 4개 타겟은 이번엔 전부 `saved=0`으로 정상 스킵 — 이미지 해시 기반 중복 방지가 재수집을 막고 있음을 재확인.
+
+`Training_Review_Queue` 상태: `PENDING 0 → 107` (BLOCK 152 / PASS 40 그대로 유지) — 리뷰 그리드로 다음 배치 진행 가능한 상태 확보.
+
+**미조치:** A022/A012/A039 재시도는 사용자 결정으로 보류(급하지 않음). 별도 ERR 등록 없음 — 세션 크래시 성격의 일시적 오류로 판단, 반복 재현 시 재검토.
+
+commit: 미실행 — 이 기록과 함께 커밋 예정
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
