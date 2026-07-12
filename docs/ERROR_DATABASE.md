@@ -916,7 +916,7 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 - `nssm get SNS_Watchdog Application` (파일 복구 후 재시도) → `Error querying service "SNS_Watchdog"! QueryServiceConfig(): ...` — 서비스 레지스트리 등록 자체가 손상되어, 실행파일을 복구해도 조회조차 불가능한 상태로 확인
 - 원인 조사(read-only): `git log`/프로젝트 파일 mtime — 크래시 시각(23:08) 전후 30분 구간에 커밋·파일 변경 없음 / `chocolatey.log` — 그날 choco 실행은 새벽 01:01:28(`choco install nssm -y`, User-Agent에 `claude` 포함 — 이전 Claude 세션이 최초 설치한 기록으로 확인) 단 1건뿐, 23:00대 실행 없음 / `Get-MpThreatDetection`, Defender Operational 로그 — 실제 탐지·격리 이벤트 없음(23:08:21에 정기 상태보고 1151 이벤트가 있으나 22:08:21에도 동일 패턴 존재해 매시간 정기 보고로 판단, 크래시와 인과관계 낮음)
 
-**Root Cause:** **UNKNOWN.** `nssm.exe` 실행파일이 정확히 언제/왜 디스크에서 사라졌는지(우발적 삭제, 디스크 정리 도구, 백신 격리, chocolatey 자체 결함 등) 확정할 근거를 찾지 못함 — git/chocolatey.log/Defender 탐지 로그 어디에도 크래시 시각과 인과관계가 있는 흔적이 없음. 파일 소실 시점과 서비스 크래시(23:08:47) 시점의 선후 관계도 직접 증명되지 않음(둘이 근접했다는 정황뿐).
+**Root Cause:** ~~UNKNOWN~~ → **260713 Note에서 확정**(아래 참조). 최초 작성 시점 기준: `nssm.exe` 실행파일이 정확히 언제/왜 디스크에서 사라졌는지(우발적 삭제, 디스크 정리 도구, 백신 격리, chocolatey 자체 결함 등) 확정할 근거를 찾지 못함 — git/chocolatey.log/Defender 탐지 로그 어디에도 크래시 시각과 인과관계가 있는 흔적이 없음. 파일 소실 시점과 서비스 크래시(23:08:47) 시점의 선후 관계도 직접 증명되지 않음(둘이 근접했다는 정황뿐).
 
 **Fix:**
 1. 고아 상태로 남아있던 이전 watchdog.ps1 인스턴스(PID 23828/27220/1924 — 서로 다른 재시작 시점에 생성된 것으로 추정되는 3세대)를 순차 확인 후 `Stop-Process -Force`로 전부 정리(일부는 일반 권한, 일부는 관리자 권한 필요)
@@ -928,3 +928,15 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** FP-045 신규 참조 — `Get-Service`의 상태값과 실제 프로세스 생존 여부가 어긋날 수 있다는 것, 그리고 자식 프로세스 크래시 복구(NSSM `AppExit`)와 서비스 본체 크래시 복구(`sc.exe failure`)는 서로 다른 계층이라 둘 다 설정해야 한다는 것.
 
 **관련:** ERR-057, ERR-058, FP-042, FP-043, FP-045, INC-033, PENDING-A
+
+**[2026-07-13 00:09 추가 Note — 근본원인 확정: 백신(AhnLab Safe Transaction) PUP 오탐·치료로 인한 파일 삭제]**
+
+사용자가 **AhnLab Safe Transaction**(백신/거래보호 프로그램, 이전 조사에서 Windows Defender만 확인하고 놓쳤던 별도 제품)의 실시간 탐지 팝업을 직접 화면에서 확인·제보: 진단명 `Unwanted/Win.NSSM.C242...`(파일 경로 `C:\ProgramData\chocolatey\lib\nssm\tools\nssm.exe`), 상태 "치료 가능"으로 표시된 탐지 이력이 존재함 — NSSM이 서비스 래퍼 도구 특성상 PUP(잠재적 유해 프로그램) 휴리스틱에 걸리는 것으로 확인. 사용자가 과거 이 탐지에서 "치료하기"를 클릭한 이력이 있었던 것으로 추정되며, 이것이 `nssm.exe` 파일이 디스크에서 사라진 진짜 원인.
+
+**Raw:** AhnLab Safe Transaction "환경 설정 > 보안 > 검사 대상 설정"에 `유해 가능 프로그램` 항목이 체크되어 있었음(스크린샷 확인) — 이 카테고리 검사가 nssm.exe를 지속 재탐지·재격리하는 구조. 재복구 직후(260712 세션)에도 동일 탐지 팝업이 재차 발생해 실시간으로 재현 확인.
+
+**Fix(추가):** 사용자가 AhnLab Safe Transaction 설정에서 `유해 가능 프로그램` 검사 체크 해제 → 이후 탐지 팝업(치료 대상)을 "닫기"로 처리(치료/삭제 아님) → nssm.exe 파일·서비스 상태 재확인 결과 정상 유지 확인(00:08:25 기준 `Get-Service Running`, `watchdog.log` heartbeat 지속). 이 프로그램 자체에 파일 단위 예외처리(화이트리스트) 기능은 없어(보안/기타 탭 확인), 카테고리 단위 차단 해제가 유일한 옵션이었음.
+
+**Prevention(추가):** 이 시스템에 nssm.exe 외 다른 서비스 래퍼/관리 도구를 설치할 경우 동일한 PUP 오탐 위험이 있음을 인지 — 설치 직후 AhnLab Safe Transaction 탐지 팝업이 뜨는지 확인하는 것을 표준 점검 항목에 추가.
+
+**관련(추가):** ERR-058(같은 세션에서 확인된 유사 계열 이슈는 아니지만 참고), FP-045

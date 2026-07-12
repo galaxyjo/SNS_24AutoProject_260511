@@ -948,3 +948,18 @@ commit: 미실행 — 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---
+
+### ERR-060 근본원인 확정 — 백신(AhnLab Safe Transaction) PUP 오탐 (2026-07-13)
+
+사용자가 화면에서 직접 **AhnLab Safe Transaction**(Windows Defender와 별도의 거래보호 백신 — 이전 조사에선 Defender만 확인해서 놓쳤음)의 탐지 팝업을 캡처해 제보: `Unwanted/Win.NSSM.C242...` 진단으로 `nssm.exe`를 잠재적 유해 프로그램(PUP)으로 분류, "치료하기" 클릭 시 파일 삭제. 이것이 ERR-060에서 UNKNOWN으로 남겨뒀던 근본원인.
+
+Computer-use로 AhnLab 설정 화면을 같이 열어보려 했으나 보안 프로그램 자체의 탬퍼 방지(UIPI)로 자동조작 불가 — 사용자가 직접 화면 스크린샷을 보내며 진행, "환경설정 > 보안" 탭에 파일 단위 예외처리 기능은 없어 "검사 대상 설정 > 유해 가능 프로그램" 카테고리 자체를 해제하는 것으로 대응. 해제 후에도 이미 큐에 남아있던 탐지 팝업이 한 번 더 떴으나 "닫기"(치료 아님)로 처리, nssm.exe 파일·서비스 상태 재확인 결과 정상 유지 확인.
+
+**문서화:** ERR-060/FP-045/INC-033 각각에 260713 Note 추가 — Root Cause를 UNKNOWN에서 확정으로 갱신.
+
+**사용자 신규 요청:** 이후 모든 응답 맨 앞에 날짜·시간을 항상 표기.
+
+commit: 미실행 — 이 기록과 함께 커밋 예정
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
