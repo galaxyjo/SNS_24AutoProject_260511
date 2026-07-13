@@ -941,7 +941,7 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 **관련(추가):** ERR-058(같은 세션에서 확인된 유사 계열 이슈는 아니지만 참고), FP-045
 
-## ERR-061 | 가격 자동응답이 문의 상품을 특정하지 못한 채 최신 가격을 자동발송 — Gate C(`PRICE_AUTO_REPLY_ENABLED`) 코드 구현·테스트 완료(미커밋·미배포)
+## ERR-061 | 가격 자동응답이 문의 상품을 특정하지 못한 채 최신 가격을 자동발송 — Gate C(`PRICE_AUTO_REPLY_ENABLED`) 코드 구현·테스트 완료(커밋 `c1c90b2` 완료·운영 미배포)
 
 **발견 경위:** 260713 `docs/design/DM_RELAY_COMMERCE_RFC.md`(Buyer↔회장님↔Supplier 릴레이 판매대행 시스템) 설계검토(§8/§13) 중 `modules/dm/dm_auto_reply.py`의 `get_base_price()`가 문의 대상 상품을 특정하지 않고 "Instagram_Posts 중 price>0 최신값"을 그대로 자동응답에 사용하는 구조적 결함 확인. buyer 클레임이나 오발송 신고로 발견된 것이 아니라 설계 검토 중 발견.
 
