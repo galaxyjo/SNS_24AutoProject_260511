@@ -978,3 +978,20 @@ commit: 미실행 — 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---
+
+### Gate C — 가격 자동응답 안전장치 코드 구현 (2026-07-13)
+
+`docs/design/DM_RELAY_COMMERCE_RFC.md`(V6.3, commit 633bb91) 설계검토 중 발견된 구조적 결함(ERR-061) — `modules/dm/dm_auto_reply.py`의 가격 자동응답이 문의 상품을 특정하지 못한 채 최신 등록가를 그대로 발송하던 것을 `PRICE_AUTO_REPLY_ENABLED`(기본 `false`) 플래그로 차단하는 코드 구현. RFC Gate C(§17) 설계를 그대로 구현.
+
+Claude 구현 후 Codex와 4라운드 정적 코드감사 교차검증: ①상품확인 대기 경로가 팔로업을 오예약해 상품도 모르는 buyer에게 "지난번 단가문의" 메시지가 나가는 문제 수정 ②발송실패·예외 시 `bridge_status` 오갱신 방지 ③Telegram 신규 알림 PII 마스킹(IGSID 앞4자리만+PII패턴제거 20자 미리보기) ④`(sender_igsid, 정규화된 문의문)` 키 기반 임시 중복방지 도입 후, 이것이 sender 단독 키였을 때 같은 buyer의 다른 상품 문의까지 막는 회귀를 발견해 키 재설계 ⑤`threading.Lock`으로 조회·선점·해제를 원자적으로 묶어 동시요청 이중발송 방지 ⑥`send_ig_reply()` 예외 시에도 선점 해제.
+
+**변경 파일 3개**(`modules/dm/dm_auto_reply.py`, `.env.example`, `tests/test_dm_rules.py`) — **432 insertions(+) / 24 deletions(-)**. Claude 로컬 실행: `pytest tests/test_dm_rules.py` 30 passed(신규 8건). 전체 suite 실행 시 `test_dm_close.py` 4건 실패는 `lead_closer.py` 관련 기존 무관 결함으로 `git stash` 대조 확인(Gate C 이전부터 존재). Codex는 코드를 직접 수정하지 않고 정적 감사만 수행, PASS 판정.
+
+**미해결로 남긴 것(범위 밖, 명시적으로 이월)**: `dm_receiver.send_telegram()`의 전체 IGSID·원문 노출(P0-1 대상) / Graph API v19.0 만료(Gate E 대상) / DM 24시간창 위반(Gate F 대상).
+
+**상태**: 코드 구현·테스트 완료. **커밋은 이 기록과 함께 진행하되, 프로세스 재시작·Canary 검증(실제 운영 반영)은 별도 승인 게이트.**
+
+commit: 이 기록과 함께 커밋 예정(ERR-061/FP-046/INC-034/VALIDATION_STATUS 동시 반영, 코드 3파일+문서 5파일 총 8개)
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
