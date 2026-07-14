@@ -571,3 +571,17 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-046 참조.
 
 **관련:** ERR-061, FP-046
+
+## INC-035 | 댓글 리드 2건 Airtable 미기록 — 과거 손실 범위 UNKNOWN (OPEN)
+
+**발생:** 260714 11:08 테스트 계정(채솔)이 남긴 댓글 2건("price plz", "dm")이 `comment_poller.py` 폴링으로 정상 감지됐으나, `Lead_Interactions` Airtable 기록이 매번 실패(ERR-062)하고도 "처리 완료"로 캐시되어(FP-047) 재시도되지 않음 — 확인된 손실 2건.
+
+**과거 손실 범위:** **UNKNOWN.** 이 결함은 `docs/design/DM_RELAY_COMMERCE_RFC.md` 설계검토 때 "기존 코드 결함(8건)" 1번으로 이미 이론상 식별돼 있었으나, 오늘 이전에 실제로 몇 건의 댓글 리드가 같은 이유로 기록되지 않고 유실됐는지는 `processed_comment_ids.json` 캐시에 성공/실패 구분이 없어 사후 추적 불가.
+
+**영향:** 댓글 채널로 들어온 리드가 CRM(Lead_Interactions)에 기록되지 않아 후속 스코어링·팔로업·리포트에서 누락됨. DM 채널(Gate C 대상)과는 별개 경로.
+
+**해결:** 미적용(OPEN) — ERR-062/FP-047 Fix 참조. Airtable 선택지 추가 또는 재시도 로직 도입 전까지 댓글 경로 리드는 계속 유실 위험 있음.
+
+**재발 방지:** FP-047 참조.
+
+**관련:** ERR-062, FP-047, `docs/design/DM_RELAY_COMMERCE_RFC.md` "기존 코드 결함(8건)" #1

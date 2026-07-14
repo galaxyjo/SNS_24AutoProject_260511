@@ -173,7 +173,7 @@ P0-4  24~48시간 관찰 후 Go/No-Go
 ## 13. Known Bugs (총 10건 — 기존 8 + 정책조사 신규 2)
 
 **기존 코드 결함 (8건)**:
-1. `Lead_Interactions.conversation_channel` select 옵션에 `instagram_comment` 없음 → 댓글 저장 반복 실패, 실패를 완료로 오판
+1. `Lead_Interactions.conversation_channel` select 옵션에 `instagram_comment` 없음 → 댓글 저장 반복 실패, 실패를 완료로 오판 — **260714 실제 운영에서 최초 실증(ERR-062/FP-047/INC-035), 여전히 OPEN**
 2. `dm_receiver.py`(webhook) · `comment_poller.py`(폴링) 이중 수신, webhook 쪽 중복방지 캐시 없음
 3. `post_id_generator.py`의 `_daily_counter`가 프로세스 메모리 변수 — 재시작 시 리셋되어 코드 중복 가능
 4. `domaekok`(오타) vs `domeggook`(실제) 표기 불일치 — 도매꾹 파이프라인이 `generate_sku()`를 호출하지 않아 현재는 도달하지 않음(확인됨)

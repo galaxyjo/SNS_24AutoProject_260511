@@ -1010,7 +1010,28 @@ push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방�
 
 **문서 SSOT 정정 5건**: `docs/ERROR_DATABASE.md`(ERR-061 헤딩+Fix), `docs/FAILURE_PATTERN.md`(FP-046), `docs/INCIDENT_TIMELINE.md`(INC-034 헤딩+발생+해결), `docs/VALIDATION_STATUS.md`(gate_c_price_safety_260713 행), 본 파일(MERGE_JOURNAL.md, 이 항목) — 공통 내용: **Gate C 가격 안전차단 PASS(노출 종료 260714 10:24:41)** 와 **안내문 발송·신규 Telegram 마스킹 E2E PARTIAL(미확인)** 을 분리 기록, 기존 P0-1은 계속 OPEN으로 명시.
 
-commit: 이 기록과 함께 커밋 예정(문서 5개, 코드/DB 변경 없음)
+commit: `084dde0` 완료(Gate C 운영반영 문서 커밋 완료)
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
+
+### Gate E-A — Graph API v19→v25 마이그레이션 조사 + 댓글 파이프라인 Airtable 기록 결함 실증 (2026-07-14)
+
+Gate C 이후 이어서 Gate E-A(Graph API 버전 호환성 읽기 전용 조사) 진행. 4파일 8곳 `v19.0` 하드코딩(만료됨, 만료일 260714 기준 공식 문서 21/05/2026 — 이미 약 2개월 경과) 확인, 같은 저장소에 이미 `v21.0`이 5파일 8곳에서 쓰이고 있음을 발견. Codex 반론(기존 v21 사용처는 업로드·인터랙션 API라 DM·댓글 API 호환성 증거가 안 됨, 최신 v25와 비교 근거 부족)을 수락해 Gate E-A를 PARTIAL로 유지하고 실증 절차를 추가 진행.
+
+**읽기 API 비교(v21.0 vs v25.0):** `/me/accounts`, media 목록, `/{media_id}/comments` 3종 모두 최상위 응답 구조 동일(`200`, 동일 키). 이어서 필드 단위(`id`/`access_token`, `id`/`timestamp`, `id`/`text`/`username`/`timestamp`) 존재여부·자료형까지 비교 — 8개 필드 전부 v21.0=v25.0 완전 일치(값은 출력하지 않고 존재여부·타입만 기록).
+
+**쓰기 Canary(v25.0):** 회장 승인 하에 테스트 계정(채솔)이 비즈니스 계정(yuna18253)에 실제 DM 1건 + 댓글 2건("price plz", "dm")을 남김 → 실제 IGSID/comment_id로 v25.0 `/{page_id}/messages`(DM 답장), `/{comment_id}/replies`(댓글 답글) 각 1건 실행 — 둘 다 `200 OK`, 정상 응답 필드(`message_id`/`id`) 반환. 댓글 답글은 Instagram 클라이언트 화면에 즉시 안 보였으나, `/{comment_id}?fields=id,replies{id}`로 재조회해 서버에 실제 존재(`hidden:false`)함을 별도 확인 — 클라이언트 캐시 지연으로 판단.
+
+**절차 자기점검(회장 질의에 대한 답변):** DM 쓰기 Canary는 "회장님이 보조 계정으로 직접 DM 발송"을 구조화된 질문(AskUserQuestion)으로 명시 승인받았음. 그러나 **댓글 답글 쓰기(POST)는 별도의 구조화된 승인 질문 없이, 직전 서술형 메시지("보내주시면... 진행하겠습니다")에 대한 암묵적 동의(회장이 스크린샷을 게시)만으로 실행**함 — Gate C 전 과정에서 지켜온 "매 상태변경 단계마다 명시적 승인" 관행에 비해 이 건은 승인 절차가 상대적으로 느슨했음을 인정. 향후 쓰기/발송 계열 행동은 DM·댓글 등 항목별로 각각 구조화된 승인을 받는 것으로 교정.
+
+**신규 결함 발견(범위 밖 부산물):** 쓰기 Canary 검증 중 `comment_poller.py`(11:08 폴링)가 테스트 댓글 2건을 정상 감지했으나, `comment_auto_reply.py`의 Airtable 기록이 `Lead_Interactions.conversation_channel`에 `instagram_comment` 선택지가 없어 매번 실패(`INVALID_MULTIPLE_CHOICE_OPTIONS`)하고 있음을 로그로 확인. 코드 대조 결과 예외를 삼키는 함수(`_record_comment`)와 성공 여부 확인 없이 무조건 캐시하는 호출부(`poll_new_comments`)가 조합되어 실패가 영구 유실로 이어지는 구조(FP-047)까지 확인. `docs/design/DM_RELAY_COMMERCE_RFC.md` "기존 코드 결함(8건)" 1번 항목이 오늘 처음 실제 운영에서 재현된 것 — ERR-062/FP-047/INC-035로 신규 기록, VALIDATION_STATUS는 OPEN(코드/Airtable 수정 없음).
+
+**미해결로 남긴 것**: Gate E-B(코드 4파일 8곳 v19.0→v25.0 교체) 코드 변경, ERR-062/FP-047/INC-035 실제 수정(Airtable 선택지 추가 또는 재시도 로직), push — 전부 별도 승인 대상.
+
+**문서 반영 6건**: `docs/ERROR_DATABASE.md`(ERR-062 신규), `docs/FAILURE_PATTERN.md`(FP-047 신규), `docs/INCIDENT_TIMELINE.md`(INC-035 신규), `docs/VALIDATION_STATUS.md`(comment_pipeline_airtable_write_260714 신규, OPEN), `docs/design/DM_RELAY_COMMERCE_RFC.md`(결함 1번에 실증 링크), 본 파일(MERGE_JOURNAL.md, 이 항목 + 직전 항목의 stale `커밋 예정` 정정).
+
+commit: 이 기록과 함께 커밋 예정(문서 6개, 코드/Airtable 변경 없음)
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---

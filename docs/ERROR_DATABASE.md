@@ -956,3 +956,15 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** FP-046 참조.
 
 **관련:** FP-046, INC-034, `docs/design/DM_RELAY_COMMERCE_RFC.md` §8/§13/§17, `modules/dm/dm_auto_reply.py`
+
+## ERR-062 | `Lead_Interactions.conversation_channel`에 `instagram_comment` 선택지 없음 — 댓글 리드 Airtable 기록 반복 실패 (OPEN)
+
+**발견 경위:** 260714 Gate E-A 쓰기 Canary 검증 중, 회장님 지시로 테스트 계정(채솔)이 실제 게시물에 댓글 2건("price plz", "dm")을 남겼고, `comment_poller.py`의 5분 간격 폴링이 이를 정상 감지·처리하는 과정에서 재현됨. `docs/design/DM_RELAY_COMMERCE_RFC.md` §"기존 코드 결함(8건)" 1번 항목으로 설계검토 때 이미 이론상 식별돼 있었으나, 오늘 실제 운영에서 처음 실증(재현)됨.
+
+**Raw:** `logs/summary/app.log` 260714 11:08:18/11:08:20 — `[Comment] Airtable 기록 예외 | [Lead_Interactions] 입력 오류: {"error":{"type":"INVALID_MULTIPLE_CHOICE_OPTIONS","message":"Insufficient permissions to create new select option \"instagram_comment\""}}` 댓글 2건 모두 동일 오류.
+
+**Root Cause:** `comment_auto_reply.py:98`의 `_record_comment()`가 `LeadInteractionCreate(source="instagram_comment", ...)`로 Airtable에 쓰는데, `Lead_Interactions.conversation_channel`(singleSelect) 필드에 `instagram_comment` 선택지가 애초에 없고, 현재 사용 중인 Airtable API 토큰에 신규 선택지 자동생성 권한이 없어 매번 실패.
+
+**Fix:** 미적용(OPEN) — Airtable에서 `conversation_channel`에 `instagram_comment` 선택지를 수동 추가하거나, 코드에서 기존 허용된 값으로 매핑 필요. 코드/Airtable 수정은 이번 세션 범위 밖, 별도 승인 후 진행.
+
+**관련:** FP-047, INC-035, `docs/design/DM_RELAY_COMMERCE_RFC.md` "기존 코드 결함(8건)" #1, `modules/comment/comment_auto_reply.py:94-105`
