@@ -572,7 +572,7 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 
 **관련:** ERR-061, FP-046
 
-## INC-035 | 댓글 리드 2건 Airtable 미기록 — 과거 손실 범위 UNKNOWN (OPEN)
+## INC-035 | 댓글 리드 2건 Airtable 미기록 — 과거 손실 범위 UNKNOWN (RESOLVED — 이번 2건, 과거 범위는 계속 UNKNOWN)
 
 **발생:** 260714 11:08 테스트 계정(채솔)이 남긴 댓글 2건("price plz", "dm")이 `comment_poller.py` 폴링으로 정상 감지됐으나, `Lead_Interactions` Airtable 기록이 매번 실패(ERR-062)하고도 "처리 완료"로 캐시되어(FP-047) 재시도되지 않음 — 확인된 손실 2건.
 
@@ -580,7 +580,7 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 
 **영향:** 댓글 채널로 들어온 리드가 CRM(Lead_Interactions)에 기록되지 않아 후속 스코어링·팔로업·리포트에서 누락됨. DM 채널(Gate C 대상)과는 별개 경로.
 
-**해결:** 미적용(OPEN) — ERR-062/FP-047 Fix 참조. Airtable 선택지 추가 또는 재시도 로직 도입 전까지 댓글 경로 리드는 계속 유실 위험 있음.
+**해결:** Airtable `conversation_channel`에 `instagram_comment` 선택지 추가(260714) + 저장 Canary PASS로 **이번 유형의 저장 실패는 해소**. 단 (1) 오늘 이전 과거 손실 범위는 여전히 UNKNOWN(추적 불가), (2) 저장 실패 시 재시도 없이 영구 유실되는 구조적 패턴(FP-047)은 계속 OPEN — 다른 원인으로 저장이 실패하면 동일한 유실이 재발할 수 있음.
 
 **재발 방지:** FP-047 참조.
 

@@ -1031,7 +1031,24 @@ Gate C 이후 이어서 Gate E-A(Graph API 버전 호환성 읽기 전용 조사
 
 **문서 반영 6건**: `docs/ERROR_DATABASE.md`(ERR-062 신규), `docs/FAILURE_PATTERN.md`(FP-047 신규), `docs/INCIDENT_TIMELINE.md`(INC-035 신규), `docs/VALIDATION_STATUS.md`(comment_pipeline_airtable_write_260714 신규, OPEN), `docs/design/DM_RELAY_COMMERCE_RFC.md`(결함 1번에 실증 링크), 본 파일(MERGE_JOURNAL.md, 이 항목 + 직전 항목의 stale `커밋 예정` 정정).
 
-commit: 이 기록과 함께 커밋 예정(문서 6개, 코드/Airtable 변경 없음)
+commit: `4067634` 완료(문서 6개, 코드/Airtable 변경 없음)
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
+
+### ERR-062 Airtable 선택지 추가 + 저장 Canary + Root Cause 정정 (2026-07-14)
+
+회장 승인 하에 Airtable `Lead_Interactions.conversation_channel`(singleSelect, `fldISq8Z9H3X4xY07`)에 `instagram_comment` 선택지 신규 추가(색상 `blueLight2`, ID `selzqhgoAJrJWibse`) — Airtable MCP `update_field`가 select choices 변경을 지원하지 않아, 프로젝트 자체 `AIRTABLE_API_KEY`로 `typecast: true`를 붙인 테스트 레코드 생성 요청을 직접 호출하는 방식으로 처리(Airtable의 표준 지원 방식 — typecast 시 미등록 select 값을 자동으로 새 선택지로 등록).
+
+**저장 Canary:** `[ERR-062 TEST] typecast save canary` 테스트 레코드(`recI6xKsNFYnJPzJf`)가 `conversation_channel=instagram_comment`로 정상 저장됨을 확인 → 삭제 후 재조회로 제거 확인(Gate C 뒷정리와 동일 절차).
+
+**Root Cause 정정:** 직전 커밋(`4067634`)에서 "Airtable API 토큰에 신규 선택지 자동생성 권한이 없음"으로 기록했던 것은 **오판**이었음이 실증됨 — 같은 토큰에 `typecast:true`만 추가하면 정상 처리되므로 토큰 권한 문제가 아니었음. 코드(`comment_auto_reply.py`/`airtable_repository.py`)가 `typecast`를 쓰지 않는 것 자체는 오타가 새 선택지로 조용히 자동생성되는 것을 막는 의도된 안전정책일 수 있어 버그로 확정하지 않음 — **코드 변경은 하지 않음(권장하지 않음).**
+
+**상태 정리:** ERR-062/INC-035는 이번 사례에 한해 **RESOLVED**(선택지 추가+저장 Canary PASS). 과거 손실 범위는 여전히 UNKNOWN. FP-047(예외를 삼키는 함수 + 무조건 캐시하는 호출부 조합)은 다른 원인의 저장 실패에도 재발 가능한 구조적 패턴이라 **계속 OPEN** — 재시도 로직 도입은 별도 게이트.
+
+**문서 반영 6건**: `docs/ERROR_DATABASE.md`(ERR-062 RESOLVED로 갱신, Root Cause 정정) / `docs/FAILURE_PATTERN.md`(FP-047 OPEN 유지, 코멘트 추가) / `docs/INCIDENT_TIMELINE.md`(INC-035 RESOLVED로 갱신) / `docs/VALIDATION_STATUS.md`(comment_pipeline_airtable_write_260714 행 갱신) / `docs/design/DM_RELAY_COMMERCE_RFC.md`(결함 1번 상태 갱신) / 본 파일(MERGE_JOURNAL.md, 이 항목 + 직전 항목 stale `커밋 예정` 정정).
+
+commit: 이 기록과 함께 커밋 예정(문서 6개, Airtable 스키마 변경 1건 — 선택지 추가만, 코드 변경 없음)
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---

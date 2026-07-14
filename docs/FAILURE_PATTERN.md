@@ -587,7 +587,7 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 
 **근본원인:** `comment_poller.py:113` `new_ids.add(cid)`가 `handle_comment()` 호출(116행) *이전에* 실행되고, `_record_comment()`(`comment_auto_reply.py:94-105`)는 Airtable 예외를 자체 try/except로 삼켜 로그(WARNING)만 남기고 반환(재발생 없음) — 따라서 `handle_comment()`는 항상 정상 종료로 보이고, `poll_new_comments()`의 120-122행이 무조건 `_save_cache(processed | new_ids)`를 실행해 실패한 comment_id까지 영구 처리완료로 기록. 예외를 삼킨 함수와, 그 함수의 성공 여부를 확인하지 않고 무조건 캐시하는 호출부가 각각 별도로는 문제없어 보이지만 조합되면 재시도 경로 자체가 없어짐.
 
-**해결(코드 구현):** 미적용(OPEN) — ERR-062 Fix 참조. 재시도 큐(`modules/common/retry_queue.py`, DM 자동응답 발송실패에는 이미 사용 중) 패턴을 Airtable 기록 실패에도 적용하거나, 최소한 실패한 comment_id는 `processed` 캐시에서 제외하는 방안 필요.
+**해결(코드 구현):** 미적용(OPEN, 계속). ERR-062의 이번 사례(Airtable 선택지 누락)는 260714 선택지 추가로 직접원인이 해소됐지만, **이 패턴 자체(예외를 삼키는 함수 + 무조건 캐시하는 호출부의 조합)는 그대로 남아있음** — Airtable 장애, 스키마 변경, 네트워크 오류 등 다른 어떤 이유로든 `_record_comment()`가 다시 실패하면 똑같이 영구 유실된다. 재시도 큐(`modules/common/retry_queue.py`, DM 자동응답 발송실패에는 이미 사용 중) 패턴을 Airtable 기록 실패에도 적용하거나, 최소한 실패한 comment_id는 `processed` 캐시에서 제외하는 방안 필요 — 코드 변경 미착수.
 
 **예방:** 예외를 삼키는 함수(`try/except`로 로그만 남기고 반환)를 호출하는 쪽에서는, 그 반환값만으로 성공 여부를 판단하지 말고 명시적 성공/실패 신호(bool 반환 또는 예외 재발생)를 받아 그에 따라 캐시·재시도 여부를 결정할 것.
 
