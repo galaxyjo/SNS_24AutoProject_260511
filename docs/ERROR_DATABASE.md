@@ -941,7 +941,7 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 **관련(추가):** ERR-058(같은 세션에서 확인된 유사 계열 이슈는 아니지만 참고), FP-045
 
-## ERR-061 | 가격 자동응답이 문의 상품을 특정하지 못한 채 최신 가격을 자동발송 — Gate C(`PRICE_AUTO_REPLY_ENABLED`) 코드 구현·테스트 완료(커밋 `c1c90b2` 완료·운영 미배포)
+## ERR-061 | 가격 자동응답이 문의 상품을 특정하지 못한 채 최신 가격을 자동발송 — Gate C 가격 안전차단 운영 반영 PASS(260714 10:24:41), 안내문 발송·신규 Telegram 마스킹 E2E는 PARTIAL(미확인)
 
 **발견 경위:** 260713 `docs/design/DM_RELAY_COMMERCE_RFC.md`(Buyer↔회장님↔Supplier 릴레이 판매대행 시스템) 설계검토(§8/§13) 중 `modules/dm/dm_auto_reply.py`의 `get_base_price()`가 문의 대상 상품을 특정하지 않고 "Instagram_Posts 중 price>0 최신값"을 그대로 자동응답에 사용하는 구조적 결함 확인. buyer 클레임이나 오발송 신고로 발견된 것이 아니라 설계 검토 중 발견.
 
@@ -949,7 +949,7 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 **Root Cause:** DM 자동응답(12단계, 260512 이전 구현) 당시 Post/Product 매핑 없이 "최신 등록가"를 fallback으로 채택 — 게시물이 1개일 때는 문제없었으나 다품목 운영 시 buyer가 문의한 상품과 무관한 가격이 발송될 수 있는 구조.
 
-**Fix:** Gate C(`docs/design/DM_RELAY_COMMERCE_RFC.md` §17) — `PRICE_AUTO_REPLY_ENABLED` 플래그 신규 도입(기본값 `false`). `false`일 때 가격 대신 상품확인(링크·번호·스크린샷) 요청 템플릿으로 대체(buyer 접수응답 자체는 유지). 추가로 Codex 교차검증 4라운드를 거쳐: 발송실패/예외 시 `bridge_status` 오갱신·팔로업 오예약 방지, Telegram PII 마스킹(단 **신규 `send_telegram_price_pending()` 알림에만 적용** — 기존 `dm_receiver.send_telegram()`의 전체 IGSID·원문 노출은 미해결, P0-1 대상), `(sender_igsid, 정규화된 문의문)` 키 + `threading.Lock` 기반 원자적 임시 중복방지(Airtable 스키마 변경 없음, 3분 TTL) 동반 수정. **현재 코드 구현·테스트 완료 상태이며 git commit·프로세스 재시작·Canary 검증 전 — 운영상 실제 차단은 재시작+Canary 검증 후 확정.**
+**Fix:** Gate C(`docs/design/DM_RELAY_COMMERCE_RFC.md` §17) — `PRICE_AUTO_REPLY_ENABLED` 플래그 신규 도입(기본값 `false`). `false`일 때 가격 대신 상품확인(링크·번호·스크린샷) 요청 템플릿으로 대체(buyer 접수응답 자체는 유지). 추가로 Codex 교차검증 4라운드를 거쳐: 발송실패/예외 시 `bridge_status` 오갱신·팔로업 오예약 방지, Telegram PII 마스킹(단 **신규 `send_telegram_price_pending()` 알림에만 적용** — 기존 `dm_receiver.send_telegram()`의 전체 IGSID·원문 노출은 미해결, P0-1 대상, 계속 OPEN), `(sender_igsid, 정규화된 문의문)` 키 + `threading.Lock` 기반 원자적 임시 중복방지(Airtable 스키마 변경 없음, 3분 TTL) 동반 수정. **260714 10:18 launcher 재시작(watchdog 자동복구 경유) + 10:24:41 통제된 Canary(로컬 웹훅 시뮬레이션, 가짜 IGSID)로 가격 자동발송 차단 동작 실증 PASS** — 앱 로그 대조로 팔로업 오예약·bridge_status 오갱신 없음도 함께 확인(Gate C 적용 이전인 260713 21:50 실제 발송실패 사례와 대조). **단 Canary가 가짜 IGSID였던 관계로 실제 IG 안내문(상품확인 요청) 발송 성공 여부와 `send_telegram_price_pending()` 신규 마스킹 동작은 이번 검증 범위 밖 — E2E PARTIAL(미확인)로 별도 기록.**
 
 **재활성화 조건:** 단순 "P1-B 완료"가 아니라 **Post/Product 매핑 가격조회 구현 + `price_verified_at` 기준 24시간 유효기간 검증 통과 후**에만 `PRICE_AUTO_REPLY_ENABLED=true` 전환.
 

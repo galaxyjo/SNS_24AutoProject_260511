@@ -992,6 +992,25 @@ Claude 구현 후 Codex와 4라운드 정적 코드감사 교차검증: ①상�
 **상태**: 코드 구현·테스트 완료. **커밋은 이 기록과 함께 진행하되, 프로세스 재시작·Canary 검증(실제 운영 반영)은 별도 승인 게이트.**
 
 commit: `c1c90b2` 완료(260713 22:52, ERR-061/FP-046/INC-034/VALIDATION_STATUS 동시 반영, 코드 3파일+문서 5파일 총 8개, 495 insertions(+)/25 deletions(-))
-push: 미실행 — origin 대비 2 commits ahead, 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
+
+### Gate C — 운영 반영(재시작+Canary) 및 문서 SSOT 5건 정정 (2026-07-14)
+
+`c1c90b2` 커밋 후 실제 실행 중이던 launcher/main.py(PID 9024/8132, 260711 12:30 기동 — 커밋보다 이전)가 여전히 구버전 코드로 DM에 응답 중임을 프로세스 `CreationDate` 대조로 확인. Codex 감사·회장 승인 거쳐 운영 반영 절차 진행.
+
+**재시작(회장 직접 실행, watchdog 자동복구 경유):** launcher/main.py는 NSSM 서비스(`SNS_Watchdog`, LocalSystem)가 띄운 프로세스라 Claude 권한으로 `Stop-Process` 불가(Access denied) — 회장이 관리자 PowerShell에서 직접 종료. `watchdog.log` 10:18:09 프로세스 없음 감지 → 10:18:15 자동 재기동 확인. 신규 PID 46388/33008, 포트 `:5000` 재바인딩, `app.log` 정상 기동·헬스체크 OK, 재시작 시각대 신규 에러 없음.
+
+**Canary(로컬 웹훅 시뮬레이션):** 실제 Instagram으로는 아무것도 보내지 않고, `http://localhost:5000/webhook`에 가짜 가격문의 DM 페이로드를 직접 POST(가짜 IGSID `CANARY_TEST_GATE_C_260714B`). 1차 시도는 PowerShell `Invoke-RestMethod`의 기본 인코딩으로 한글 텍스트가 깨져 키워드 매칭 실패 — UTF-8 byte body로 재전송해 해결. 결과: `[AutoReply] PRICE_AUTO_REPLY_ENABLED=false — 상품확인 요청으로 대체` 확인, 가격 자동발송 0건. 가짜 IGSID라 Graph API가 `400 Invalid recipient`로 거부 → retry queue 등록 → 3회 재시도 후 `dead`(정상 종료, 실제 발송 안 나감 재확인). 같은 로그 파일에서 Gate C 이전 실제 발송실패 사례(260713 21:50)와 대조 — 그때는 실패했는데도 `bridge_status=auto_replied`로 오갱신되고 팔로업까지 오예약됐던 반면, 오늘 Canary에서는 두 문제 모두 재현되지 않음(수정 확인).
+
+**E2E 검증 범위 밖(PARTIAL, 미확인)**: 가짜 IGSID였기 때문에 (1)실제 IG 안내문(상품확인 요청) 발송 성공 여부, (2)신규 `send_telegram_price_pending()` 마스킹 동작 — 둘 다 이번 Canary로는 확인 불가. 실제 Telegram 알림은 이번 세션 중 `Connection aborted`로 실패한 사례만 관측(Gate C 로직과 무관한 기존 `dm_receiver.send_telegram()` 경로). 기존 P0-1(`dm_receiver.send_telegram()` 전체 IGSID·원문 노출)은 이번 범위 밖, 계속 OPEN.
+
+**뒷정리:** 테스트로 생성된 Airtable `Lead_Interactions` 2건(`recnEFyEmZedKq2cY`, `recGnElEKmXJpO6D0`)과 `db/retry_queue.db` id=21(`dead` 상태)을 삭제 후 재조회로 제거 확인 — KPI/통계 오염 방지.
+
+**문서 SSOT 정정 5건**: `docs/ERROR_DATABASE.md`(ERR-061 헤딩+Fix), `docs/FAILURE_PATTERN.md`(FP-046), `docs/INCIDENT_TIMELINE.md`(INC-034 헤딩+발생+해결), `docs/VALIDATION_STATUS.md`(gate_c_price_safety_260713 행), 본 파일(MERGE_JOURNAL.md, 이 항목) — 공통 내용: **Gate C 가격 안전차단 PASS(노출 종료 260714 10:24:41)** 와 **안내문 발송·신규 Telegram 마스킹 E2E PARTIAL(미확인)** 을 분리 기록, 기존 P0-1은 계속 OPEN으로 명시.
+
+commit: 이 기록과 함께 커밋 예정(문서 5개, 코드/DB 변경 없음)
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---
