@@ -1048,7 +1048,24 @@ push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방�
 
 **문서 반영 6건**: `docs/ERROR_DATABASE.md`(ERR-062 RESOLVED로 갱신, Root Cause 정정) / `docs/FAILURE_PATTERN.md`(FP-047 OPEN 유지, 코멘트 추가) / `docs/INCIDENT_TIMELINE.md`(INC-035 RESOLVED로 갱신) / `docs/VALIDATION_STATUS.md`(comment_pipeline_airtable_write_260714 행 갱신) / `docs/design/DM_RELAY_COMMERCE_RFC.md`(결함 1번 상태 갱신) / 본 파일(MERGE_JOURNAL.md, 이 항목 + 직전 항목 stale `커밋 예정` 정정).
 
-commit: 이 기록과 함께 커밋 예정(문서 6개, Airtable 스키마 변경 1건 — 선택지 추가만, 코드 변경 없음)
+commit: `6297e28` 완료(문서 6개, Airtable 스키마 변경 1건 — 선택지 추가만, 코드 변경 없음)
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
+
+### Gate E-B — Graph API v25.0 마이그레이션 코드+테스트 (2026-07-14)
+
+DM·댓글 4파일(`dm_auto_reply.py`/`dm_followup_scheduler.py`/`comment_poller.py`/`comment_auto_reply.py`) 8곳의 `v19.0` 하드코딩을 신규 공통모듈 `modules/common/meta_graph.py`(`messaging_graph_url()`, 기본값 `v25.0`, `META_MESSAGING_GRAPH_API_VERSION` env override)로 교체. 기존 v21.0 업로드·인터랙션 5파일 8곳은 이번 범위에서 제외, 미변경 확인(grep 재검색으로 v19.0 0건/v21.0 8건 그대로).
+
+**절차 관련 사건:** 이 작업은 애초에 코드 작성 없이 정적 감사만 하기로 한 Codex가 실제로 코드 5파일 수정+신규모듈 1개+신규테스트 1개 작성+pytest 실행까지 직접 수행하며 발생 — Multi-AI Review Policy상 구현은 Claude Code(본인) 몫인데 역할이 뒤섞임. 회장이 발견 즉시 중단 지시, Codex는 추가 조치 없이 인계서만 남기고 종료. Claude Code(본인)가 이어받아 diff·신규파일·테스트를 처음부터 전부 독립 재검증함: git 상태 일치 확인, diff 전문 리뷰(payload/헤더/로직 불변, URL 생성부만 교체 확인), `meta_graph.py` 코드 리뷰, `pytest tests/test_meta_graph_version.py` 직접 재실행(**14 passed**, 인계서의 "10 passed·4개 미실행" 대비 4개 모듈연결 테스트까지 포함해 전부 통과 확인), 인계서가 우려한 pytest PID 27564/47872는 재조회 결과 존재하지 않음 확인.
+
+**신규 발견(ERR-063):** `test_dm_rules.py::TestAutoReplyHook::test_send_failure_does_not_mark_replied_or_schedule_followup`이 25초 타임아웃 격리 실행에서도 동일하게 hang — 인계서의 주장을 독립 재현. Gate E-B 변경과의 인과관계 증거 없음(신규 14개 테스트는 전부 정상), 원인 UNKNOWN. 운영 장애 증거 없어 INC 미등록, 반복 증거 없어 FP도 보류 — ERR-063만 기록.
+
+**상태:** 코드(5파일 수정+2파일 신규) + 단위테스트(14 passed) **PASS**. 운영 반영(재시작·Canary) 전이므로 **Gate E-B 전체 완료는 아님** — 이번 커밋은 코드+테스트+문서까지만, 재시작·Canary·push는 별도 승인 대상으로 계속 남김.
+
+**문서 반영 3건 + 코드 7건**: `docs/ERROR_DATABASE.md`(ERR-063 신규) / `docs/VALIDATION_STATUS.md`(gate_e_b_v25_migration_260714 신규, 코드·테스트 PASS·운영 미반영) / 본 파일(MERGE_JOURNAL.md, 이 항목 + 직전 항목 stale `커밋 예정` 정정) / 코드: `.env.example`, `modules/dm/dm_auto_reply.py`, `modules/dm/dm_followup_scheduler.py`, `modules/comment/comment_poller.py`, `modules/comment/comment_auto_reply.py`(수정) + `modules/common/meta_graph.py`, `tests/test_meta_graph_version.py`(신규).
+
+commit: 이 기록과 함께 커밋 예정(문서 2개 신규+본 항목, 코드 5개 수정+2개 신규)
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---

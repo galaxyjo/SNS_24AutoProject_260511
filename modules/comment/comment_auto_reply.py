@@ -7,6 +7,7 @@ import logging
 import requests
 from datetime import datetime, timezone
 
+from modules.common.meta_graph import messaging_graph_url
 from modules.infra.airtable_repository import AirtableRepository
 from modules.infra.repository_interface import LeadInteractionCreate
 
@@ -54,7 +55,7 @@ def _get_page_token() -> str:
     page_id    = os.getenv("FACEBOOK_PAGE_ID", "")
     try:
         r = requests.get(
-            "https://graph.facebook.com/v19.0/me/accounts",
+            messaging_graph_url("me/accounts"),
             params={"access_token": user_token, "fields": "id,access_token"},
             timeout=10,
         )
@@ -72,7 +73,7 @@ def reply_to_comment(comment_id: str, message: str) -> bool:
     body  = _json.dumps({"message": message}, ensure_ascii=False).encode("utf-8")
     try:
         resp = requests.post(
-            f"https://graph.facebook.com/v19.0/{comment_id}/replies",
+            messaging_graph_url(f"{comment_id}/replies"),
             headers={
                 "Authorization": "Bearer " + token,
                 "Content-Type": "application/json; charset=utf-8",

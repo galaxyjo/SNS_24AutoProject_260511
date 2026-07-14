@@ -9,6 +9,7 @@ import requests
 from pathlib import Path
 
 from modules.comment.comment_auto_reply import handle_comment
+from modules.common.meta_graph import messaging_graph_url
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def get_recent_media_ids() -> list[str]:
     ig_user_id = os.getenv("INSTA_IG_USER_ID", "")
     try:
         resp = requests.get(
-            f"https://graph.facebook.com/v19.0/{ig_user_id}/media",
+            messaging_graph_url(f"{ig_user_id}/media"),
             params={
                 "fields": "id,timestamp",
                 "limit":  MEDIA_COUNT,
@@ -70,7 +71,7 @@ def get_comments(media_id: str) -> list[dict]:
     """게시물의 댓글 목록 조회. 각 항목: {id, text, username, timestamp}"""
     try:
         resp = requests.get(
-            f"https://graph.facebook.com/v19.0/{media_id}/comments",
+            messaging_graph_url(f"{media_id}/comments"),
             params={
                 "fields": "id,text,username,timestamp",
                 "access_token": _access_token(),

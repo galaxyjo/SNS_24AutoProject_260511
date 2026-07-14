@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from modules.common.logger import get_logger
+from modules.common.meta_graph import messaging_graph_url
 from modules.infra.airtable_repository import AirtableRepository
 from modules.infra.repository_interface import LeadBridgeStatus, LeadInteraction
 
@@ -87,7 +88,7 @@ def _get_page_token() -> str:
     user_token = os.getenv("INSTA_ACCESS_TOKEN", "")
     page_id    = os.getenv("FACEBOOK_PAGE_ID", "")
     r = requests.get(
-        "https://graph.facebook.com/v19.0/me/accounts",
+        messaging_graph_url("me/accounts"),
         params={"access_token": user_token, "fields": "id,access_token"},
         timeout=10,
     )
@@ -109,7 +110,7 @@ def _send_ig_dm(igsid: str, text: str) -> bool:
     }, ensure_ascii=False).encode("utf-8")
 
     resp = requests.post(
-        f"https://graph.facebook.com/v19.0/{page_id}/messages",
+        messaging_graph_url(f"{page_id}/messages"),
         headers={
             "Authorization": "Bearer " + page_token,
             "Content-Type": "application/json; charset=utf-8",

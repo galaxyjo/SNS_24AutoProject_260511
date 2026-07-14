@@ -968,3 +968,15 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Fix (적용 완료):** Airtable `conversation_channel`에 `instagram_comment` 선택지 수동 추가(색상 `blueLight2`, ID `selzqhgoAJrJWibse`, 260714) + 저장 Canary 1건 PASS(`conversation_channel=instagram_comment` 정상 저장 확인, 테스트 레코드는 삭제 후 재조회로 제거 확인). 코드(`airtable_repository.py`/`comment_auto_reply.py`)는 변경하지 않음 — 이 결함의 직접원인은 해소됐으나, 저장 실패 시 재시도가 안 되는 구조적 문제는 FP-047로 별도 계속 OPEN.
 
 **관련:** FP-047, INC-035, `docs/design/DM_RELAY_COMMERCE_RFC.md` "기존 코드 결함(8건)" #1, `modules/comment/comment_auto_reply.py:94-105`
+
+## ERR-063 | `test_dm_rules.py::TestAutoReplyHook::test_send_failure_does_not_mark_replied_or_schedule_followup` 실행 시 hang — 원인 UNKNOWN
+
+**발견 경위:** 260714 Gate E-B(Graph API v19.0→v25.0 URL 중앙화, `modules/common/meta_graph.py` 신규) 코드·테스트 검증 중, 신규 테스트(`tests/test_meta_graph_version.py`)와 별개로 기존 `tests/test_dm_rules.py` 전체 실행이 이 테스트에서 멈춤을 발견. 이후 이 테스트 1개만 격리해 25초 타임아웃으로 재실행 — 동일하게 응답 없이 멈춤을 재현(좀비 프로세스는 남기지 않고 타임아웃으로 안전 종료 확인).
+
+**Raw:** `pytest tests/test_dm_rules.py::TestAutoReplyHook::test_send_failure_does_not_mark_replied_or_schedule_followup` — 25초 내 PASS/FAIL/ERROR 어떤 결과도 출력되지 않고 타임아웃.
+
+**Root Cause:** **UNKNOWN.** `_has_recent_auto_replied()`의 실제 Airtable 조회 또는 AI 응답 생성기의 실제 Gemini 연결 등 외부 네트워크 경로가 이 테스트에서 완전히 mock되지 않았을 가능성이 있다고 추정되나, 확정하지 않음. Gate E-B의 URL 중앙화 변경(`meta_graph.py`)과의 인과관계 증거도 없음 — `tests/test_meta_graph_version.py`의 신규 14개 테스트는 전부 정상 통과(1.81초)했고, 이 hang은 별도 실행에서도 재현되므로 Gate E-B 변경으로 인한 회귀라는 근거는 없음.
+
+**Fix:** 미적용 — 원인 미확정 상태이며 Gate E-B 승인 범위 밖(관련 없는 기존 테스트 수정 금지). 운영 장애로 이어진 증거가 없어 INC 미등록, 반복 재현 패턴 증거가 아직 없어 FP도 보류.
+
+**관련:** `tests/test_dm_rules.py`, Gate E-B(`modules/common/meta_graph.py`)

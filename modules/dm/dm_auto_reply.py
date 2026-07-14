@@ -10,6 +10,7 @@ import requests
 from datetime import datetime, timezone
 
 from modules.common.logger import get_logger
+from modules.common.meta_graph import messaging_graph_url
 from modules.infra.airtable_repository import AirtableRepository
 
 logger = get_logger(__name__)
@@ -141,7 +142,7 @@ def _get_page_token() -> str:
     user_token = os.getenv("INSTA_ACCESS_TOKEN", "")
     page_id    = os.getenv("FACEBOOK_PAGE_ID", "")
     r = requests.get(
-        "https://graph.facebook.com/v19.0/me/accounts",
+        messaging_graph_url("me/accounts"),
         params={"access_token": user_token, "fields": "id,access_token"},
         timeout=10,
     )
@@ -172,7 +173,7 @@ def send_ig_reply(sender_igsid: str, message: str) -> bool:
     }
 
     resp = requests.post(
-        f"https://graph.facebook.com/v19.0/{page_id}/messages",
+        messaging_graph_url(f"{page_id}/messages"),
         headers=headers,
         data=body,
         timeout=15,
