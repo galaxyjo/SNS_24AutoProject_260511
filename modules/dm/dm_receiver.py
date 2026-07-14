@@ -116,16 +116,18 @@ def receive_webhook():
         for change in entry.get("changes", []):
             if change.get("field") != "comments":
                 continue
-            val      = change.get("value", {})
-            cid      = val.get("id", "")
-            ctext    = val.get("text", "").strip()
-            cusername = val.get("from", {}).get("username", val.get("from", {}).get("id", ""))
-            cmedia   = val.get("media", {}).get("id", "")
+            val          = change.get("value", {})
+            cid          = val.get("id", "")
+            ctext        = val.get("text", "").strip()
+            cfrom        = val.get("from", {})
+            cusername    = cfrom.get("username", "") or cfrom.get("id", "")
+            ccommenter_id = cfrom.get("id", "")
+            cmedia       = val.get("media", {}).get("id", "")
             if not cid or not ctext:
                 continue
             logger.info(f"[Comment/WH] from=@{cusername} | text={ctext[:100]}")
             try:
-                handle_comment(cid, cusername, ctext, cmedia)
+                handle_comment(cid, cusername, ctext, cmedia, commenter_id=ccommenter_id)
             except Exception as exc:
                 logger.error(f"[Comment/WH] 처리 실패 | cid={cid} | {exc}")
 

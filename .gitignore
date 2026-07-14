@@ -37,5 +37,7 @@ _audit_260709.txt
 _watchdog_task_backup_260707.xml
 _watchdog_task_backup_260707_2235_pre_wrapper_diag.xml
 data/processed_comment_ids.json
+data/comment_reply_cooldown.json
+data/comment_reply_budget.json
 _disable_abtest_wrapper_260710.ps1
 _disable_abtest_result_260710.txt

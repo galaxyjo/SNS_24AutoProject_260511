@@ -68,12 +68,13 @@ def get_recent_media_ids() -> list[str]:
 
 
 def get_comments(media_id: str) -> list[dict]:
-    """게시물의 댓글 목록 조회. 각 항목: {id, text, username, timestamp}"""
+    """게시물의 댓글 목록 조회. 각 항목: {id, text, username, timestamp, from:{id,username}}
+    from.id는 계정명 변경에 영향받지 않는 안정적 IG 사용자 ID — 쿨다운 키로 username보다 우선 사용."""
     try:
         resp = requests.get(
             messaging_graph_url(f"{media_id}/comments"),
             params={
-                "fields": "id,text,username,timestamp",
+                "fields": "id,text,username,timestamp,from",
                 "access_token": _access_token(),
             },
             timeout=15,
@@ -104,9 +105,10 @@ def poll_new_comments() -> None:
     for media_id in media_ids:
         comments = get_comments(media_id)
         for c in comments:
-            cid      = c.get("id", "")
-            text     = c.get("text", "").strip()
-            username = c.get("username", "")
+            cid          = c.get("id", "")
+            text         = c.get("text", "").strip()
+            username     = c.get("username", "")
+            commenter_id = c.get("from", {}).get("id", "") or username
 
             if not cid or cid in processed:
                 continue
@@ -114,7 +116,7 @@ def poll_new_comments() -> None:
             new_ids.add(cid)
             new_count += 1
             try:
-                handle_comment(cid, username, text, media_id)
+                handle_comment(cid, username, text, media_id, commenter_id=commenter_id)
             except Exception as exc:
                 logger.error(f"[CommentPoll] handle_comment 오류 | cid={cid} | {exc}")
 

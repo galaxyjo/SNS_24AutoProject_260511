@@ -1091,3 +1091,28 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---
+
+### Gate G — 댓글 Private Reply 전환 + Codex 4라운드 리뷰 + 라이브 엔드포인트 확정 (2026-07-14)
+
+**배경:** Gate E-B 세션 중 회장이 "댓글에 사람이 직접(또는 DM으로) 답 안 하면 매출 1단계를 놓친다"며 댓글 자동응답의 실제 검증을 요구. 기존 구현(공개 답글, `COMMENT_AUTO_REPLY_ENABLED=true`)을 임시로 켜서 실제 라이브로 테스트하려다 (1) 테스트 계정(채솔)이 반복 수동조작으로 인스타그램 자체 스팸탐지에 걸려 활동 차단, (2) 무관 실계정(tgbtgbnate)의 실제 댓글("DM plz")도 키워드 불일치로 검증 안 됨을 확인 → 공개 답글 자체가 목적(DM 상담 유도)에 안 맞는 설계임을 재검토, Codex 제안대로 **Private Reply**(댓글에 비공개로 DM 발송) 구조로 전면 전환 결정.
+
+**리서치 기반 설계:** WebSearch/WebFetch로 ManyChat/respond.io 등 실제 운영 중인 서비스의 검증된 패턴 조사 — Private Reply 한도(시간당 750건, 7일 이내 1회 — 제3자 블로그 creatorflow.so가 "Meta Graph API Rate Limiting docs 인용"이라 표기한 조사 당시 참고값, Claude가 Meta 1차 문서로 직접 확인한 것은 아니므로 확정 수치로 인용 금지), 댓글/스토리 트리거 자동DM 사용자당 24시간 1건 관행, 키워드 한정 트리거, 문구 다양화 권장(마찬가지로 제3자 종합, 메타 1차 확인은 아님 — 과신 표현 정정) 등을 반영해 `modules/comment/comment_safety_guard.py` 신설(캠페인 게시물 allowlist, 24시간 쿨다운, 일일 30건 예산, circuit breaker).
+
+**ManyChat/respond.io 유료 아웃소싱 검토 및 기각:** Codex가 "앞단(댓글·Private Reply)은 ManyChat, 뒷단(CRM·AI상담)은 기존 Python"인 혼합구조를 제안했으나, (1) 이 프로젝트의 핵심전략("최소비용 최대효율")과 상충하는 유료 SaaS 도입, (2) 오늘 발생한 계정 차단은 수동 앱 조작 문제라 SaaS 도입으로도 해결 안 됨, (3) ManyChat도 내부적으로 동일한 메타 공식 API를 쓸 뿐이라 위험 이전 효과 없음, (4) 웹훅 연동 개발량이 실질적으로 안 줄어듦 — 4가지 근거로 회장이 기각, 무료 직접 Meta API 통합 유지 결정.
+
+**Codex 4라운드 리뷰:**
+- **1차**: (P1) 엔드포인트를 구 Facebook Page 댓글용 `/{comment-id}/private_replies`로 잘못 구현(공식 Private Reply 계약은 `recipient.comment_id`+`message.text` 바디의 `/messages` 엔드포인트) / (P1) 그 잘못된 주소를 정답으로 고정한 테스트 / (P1) 상태파일(JSON) 손상 시 fail-open(쿨다운·예산 무력화) / (P2) "발송만으로 24시간창이 열린다"는 주석 오류 / (부가) 사용자명 기준 쿨다운은 개명으로 우회 가능. **전부 인정, 수정**: 공식문서(`developers.facebook.com/docs/instagram-platform/private-replies/`) fetch로 바디 구조 확정, 상태파일 손상 시 예외를 던져 호출부가 fail-closed(쿨다운=차단/예산=차단) 처리하도록 재작성 + `os.replace` 원자적 쓰기 도입, 24시간창 주석 정정, `comment_poller.py`가 `from.id`도 조회해 `commenter_id`로 쿨다운 키 사용하도록 배선.
+- **2차**: (P1) 엔드포인트 호스트의 ID가 `PAGE_ID`가 아니라 `INSTA_IG_USER_ID`여야 한다는 재지적. **Claude 반박**: 우리 앱은 "Instagram API with Instagram Login"이 아니라 `dm_auto_reply.py`에 이미 명시된 "Messenger Platform for Instagram"(Facebook Login) 제품이고, 그 제품 전용 공식문서(`developers.facebook.com/docs/messenger-platform/instagram/features/private-replies/`)를 직접 fetch해 `PAGE_ID`가 맞음을 재확인(예시 curl 그대로 인용). 이 라운드에서 새로 지적된 나머지는 전부 사실로 확인되어 수정: 댓글 웹훅 경로(`dm_receiver.py`)도 `from.id` 미추출 확인 → 추출해 `commenter_id` 전달, 웹훅 스레드/폴러 스레드 동시 접근 가능성(TOCTOU) 확인 → Gate C와 동일한 `threading.Lock`(`comment_safety_guard.REPLY_LOCK`)으로 체크~발송~기록 전체 직렬화(실 스레드 테스트로 검증), "이미 DM인데 DM으로 오라"는 문구 논리오류 확인 → "답장 주시면 안내드릴게요" 형태로 전면 수정, `message_id` 로깅 누락 → 추가, `.env.example`의 24시간이 공식규정처럼 보이는 표현 → "내부 안전기본값"으로 정정.
+- **3차**: Codex는 자신이 인용한 Meta 공식 Postman 문서(`APP_USERS_IG_ID` 명시)는 정상 확인했고, **429로 재확인하지 못한 것은 Claude가 제시한 구형 `developers.facebook.com/docs/messenger-platform` 문서 쪽**이었음(최초 기록 시 이 경위를 반대로 적었다가 회장 재검토로 발견·정정, 260714). 그럼에도 Codex는 "일반 DM이 PAGE_ID로 성공한 것이 recipient.comment_id 방식 성공의 증거는 아니다"라는 논리로 `PAGE_ID` vs `INSTA_IG_USER_ID` 미확정 보류, "문서 논쟁 대신 통제된 실제 호출 1건으로 확인"을 제안. Claude는 같은 구형 문서를 재fetch해 일관되게 `PAGE_ID`("Facebook Login for Business" 명시)를 확인했으나, 서로 다른 1차 문서를 인용하고 있어 문서 대 문서로는 결론 불가 판단 — Codex의 해결책(실제 Canary)에 동의.
+- **4차(실증)**: 회장 승인 하에 동의된 계정(tgbtgbnate)이 실제 게시물에 신규 댓글("관심 있어요", `comment_id=17916708546421368`, `from.id=4420182554922853`) 작성 → `.env`는 `false` 유지·캠페인 allowlist도 미변경(자동화 파이프라인은 안 켬), 서버에서 `reply_privately_to_comment()`를 독립 스크립트로 단 1회 직접 호출 → `resp.ok=True`(Meta가 `PAGE_ID`+`recipient.comment_id` 계약 실제 수락) + **회장이 tgbtgbnate 계정 DM함에서 실제 메시지("[Gate G Canary 260714] 답장 주시면 안내 도와드릴게요 - 무시하셔도 됩니다") 도착을 육안 확인**. `message_id`는 독립 스크립트라 로거가 `app.log`에 연결 안 돼 캡처 못했으나(코드 결함 아님, 검증스크립트 로깅 설정 누락), 실제 도착 확인이 그보다 상위 증거라 문제 없음 — **`PAGE_ID` 계약 최종 실증 확정, 4라운드 리뷰 종결**.
+
+**로컬 테스트**: `pytest tests/test_comment_safety_guard.py tests/test_comment_auto_reply.py tests/test_meta_graph_version.py` **44 passed**(신규 fail-closed 5건, 실스레드 동시성 검증 1건, 문구다양화·개인화·옵트아웃 4건, 엔드포인트 계약 검증 1건 등 포함). 전체 스위트 `pytest tests/` **270 passed**(무관 기존 실패 4건 `test_dm_close.py`, ERR-063 hang 테스트 1건 제외 — 둘 다 이번 변경과 무관, 기존 이슈).
+
+**변경 파일**: 신규 `modules/comment/comment_safety_guard.py`, `configs/comment_campaign_posts.json`(빈 배열), `tests/test_comment_safety_guard.py`, `tests/test_comment_auto_reply.py` / 수정 `modules/comment/comment_auto_reply.py`, `modules/comment/comment_poller.py`, `modules/dm/dm_receiver.py`, `.env.example`, `.gitignore`.
+
+**상태:** 코드+테스트+라이브 엔드포인트 계약 검증 전부 **PASS**. `COMMENT_AUTO_REPLY_ENABLED=false`·`configs/comment_campaign_posts.json` 빈 배열 그대로 유지 — **지속 자동화(키워드 매칭 시 자동 발송)는 계속 꺼진 상태로 영향 0**이지만, **회장 승인 하 통제된 Canary로 실제 손님 계정(tgbtgbnate)에 DM 1건이 실제로 발송·수신 확인됨** — "운영 영향 0"이라 뭉뚱그리지 않고 이 1건은 승인된 실발송으로 명시 기록. **문서화까지는 이 기록으로 완료, 커밋·push는 별도 승인 대상.**
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
