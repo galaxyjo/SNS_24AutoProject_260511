@@ -1065,7 +1065,29 @@ DM·댓글 4파일(`dm_auto_reply.py`/`dm_followup_scheduler.py`/`comment_poller
 
 **문서 반영 3건 + 코드 7건**: `docs/ERROR_DATABASE.md`(ERR-063 신규) / `docs/VALIDATION_STATUS.md`(gate_e_b_v25_migration_260714 신규, 코드·테스트 PASS·운영 미반영) / 본 파일(MERGE_JOURNAL.md, 이 항목 + 직전 항목 stale `커밋 예정` 정정) / 코드: `.env.example`, `modules/dm/dm_auto_reply.py`, `modules/dm/dm_followup_scheduler.py`, `modules/comment/comment_poller.py`, `modules/comment/comment_auto_reply.py`(수정) + `modules/common/meta_graph.py`, `tests/test_meta_graph_version.py`(신규).
 
-commit: 이 기록과 함께 커밋 예정(문서 2개 신규+본 항목, 코드 5개 수정+2개 신규)
+commit: `102c128` 완료(문서 2개 신규+본 항목, 코드 5개 수정+2개 신규) — *stale 정정: 위 "커밋 예정"은 작성 시점 표현이며 실제로는 이 세션 중 커밋됨*
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
+
+### Gate E-B — 운영 반영(재시작+라이브 Canary) (2026-07-14)
+
+커밋 `102c128`(코드+테스트) 이후 실제 운영 반영 단계. Session Start Rule 확인 결과 작업공간 clean, origin 대비 7 commits ahead(미push).
+
+**재시작 실증:** `:5000` 점유 중이던 구PID `33008`(CreationDate 10:18:10, 커밋 12:17:07 이전 — 구버전 v19.0 코드로 기동 중이었음을 확인)을 회장이 관리자 권한 `Stop-Process -Force`로 종료 → watchdog이 12:26:53 자동 재기동(중간 PID `48560`) → 이후 회장이 별도로 통제된 운영 재시작을 추가 수행, 최종 확인 PID는 launcher `17780`/NSSM 서비스 `2908`(둘 다 CreationDate 12:40, 커밋 이후) — 최신 코드 실행 중 확정.
+
+**라이브 Canary 4경로 결과:**
+
+1. **`dm_auto_reply` PASS** — 실제 테스트 계정(채솔)이 비즈니스 계정(yuna18253)에 "단가주세요" DM 발송 → `PRICE_AUTO_REPLY_ENABLED=false`(Gate C 안전정책) 경로로 상품확인 요청 템플릿 응답, `messaging_graph_url()` 경유 실제 발송 성공(13:13:22~24, msg_id 반환).
+2. **`dm_followup_scheduler` PASS** — 기존 대기 레코드(`LI-798F44CE`, `relay_scheduled_at` 24시간 뒤라 자연 대기 비현실적)는 절대 건드리지 않고, 전용 신규 Canary 레코드(`LI-CANARY-GATEEB-260714`/`recZ3ylf3frOZbmNc`, 동일 실계정 IGSID `1792783944739953` 재사용, 신규 DM 발송 없이 기존 스레드 활용)를 회장 승인 하에 생성 — `relay_scheduled_at`을 과거 시각으로 설정해 due 상태로 만듦. 5분 주기 스케줄러가 다음 틱(13:05:29~33)에서 자연 픽업, 실제 발송 성공(msg_id 반환), Airtable `bridge_status` `auto_replied→followup1_sent` 전이를 재조회로 확인. **부수 발견:** 동일 주기의 06:00:29 UTC 틱이 다른 apscheduler 잡(`_job_insta_upload`/`_job_dome_export`) 지연으로 `missed`(스킵)됨을 로그로 확인 — 팔로업이 최대 ~10분 늦게 나갈 수 있는 구조적 지연 가능성(이번 결과에는 영향 없었음, 별도 ERR 미등록 — 반복 관찰 전까지 보류). 검증 완료 후 회장 승인 하에 `bridge_status=closed`+`relay_scheduled_at` 공란 처리로 내일 `followup2` 자동 오발송 방지(msg_id/로그 증거는 보존, 재조회로 전환 확인).
+3. **`comment_poller` PASS** — 동일 실계정이 게시물에 "DM주세요" 댓글 작성 → 5분 폴링 사이클(13:15:29~47)에서 `GET {ig_user_id}/media`+`GET {media_id}/comments` 두 v25.0 호출로 정상 감지, Airtable 기록 완료.
+4. **`comment_auto_reply`(답글 POST) 라이브 미검증** — 답글 발송(`reply_to_comment()`, `POST /{comment_id}/replies` + 내부 `me/accounts` 토큰조회)은 `COMMENT_AUTO_REPLY_ENABLED=true` **그리고** 단가 키워드(`단가/가격/얼마/비용/견적/원가/도매가/최저가/price/cost/how much/quote`) 매칭 시에만 실행되는데, 테스트 댓글("DM주세요")은 두 조건 다 불충족(플래그 기본 `false`, 키워드 불일치) — 코드 확인으로 사전 파악. 회장 승인 하에 `.env`를 `COMMENT_AUTO_REPLY_ENABLED=true`로 일시 수정했으나, **재시작 시 전체 실사용자 댓글에 공개 자동답글이 노출될 운영 위험을 회장이 재시작 직전 판단해 중단** — 프로세스 재시작이 없었으므로 `true` 설정은 실제 반영된 적 없음(PID 17780 계속 기존 `false`로 동작, 운영 영향 0). `.env`를 즉시 `false`로 원복 확인. 이 경로는 `pytest tests/test_meta_graph_version.py`의 mock 단위테스트(14 passed 중 일부)로만 검증되며 **라이브 미검증 상태로 유지** — 별도 승인 없이 재시도 금지.
+
+**증거 결합 방식(로그 한계):** `meta_graph.py`와 4개 호출부는 생성한 전체 URL 문자열을 로그에 남기지 않음(성공 시 `msg_id`만 기록) — v25.0 실사용 증거는 (a) 8개 호출부 전부 `messaging_graph_url()` 경유(코드 리뷰로 확인) + (b) helper 기본값 `v25.0`(코드 리뷰로 확인) + (c) 위 3개 경로의 실제 발송/조회 성공(런타임 로그+Airtable 재조회로 확인) 조합. Meta 응답의 API-Version 헤더 개별 확인은 미실시.
+
+**상태:** 4경로 중 3경로(`dm_auto_reply`/`dm_followup_scheduler`/`comment_poller`) 운영 반영 라이브 **PASS**. 1경로(`comment_auto_reply` 답글 POST)는 단위테스트 PASS·라이브 미검증으로 명시 기록. `docs/VALIDATION_STATUS.md`(`gate_e_b_v25_migration_260714` 행 갱신) 문서화 완료. **커밋·push는 이 기록과 별도로 승인 대상.**
+
+commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---
