@@ -1182,3 +1182,23 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push
 
 ---
+
+### ERR-066(P0-1) 패키지 A1 실행 — Telegram/로그 PII 마스킹 적용 (2026-07-15)
+
+GPT/Codex 3라운드 교차검토(질문 2개 확정 → 최종 3-패키지 구조 합의) 거쳐 회장 승인 후 패키지 A1(ERR-066 단독) 실행.
+
+**수정 내용(`modules/dm/dm_receiver.py`):**
+1. `dm_auto_reply`의 기존 마스킹 유틸(`_mask_igsid`/`_telegram_preview`) cross-module import 추가 — Codex 리뷰: "긴급수정 허용 범위, 장기적으로는 공용 유틸 승격 검토"
+2. `send_telegram()` — Telegram 본문 IGSID/원문 마스킹, 발송성공 로그도 마스킹
+3. DM 수신 로그(`logger.info`) — 원문 완전 제거, `text_len`만 기록(Codex 제안: app.log는 Telegram보다 오래 보존·검색·백업되므로 원문 남길 이유 없음)
+
+**검증:** 단독 실행으로 IGSID/전화번호/이메일이 실제 Telegram 발송 payload에 안 남는 것 직접 확인(가짜 requests.post로 payload 캡처). `pytest tests/test_dm_rules.py` 30 passed, 회귀 없음.
+
+**문서 반영:** `docs/ERROR_DATABASE.md`(ERR-066 헤딩 RESOLVED로 갱신 + Fix/Runtime Proof/Prevention 추가).
+
+**보류(패키지 A2/B로 분리):** FP-047(댓글 이벤트 dual-entry idempotency, 설계문서 우선)과 n8n watchdog 억제(9단계 Runbook)는 이번 범위 밖 — 각각 별도 승인 대상.
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push
+
+---

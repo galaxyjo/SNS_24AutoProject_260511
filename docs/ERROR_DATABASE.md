@@ -1028,7 +1028,7 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 **관련:** ERR-056, ERR-057, ERR-058, PENDING-A, MERGE_JOURNAL(260714 Gate G 후속 "P2 — 신규" 항목)
 
-## ERR-066 | `dm_receiver.send_telegram()`이 모든 DM에서 IGSID 전체·원문 200자를 마스킹 없이 Telegram으로 전송 (P0-1, 재확인 — 여전히 OPEN)
+## ERR-066 | `dm_receiver.send_telegram()`이 모든 DM에서 IGSID 전체·원문 200자를 마스킹 없이 Telegram으로 전송 (P0-1, RESOLVED — 260715 A1 패치 적용)
 
 **발견 경위:** P0-1은 Gate C(ERR-061) Fix 항목에서 "범위 밖, 계속 OPEN"으로만 언급돼 왔고 자체 ERR 번호가 없었음. 회장 지시로 260715 코드 직접 재확인 — 전용 항목으로 승격.
 
@@ -1040,8 +1040,13 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 **Root Cause:** DM 자동응답(12단계, 260512 이전 구현) 당시 알림 편의를 위해 IGSID·원문을 그대로 Telegram에 실어보내는 구조로 만들어졌고, 이후 Gate C에서 마스킹 로직을 도입할 때 신규 함수에만 적용하고 기존 함수는 "범위 밖"으로 명시적으로 이월(P0-1)한 뒤 지금까지 재적용되지 않음.
 
-**Fix:** 미적용(OPEN) — 회장 지시로 이번엔 기록만 갱신, 코드 수정 없음.
+**Fix(260715 적용, 패키지 A1):** Codex 리뷰(GPT/Codex 3-패키지 검토) 거쳐 실행.
+1. `dm_receiver.py` — `from modules.dm.dm_auto_reply import ... _mask_igsid, _telegram_preview` 추가(cross-module private import, 긴급수정 허용 범위로 합의됨. 장기적으로는 공용 유틸 승격 검토 대상).
+2. `send_telegram()` — Telegram 메시지 본문의 IGSID를 `_mask_igsid()`, 메시지 원문을 `_telegram_preview()`(전화번호·이메일 정규식 제거 후 20자)로 교체. 발송 성공 로그(`[Telegram] 수신 알림 전송`)의 `from=` 필드도 마스킹.
+3. `dm_receiver.py:143`(패치 후 147로 이동) `logger.info` — 원문을 아예 제거, `from={_mask_igsid(sender_id)} | text_len={len(text)}`로 교체(Codex 제안: `app.log`는 Telegram보다 오래 보존·검색·백업되므로 원문을 남길 이유가 없음).
 
-**Prevention(제안, 미실행):** 재개 시 `dm_receiver.send_telegram()`이 `dm_auto_reply._mask_igsid()`/`_telegram_preview()`를 그대로 재사용하도록 교체(신규 유틸 개발 불필요, import + 호출부 교체만 필요). 동시에 `dm_receiver.py:143`의 `logger.info` 원문 노출도 같은 패스에서 마스킹 검토.
+**Runtime Proof(260715):** `.venv` python으로 `send_telegram()` 단독 실행 — IGSID(`1234567890123456`)·전화번호(`010-1234-5678`)·이메일(`test@example.com`)을 포함한 메시지로 실제 Telegram 발송 payload를 가로채 확인한 결과, 셋 다 원문이 payload에 없음 확인(`1234***`, `***`로 마스킹). `pytest tests/test_dm_rules.py` 30 passed(회귀 없음).
+
+**Prevention:** `_mask_igsid()`/`_telegram_preview()`가 현재 `dm_auto_reply.py`의 private(`_` prefix) 함수를 cross-module로 재사용하는 상태 — 다음 정리 사이클에서 공용 유틸 모듈(예: `modules/common/pii_mask.py`)로 승격해 두 모듈이 각자의 private 함수를 참조하는 구조를 정리할 것(Codex 리뷰 코멘트, 이번엔 긴급수정으로 보류).
 
 **관련:** ERR-061(Gate C Fix에서 최초 P0-1 이월 언급), FP-046, `modules/dm/dm_auto_reply.py`(`_mask_igsid`/`_telegram_preview`/`_PII_PATTERNS`)

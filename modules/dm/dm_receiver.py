@@ -17,7 +17,7 @@ from flask import Flask, request, jsonify, abort
 from modules.infra.airtable_repository import AirtableRepository
 from modules.infra.repository_interface import LeadInteractionCreate
 
-from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry
+from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry, _mask_igsid, _telegram_preview
 from modules.dm.dm_followup_scheduler import start_scheduler
 from modules.crm.lead_scorer import is_repeat_inquiry, calc_score, update_lead_score
 from modules.crm.order_detector import detect_order, handle_order_conversion
@@ -52,13 +52,16 @@ def _now_iso() -> str:
 
 
 def send_telegram(sender_igsid: str, message_text: str) -> None:
+    """ERR-066: IGSID/원문 무마스킹 노출 수정(260715) — dm_auto_reply의 기존 마스킹
+    유틸을 재사용. cross-module private import는 긴급수정 허용 범위, 장기적으로는
+    공용 유틸로 승격 검토 대상(Codex 리뷰 260715)."""
     if not _TG_TOKEN or not _TG_CHAT:
         return
     text = (
         f"\U0001f4e9 *Instagram DM 수신*\n"
         f"─────────────────\n"
-        f"\U0001f464 `{sender_igsid}`\n"
-        f"\U0001f4ac {message_text[:200]}"
+        f"\U0001f464 `{_mask_igsid(sender_igsid)}`\n"
+        f"\U0001f4ac {_telegram_preview(message_text)}"
     )
     try:
         requests.post(
@@ -66,7 +69,7 @@ def send_telegram(sender_igsid: str, message_text: str) -> None:
             json={"chat_id": _TG_CHAT, "text": text, "parse_mode": "Markdown"},
             timeout=8,
         )
-        logger.info(f"[Telegram] 수신 알림 전송 | from={sender_igsid}")
+        logger.info(f"[Telegram] 수신 알림 전송 | from={_mask_igsid(sender_igsid)}")
     except Exception as exc:
         logger.warning(f"[Telegram] 알림 실패 | {exc}")
 
@@ -140,7 +143,8 @@ def receive_webhook():
             if message.get("is_echo") or not sender_id or not text:
                 continue
 
-            logger.info(f"[DM] from={sender_id} | text={text[:100]}")
+            # ERR-066: app.log는 Telegram보다 오래 보존·검색·백업되므로 원문 미포함(260715)
+            logger.info(f"[DM] from={_mask_igsid(sender_id)} | text_len={len(text)}")
 
             try:
                 record_id = record_interaction(sender_id, text)

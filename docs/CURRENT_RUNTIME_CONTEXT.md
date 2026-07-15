@@ -136,7 +136,7 @@ f511447 (n8n/P0-1/FP-047/ERR-063 재조사 기록 — ERR-065/066 신규, ERR-06
 - **[P2]** ERR-051/FP-038 Task Scheduler launch-only 실패 근본원인 미확정 (watchdog.ps1은 더 이상 Task Scheduler 아니므로 영향 범위 축소, 다른 Task 대상 잔존 여부만 저위험으로 남음)
 - ~~**[P2]** PENDING-A(NSSM 전환) 최종 결정 — 사용자 승인 필요~~ → **260711 완전 종결**(ERR-057/058 참조)
 - ~~**[P2 — 신규]** n8n(PID 10248 등) watchdog.ps1이 계속 재시작 시도·실패하며 알림만 반복 발생~~ → **260715 근본원인 확인**(ERR-065/FP-049/INC-037): LocalSystem 전환 후 npx 대화형 설치 프롬프트에서 좀비 프로세스 발생 가설(미확정), 성공 0건·실패 5,298건+ 누적. **Fix 미적용** — 회장 방침: 안정화 우선, n8n은 나중에 진행+설계(WF-01~05) 재검토 예정
-- **[P0-1 → ERR-066, OPEN]** `dm_receiver.send_telegram()`이 모든 DM에서 IGSID 전체·원문 200자를 마스킹 없이 Telegram 전송 — Gate C에서 만든 마스킹 유틸(`dm_auto_reply._mask_igsid()`/`_telegram_preview()`)이 이미 존재하므로 신규 개발 없이 적용만 하면 됨. 코드 수정 미착수(회장 지시로 기록만)
+- ~~**[P0-1 → ERR-066, OPEN]** `dm_receiver.send_telegram()` IGSID·원문 무마스킹~~ → **260715 RESOLVED**(패키지 A1): `_mask_igsid()`/`_telegram_preview()` 재사용 적용 + DM 수신 로그 원문 완전 제거, Runtime Proof로 마스킹 확인, pytest 30 passed
 - **[FP-047, OPEN, 재확인 260715]** 댓글 Airtable 기록(`_record_comment()`) 실패 시 예외를 삼키고 무조건 캐시에 처리완료로 남겨 재시도 없이 영구 유실 — Gate G 이후에도 로직 그대로. 재시도 큐 적용 또는 실패 ID 캐시 제외 필요, 코드 수정 미착수
 - **[ERR-064/FP-048/INC-036, OPEN]** 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장 웹훅 미도착(Standard Access 의심, 미확정) — Meta App Review 4개 권한 신청 제출(260715 00:35, 검토 중), ManyChat 우회 전환도 검토 후보. 24/7 자동화 핵심 전제("손님 답장 감지→AI 이어받기")에 직접 영향 가능한 리스크로 최우선 추적 필요
 - ~~**[ERR-063]** `test_dm_rules.py` hang, 원인 UNKNOWN~~ → **260715 RESOLVED**: 실제 Gemini API 호출(`generate_reply()`)을 mock하지 않은 테스트 설계 누락 확인, 7.48초 재현 실증. 테스트에 mock 추가하는 실제 수정은 미착수(기록만)
