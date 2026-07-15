@@ -21,7 +21,7 @@ from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry,
 from modules.dm.dm_followup_scheduler import start_scheduler
 from modules.crm.lead_scorer import is_repeat_inquiry, calc_score, update_lead_score
 from modules.crm.order_detector import detect_order, handle_order_conversion
-from modules.comment.comment_auto_reply import handle_comment
+from modules.comment.comment_auto_reply import process_comment_event, CommentProcessResult
 
 PAGE_TOKEN        = os.getenv("INSTA_ACCESS_TOKEN")
 IG_USER_ID        = os.getenv("INSTA_IG_USER_ID")
@@ -114,8 +114,22 @@ def receive_webhook():
     if data.get("object") != "instagram":
         return jsonify({"status": "ignored"}), 200
 
+    # P0(260715 Codex 3·4차 리뷰): poller의 5분 주기 스윕은 완전한 안전망이 아니다
+    # (최근 게시물 조회 범위 밖/댓글이 다음 폴링 전 삭제됨/Graph API 반복실패 등) —
+    # 댓글 이벤트가 durable하게 접수되지 않았으면 200으로 뭉개지 않고 Meta의 자체
+    # 재전송을 유도한다("빠른 200"의 전제는 먼저 영속 저장이 됐다는 것).
+    # IN_PROGRESS(활성 worker만 보유, durable 백업 없음)도 실패로 취급 — 200으로 뭉개면
+    # Meta 재전송이라는 유일한 복구 경로까지 스스로 차단하게 된다. RETRY_OWNED(retry_queue.db가
+    # payload를 durable 보유)만 200 가능.
+    #
+    # 2단계 처리(260715 Codex 4차 리뷰): 댓글을 먼저 전부 처리해 durable-accept 여부를
+    # 확정한 뒤에만 messaging(DM)을 처리한다 — 한 요청에 댓글 실패+DM 성공이 섞여 있는데
+    # 그대로 503을 반환하면, Meta가 전체 배치를 재전송하면서 이미 처리된 DM까지 다시
+    # 처리돼 DM 쪽에 새로운 중복(Airtable 재기록·Telegram 재알림 등)을 만들 수 있다.
+    durable_accept_failed = False
+    _NON_DURABLE_RESULTS = (CommentProcessResult.REJECTED_NOT_READY, CommentProcessResult.IN_PROGRESS)
+
     for entry in data.get("entry", []):
-        # ── comments webhook 이벤트 처리 ──────────────────────────────────────
         for change in entry.get("changes", []):
             if change.get("field") != "comments":
                 continue
@@ -130,10 +144,18 @@ def receive_webhook():
                 continue
             logger.info(f"[Comment/WH] from=@{cusername} | text={ctext[:100]}")
             try:
-                handle_comment(cid, cusername, ctext, cmedia, commenter_id=ccommenter_id)
+                result = process_comment_event(cid, cusername, ctext, cmedia, ingress="webhook", commenter_id=ccommenter_id)
+                if result in _NON_DURABLE_RESULTS:
+                    durable_accept_failed = True
             except Exception as exc:
-                logger.error(f"[Comment/WH] 처리 실패 | cid={cid} | {exc}")
+                logger.error(f"[Comment/WH] 처리 실패(durable accept 실패, 재전송 유도) | cid={cid} | {exc}")
+                durable_accept_failed = True
 
+    if durable_accept_failed:
+        # DM(messaging)은 아직 손대지 않았으므로, 재전송돼도 DM 쪽 중복 처리는 일어나지 않는다.
+        return jsonify({"status": "durable_accept_failed"}), 503
+
+    for entry in data.get("entry", []):
         for messaging in entry.get("messaging", []):
             sender_id  = messaging.get("sender", {}).get("id")
             message    = messaging.get("message", {})

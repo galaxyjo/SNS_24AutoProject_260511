@@ -1202,3 +1202,29 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push
 
 ---
+
+### FP-047(패키지 A2) 구현 완료 — GPT/Codex 12라운드 교차검토 후 sign-off (2026-07-15)
+
+회장 지시("설계만 시간낭비 말고 기본 만들고 실계정 테스트하며 안정화")로 FP-047 설계문서(v4, 8라운드 검토 완료) 기반 구현 착수. 구현 완료 후 GPT/Codex와 추가 4라운드 코드 리뷰(P0 결함 발견→수정→재검토 반복)를 거쳐 최종 sign-off.
+
+**구현 내용:**
+- 신규 `modules/comment/comment_event_store.py` — 댓글 이벤트 Inbox. `(source, source_event_id)` PK + fencing token(`claim_token`) 기반 원자적 claim, `try_claim()` 자체에 stale lease 자동 회수 내장(별도 스윕 잡 불필요), shadow claim `SHADOW_SEEN` 태깅으로 enforce reclaim에서 영구 제외
+- 신규 `modules/comment/comment_retry_dead_monitor.py` — retry_queue의 `comment_airtable_record` dead 태스크를 읽기전용(SQLite URI mode=ro)으로 감지, Slack 알림 + event_store DEAD 동기화
+- `comment_auto_reply.py` — 단일 진입점 `process_comment_event()`(disabled/shadow/enforce 3모드, `CommentProcessResult` 구조화 반환값: ACCEPTED/DUPLICATE_COMPLETED/RETRY_OWNED/IN_PROGRESS/LEGACY/REJECTED_NOT_READY). 기존 `handle_comment()`는 레거시 진입점으로 그대로 유지(기존 테스트 호환). Airtable 기록 실패 시 기존 `retry_queue.py`로 위임, enqueue 자체 실패는 fail-closed
+- Airtable `Lead_Interactions.source_event_id` 필드 신규 추가(API, `tools/add_lead_interactions_source_event_field.py`) + 3-way 조회(FOUND/NOT_FOUND/LOOKUP_FAILED)로 재시도 시 중복 생성 방지
+- `comment_poller.py`/`dm_receiver.py` — `handle_comment()` 직접호출을 `process_comment_event()`로 교체. `dm_receiver.py` 웹훅은 댓글 전부 durable-accept 확정 후에만 DM(messaging) 처리하는 2단계 구조로 재구성(실패 시 503, DM 쪽 신규 중복 방지)
+- `launcher/main.py`/`core/run_engine.py` — `register_retry_handlers()` eager 등록(재시작 시 pending task 유실 방지), `comment_dead_monitor` 스케줄러 잡 추가(`max_instances=1, coalesce=True`, 기존 `_job_dome_export` 패턴 재사용)
+- `.env`/`.env.example` — `COMMENT_EVENT_STORE_MODE=disabled`(기본값) 킬스위치 추가
+
+**리뷰 라운드에서 발견·수정된 correctness 버그 9건** (ERR-067 상세 기록): poller/webhook이 실패를 성공으로 캐시, reclaim_stale() 미연결, fencing 반환값 무시(2곳), 재개 시 완료효과 재실행, 전역 enforce(캠페인 스코핑 누락), retry token 노후화(주석이 틀렸음을 재현 테스트로 확인), shadow row 오염(설계문서엔 있었으나 구현 누락), 구조화 반환값 부재로 IN_PROGRESS/실패 오분류.
+
+**검증:** 신규 테스트 65개(동시성 10스레드 경쟁, fencing 위조token 거부, crash 재현+자연복구, shadow 격리, webhook 2단계 처리 등) 전부 통과. 전체 회귀 **345 total / 338 passed / 4 failed(무관 기존 `test_dm_close.py`, 동일 4건) / 3 xfailed**(Claude 로컬 실행 증거, Codex는 읽기전용 원칙상 재실행 안 함).
+
+**상태:** 코드 구현 완료, GPT/Codex sign-off 완료. **`COMMENT_EVENT_STORE_MODE=disabled`(기본값)로 커밋 — 기존 운영 동작 전혀 안 바뀜.** "FP-047 해결 완료"가 아니라 "구현 완료, disabled 기본값, shadow/enforce 검증 전"으로 기록. enforce 진입 전 필수 해결(OPEN, 커밋 차단 사유는 아님): 댓글 원문 평문 저장(ERR-066과 같은 클래스), Airtable 필드 존재 startup preflight 미구현. 마이그레이션 CLI 도구·완전한 dead-alert 원자적 상태머신은 fast-follow.
+
+**커밋 범위:** 코드 8개 파일 + 설계문서(`docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`) + 신규 모듈 2개 + `tools/add_lead_interactions_source_event_field.py`(Airtable 스키마 재현용, 커밋만 하고 재실행 안 함) + 신규 테스트 9개 파일 + 의무기록 5종(`ERROR_DATABASE.md`/`FAILURE_PATTERN.md`/`INCIDENT_TIMELINE.md`/`VALIDATION_STATUS.md`/본 파일). `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`(무관), `.env`(gitignore 대상), DB/로그 파일은 제외.
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push
+
+---

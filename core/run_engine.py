@@ -24,6 +24,7 @@ from core.task_router import TaskRouter
 from core.error_handler import handle_errors
 from modules.common.logger import get_logger
 from modules.common.retry_queue import get_retry_queue
+from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 
 init_logging()
 logger = get_logger(__name__)
@@ -178,6 +179,15 @@ def _job_airtable_integrity():
         logger.warning(f"[RunEngine] airtable_integrity | ig_media_id 누락 {result['missing']}건")
 
 
+@handle_errors(task="comment_dead_monitor", reraise=False, notify_fn=_slack)
+def _job_comment_dead_monitor():
+    """FP-047 — comment_airtable_record retry_queue dead 건 능동 알림(설계문서 §5)."""
+    from modules.comment.comment_retry_dead_monitor import check_dead_comment_tasks
+    n = check_dead_comment_tasks()
+    if n:
+        logger.warning(f"[RunEngine] comment_dead_monitor | 신규 dead 알림 {n}건")
+
+
 # ── RunEngine ─────────────────────────────────────────────────────────────────
 
 class RunEngine:
@@ -185,6 +195,9 @@ class RunEngine:
         self.router    = TaskRouter()
         self.scheduler = BlockingScheduler(timezone="Asia/Seoul")
         self._rq       = get_retry_queue()
+        # FP-047: comment_airtable_record 핸들러는 rq.start() 이전에 eager 등록해야 함
+        # (설계문서 §6 — 지연등록 시 재시작 후 pending task가 dead 처리될 위험)
+        _register_comment_retry_handlers(self._rq)
         self._register_tasks()
         self._register_jobs()
 
@@ -200,6 +213,7 @@ class RunEngine:
         self.router.register("ngrok_check",       _job_ngrok_check)
         self.router.register("crawl_url_check",    _job_crawl_url_check)
         self.router.register("airtable_integrity", _job_airtable_integrity)
+        self.router.register("comment_dead_monitor", _job_comment_dead_monitor)
 
     def _register_jobs(self):
         now = datetime.now()
@@ -246,6 +260,11 @@ class RunEngine:
         self.scheduler.add_job(
             _job_airtable_integrity, "interval", hours=6,
             id="airtable_integrity", next_run_time=now + timedelta(seconds=100),
+        )
+        self.scheduler.add_job(
+            _job_comment_dead_monitor, "interval", minutes=15,
+            id="comment_dead_monitor", next_run_time=now + timedelta(seconds=110),
+            max_instances=1, coalesce=True,
         )
 
     def start(self):

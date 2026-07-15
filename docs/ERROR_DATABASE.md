@@ -1050,3 +1050,26 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** `_mask_igsid()`/`_telegram_preview()`가 현재 `dm_auto_reply.py`의 private(`_` prefix) 함수를 cross-module로 재사용하는 상태 — 다음 정리 사이클에서 공용 유틸 모듈(예: `modules/common/pii_mask.py`)로 승격해 두 모듈이 각자의 private 함수를 참조하는 구조를 정리할 것(Codex 리뷰 코멘트, 이번엔 긴급수정으로 보류).
 
 **관련:** ERR-061(Gate C Fix에서 최초 P0-1 이월 언급), FP-046, `modules/dm/dm_auto_reply.py`(`_mask_igsid`/`_telegram_preview`/`_PII_PATTERNS`)
+
+## ERR-067 | FP-047(댓글 이벤트 idempotency) 구현 과정에서 다단계 리뷰로 발견·수정된 correctness 버그 다수 (RESOLVED — 260715, disabled 기본값)
+
+**발견 경위:** FP-047("저장 실패를 성공처럼 처리해 재시도 기회를 잃는 패턴") 코드 구현을 회장 지시("기본만들고 실계정 테스트하며 안정화")로 착수. GPT/Codex와 총 12라운드(설계 8라운드 + 구현 후 코드 리뷰 4라운드) 교차검토를 거치며, 매 라운드마다 실제 코드로 직접 재현·검증한 correctness 버그가 다수 발견됨 — 단순 설계 미비가 아니라, 구현 1차 버전 자체에 실제로 존재했던 버그들.
+
+**Raw(라운드별 발견된 버그, 전부 코드 재현으로 확인 후 수정):**
+1. `comment_poller.py`/`dm_receiver.py`가 `process_comment_event()` 실패 시에도 캐시/200 응답 — FP-047 자체가 event_store 도입 후에도 재현될 뻔함
+2. `reclaim_stale()`을 구현만 해두고 실제 런타임 어디서도 호출 안 함 — claim 직후 crash가 영구 skip으로 남는 구조였음. `try_claim()` 자체에 stale reclaim을 내장하는 방식으로 재설계
+3. `mark_effect_started()` 반환값(fencing 성공 여부)을 무시하고 발송을 강행 — fenced-out worker도 손님에게 중복발송할 수 있었음
+4. 재개(reclaim 후) 시 이미 완료된 effect를 재확인 없이 재실행 — 이미 보낸 Telegram/Private Reply/Airtable 기록을 중복 실행할 뻔함
+5. 킬스위치가 전역이라 "제한 Canary"가 실제로는 전역 enforce였음 — Gate G의 기존 캠페인 게시물 allowlist 재사용으로 스코핑
+6. retry_queue 태스크의 claim_token이 payload에 고정 저장돼, lease 만료로 다른 worker가 stale reclaim하면 재시도 완료 반영이 영구히 fencing 실패 — "다음 시도에 자연 복구된다"던 최초 주석이 실제로는 틀렸음(재현 테스트로 확인). `airtable_status='RETRY_PENDING'` 조건 기반 완료 처리로 수정
+7. shadow 모드 claim이 실제 claim과 구분 안 돼, enforce가 이미 legacy 경로로 처리된 shadow row를 "죽은 것"으로 오인해 재claim할 수 있었음 — 설계문서(v4)에 `SHADOW_SEEN` 태깅이 문서화만 되고 실제 구현에서 누락돼 있던 것을 4차 리뷰에서 발견
+8. `process_comment_event()`가 예외 없이 끝나면 항상 성공으로 간주 — "완료"와 "남이 처리중"을 구분 못해 poller가 미확정 상태를 영구 캐시할 뻔함. `CommentProcessResult` 구조화된 반환값 도입으로 해결
+9. `mark_airtable_done()`/`mark_airtable_retry_pending()`의 fencing 결과(bool)를 호출부가 무시 — Airtable 쓰기는 성공했는데 event_store 상태만 영구 고착될 수 있었음(데이터 유실은 아니나 상태 불일치)
+
+**Root Cause:** 단일 기능처럼 보이지만 실제로는 분산시스템의 고전적 함정(원자적 claim, lease 기반 crash 복구, at-most-once vs at-least-once 구분, idempotency key 설계)이 전부 얽혀있는 문제라, 1차 구현만으로는 이런 종류의 race condition·fencing 누락을 스스로 발견하기 어려웠음. 매 라운드 Codex가 구체적 시나리오(worker crash 시점, lease 만료 타이밍 등)를 재구성해 제시했고, Claude가 그 주장을 실제 코드로 직접 재현·검증(때로는 Codex가 언급 안 한 추가 버그도 테스트 작성 중 자체 발견)하는 방식으로 수렴.
+
+**Fix:** 위 9개 전부 코드 수정 완료. 신규 테스트 65개(동시성 10스레드 경쟁, fencing 위조 token 거부, crash 재현, shadow 격리, webhook 2단계 처리 등) 전부 통과. 전체 회귀 345 total/338 passed/4 failed(무관 기존 `test_dm_close.py`)/3 xfailed.
+
+**Prevention:** 분산 상태머신·idempotency가 필요한 기능은 "일단 만들고 나중에 테스트" 순서보다, 각 실패 시나리오(crash 시점별 상태 조합)를 먼저 표로 나열한 뒤 구현하는 게 더 안전했을 것 — 이번엔 반대 순서(구현 후 리뷰가 시나리오를 하나씩 찾아냄)로 진행돼 라운드가 많아짐. 유사 기능(예: DM 채널 idempotency, 향후 별도 과제) 착수 시 이 교훈 적용 검토.
+
+**관련:** FP-047, INC-035, `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`

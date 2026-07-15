@@ -8,10 +8,23 @@ import logging
 import requests
 from pathlib import Path
 
-from modules.comment.comment_auto_reply import handle_comment
+from modules.comment.comment_auto_reply import process_comment_event, CommentProcessResult
 from modules.common.meta_graph import messaging_graph_url
 
 logger = logging.getLogger(__name__)
+
+# P0(260715 Codex 3·4차 리뷰): 이 결과들만 "확정(durable)"이라 캐시해도 됨.
+# IN_PROGRESS(활성 worker만 보유, durable 백업 없음)나 REJECTED_NOT_READY(fail-closed,
+# 처리 자체를 안 함/enqueue 실패)는 캐시하면 안 됨 — 캐시해버리면 그 worker가 crash해도
+# poller가 다시는 이 comment_id를 안 보게 되어, try_claim()의 stale reclaim(P0-2)이
+# 발동할 기회 자체가 영원히 없어짐. RETRY_OWNED는 retry_queue.db가 payload를 durable
+# 보유하므로 캐시 가능.
+_CACHEABLE_RESULTS = {
+    CommentProcessResult.ACCEPTED,
+    CommentProcessResult.DUPLICATE_COMPLETED,
+    CommentProcessResult.RETRY_OWNED,
+    CommentProcessResult.LEGACY,
+}
 
 # ── 설정 ─────────────────────────────────────────────────────────────────────
 
@@ -113,12 +126,20 @@ def poll_new_comments() -> None:
             if not cid or cid in processed:
                 continue
 
+            # P0-1(260715 Codex 2·3차 리뷰): 예외가 나면 캐시에 안 남긴다(이전엔 예외
+            # 발생 여부와 무관하게 항상 캐시돼 FP-047과 같은 유실 패턴이 재현될 수 있었음).
+            # 예외가 없어도 결과가 IN_PROGRESS/REJECTED_NOT_READY면 아직 확정 아니므로
+            # 마찬가지로 캐시하지 않는다(_CACHEABLE_RESULTS 참조).
+            try:
+                result = process_comment_event(cid, username, text, media_id, ingress="poller", commenter_id=commenter_id)
+            except Exception as exc:
+                logger.error(f"[CommentPoll] process_comment_event 오류(캐시 미기록, 다음 폴링에 재시도) | cid={cid} | {exc}")
+                continue
+            if result not in _CACHEABLE_RESULTS:
+                logger.info(f"[CommentPoll] 미확정 상태(캐시 미기록, 다음 폴링에 재확인) | cid={cid} | result={result.value}")
+                continue
             new_ids.add(cid)
             new_count += 1
-            try:
-                handle_comment(cid, username, text, media_id, commenter_id=commenter_id)
-            except Exception as exc:
-                logger.error(f"[CommentPoll] handle_comment 오류 | cid={cid} | {exc}")
 
     if new_count:
         logger.info(f"[CommentPoll] 신규 댓글 {new_count}건 처리 완료")

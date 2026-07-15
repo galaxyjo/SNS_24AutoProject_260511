@@ -582,9 +582,11 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 
 **해결:** Airtable `conversation_channel`에 `instagram_comment` 선택지 추가(260714) + 저장 Canary PASS로 **이번 유형의 저장 실패는 해소**. 단 (1) 오늘 이전 과거 손실 범위는 여전히 UNKNOWN(추적 불가), (2) 저장 실패 시 재시도 없이 영구 유실되는 구조적 패턴(FP-047)은 계속 OPEN — 다른 원인으로 저장이 실패하면 동일한 유실이 재발할 수 있음.
 
+**추가(260715):** FP-047 자체(구조적 패턴)에 대한 코드 구현이 완료됨(ERR-067 참조) — `COMMENT_EVENT_STORE_MODE=disabled`(기본값)로 커밋, 기존 운영 동작은 안 바뀜. shadow/enforce 전환·실계정 Runtime Proof는 별도 승인 대상이라 이 INC의 "재발 가능" 자체는 disabled 상태인 한 그대로 유효 — enforce 전환 후에야 실질적으로 해소됨.
+
 **재발 방지:** FP-047 참조.
 
-**관련:** ERR-062, FP-047, `docs/design/DM_RELAY_COMMERCE_RFC.md` "기존 코드 결함(8건)" #1
+**관련:** ERR-062, ERR-067, FP-047, `docs/design/DM_RELAY_COMMERCE_RFC.md` "기존 코드 결함(8건)" #1, `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`
 
 ## INC-036 | 앱 테스터 미등록 실손님 계정의 Private Reply 답장이 웹훅 미도착 — 24/7 자동화 핵심 전제 위협 (OPEN)
 

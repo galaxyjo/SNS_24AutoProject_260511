@@ -43,6 +43,7 @@ from core.error_handler import handle_errors
 from modules.common.logger import get_logger
 from modules.common.retry_queue import get_retry_queue
 from modules.common.health_monitor import get_health, print_health
+from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 from modules.infra.airtable_usage_logger import log_api_call
 
 init_logging()
@@ -233,6 +234,15 @@ def _job_dome_export():
     logger.info(f"[dome_export] {result}")
 
 
+@handle_errors(task="comment_dead_monitor", notify_fn=_slack)
+def _job_comment_dead_monitor():
+    """FP-047 — comment_airtable_record retry_queue dead 건 능동 알림(설계문서 §5)."""
+    from modules.comment.comment_retry_dead_monitor import check_dead_comment_tasks
+    n = check_dead_comment_tasks()
+    if n:
+        logger.warning(f"[comment_dead_monitor] 신규 dead 알림 {n}건")
+
+
 def publish_single(rid, image_url, caption, access_token, ig_user_id):
     """
     단일 Record 게시 실행 함수.
@@ -340,6 +350,9 @@ def _build_scheduler() -> BackgroundScheduler:
     sched.add_job(_job_dome_export, "interval", minutes=10,
                   id="dome_export", next_run_time=now + timedelta(seconds=360),
                   max_instances=1, coalesce=True)
+    sched.add_job(_job_comment_dead_monitor, "interval", minutes=15,
+                  id="comment_dead_monitor", next_run_time=now + timedelta(seconds=420),
+                  max_instances=1, coalesce=True)
     return sched
 
 
@@ -360,6 +373,11 @@ def _print_banner():
 def main():
     # 1. retry_queue 워커 시작
     rq = get_retry_queue()
+    # FP-047: comment_airtable_record 핸들러는 반드시 rq.start() 이전에 eager 등록해야
+    # 함 — 기존 ig_auto_reply/ig_followup처럼 실패 시점에 지연등록하면 재시작 후 pending
+    # task가 handler를 못 찾고 dead 처리될 위험이 있음(설계문서 §6).
+    _register_comment_retry_handlers(rq)
+    logger.info("[Main] comment_airtable_record retry handler 등록 완료")
     rq.start()
 
     # 2. 크롤링·업로드 스케줄러 시작 (백그라운드)

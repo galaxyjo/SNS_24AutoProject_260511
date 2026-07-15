@@ -591,9 +591,19 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 
 **재확인(260715):** 회장 지시로 Gate G(Private Reply 전환) 이후 코드를 재확인 — 패턴은 그대로 남아있음, 코드 수정 없음(기록만 갱신). 줄 번호만 Gate G 추가 코드(`_try_private_reply` 등)로 밀려 현재는 `comment_poller.py:116`(`new_ids.add`)/`:123-125`(무조건 `_save_cache`), `comment_auto_reply.py:146-157`(`_record_comment`)로 이동 — 로직 자체는 원문과 동일. `handle_comment()`가 부정 댓글(`:236`) 경로와 일반/가격 댓글(`:246`) 경로 양쪽에서 각각 `_record_comment()`를 호출하는 구조도 확인, 두 경로 모두 동일하게 취약.
 
+**해결(코드 구현, 260715 — `IMPLEMENTED — NOT DEPLOYED`. disabled 기본값, enforce Runtime Proof 전까지 이 FP 자체는 OPEN 유지):** GPT/Codex 총 12라운드 교차검토(설계 8라운드 + 구현 후 코드 리뷰 4라운드) 거쳐 구현·sign-off 완료. 설계 근거: `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`(v4). 핵심 구조:
+- 신규 `modules/comment/comment_event_store.py` — 웹훅+폴러 공동 원자적 claim(fencing token 포함), stale lease 자동 회수(`try_claim()` 자체 내장, 별도 스윕 잡 불필요)
+- 단일 진입점 `process_comment_event()`(`comment_auto_reply.py`) — `comment_poller.py`/`dm_receiver.py` 둘 다 이걸 통해서만 처리, `COMMENT_EVENT_STORE_MODE`(disabled/shadow/enforce) 킬스위치
+- Airtable `source_event_id` 필드 신규 추가(API로, `tools/add_lead_interactions_source_event_field.py`) + 3-way 조회(FOUND/NOT_FOUND/LOOKUP_FAILED)로 재시도 시 중복 생성 방지
+- Airtable 기록 실패는 기존 `retry_queue.py`로 위임(신규 `comment_airtable_record` 태스크), enqueue 자체 실패는 fail-closed
+- `CommentProcessResult`(ACCEPTED/DUPLICATE_COMPLETED/RETRY_OWNED/IN_PROGRESS/LEGACY/REJECTED_NOT_READY) 반환값으로 poller 캐시 여부·webhook 200/503 여부를 정확히 구분
+- 신규 테스트 65개(동시성/fencing/crash복구/shadow격리/webhook 2단계처리 등) 전부 통과, 전체 회귀 345 total/338 passed/4 failed(무관 기존 실패)/3 xfailed
+- **`COMMENT_EVENT_STORE_MODE=disabled`(기본값)로 커밋 — 기존 운영 동작 전혀 안 바뀜. shadow/enforce 전환 및 실계정 Runtime Proof는 별도 승인 대상.**
+- **enforce 진입 전 반드시 해결 필요(OPEN 잔여):** 댓글 원문 평문 저장(Telegram/로그/retry payload, ERR-066과 같은 클래스), Airtable 필드 존재 여부 startup preflight 미구현.
+
 **예방:** 예외를 삼키는 함수(`try/except`로 로그만 남기고 반환)를 호출하는 쪽에서는, 그 반환값만으로 성공 여부를 판단하지 말고 명시적 성공/실패 신호(bool 반환 또는 예외 재발생)를 받아 그에 따라 캐시·재시도 여부를 결정할 것.
 
-**관련:** ERR-062, INC-035
+**관련:** ERR-062, ERR-067, INC-035, `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`
 
 ## FP-048 | 앱 테스터 미등록 실계정과의 DM 왕복이 불안정한 패턴 (Standard Access 의심)
 

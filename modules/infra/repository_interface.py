@@ -144,12 +144,16 @@ class TrainingCandidate(TypedDict, total=False):
     candidate_block_override:  str   # 소스는 allowed여도 이 후보만 개별 차단할 사유
 
 
-class LeadInteractionCreate(TypedDict):
+class _LeadInteractionCreateRequired(TypedDict):
     igsid:            str
     source:           str   # "instagram_dm" | "instagram_comment"
     interaction_type: str
     occurred_at:      str
     inquiry_message:  str
+
+
+class LeadInteractionCreate(_LeadInteractionCreateRequired, total=False):
+    source_event_id:  str   # FP-047 idempotency key(선택) — 댓글은 Meta comment_id
 
 
 # ── 예외 ──────────────────────────────────────────────────────────────────────
@@ -271,6 +275,14 @@ class RepositoryInterface(ABC):
     @abstractmethod
     def create_lead_interaction(self, data: LeadInteractionCreate) -> str:
         """Lead_Interactions 신규 레코드 생성. record_id 반환."""
+
+    @abstractmethod
+    def find_lead_interaction_by_source_event(self, source: str, source_event_id: str) -> str | None:
+        """(source, source_event_id) 기준 기존 레코드 조회 — FP-047 idempotency.
+        find_source_item_by_hash()와 동일 계약: 있으면 record_id, 없으면 None.
+        조회 자체가 실패하면(네트워크/타임아웃 등) 예외를 그대로 전파한다 —
+        호출부는 반드시 None(NOT_FOUND)과 예외(LOOKUP_FAILED)를 구분해서 처리해야 하며,
+        LOOKUP_FAILED를 NOT_FOUND로 취급해 생성을 진행하면 중복 레코드가 생긴다."""
 
     @abstractmethod
     def is_repeat_inquiry(self, igsid: str) -> bool:

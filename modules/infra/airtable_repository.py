@@ -581,6 +581,8 @@ class AirtableRepository(RepositoryInterface):
             "relay_scheduled_at":   data["occurred_at"],
             "inquiry_message":      data.get("inquiry_message", ""),
         }
+        if data.get("source_event_id"):
+            fields["source_event_id"] = data["source_event_id"]
         try:
             r = requests.post(
                 _url("Lead_Interactions"),
@@ -596,6 +598,31 @@ class AirtableRepository(RepositoryInterface):
             raise RepositoryUnavailableError(str(e)) from e
 
         return r.json().get("id", "")
+
+    # ── FP-047: 댓글 이벤트 idempotency 조회 ────────────────────────────────────
+
+    def find_lead_interaction_by_source_event(self, source: str, source_event_id: str) -> str | None:
+        """LOOKUP_FAILED(네트워크/타임아웃 등)는 예외로 그대로 전파됨 —
+        호출부가 None(NOT_FOUND)과 구분해서 처리해야 한다."""
+        safe_source = source.replace("'", "\\'")
+        safe_event  = source_event_id.replace("'", "\\'")
+        formula = f"AND({{conversation_channel}}='{safe_source}',{{source_event_id}}='{safe_event}')"
+        try:
+            r = requests.get(
+                _url("Lead_Interactions"),
+                headers=_headers(),
+                params={"filterByFormula": formula, "maxRecords": 1, "fields[0]": "source_event_id"},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Lead_Interactions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Lead_Interactions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        return records[0]["id"] if records else None
 
     # ── 14. 재문의 여부 확인 ──────────────────────────────────────────────────
 
