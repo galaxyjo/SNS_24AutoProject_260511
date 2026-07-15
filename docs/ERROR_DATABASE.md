@@ -980,3 +980,17 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Fix:** 미적용 — 원인 미확정 상태이며 Gate E-B 승인 범위 밖(관련 없는 기존 테스트 수정 금지). 운영 장애로 이어진 증거가 없어 INC 미등록, 반복 재현 패턴 증거가 아직 없어 FP도 보류.
 
 **관련:** `tests/test_dm_rules.py`, Gate E-B(`modules/common/meta_graph.py`)
+
+## ERR-064 | Private Reply로 시작된 대화의 손님 답장이 웹훅으로 수신되지 않음 — Standard Access(앱 테스터 미등록) 의심
+
+**발견 경위:** Gate G(댓글→Private Reply 전환) 라이브 테스트 중, `COMMENT_AUTO_REPLY_ENABLED=true` + 캠페인 게시물(`18116772601675773`)에 등록된 실계정(tgbtgbnate)이 "가격 얼마예요?" 계열 댓글을 남겼고, 시스템이 정상적으로 Private Reply를 발송·수신 확인(회장 육안 확인)까지 마쳤다. 이후 tgbtgbnate가 그 Private Reply에 실제로 답장("무시 할게", Instagram 스크린샷으로 시각 오후 4:14경 확인)했으나, 45분 이상 경과한 시점까지 우리 서버(webhook)에 어떤 메시지 이벤트도 수신되지 않음을 발견.
+
+**Raw:** `curl http://127.0.0.1:4040/api/requests/http`(ngrok 요청 로그) 확인 결과, 마지막으로 수신된 webhook은 15:44:12(읽음 확인 이벤트, `"read":{"mid":...}`만 포함 — 실제 메시지 텍스트 없음)이며, 16:30 시점까지 그 이후 신규 요청 0건. `GET /{page-id}/subscribed_apps`로 웹훅 구독 필드 재확인 결과 `["messages", "messaging_postbacks"]` 정상 구독 확인 — 구독 설정 자체는 문제 없음. Instagram 스크린샷으로 해당 대화가 "요청함"(Message Requests)이 아닌 "Primary" 탭에 정상 위치함을 확인 — 메시지 요청함 대기 가설은 기각.
+
+**Root Cause:** **가설 단계(미확정).** `GET /debug_token`으로 액세스 토큰 조회 결과 `instagram_manage_messages`/`pages_messaging`/`instagram_manage_comments` 스코프가 대상 IG 계정(`17841476202821375`)에 정상 부여돼 있어 권한 자체의 부재는 아님. 다만 회장이 Meta 앱 대시보드(역할 > Instagram 테스터)를 직접 확인한 결과 **테스트 계정(채솔)만 테스터로 등록돼 있고, tgbtgbnate는 미등록**임을 확인 — 이는 앱이 `instagram_manage_messages` 등에 대해 아직 App Review를 통과하지 못한 **Standard Access** 상태이고, 이 상태에서는 앱에 역할이 없는 일반 사용자와의 메시징(특히 수신측 웹훅)이 제한될 수 있다는 가설과 일치. 근거 보강: 오늘 하루 동안 테스터 등록 계정(채솔)과의 DM은 전부 수 초 내 즉시 webhook 수신됐으나(13:13 등), 미등록 계정(tgbtgbnate)과는 이번 건 포함 최소 2회(13:12경 1건, 16:14경 이번 건) 동일 패턴(발신 성공, 수신 미도착/지연)이 재현됨. **단, App Review > 권한과 기능 화면에서 `instagram_manage_messages`의 실제 Access Level(Standard/Advanced) 자체는 아직 미확인** — 이것이 확인되기 전까지는 CONFIRMED로 승격하지 않음.
+
+**Fix:** 미적용. 만약 Root Cause가 확정되면, 코드 수정으로는 해결 불가능한 유형 — 정식 해결책은 Meta Business Manager에서 `instagram_manage_messages`(및 필요 시 `instagram_manage_comments`)에 대한 **App Review를 통과해 Advanced Access로 승격**하는 것뿐이며, 이는 회장이 직접 진행해야 하는 행정 절차(사용목적 설명·화면녹화 시연 제출 등).
+
+**영향:** 실제 손님(앱에 테스터로 등록되지 않은 일반 계정 — 사실상 모든 실제 고객)의 Private Reply 답장이 우리 시스템에 도달하지 않을 수 있음. Gate G의 `comment_poller.py`/`comment_auto_reply.py` 자체 로직(키워드 감지·게이트·Private Reply 발송)은 오늘 실증으로 정상 확인됐으나, 문제는 그 앞단인 Meta 인프라(웹훅 배달) 레이어 — "손님 답장 감지 → `dm_auto_reply`가 24시간 상담을 이어받는다"는 24/7 자동화의 핵심 전제 자체가 위협받는 발견.
+
+**관련:** FP-048, INC-036, Gate G(`modules/comment/comment_auto_reply.py`, `modules/comment/comment_poller.py`)

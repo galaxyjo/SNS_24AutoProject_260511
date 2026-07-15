@@ -1112,6 +1112,25 @@ push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방�
 
 **상태:** 코드+테스트+라이브 엔드포인트 계약 검증 전부 **PASS**. `COMMENT_AUTO_REPLY_ENABLED=false`·`configs/comment_campaign_posts.json` 빈 배열 그대로 유지 — **지속 자동화(키워드 매칭 시 자동 발송)는 계속 꺼진 상태로 영향 0**이지만, **회장 승인 하 통제된 Canary로 실제 손님 계정(tgbtgbnate)에 DM 1건이 실제로 발송·수신 확인됨** — "운영 영향 0"이라 뭉뚱그리지 않고 이 1건은 승인된 실발송으로 명시 기록. **문서화까지는 이 기록으로 완료, 커밋·push는 별도 승인 대상.**
 
+commit: `4f3f38e` 완료(11개 파일, 683 insertions(+)/19 deletions(-)) — *stale 정정: 위 "미실행"은 작성 시점 표현이며 실제로는 이 세션 중 커밋됨*
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
+
+---
+
+### Gate G 후속 — 테스터 미등록 실계정 DM 웹훅 미도착 발견 (ERR-064/FP-048/INC-036) (2026-07-14)
+
+Gate G 커밋(`4f3f38e`) 직후, 회장이 "캠페인 게시물 media_id 등록 후 전체 자동화 파이프라인 라이브 테스트"를 요청 — `configs/comment_campaign_posts.json`에 `18116772601675773` 등록, `.env`를 `COMMENT_AUTO_REPLY_ENABLED=true`로 전환 후 재시작(PID 22940, 생성시각 커밋 이후). tgbtgbnate가 해당 게시물에 댓글 남김 → `comment_poller`가 정상 감지·Private Reply 발송·회장 육안으로 도착 확인까지는 PASS.
+
+**신규 발견:** tgbtgbnate가 그 Private Reply에 실제 답장("무시 할게")을 보냈으나, 45분 이상 경과해도 우리 webhook에 전혀 도달하지 않음. ngrok 요청 로그로 마지막 수신이 읽음확인(15:44:12)뿐임을 확인, Meta `GET /{page-id}/subscribed_apps`로 웹훅 구독(`messages`/`messaging_postbacks`) 자체는 정상임을 확인, 스크린샷으로 대화가 "요청함"이 아닌 "Primary"에 정상 위치함을 확인(메시지 요청함 가설 기각). `debug_token`으로 액세스 토큰 스코프(`instagram_manage_messages` 등)가 대상 계정에 정상 부여됨도 확인.
+
+**가설 수립 및 정황 확인:** 회장이 "우리 앱이 아직 완전한 허가를 못 받았을 수도"라는 방향을 직접 제시 → Meta 앱 대시보드(역할 > Instagram 테스터)를 회장이 직접 확인, **테스트 계정(채솔)만 테스터 등록, tgbtgbnate는 미등록**임을 확인 — Standard Access(App Review 미통과) 상태에서 앱 역할 없는 일반 사용자와의 메시징(특히 인바운드 웹훅)이 제한된다는 가설과 정황이 일치. 오늘 하루 테스터 계정(채솔)과의 DM은 전부 즉시 정상 수신, 미등록 계정(tgbtgbnate)과는 최소 2회(13:12경, 16:14경) 동일 패턴 재현. **단 App Review의 실제 Access Level(Standard/Advanced) 자체는 아직 미확인이라 CONFIRMED 아님, OPEN 상태로 기록.**
+
+**영향 판단:** 이건 Gate G 자체의 결함이 아님(comment_poller/comment_auto_reply 로직은 오늘 실증으로 정상) — 그 앞단 Meta 인프라(웹훅 배달) 레이어의 문제. 하지만 실제 손님은 전부 "앱 테스터 미등록 일반 계정"이므로, 확정될 경우 24/7 자동화의 핵심 전제("손님 답장 감지→AI상담 이어받기")가 실전에서 작동하지 않을 수 있는 중대 리스크.
+
+**문서 반영 3건**: `docs/ERROR_DATABASE.md`(ERR-064 신규) / `docs/FAILURE_PATTERN.md`(FP-048 신규) / `docs/INCIDENT_TIMELINE.md`(INC-036 신규, OPEN).
+
+**상태:** 조사 완료, 가설 수립 + 정황 증거 확보. Root Cause 확정을 위해서는 Meta App Review > 권한과 기능 화면에서 Access Level 직접 확인이 추가로 필요(회장 진행 대상). 해결(App Review 진행 여부)은 이 기록과 별도로 논의·승인 대상 — 코드 변경 없음.
+
 commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
