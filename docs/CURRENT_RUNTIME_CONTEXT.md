@@ -1,11 +1,17 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260711_NSSM_전환_완료+ngrok_LocalSystem_결함_해소_ (⚠️ 260706~260709 구간 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조)
+_마지막 업데이트: 260715_Gate_C~G_안전장치_시리즈+n8n·P0-1·FP-047·ERR-063_재조사_ (⚠️ 260706~260709 구간 여전히 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
 
 ## 현재 단계
-**260711 PENDING-A(watchdog.ps1 NSSM 서비스 전환) 완전 종결** — 구 Task Scheduler(`SNS_Watchdog_AutoStart`) 비활성화 + NSSM 서비스(`SNS_Watchdog`) 단독 운영 전환, 크래시 재시작 실증 PASS + 실제 재부팅 실증 PASS(ERR-057/058, FP-042/043, INC-030/031). 전환 과정에서 드러난 ngrok(Microsoft Store/MSIX + LocalSystem 인증정보 분리) 실행 결함도 당일 해소·Runtime Proof 완료. 이전 마일스톤(260624 Repository Interface 전체 작업)은 그대로 유효.
+**260713~260714 Gate C~G(DM/댓글 안전장치 시리즈) 운영 반영 완료 + 260715 n8n/P0-1/FP-047/ERR-063 재조사(read-only, 기록만 — 코드 변경 없음)**
+- **Gate C**(ERR-061/FP-046/INC-034): 가격 자동응답이 문의 상품을 특정하지 못한 채 최신 등록가를 자동발송하던 구조적 결함 확인 → `PRICE_AUTO_REPLY_ENABLED`(기본 `false`) 도입, 상품확인 요청 템플릿으로 대체. 260714 10:18 launcher 재시작 + 10:24:41 Canary로 가격 자동발송 차단 PASS 확정. 안내문 실발송·신규 Telegram 마스킹 E2E는 PARTIAL(미확인).
+- **Gate E-A/E-B**: Graph API v19.0→v25.0 URL 중앙화(`modules/common/meta_graph.py` 신규, DM/댓글 4파일 8곳), 라이브 Canary 4경로 중 3경로(dm_auto_reply/dm_followup_scheduler/comment_poller) PASS.
+- **Gate G**(ERR-064/FP-048/INC-036): 댓글 자동응답을 공개 답글 → Private Reply(비공개 DM)로 전면 전환. `modules/comment/comment_safety_guard.py` 신설(캠페인 게시물 allowlist/24h 쿨다운/일일예산/circuit breaker/fail-closed). 실계정(tgbtgbnate) 라이브 테스트로 댓글→Private Reply 수신까지 회장 육안 확인.
+- Gate G 라이브 테스트 중 **신규 발견(OPEN)**: 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장이 웹훅으로 도달하지 않음(Standard Access 미승격 의심, 미확정) → 회장이 260715 00:35 Meta App Review에 4개 권한(Advanced Access) 신청 제출, 검토 진행 중(대본: `docs/design/META_APP_REVIEW_SCRIPT_260714.md`). ManyChat(이미 Advanced Access 보유) 우회 전환도 검토 후보로 부상, 최종 방향 미결정.
+- **260715 재조사(전부 read-only, 코드 변경 없음):** n8n watchdog 무한 재시작 원인(ERR-065/FP-049/INC-037 — LocalSystem 전환 후 npx 대화형 설치 프롬프트에서 좀비 프로세스 발생 가설) / `dm_receiver.send_telegram()` PII 노출을 P0-1→**ERR-066**으로 전용 승격(재사용 가능한 마스킹 유틸 이미 존재) / FP-047(댓글 Airtable 기록 실패 시 유실) Gate G 이후에도 패턴 그대로임을 재확인 / **ERR-063(pytest hang) 원인 확정 — RESOLVED**(실제 Gemini API 호출을 mock하지 않은 테스트 설계 누락, 7.48초 재현 실증).
+- 이전 마일스톤(260711 NSSM 전환, 260624 Repository Interface 전체 작업)은 그대로 유효.
 
 ## 최종 확인 커밋
-fe50fec (ERR-058/FP-043/INC-031/VALIDATION_STATUS/MERGE_JOURNAL: NSSM 재부팅 실증 PASS + ngrok LocalSystem 실행 결함 발견·해소 [260711])
+f511447 (n8n/P0-1/FP-047/ERR-063 재조사 기록 — ERR-065/066 신규, ERR-063 원인 확인 [260715])
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -28,7 +34,7 @@ fe50fec (ERR-058/FP-043/INC-031/VALIDATION_STATUS/MERGE_JOURNAL: NSSM 재부팅 
 | launcher/main.py | ✅ LIVE | watchdog.ps1 기동 중 |
 | ngrok | ✅ LIVE | :4040 확인 |
 | Streamlit | ✅ LIVE | :8501 확인 |
-| n8n | ⚠️ 미설정 | 정상 — 아직 구성 안 함 |
+| n8n | ⚠️ 미구현(설계만, WF-01~05) | watchdog이 계속 재시작 시도하나 260711(LocalSystem 전환) 이후 성공 0건·실패 5,298건+ 누적 중(ERR-065, OPEN) — 실사용 대상 아님, 안정화 우선 후 진행+설계 재검토 예정(260715 회장 방침) |
 
 ## Dual Scheduler 해소 (260527)
 | 항목 | Before | After |
@@ -129,7 +135,11 @@ fe50fec (ERR-058/FP-043/INC-031/VALIDATION_STATUS/MERGE_JOURNAL: NSSM 재부팅 
 - ~~**[P1]** ERR-047 핵심 증상(재부팅 후 SNS_Watchdog_AutoStart 무재실행) 자체는 여전히 미해결(OPEN)~~ → **260711 해소**(위와 동일 사유, 구조 자체 교체)
 - **[P2]** ERR-051/FP-038 Task Scheduler launch-only 실패 근본원인 미확정 (watchdog.ps1은 더 이상 Task Scheduler 아니므로 영향 범위 축소, 다른 Task 대상 잔존 여부만 저위험으로 남음)
 - ~~**[P2]** PENDING-A(NSSM 전환) 최종 결정 — 사용자 승인 필요~~ → **260711 완전 종결**(ERR-057/058 참조)
-- **[P2 — 신규]** n8n(PID 10248 등) watchdog.ps1이 계속 재시작 시도·실패하며 알림만 반복 발생 — 의도적 정지 상태(ERR-056)와 알림 잡음 해소는 별개 문제, 우선순위 낮음으로 보류 중
+- ~~**[P2 — 신규]** n8n(PID 10248 등) watchdog.ps1이 계속 재시작 시도·실패하며 알림만 반복 발생~~ → **260715 근본원인 확인**(ERR-065/FP-049/INC-037): LocalSystem 전환 후 npx 대화형 설치 프롬프트에서 좀비 프로세스 발생 가설(미확정), 성공 0건·실패 5,298건+ 누적. **Fix 미적용** — 회장 방침: 안정화 우선, n8n은 나중에 진행+설계(WF-01~05) 재검토 예정
+- **[P0-1 → ERR-066, OPEN]** `dm_receiver.send_telegram()`이 모든 DM에서 IGSID 전체·원문 200자를 마스킹 없이 Telegram 전송 — Gate C에서 만든 마스킹 유틸(`dm_auto_reply._mask_igsid()`/`_telegram_preview()`)이 이미 존재하므로 신규 개발 없이 적용만 하면 됨. 코드 수정 미착수(회장 지시로 기록만)
+- **[FP-047, OPEN, 재확인 260715]** 댓글 Airtable 기록(`_record_comment()`) 실패 시 예외를 삼키고 무조건 캐시에 처리완료로 남겨 재시도 없이 영구 유실 — Gate G 이후에도 로직 그대로. 재시도 큐 적용 또는 실패 ID 캐시 제외 필요, 코드 수정 미착수
+- **[ERR-064/FP-048/INC-036, OPEN]** 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장 웹훅 미도착(Standard Access 의심, 미확정) — Meta App Review 4개 권한 신청 제출(260715 00:35, 검토 중), ManyChat 우회 전환도 검토 후보. 24/7 자동화 핵심 전제("손님 답장 감지→AI 이어받기")에 직접 영향 가능한 리스크로 최우선 추적 필요
+- ~~**[ERR-063]** `test_dm_rules.py` hang, 원인 UNKNOWN~~ → **260715 RESOLVED**: 실제 Gemini API 호출(`generate_reply()`)을 mock하지 않은 테스트 설계 누락 확인, 7.48초 재현 실증. 테스트에 mock 추가하는 실제 수정은 미착수(기록만)
 
 ## 절대 금지
 - 250723 삭제/dead 판정
@@ -883,5 +893,42 @@ CAPTION_BLOCKLIST = ["coslife", "lily"]
 
 ### 관련 문서
 - ERR-057/058, FP-042/043, INC-030/031, PENDING-A(완전 종결) — 전체 raw 근거는 각 문서 참조
+
+---
+
+## [260713~260715] Gate C~G DM/댓글 안전장치 시리즈 + n8n/P0-1/FP-047/ERR-063 재조사
+
+⚠️ 260706~260709 구간은 이번 갱신에도 여전히 미반영(과거 Backlog #5 그대로 승계, 필요 시 별도 backfill).
+
+### 완료 작업
+
+1. **Gate C — 가격 자동응답 안전차단**(ERR-061/FP-046/INC-034): `docs/design/DM_RELAY_COMMERCE_RFC.md` 설계검토 중 `get_base_price()`가 문의 상품을 특정하지 않고 최신 등록가를 그대로 자동발송하는 구조적 결함 발견. `PRICE_AUTO_REPLY_ENABLED`(기본 `false`) 도입, 비활성 시 상품확인 요청 템플릿으로 대체. Codex 4라운드 교차검증으로 발송실패 시 `bridge_status` 오갱신 방지, Telegram PII 마스킹(`_mask_igsid`/`_telegram_preview`, 단 신규 함수에만 적용), `(sender, 문의문)` 키 원자적 중복방지 동반 수정. 커밋 `c1c90b2`(260713) → 260714 10:18 launcher 재시작 + 10:24:41 Canary로 **가격 자동발송 차단 PASS 확정**. 안내문 실발송·신규 마스킹 E2E는 PARTIAL(미확인).
+2. **Gate E-A/E-B — Graph API 버전 중앙화**: `modules/common/meta_graph.py` 신규(v19.0→v25.0 URL 중앙화), DM/댓글 4파일 8곳 적용. 라이브 Canary 4경로 중 3경로(dm_auto_reply/dm_followup_scheduler/comment_poller) PASS.
+3. **ERR-062/FP-047/INC-035 — 댓글 리드 Airtable 기록 실패**(RESOLVED, 이번 2건): `Lead_Interactions.conversation_channel`에 `instagram_comment` 선택지 없어 댓글 리드 2건 기록 실패 + 재시도 없이 캐시에 완료 처리되어 유실. Airtable 선택지 추가로 이번 유형 해소, 저장 Canary PASS. **단 예외를 삼키고 무조건 캐시하는 근본 패턴(FP-047) 자체는 미해결로 계속 OPEN.**
+4. **Gate G — 댓글 자동응답 Private Reply 전환**(ERR-064/FP-048/INC-036): 공개 답글 대신 비공개 Private Reply로 전면 전환. `modules/comment/comment_safety_guard.py` 신설(캠페인 게시물 allowlist/24h 쿨다운/일일예산/circuit breaker/fail-closed/REPLY_LOCK 동시성). Codex 4라운드 리뷰로 엔드포인트 계약(`POST /{page-id}/messages`, `recipient.comment_id`) 확정. 실계정(tgbtgbnate) 라이브 테스트로 댓글→Private Reply 수신까지 회장 육안 확인.
+5. **Gate G 라이브 테스트 중 신규 발견(OPEN)**: tgbtgbnate(앱 테스터 미등록)의 Private Reply 답장이 45분+ 웹훅 미도착. 웹훅 구독(`messages`/`messaging_postbacks`)·토큰 스코프 전부 정상 확인됐으나, Meta 앱 대시보드에서 테스트 계정(채솔)만 테스터 등록·tgbtgbnate 미등록임을 확인 — Standard Access(App Review 미통과) 상태에서 앱 역할 없는 일반 사용자와의 메시징(인바운드 웹훅)이 제한될 수 있다는 가설과 정황 일치, 단 실제 Access Level은 미확인(CONFIRMED 아님).
+6. **Meta App Review 제출**: 260715 00:35, `instagram_manage_comments`/`instagram_content_publish`/`instagram_manage_messages`/`instagram_basic` 4개 권한 Advanced Access 신청 제출(검토 중, 대본 `docs/design/META_APP_REVIEW_SCRIPT_260714.md`). **ManyChat**(이미 Meta 공식 Business Partner로 Advanced Access 보유, Pro $29~/월) 우회 전환도 검토 후보로 부상 — App Review 대기 vs ManyChat 전환 최종 방향 미결정.
+7. **260715 재조사(전부 read-only, 회장 지시로 기록만 — 코드/프로세스 변경 없음):**
+   - **ERR-065/FP-049/INC-037(n8n)**: watchdog.log 전체(260517~260715) n8n 재시작 실패 5,298건/성공 8건, 마지막 성공 260624 23:56:09 — **260711 NSSM/LocalSystem 전환 이후 성공 0건**. `logs/n8n.log`가 npx 대화형 설치 프롬프트("Ok to proceed? (y)")에서 멈춰 있고, 그 원인으로 보이는 좀비 프로세스(cmd.exe 16948→node.exe 21620, 260714 22:25 생성)가 10시간+ 생존 확인. 전역 npm 경로(admin 프로필 전용)와 LocalSystem 실행 계정 불일치가 원인으로 의심(ERR-058과 동일 클래스, 미확정).
+   - **P0-1 → ERR-066 승격**: `dm_receiver.py:54-71`/`:147`이 여전히 IGSID 전체·원문 200자를 무마스킹 전송 확인. Gate C 때 만든 마스킹 유틸(`dm_auto_reply._mask_igsid()`/`_telegram_preview()`/`_PII_PATTERNS`)이 이미 있어 재사용만 하면 됨. 부수로 `dm_receiver.py:143` 로그도 원문 무마스킹 노출 확인(문서에 없던 추가 지점).
+   - **FP-047 재확인**: Gate G 이후 줄 번호만 이동(`comment_poller.py:116`/`:123-125`, `comment_auto_reply.py:146-157`), 로직(예외를 삼키는 `_record_comment()` + 무조건 캐시) 그대로 — 부정 댓글·일반/가격 댓글 두 경로 모두 동일하게 취약함을 추가 확인.
+   - **ERR-063 원인 확정(RESOLVED)**: `test_send_failure_does_not_mark_replied_or_schedule_followup`만 유일하게 `PRICE_AUTO_REPLY_ENABLED=True`+`get_base_price` non-None이라 `dm_auto_reply.py:289`의 실제 Gemini `generate_reply()` 호출까지 도달하는데 이게 mock되어 있지 않음 확인. `.venv` python으로 직접 재실행 → Gemini 200 OK, 7.48초 만에 PASSED — 무한 hang이 아니라 실제 API 상태(quota/rate-limit)에 좌우되는 테스트임을 실증. 260714 최초 발견 당시 Gemini 무료 쿼터 소진 상태였다는 기록과 대조하면 429 재시도 지연(`_RETRY_DELAYS=[20,40,60]`, 누적 최대 120초+)이 25초 격리 타임아웃을 넘겨 "hang"으로 보였던 것으로 설명됨.
+
+### Known Facts
+- `.env`: `COMMENT_AUTO_REPLY_ENABLED=false`, `PRICE_AUTO_REPLY_ENABLED=false` 둘 다 안전 상태 확인(260715).
+- `configs/comment_campaign_posts.json`: `media_ids=["18116772601675773"]`(Gate G 라이브 테스트 값 유지, 커밋 완료) — `.env` 플래그 false라 즉시 실행 위험 없음.
+- Gate C~G 전체 origin 동기화 완료(커밋 4f3f38e까지 push), 260715 문서 커밋 2건(`a0d5207`, `f511447`)도 push 완료.
+- Gemini API 쿼터 상태는 시점에 따라 변동(260714 소진 확인 → 260715 재실행 시 200 OK 정상) — 매 세션 재확인 필요, 고정 사실 아님.
+
+### P0/P1 Backlog (다음 세션)
+1. **[최우선]** Meta App Review 결과 확인 + ManyChat 전환 여부 최종 결정(ERR-064/FP-048/INC-036) — 실제 손님 대상 자동화 핵심 전제에 직접 영향
+2. FP-047(댓글 Airtable 기록 실패 시 유실) 코드 수정 — 재시도 큐 적용 또는 실패 ID 캐시 제외
+3. ERR-066(P0-1, Telegram PII 노출) 코드 수정 — 기존 마스킹 유틸 재사용, 신규 개발 불필요
+4. ERR-063 테스트에 `ai_reply_generator.generate_reply` mock 추가(회귀 아님, 테스트 안정성 개선)
+5. n8n(ERR-065) 좀비 프로세스 정리 + watchdog.ps1 n8n 감시 블록 처리 방향 결정 — 단 회장 방침(안정화 우선)에 따라 n8n 재설계와 함께 후순위
+6. ⚠️ 260706~260709 구간 여전히 별도 미반영 — 과거 Backlog 그대로 승계
+
+### 관련 문서
+- ERR-061~066, FP-046~049, INC-034~037, `docs/design/DM_RELAY_COMMERCE_RFC.md`, `docs/design/META_APP_REVIEW_SCRIPT_260714.md` — 전체 raw 근거는 각 문서 참조
 
 ---
