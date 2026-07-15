@@ -1073,3 +1073,21 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** 분산 상태머신·idempotency가 필요한 기능은 "일단 만들고 나중에 테스트" 순서보다, 각 실패 시나리오(crash 시점별 상태 조합)를 먼저 표로 나열한 뒤 구현하는 게 더 안전했을 것 — 이번엔 반대 순서(구현 후 리뷰가 시나리오를 하나씩 찾아냄)로 진행돼 라운드가 많아짐. 유사 기능(예: DM 채널 idempotency, 향후 별도 과제) 착수 시 이 교훈 적용 검토.
 
 **관련:** FP-047, INC-035, `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`
+
+## ERR-069 | "최근 게시물 N개"(recent-N) 폴링 한도 때문에 캠페인 댓글이 실제로 시스템에 진입조차 못함 — Package 1로 근본 수정(260716)
+
+**발견 경위:** 260715 저녁 Gate G 실계정 라이브 테스트 중, 회장이 `reviewasiamarket` 계정으로 30초 간격으로 서로 다른 상품 게시물 2곳에 댓글을 남김. 게시물 A(캠페인 등록·최근 5개 안)는 정상적으로 Private Reply까지 도착했으나, 게시물 B(캠페인 등록됐지만 계정이 게시물을 자주 올려 "최근 5개" 밖으로 밀려남)의 댓글은 아무 반응이 없었음. 회장 보고("2개 새 아이디로 댓글 달았는데 DM이 하나만 왔다")로 조사 착수.
+
+**Raw:**
+- `configs/comment_campaign_posts.json`에 캠페인 게시물 6개 등록돼 있었으나, `comment_poller.py`의 `get_recent_media_ids()`가 반환하는 "최근 5개 게시물"(`COMMENT_POLL_MEDIA_COUNT=5`) 목록에는 그중 3개만 포함됨(계정 게시 빈도 때문에 나머지 3개가 밀려남).
+- 밀려난 게시물 B(`18009967625923895`)에 남긴 댓글(`comment_id=18013411718872236`, "MOV 어떻게되나요")은 `db/comment_events.db`(comment_event_store)에 **기록 자체가 없음** — 폴러가 그 게시물의 댓글을 아예 조회조차 안 했으므로, 이벤트가 시스템에 진입하지 못한 것으로 raw 대조 확인. 웹훅 경로도 이 이벤트를 못 잡음(같은 이유로 DB에 없음).
+
+**Root Cause:** "감시 대상 결정"을 "캠페인 등록 여부"가 아니라 "게시물이 얼마나 최근인가"로 하고 있었음 — 계정이 게시물을 자주 올릴수록 오래된(그러나 여전히 캠페인 중인) 게시물이 감시 범위 밖으로 밀려나 댓글 자체를 조회하지 않게 됨. 캠페인 목록(JSON)과 실제 폴링 대상(최근 N개) 사이에 별도의 동기화 메커니즘이 없어 두 목록이 어긋난 것.
+
+**Fix:** **Package 1(Phase A) 구현 완료.** `comment_poll_targets.py`(신규) — 캠페인 media별 `PENDING_BASELINE→ACTIVE→PAUSED` 상태머신 도입, `comment_poller.py`가 "최근 N개"가 아니라 이 상태머신의 ACTIVE 목록 전체를 폴링하도록 재구성(전체 페이지네이션 포함, 기존 첫 페이지만 읽던 버그도 동시 수정). 신규 media를 곧바로 실시간 처리 대상에 넣으면 과거 댓글을 신규로 오인해 대량 발송 사고가 날 수 있어, `tools/comment_campaign_baseline_cli.py`(신규)로 media별 수동 cutover baseline(`--dry-run`/`--apply`/`--verify`/`--activate`) 절차를 강제.
+
+**Runtime Proof:** 신규 코드는 `COMMENT_POLL_ALLOWLIST_MODE=legacy`(기본값)로 커밋. **기본값에서는 폴링 대상 선택이 기존 recent-N 방식으로 유지된다. 단, 캠페인 설정 또는 poll-target DB 이상 시 신규 안전 게이트(`_blocked_by_allowlist_gating()`)가 fail-closed로 처리를 차단할 수 있다** — "운영 동작이 전혀 안 바뀜"은 부정확한 표현이었음(260716 Codex 재검토로 정정): 감시 대상 선택 로직 자체는 legacy 그대로지만, 새 SQLite 테이블(`comment_poll_targets`) 초기화와 설정/DB 이상 상황에 대한 새 방어선(fail-closed 게이트)이 실제로 추가됐다(코드 배포=감시 대상 결과 no-op을 보장하기 위한 킬스위치, GPT/Codex 교차검토 9라운드에서 이 성질이 실제로 깨지는 경로 2건을 찾아내 수정한 뒤 확정). `--apply`/`--activate` 실제 실행, `COMMENT_POLL_ALLOWLIST_MODE=allowlist`/`COMMENT_EVENT_STORE_MODE=enforce` 전환, 서비스 재시작은 전부 미실행 — 각각 별도 승인 대상.
+
+**Prevention:** "감시 대상"과 "최근성"을 분리할 것 — 운영자 의도(캠페인 등록)를 표현하는 목록과, 그 목록의 각 항목이 실제로 안전하게 감시 가능한 상태인지(baseline 검증 여부)를 나타내는 상태를 별도로 관리해야 한다. 하나의 "최근 N개"류 지표에 감시 대상 결정을 의존시키면 그 지표가 변할 때(게시 빈도 증가 등) 감시 범위가 조용히 줄어드는 사고가 재발한다.
+
+**관련:** FP-050, INC-038, FP-047, `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`

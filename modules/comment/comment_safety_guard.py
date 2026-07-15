@@ -9,6 +9,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from modules.comment.comment_campaign_config import CampaignConfigError, load_campaign_media_ids
+
 _DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs"
 
@@ -53,14 +55,17 @@ def _save_json(path: Path, data: dict) -> None:
 
 def is_campaign_post(media_id: str) -> bool:
     """configs/comment_campaign_posts.json에 등록된 media_id만 자동응답 대상.
-    파일 없음(첫 실행)은 전부 차단(안전기본값). 파일이 손상됐어도 fail-closed(전부 차단)."""
+    파일 없음(첫 실행)은 전부 차단(안전기본값). 파일이 손상됐어도 fail-closed(전부 차단).
+    260715 Package 1 — comment_poll_targets(감시 대상 상태머신)와 동일한
+    comment_campaign_config.load_campaign_media_ids()를 사용해, 두 곳이 캠페인 목록을
+    다르게 해석해서 어긋나는 사고(오늘 조사한 버그의 원인 패턴)를 구조적으로 막는다."""
     if not media_id:
         return False
     try:
-        data = _load_json(_CAMPAIGN_CONFIG_PATH)
-    except _StateCorrupted:
+        media_ids = load_campaign_media_ids(_CAMPAIGN_CONFIG_PATH)
+    except CampaignConfigError:
         return False
-    return media_id in set(data.get("media_ids", []))
+    return media_id in set(media_ids)
 
 
 # ── 사용자별 쿨다운 ───────────────────────────────────────────────────

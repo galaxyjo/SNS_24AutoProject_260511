@@ -11,6 +11,15 @@ from modules.comment.comment_auto_reply import CommentProcessResult
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(comment_poller, "CACHE_PATH", tmp_path / "processed_comment_ids.json")
+    # 260715 Package 1 Phase A: poll_new_comments()가 이제 comment_poll_targets(SQLite)를
+    # 거치므로, 이 파일의 테스트(캐시/재시도 의미론)는 그 상태머신을 실제 DB로 검증하지
+    # 않고 "media1이 항상 ACTIVE"인 것처럼 얇게 스텁한다 — 상태머신 자체는
+    # test_comment_poll_targets.py가 별도로 검증.
+    monkeypatch.setattr(comment_poller.comment_poll_targets, "sync_from_campaign_json", lambda: True)
+    monkeypatch.setattr(comment_poller.comment_poll_targets, "get_active_media_ids", lambda: ["media1"])
+    monkeypatch.setattr(comment_poller.comment_poll_targets, "record_poll_success", lambda media_id: None)
+    monkeypatch.setattr(comment_poller.comment_poll_targets, "record_poll_failure", lambda media_id: 1)
+    monkeypatch.setattr(comment_poller, "fetch_all_comments", lambda media_id: comment_poller.get_comments(media_id))
 
 
 def _fake_comments(media_id):

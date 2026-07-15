@@ -162,6 +162,28 @@ def try_claim(source: str, source_event_id: str, claimed_by: str, lease_seconds:
     return None
 
 
+def suppress_pre_cutover(source: str, source_event_id: str, claimed_by: str) -> bool:
+    """260715 Package 1 Phase A — baseline CLI(--apply) 전용. cutover 시점 이전에 이미
+    존재하던 댓글을 "완료된 것으로 확정 기록"해, 나중에 enforce가 이 media를 감시하기
+    시작해도 절대 재처리(Airtable/Telegram/Private Reply)되지 않게 한다.
+    migration_tag='PRE_CUTOVER_SUPPRESSED'는 SHADOW_SEEN과 동일한 이유로 stale
+    reclaim 대상에서 영구 제외된다(try_claim()의 WHERE절 참고).
+    반환값: True=이번에 신규 삽입(정상). False=행이 이미 존재(다른 경로로 이미
+    관측/처리된 적 있음 — CLI verify 단계가 이 케이스를 별도로 점검해야 한다)."""
+    token = uuid.uuid4().hex
+    now = _now_iso()
+    with _LOCK:
+        cur = _c().execute(
+            """INSERT OR IGNORE INTO comment_events
+               (source, source_event_id, status, claim_token, claimed_by,
+                claimed_at, lease_expires_at, updated_at, migration_tag)
+               VALUES (?, ?, 'COMPLETED', ?, ?, ?, ?, ?, 'PRE_CUTOVER_SUPPRESSED')""",
+            (source, source_event_id, token, claimed_by, now, now, now),
+        )
+        _c().commit()
+        return cur.rowcount == 1
+
+
 def reclaim_stale(source: str, max_age_seconds: int = 60) -> list[tuple[str, str]]:
     """수동/일괄 스윕용(운영 점검·테스트) — 실제 런타임 크래시 복구는 try_claim()
     자체에 내장되어 있어 이 함수 호출 없이도 다음 claim 시도에서 자연히 일어난다."""

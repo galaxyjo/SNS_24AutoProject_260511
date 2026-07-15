@@ -11,6 +11,8 @@ from enum import Enum
 
 from modules.comment import comment_safety_guard as guard
 from modules.comment import comment_event_store as event_store
+from modules.comment import comment_poll_targets as poll_targets
+from modules.comment.comment_campaign_config import CampaignConfigError, load_campaign_media_ids
 from modules.common.meta_graph import messaging_graph_url
 from modules.infra.airtable_repository import AirtableRepository
 from modules.infra.repository_interface import LeadInteractionCreate
@@ -454,6 +456,62 @@ class CommentProcessResult(Enum):
     REJECTED_NOT_READY   = "rejected_not_ready"     # enforce인데 handler 미등록/durable-accept 실패 — fail-closed, 재시도 필요
 
 
+def _blocked_by_allowlist_gating(media_id: str) -> bool:
+    """260715 Codex 6차 리뷰 P0-1 — comment_poll_targets가 도입된 뒤에도, poller의
+    fetch 대상만 ACTIVE로 제한했을 뿐 이 단일 진입점(webhook+poller 공용)은
+    is_campaign_post()만 확인해 PENDING_BASELINE media도 webhook 경로로 들어오면
+    실제 처리(Airtable/Telegram/Private Reply)까지 흘러갈 수 있었다.
+
+    260716 Codex 8차 리뷰(실제 재현 확인) — 두 가지를 추가로 고쳤다:
+    P0(1): guard.is_campaign_post()는 "캠페인 아님"과 "JSON 손상/파일 소실"과
+    "JSON에서 제거됨"을 전부 False로 뭉뚱그린다. 이 게이트가 그 결과만 보고
+    "캠페인과 무관하니 통과"로 처리하면, 설정이 손상되거나 media가 목록에서
+    빠져도(과거 ACTIVE였던 것 포함) poll_targets를 아예 확인 안 하고 실처리로
+    샐 수 있었다. 그래서 이제 load_campaign_media_ids()를 직접 불러 3가지를
+    구분한다: (a) JSON 자체를 못 읽음 → 전체 차단(fail-closed) (b) JSON에는
+    없지만 poll_targets에 이력이 있는 media(과거 추적 대상이었다가 제거됨) →
+    PAUSED 의미를 지켜 차단 (c) JSON에도 없고 이력도 없는 media → 원래부터
+    무관하므로 통과(기존 동작 그대로).
+    P0(2): poll_targets에 이력이 있는 media(state가 뭐든)는 COMMENT_POLL_ALLOWLIST_MODE
+    플래그와 무관하게 이 게이트를 적용한다 — Phase B(baseline dry-run/apply/verify)가
+    아직 flag를 켜기 전(legacy+shadow) 상태에서 진행될 수 있는데, 그동안 apply가
+    막 만들어낸 PENDING_BASELINE 행도 flag가 꺼져 있다는 이유로 무방비였다(웹훅으로
+    들어온 새 댓글이 SHADOW_SEEN 태그로 영구 고착되는 사고가 이 경로로도 재현 가능
+    했음). flag는 이제 poller의 "무엇을 폴링할지"만 결정하고, 이 안전 불변식은
+    poll_targets 이력이 있는 media라면 항상 적용된다."""
+    try:
+        campaign_media_ids = load_campaign_media_ids()
+    except CampaignConfigError as exc:
+        logger.error(f"[Comment] 캠페인 설정 손상 — 상태 확인 불가, fail-closed | media={media_id} | {exc}")
+        return True
+
+    try:
+        target = poll_targets.get_target(media_id)
+    except Exception as exc:
+        logger.error(f"[Comment] poll_target 조회 실패 — fail-closed | media={media_id} | {exc}")
+        return True
+
+    if target is not None:
+        # 260716 Codex 9차 리뷰 P0(실제 재현 확인) — DB 상태만 보고 JSON 현재
+        # 소속을 확인 안 하면 경쟁 구간이 생긴다: media가 JSON에서 막 제거됐는데
+        # sync_from_campaign_json()이 아직 한 번도 안 돌아서 poll_targets 행이
+        # 여전히 ACTIVE로 남아있는 그 사이에 webhook이 도착하면, "이력이 있으니
+        # DB 상태만 본다"는 이전 로직은 이걸 통과시켜버렸다. 이 함수가 이미 방금
+        # 로드한 campaign_media_ids(현재 JSON의 실시간 스냅샷)로 매 호출마다
+        # 다시 확인하면, sync 주기를 기다릴 필요 없이 이 순간 즉시 차단된다.
+        if media_id not in campaign_media_ids:
+            return True
+        return target.get("state") != "ACTIVE"
+
+    if media_id not in campaign_media_ids:
+        return False  # 캠페인도 아니고 poll_targets 이력도 없음 — 원래부터 무관
+
+    # 캠페인 목록엔 있지만 poll_targets 행이 아직 없음(sync가 이 media를 아직 한
+    # 번도 못 봄). allowlist 운영 중인데 행이 없는 건 비정상 상태이므로 fail-closed.
+    # legacy 전용(baseline 작업 자체를 아직 시작 안 함)이면 원래 동작 그대로 통과.
+    return poll_targets.is_allowlist_gating_enabled()
+
+
 def process_comment_event(
     comment_id: str,
     username: str,
@@ -474,6 +532,24 @@ def process_comment_event(
     반환값(CommentProcessResult): 호출부가 "다시 봐야 하는지" 판단하는 근거 —
     IN_PROGRESS는 아직 미확정 상태이므로 poller 캐시에 넣으면 안 되고, webhook도
     이걸 근거로 200 ACK 여부를 판단해야 한다(durable accept가 안 됐으면 재전송 유도)."""
+    # 260716 Codex 7차 리뷰 P0-1/P0-3: allowlist gating은 COMMENT_EVENT_STORE_MODE와
+    # 무관한 최상위 안전장치여야 한다 — mode 분기(특히 disabled)보다 먼저, 그리고
+    # event_store에 어떤 행도 만들기 전에 검사한다.
+    # P0-1(실제 재현 확인): 이전엔 shadow 분기 안에서 try_claim(shadow=True)을 먼저
+    # 실행한 뒤에 이 게이트를 봤음 — PENDING_BASELINE media에 새 댓글이 오면 그 순간
+    # migration_tag='SHADOW_SEEN'인 행이 이미 생겨버리고, try_claim()의 stale reclaim
+    # WHERE절이 migration_tag IS NULL만 재claim 대상으로 삼기 때문에, 이 media가 나중에
+    # baseline을 거쳐 ACTIVE+enforce가 돼도 이 특정 댓글은 영원히 재claim이 안 돼
+    # status=PROCESSING/IN_PROGRESS에 영구 고착됐다(사실상 응답 영구 유실). 그래서
+    # claim을 시도하기 전에 이 게이트를 통과시켜, PENDING 대상은 event row 자체를
+    # 아예 만들지 않는다.
+    # P0-3(실제 재현 확인): disabled 모드는 이 게이트 없이 무조건 handle_comment()를
+    # 호출했음 — allowlist gating이 켜져 있어도 event-store 모드가 disabled면 완전히
+    # 우회돼 PENDING_BASELINE media도 실처리됐다.
+    if _blocked_by_allowlist_gating(media_id):
+        logger.warning(f"[Comment] allowlist gating: media 미활성 — event row 생성 전 차단(fail-closed) | media={media_id}")
+        return CommentProcessResult.REJECTED_NOT_READY
+
     mode = _get_event_store_mode()
 
     if mode == "disabled":
@@ -498,6 +574,8 @@ def process_comment_event(
         # 남아 나중에 enforce의 stale reclaim 대상에서 영구 제외된다(shadow 중엔 아래
         # handle_comment()가 이미 실제로 Reply/Telegram/Airtable을 처리하므로, enforce가
         # 이 행을 "죽은 것"으로 오인해 재claim하면 이미 보낸 걸 또 보내게 됨).
+        # (allowlist gating 통과 여부는 함수 맨 위에서 이미 확인됨 — 여기 도달했다는
+        # 것 자체가 "PENDING_BASELINE 캠페인 media가 아니다"를 의미)
         token = event_store.try_claim(_EVENT_SOURCE, comment_id, claimed_by=ingress, shadow=True)
         logger.info(f"[Comment] shadow would_claim={token is not None} | comment={comment_id} | ingress={ingress}")
         handle_comment(comment_id, username, text, media_id, commenter_id)

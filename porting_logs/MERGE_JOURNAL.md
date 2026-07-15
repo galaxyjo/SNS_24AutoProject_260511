@@ -1228,3 +1228,46 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push
 
 ---
+
+### Package 1(Phase A) — 캠페인 allowlist 폴링 구현 완료, GPT 전략자문 + Codex 9라운드 검수 (2026-07-16)
+
+260715 저녁 실계정 라이브 테스트 중 회장이 서로 다른 상품 게시물 2곳에 댓글을 남겼는데 1곳만 응답이 옴을 발견·보고(ERR-069/FP-050/INC-038). 원인 규명: `comment_poller.py`가 "최근 게시물 5개"만 폴링하고 있었는데, 계정의 잦은 게시 빈도로 캠페인 게시물 3개(전체 6개 중)가 이미 감시 범위 밖으로 밀려나 있었음 — 그 게시물의 댓글은 event_store에 기록 자체가 없어 이벤트가 시스템에 진입조차 못 한 것으로 raw 확인.
+
+**전략 검토(GPT):** "최근 N개 폴링 방식" 폐기, "캠페인 목록 자체를 직접 폴링"으로 전환할 것을 확정. ManyChat 등 상용 서비스는 게시물을 "최근성"이 아니라 캠페인 단위로 영속 관리한다는 점을 근거로 제시.
+
+**구현 내용:**
+- 신규 `modules/comment/comment_campaign_config.py` — 캠페인 allowlist 공용 loader(`comment_safety_guard.is_campaign_post()`와 `comment_poll_targets`가 동일 함수 사용, 스키마 검증/중복제거/공백 정규화, 파일 없음/손상 전부 `CampaignConfigError`로 fail-closed)
+- 신규 `modules/comment/comment_poll_targets.py` — media별 `PENDING_BASELINE→ACTIVE→PAUSED` 상태머신(`comment_events.db`에 별도 테이블). `sync_from_campaign_json()`이 JSON↔DB를 동기화(신규→PENDING_BASELINE, 제거→즉시 PAUSED, 재등록→PENDING_BASELINE으로 되돌려 재검증 강제). `campaign_config_hash`/`baseline_config_hash` 컬럼으로 apply~verify~activate 사이 설정 드리프트 감지. `is_allowlist_gating_enabled()` — `COMMENT_POLL_ALLOWLIST_MODE`(기본 legacy) 킬스위치
+- 신규 `tools/comment_campaign_baseline_cli.py` — media당 1개씩 수동 cutover(`--dry-run`(config_hash 출력, 순수 읽기전용) → `--apply --cutover-at --expected-config-hash`(필수 인자, 이전 댓글을 `event_store.suppress_pre_cutover()`로 확정 억제) → `--verify`(8개 계약: 전체 페이지네이션 재확인/건수·해시 일치/DB 억제 대조/cutover 이후 무억제 확인/설정 드리프트 감지) → `--activate --acknowledge-runtime-proof`(4가지 하드 조건: allowlist 모드+enforce 모드+운영자 수동 확인 선언+설정 해시 일치 — 넷 중 하나라도 없으면 거부)). SHADOW_SEEN 기존 행을 "확정완료"와 분리해 신뢰도 낮은 판정으로 별도 보고
+- `comment_poller.py` — `_poll_legacy()`(기존 "최근 N개", 무변경)/`_poll_allowlist()`(신규, comment_poll_targets ACTIVE 목록 전체 + 전체 페이지네이션)로 분리, 플래그로 선택. media별 실패 격리 + 연속실패 Slack 알림(성공 시 리셋)
+- `comment_auto_reply.py` — `process_comment_event()` 최상단에 `_blocked_by_allowlist_gating()` 게이트 신설(event-store 모드·mode 분기보다 먼저, event_store 행 생성 전에 검사 — JSON 로드 실패/media가 JSON에 없는데 DB 이력 있음/PENDING_BASELINE 전부 차단)
+- `modules/comment/comment_event_store.py` — `suppress_pre_cutover()`(baseline CLI 전용, SHADOW_SEEN과 동일하게 stale reclaim에서 영구 제외)
+
+**GPT 전략자문 1라운드 + Codex 코드검수 9라운드에서 실제 재현·수정된 버그(설계 검토가 아니라 구현 완료 후 코드 재현 기반):**
+1. Phase A가 실제로는 no-op이 아니었음 — legacy 기본값 도입으로 해결
+2. Webhook 경로가 poller의 ACTIVE 제한을 우회 — 단일 진입점 게이트로 해결
+3. dry-run이 실제로 DB에 행을 만들던 계약 위반 — 제거
+4. 실제 shadow 관측 이력(SHADOW_SEEN) 때문에 baseline verify가 운영 DB에서 항상 실패할 뻔함 — 분류 로직 추가로 해결
+5. 페이지 경계 comment_id 중복이 같은 주기에 두 번 처리될 수 있었음 — same-cycle dedup 추가
+6. **(가장 심각)** PENDING_BASELINE media에 새 댓글이 오면 shadow가 관측 태그(SHADOW_SEEN)를 먼저 남긴 뒤 차단해, 그 특정 댓글이 나중에 media가 ACTIVE+enforce로 전환돼도 stale reclaim 예외 규칙 때문에 영원히 재처리 안 되는(응답 영구 유실) 버그 — 게이트를 claim보다 먼저 실행하도록 재배치해 해결, 전체 시나리오(PENDING 차단→ACTIVE 전환 후 정상 처리)를 재현하는 테스트로 확인
+7. disabled 모드가 게이트를 완전히 우회 — 게이트를 mode 분기보다 먼저 배치해 해결
+8. PENDING 보호가 allowlist 플래그가 켜져 있을 때만 작동해, 플래그를 아직 안 켠 baseline 준비 작업(Phase B) 도중에는 무방비 — 플래그와 무관하게 poll_targets 이력이 있으면 항상 적용하도록 재설계
+9. JSON에서 media가 방금 제거됐는데 DB 동기화 전까지 이전 상태(ACTIVE)로 통과되는 경쟁 구간 — 함수가 매 호출마다 로드하는 최신 JSON 스냅샷으로 즉시 재확인하도록 수정
+10. `--activate`가 "enforce/allowlist 모드가 꺼져있으면 경고만" 하도록 설계했으나, 실제로는 allowlist+shadow+ACTIVE 조합이 다음 폴링 주기부터 바로 실발송으로 이어짐을 코드 재현으로 확인 — 하드 블록(allowlist+enforce+운영자 확인선언+설정해시 일치 4조건)으로 변경
+11. `--confirm-runtime-proof`가 "증명"이 아니라 자기선언에 불과함을 인정, 플래그명을 `--acknowledge-runtime-proof`로 개명 + CLI가 우연한 import chain이 아니라 명시적으로 `.env`를 로드하도록 수정(향후 import 리팩터링에 안전)
+
+**검증:** 신규 테스트 87개(상태머신 전이·baseline CLI 8계약·게이팅 시나리오 재현 등) 전부 통과. 전체 회귀 **424 total / 416 passed / 5 failed(무관 기존 `test_dm_close.py` 4건 + flaky 후보 `test_review_grid_ui.py` 1건, 2회 실행 중 1회만 재현돼 환경 타이밍 의존으로 추정되나 원인조사 전이라 공식 UNCLASSIFIED 유지) / 3 xfailed**(Claude 로컬 실행, Codex는 읽기전용 원칙상 재실행 안 함).
+
+**상태:** 코드 구현 완료, Codex 조건부 승인(체크포인트 커밋 구조는 PASS, 운영 전환은 미승인). **`COMMENT_POLL_ALLOWLIST_MODE=legacy`(기본값)로 커밋 — 감시 대상 선택 로직(INC-038을 만든 "최근 N개" 방식)은 그대로 유지되나, 캠페인 설정/poll-target DB 이상 시 신규 안전 게이트(`_blocked_by_allowlist_gating()`)가 fail-closed로 처리를 차단할 수 있어 "운영 동작이 전혀 안 바뀜"은 아님(260716 Codex 재검토로 정정).** enforce/allowlist 전환 전 필수 남은 항목(OPEN, 커밋 차단 사유 아님, Codex와 Phase C/D로 명시 합의): 자동 Runtime Proof(launcher가 PID·boot_id·모드를 DB에 남기고 CLI가 교차검증 — 지금은 수동 선언만 존재), Airtable 필드 존재 startup preflight(ERR-067에서 이미 OPEN이던 항목, 이번 범위 밖). `.env.example` 킬스위치 3종(`COMMENT_POLL_ALLOWLIST_MODE`/`COMMENT_POLL_MAX_PAGES`/`COMMENT_POLL_FAILURE_ALERT_THRESHOLD`) 등록은 이번 staged 범위에 이미 포함 완료.
+
+**커밋 범위(스테이징 완료, hunk 단위 분리):**
+- 순수 Phase A(신규): `modules/comment/comment_campaign_config.py`, `modules/comment/comment_poll_targets.py`, `tools/comment_campaign_baseline_cli.py`, `tests/test_comment_campaign_config.py`, `tests/test_comment_poll_targets.py`, `tests/test_comment_poller_allowlist.py`, `tests/test_comment_campaign_baseline_cli.py`
+- 순수 Phase A(기존 파일 수정): `modules/comment/comment_event_store.py`, `modules/comment/comment_poller.py`, `modules/comment/comment_safety_guard.py`, `tests/test_comment_poller_p0.py`, `tests/test_process_comment_event.py`
+- `modules/comment/comment_auto_reply.py` — **hunk 단위로 분리**: `_blocked_by_allowlist_gating()`/`process_comment_event()` 게이트 부분(78 insertions)만 스테이징. 회장의 260715 별도 지시(가격 키워드 제한 없이 스팸/부정 댓글 외 전부 Private Reply 대상으로 확대)로 인한 변경분은 워킹트리에는 남기되(현재 운영 동작 유지) 스테이징에서는 제외 — 별도 커밋 또는 회장과 별도 처리 대상
+- 의무기록 5종(`ERROR_DATABASE.md`ERR-069/`FAILURE_PATTERN.md`FP-050/`INCIDENT_TIMELINE.md`INC-038/`VALIDATION_STATUS.md`/본 파일)
+- **제외:** `configs/comment_campaign_posts.json`(무관, 이전 세션 변경), `docs/ERROR_DATABASE.md`의 ERR-068(무관, Telegram ConnectionReset 조사), `tests/test_comment_auto_reply.py`(가격 키워드 테스트, 무관), `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`(무관, untracked 유지), `.env`(gitignore 대상)
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push
+
+---
