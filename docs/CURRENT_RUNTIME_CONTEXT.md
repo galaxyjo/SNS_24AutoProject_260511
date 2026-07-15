@@ -1,17 +1,19 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260715_Gate_C~G_안전장치_시리즈+n8n·P0-1·FP-047·ERR-063_재조사_ (⚠️ 260706~260709 구간 여전히 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
+_마지막 업데이트: 260716_FP-047_구현+Package1_Phase_A_캠페인_allowlist_폴링_ (⚠️ 260706~260709 구간 여전히 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
 
 ## 현재 단계
-**260713~260714 Gate C~G(DM/댓글 안전장치 시리즈) 운영 반영 완료 + 260715 n8n/P0-1/FP-047/ERR-063 재조사(read-only, 기록만 — 코드 변경 없음)**
-- **Gate C**(ERR-061/FP-046/INC-034): 가격 자동응답이 문의 상품을 특정하지 못한 채 최신 등록가를 자동발송하던 구조적 결함 확인 → `PRICE_AUTO_REPLY_ENABLED`(기본 `false`) 도입, 상품확인 요청 템플릿으로 대체. 260714 10:18 launcher 재시작 + 10:24:41 Canary로 가격 자동발송 차단 PASS 확정. 안내문 실발송·신규 Telegram 마스킹 E2E는 PARTIAL(미확인).
-- **Gate E-A/E-B**: Graph API v19.0→v25.0 URL 중앙화(`modules/common/meta_graph.py` 신규, DM/댓글 4파일 8곳), 라이브 Canary 4경로 중 3경로(dm_auto_reply/dm_followup_scheduler/comment_poller) PASS.
-- **Gate G**(ERR-064/FP-048/INC-036): 댓글 자동응답을 공개 답글 → Private Reply(비공개 DM)로 전면 전환. `modules/comment/comment_safety_guard.py` 신설(캠페인 게시물 allowlist/24h 쿨다운/일일예산/circuit breaker/fail-closed). 실계정(tgbtgbnate) 라이브 테스트로 댓글→Private Reply 수신까지 회장 육안 확인.
-- Gate G 라이브 테스트 중 **신규 발견(OPEN)**: 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장이 웹훅으로 도달하지 않음(Standard Access 미승격 의심, 미확정) → 회장이 260715 00:35 Meta App Review에 4개 권한(Advanced Access) 신청 제출, 검토 진행 중(대본: `docs/design/META_APP_REVIEW_SCRIPT_260714.md`). ManyChat(이미 Advanced Access 보유) 우회 전환도 검토 후보로 부상, 최종 방향 미결정.
-- **260715 재조사(전부 read-only, 코드 변경 없음):** n8n watchdog 무한 재시작 원인(ERR-065/FP-049/INC-037 — LocalSystem 전환 후 npx 대화형 설치 프롬프트에서 좀비 프로세스 발생 가설) / `dm_receiver.send_telegram()` PII 노출을 P0-1→**ERR-066**으로 전용 승격(재사용 가능한 마스킹 유틸 이미 존재) / FP-047(댓글 Airtable 기록 실패 시 유실) Gate G 이후에도 패턴 그대로임을 재확인 / **ERR-063(pytest hang) 원인 확정 — RESOLVED**(실제 Gemini API 호출을 mock하지 않은 테스트 설계 누락, 7.48초 재현 실증).
+**FP-047(댓글 이벤트 idempotency) 실제 구현+커밋 완료(`disabled` 기본값) → shadow 모드 실계정 라이브 테스트로 E2E 검증 → 그 과정에서 발견한 신규 결함(ERR-069/FP-050/INC-038)을 Package 1(Phase A, 캠페인 allowlist 폴링)로 근본 수정, 커밋+push 완료(`legacy` 기본값, 운영 미전환)**
+- **FP-047 구현**(커밋 `00466a3`): GPT/Codex 12라운드 교차검토. 신규 `comment_event_store.py`(fencing token 원자적 claim), 단일 진입점 `process_comment_event()`(`COMMENT_EVENT_STORE_MODE`: disabled/shadow/enforce). `COMMENT_EVENT_STORE_MODE=disabled`로 커밋 — 운영 동작 무변화.
+- **shadow 모드 실계정 라이브 테스트(260715)**: `.env`를 `shadow`+`COMMENT_AUTO_REPLY_ENABLED=true`로 전환해 실제 테스트 계정(hsy00718g/jiho2987/reviewasiamarket 등) 댓글 → 실제 Private Reply DM 수신까지 회장 육안 확인(E2E PASS). 회장 지시로 비즈니스 정책도 이 세션에서 변경: 가격 키워드 한정 → 스팸/부정 댓글 외 전부 응답 대상으로 확대, 쿨다운 24h→0h, 일일예산 30→100000(사실상 무제한). **이 정책 변경(comment_auto_reply.py 일부)은 아직 미커밋 상태로 워킹트리에 남아있음** — Package 1 커밋(`eb98741`)에서 의도적으로 제외.
+- **ERR-069/FP-050/INC-038 발견**: 라이브 테스트 중 회장이 서로 다른 상품 게시물 2곳에 댓글을 남겼는데 1곳만 응답 — 조사 결과 `comment_poller.py`가 "최근 게시물 5개"만 폴링하고 있어, 캠페인 게시물(6개 등록)이 계정의 잦은 게시 빈도로 감시 범위 밖에 밀려나 있었음(웹훅도 이 계정에서 안정적으로 안 들어와 보완 안 됨). 실제 손님 문의 1건이 시스템에 아예 진입 못 하고 유실됨을 raw로 확인.
+- **Package 1(Phase A) 구현**(커밋 `eb98741`, push 완료): GPT 전략자문 1라운드("최근 N개" 폐기, 캠페인 목록 직접 폴링 전환 확정) + Codex 코드검수 9라운드(설계 아닌 구현 후 실제 코드 재현 기반). 신규 `comment_poll_targets.py`(media별 `PENDING_BASELINE→ACTIVE→PAUSED` 상태머신), `comment_campaign_config.py`(공용 loader), `tools/comment_campaign_baseline_cli.py`(media별 수동 cutover: `--dry-run`/`--apply --expected-config-hash`/`--verify`/`--activate --acknowledge-runtime-proof`). `COMMENT_POLL_ALLOWLIST_MODE=legacy`(기본값)로 커밋 — 감시 대상 선택은 기존 "최근 N개" 그대로 유지되나, 신규 fail-closed 안전 게이트(`_blocked_by_allowlist_gating()`)는 이미 활성(설정/DB 이상 시 처리 차단 가능 — "운영 동작 완전 무변화"는 아님).
+  - **9라운드 중 재현·수정된 핵심 버그**: PENDING media 새 댓글이 SHADOW_SEEN 태그로 영구 고착돼 나중에 ACTIVE 전환 후에도 처리 못 하는 버그(가장 심각, 응답 영구 유실), legacy 모드가 실수로 전체 페이지네이션을 써서 배포만으로 과거 댓글 대량발송 위험 재현, disabled 모드가 게이트 우회, JSON에서 방금 제거된 ACTIVE media가 DB 동기화 전까지 통과되는 경쟁 구간, `--activate` "경고만"의 위험성(allowlist+shadow+ACTIVE 조합이 다음 폴링 주기부터 실발송으로 이어짐 재현) — 전부 ERR-069/FP-050/`porting_logs/MERGE_JOURNAL.md`에 상세 기록.
+  - 신규 테스트 87개(FP-047 65개 별도), 전체 회귀 424 total/416 passed/5 failed(무관 기존 `test_dm_close.py` 4건 + flaky 후보 `test_review_grid_ui.py` 1건)/3 xfailed.
+- Gate C~G(260713~715, 이전 요약 그대로 유효) + Meta App Review(4개 권한 신청, 260715 00:35 제출)/ManyChat 전환 검토는 **여전히 미결론 — 다음 세션 최우선 확인 대상**.
 - 이전 마일스톤(260711 NSSM 전환, 260624 Repository Interface 전체 작업)은 그대로 유효.
 
 ## 최종 확인 커밋
-f511447 (n8n/P0-1/FP-047/ERR-063 재조사 기록 — ERR-065/066 신규, ERR-063 원인 확인 [260715])
+eb98741 (fix(comment): add campaign allowlist polling checkpoint [260716], push 완료) — 직전 00466a3(FP-047 구현), 07e6521(ERR-066 PII 마스킹)도 이번에 함께 push됨
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -137,8 +139,10 @@ f511447 (n8n/P0-1/FP-047/ERR-063 재조사 기록 — ERR-065/066 신규, ERR-06
 - ~~**[P2]** PENDING-A(NSSM 전환) 최종 결정 — 사용자 승인 필요~~ → **260711 완전 종결**(ERR-057/058 참조)
 - ~~**[P2 — 신규]** n8n(PID 10248 등) watchdog.ps1이 계속 재시작 시도·실패하며 알림만 반복 발생~~ → **260715 근본원인 확인**(ERR-065/FP-049/INC-037): LocalSystem 전환 후 npx 대화형 설치 프롬프트에서 좀비 프로세스 발생 가설(미확정), 성공 0건·실패 5,298건+ 누적. **Fix 미적용** — 회장 방침: 안정화 우선, n8n은 나중에 진행+설계(WF-01~05) 재검토 예정
 - ~~**[P0-1 → ERR-066, OPEN]** `dm_receiver.send_telegram()` IGSID·원문 무마스킹~~ → **260715 RESOLVED**(패키지 A1): `_mask_igsid()`/`_telegram_preview()` 재사용 적용 + DM 수신 로그 원문 완전 제거, Runtime Proof로 마스킹 확인, pytest 30 passed
-- **[FP-047, OPEN, 재확인 260715]** 댓글 Airtable 기록(`_record_comment()`) 실패 시 예외를 삼키고 무조건 캐시에 처리완료로 남겨 재시도 없이 영구 유실 — Gate G 이후에도 로직 그대로. 재시도 큐 적용 또는 실패 ID 캐시 제외 필요, 코드 수정 미착수
-- **[ERR-064/FP-048/INC-036, OPEN]** 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장 웹훅 미도착(Standard Access 의심, 미확정) — Meta App Review 4개 권한 신청 제출(260715 00:35, 검토 중), ManyChat 우회 전환도 검토 후보. 24/7 자동화 핵심 전제("손님 답장 감지→AI 이어받기")에 직접 영향 가능한 리스크로 최우선 추적 필요
+- ~~**[FP-047, OPEN, 재확인 260715]** 댓글 Airtable 기록(`_record_comment()`) 실패 시 예외를 삼키고 무조건 캐시에 처리완료로 남겨 재시도 없이 영구 유실~~ → **260715~716 코드 구현 완료**(커밋 `00466a3`): `comment_event_store.py` fencing claim + retry_queue 위임으로 근본 수정. `COMMENT_EVENT_STORE_MODE=disabled`(기본값)로 커밋 — enforce 전환 전 필수(OPEN): 댓글 원문 평문 저장(ERR-066과 같은 클래스), Airtable 필드 존재 startup preflight 미구현.
+- **[ERR-069/FP-050/INC-038, 코드 구현 완료·운영 미전환]** "최근 게시물 N개" 폴링 한도로 캠페인 댓글이 시스템 진입 자체를 못 하던 결함(실사용자 테스트로 발견) — Package 1(Phase A, 커밋 `eb98741`)로 근본 수정. `COMMENT_POLL_ALLOWLIST_MODE=legacy`(기본값)로 커밋 — **이 결함을 만든 "최근 N개" 방식이 여전히 운영 중**이라, allowlist 모드 전환 전까지는 동일 누락이 재발할 수 있음을 인지할 것. 전환 전 필수(OPEN, Codex와 Phase C/D로 명시 합의): 자동 Runtime Proof 시스템(launcher가 PID·boot_id·모드를 DB에 남기고 CLI가 교차검증 — 지금은 `--acknowledge-runtime-proof` 수동 선언만 존재), 위 FP-047 enforce 전제조건과 동일 항목(원문 평문 저장/Airtable preflight).
+- **[신규, 미커밋]** `modules/comment/comment_auto_reply.py`의 가격 키워드 확대(스팸/부정 제외 전부 응답 대상, 260715 회장 지시) + 쿨다운 0h·일일예산 사실상 무제한 — **`.env`에는 이미 반영돼 실제 shadow 모드로 라이브 테스트 완료(PASS)했으나, 코드(`.env.example` 아님 — 실제 로직 파일)는 Package 1 커밋에서 의도적으로 제외돼 아직 미커밋 상태**. 다음 세션에서 별도 커밋 여부 결정 필요.
+- **[ERR-064/FP-048/INC-036, OPEN]** 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장 웹훅 미도착(Standard Access 의심, 미확정) — Meta App Review 4개 권한 신청 제출(260715 00:35, 검토 중), ManyChat 우회 전환도 검토 후보. 24/7 자동화 핵심 전제("손님 답장 감지→AI 이어받기")에 직접 영향 가능한 리스크로 최우선 추적 필요 — **다음 세션 시작 시 Meta 대시보드에서 심사 결과부터 확인**.
 - ~~**[ERR-063]** `test_dm_rules.py` hang, 원인 UNKNOWN~~ → **260715 RESOLVED**: 실제 Gemini API 호출(`generate_reply()`)을 mock하지 않은 테스트 설계 누락 확인, 7.48초 재현 실증. 테스트에 mock 추가하는 실제 수정은 미착수(기록만)
 
 ## 절대 금지
@@ -930,5 +934,48 @@ CAPTION_BLOCKLIST = ["coslife", "lily"]
 
 ### 관련 문서
 - ERR-061~066, FP-046~049, INC-034~037, `docs/design/DM_RELAY_COMMERCE_RFC.md`, `docs/design/META_APP_REVIEW_SCRIPT_260714.md` — 전체 raw 근거는 각 문서 참조
+
+---
+
+## [260715~260716] FP-047 구현 + shadow 실계정 라이브 테스트 + Package 1(Phase A) 캠페인 allowlist 폴링
+
+### 완료 작업
+
+1. **FP-047(댓글 이벤트 idempotency) 실제 구현**(커밋 `00466a3`) — GPT/Codex 12라운드 교차검토(설계 8라운드 + 구현 후 코드리뷰 4라운드). 신규 `comment_event_store.py`(fencing token 원자적 claim, stale lease 자동 회수 내장), `comment_retry_dead_monitor.py`(retry_queue dead 태스크 Slack 알림). 단일 진입점 `process_comment_event()` — `COMMENT_EVENT_STORE_MODE`(disabled/shadow/enforce) 킬스위치, `CommentProcessResult` 구조화 반환값. Airtable `Lead_Interactions.source_event_id` 필드 신규 추가. 신규 테스트 65개, `COMMENT_EVENT_STORE_MODE=disabled`(기본값)로 커밋 — 운영 동작 무변화.
+
+2. **shadow 모드 실계정 라이브 테스트(260715)** — `.env`를 `COMMENT_EVENT_STORE_MODE=shadow` + `COMMENT_AUTO_REPLY_ENABLED=true`로 전환(관리자 권한 서비스 재시작 반복 경유). 실제 테스트 계정(hsy00718g/jiho2987/petit__phau_thuat/kbeautymcn/reviewasiamarket 등)이 캠페인 게시물에 댓글 → **실제 Private Reply DM 수신까지 회장 육안 스크린샷 확인**(E2E PASS, 복수 계정·복수 라운드).
+   - 이 과정에서 회장이 직접 내린 비즈니스 정책 변경 3건: (1) 가격 키워드(`단가`/`가격`/`price` 등)로 좁혀서 걸러내지 않고 스팸/부정 댓글 외 전부 Private Reply 대상으로 확대("재고있나요"/"연락주세요" 등 키워드 목록에 없던 실제 구매의사 표현을 놓치던 jiho2987 사례로 발견) (2) 사용자별 재응답 쿨다운 24h→0h (3) 일일 발송 예산 30→100000(사실상 무제한, circuit breaker는 버그 방지용으로 유지).
+   - **이 정책 변경(`comment_auto_reply.py` 일부 + `tests/test_comment_auto_reply.py`)은 `.env`에는 반영·라이브 테스트까지 마쳤으나, 코드 자체는 아직 미커밋** — Package 1 커밋(`eb98741`)에서 관련 무관 변경으로 의도적으로 제외했고, 워킹트리에 그대로 남아있음. 다음 세션에서 별도 커밋 여부 결정 필요.
+
+3. **ERR-069/FP-050/INC-038 발견** — 라이브 테스트 중 회장이 30초 간격으로 서로 다른 상품 게시물 2곳에 댓글을 남겼는데 1곳만 응답이 옴을 보고. 조사 결과 `comment_poller.py`가 `COMMENT_POLL_MEDIA_COUNT=5`(기본값) "최근 게시물 5개"만 폴링 중이었고, 캠페인 게시물(총 6개 등록)이 계정의 잦은 게시 빈도로 그중 3개가 감시 범위 밖에 밀려나 있었음. 밀려난 게시물의 댓글은 `db/comment_events.db`에 기록 자체가 없어(웹훅도 이 계정에서 안정적으로 안 들어와 보완 안 됨) 이벤트가 시스템에 아예 진입 못 한 것으로 raw 확인 — 실제 잠재고객 문의 1건("MOV 어떻게되나요")이 완전히 유실됨.
+
+4. **Package 1(Phase A) 구현**(커밋 `eb98741`, push 완료) — GPT 전략자문 1라운드("최근 N개" 폐기, 캠페인 목록 직접 폴링으로 전환 확정, ManyChat 등 상용 서비스 사례 근거 제시) + Codex 코드검수 9라운드(설계가 아니라 구현 완료 후 실제 코드 재현 기반 리뷰, 라운드마다 실제 버그 발견).
+   - 신규 `modules/comment/comment_campaign_config.py` — 캠페인 allowlist 공용 loader(`comment_safety_guard`/`comment_poll_targets` 공유, 스키마 검증/중복제거/공백 정규화, 파일 없음도 fail-closed).
+   - 신규 `modules/comment/comment_poll_targets.py` — media별 `PENDING_BASELINE→ACTIVE→PAUSED` 상태머신(`comment_events.db` 별도 테이블), `campaign_config_hash`/`baseline_config_hash`로 설정 드리프트 감지, `COMMENT_POLL_ALLOWLIST_MODE`(기본 legacy) 킬스위치.
+   - 신규 `tools/comment_campaign_baseline_cli.py` — media당 1개씩 수동 cutover(`--dry-run` → `--apply --cutover-at --expected-config-hash`(필수) → `--verify`(8개 계약) → `--activate --acknowledge-runtime-proof`(4가지 하드 조건: allowlist 모드+enforce 모드+운영자 확인 선언+설정 해시 일치)).
+   - `comment_poller.py` — `_poll_legacy()`(기존 "최근 N개", 무변경)/`_poll_allowlist()`(신규, 전체 페이지네이션)로 분리.
+   - `comment_auto_reply.py` — `process_comment_event()` 최상단에 `_blocked_by_allowlist_gating()` 게이트 신설(event-store 모드·mode 분기보다 먼저, event_store 행 생성 전 검사).
+   - **9라운드 중 재현·수정된 핵심 버그(전부 실제 코드 재현으로 확인 후 수정, 상세는 ERR-069/`porting_logs/MERGE_JOURNAL.md` 참조):** PENDING media 새 댓글이 SHADOW_SEEN 태그로 영구 고착돼 나중에 ACTIVE 전환 후에도 처리 못 하는 버그(가장 심각 — 응답 영구 유실 시나리오), legacy 모드가 실수로 전체 페이지네이션을 써서 배포만으로 과거 댓글 대량발송 위험 재현, disabled 모드가 게이트 우회, PENDING 보호가 allowlist 플래그에만 종속돼 baseline 준비 작업(Phase B) 도중 무방비, JSON에서 방금 제거된 ACTIVE media가 DB 동기화 전까지 통과되는 경쟁 구간, `--activate` "경고만"이 위험함(allowlist+shadow+ACTIVE 조합이 다음 폴링 주기부터 실발송으로 이어짐 재현) → 하드 블록으로 변경, `--confirm-runtime-proof`가 증명이 아니라 자기선언임을 인정해 `--acknowledge-runtime-proof`로 개명 + CLI가 명시적으로 `.env` 로드하도록 수정.
+   - 신규 테스트 87개, 전체 회귀 **424 total / 416 passed / 5 failed(무관 기존 `test_dm_close.py` 4건 + flaky 후보 `test_review_grid_ui.py` 1건, 반복 실행 중 재현 여부가 갈려 환경 타이밍 의존으로 추정되나 원인조사 전이라 공식 UNCLASSIFIED 유지) / 3 xfailed**.
+   - 커밋 스테이징을 hunk 단위로 정밀 분리(`comment_auto_reply.py`의 게이트 부분만 스테이징, 가격 키워드 확대 부분은 워킹트리에 남기고 제외) — Codex가 최종 `git diff --cached --stat`/`--check` 재검수 후 승인.
+   - 의무기록 5종(`ERROR_DATABASE.md` ERR-069 / `FAILURE_PATTERN.md` FP-050 / `INCIDENT_TIMELINE.md` INC-038 / `VALIDATION_STATUS.md` / `porting_logs/MERGE_JOURNAL.md`) 작성, `.env.example`에 신규 킬스위치 3종(`COMMENT_POLL_ALLOWLIST_MODE`/`COMMENT_POLL_MAX_PAGES`/`COMMENT_POLL_FAILURE_ALERT_THRESHOLD`) 등록 — 전부 이번 커밋에 포함.
+
+5. **커밋+push 완료** — `eb98741`(Package 1 Phase A) push 시 그 이전 로컬 전용 커밋 2개(`00466a3` FP-047, `07e6521` ERR-066 PII 마스킹 — 둘 다 이 세션 내 이미 승인·커밋됐던 것)도 함께 origin에 반영됨(fast-forward, 선택적 push 불가능한 git 특성).
+
+### Known Facts
+- `COMMENT_EVENT_STORE_MODE=shadow`(FP-047), `COMMENT_POLL_ALLOWLIST_MODE=legacy`(Package 1), `COMMENT_AUTO_REPLY_ENABLED=true`, `COMMENT_REPLY_COOLDOWN_HOURS=0`, `COMMENT_REPLY_DAILY_BUDGET=100000` — 260716 기준 실제 `.env` 상태(라이브 테스트 이후 유지 중).
+- `configs/comment_campaign_posts.json`: media_ids 6개로 확장된 상태(이전 세션 회장 직접 편집분, Package 1과 무관하게 이미 반영됨, 미커밋 상태로 워킹트리에 남음).
+- `comment_poll_targets`/`comment_campaign_config`/baseline CLI는 전부 코드만 존재 — 실제 `--apply`/`--activate` 한 번도 미실행, `COMMENT_POLL_ALLOWLIST_MODE=allowlist`/`COMMENT_EVENT_STORE_MODE=enforce` 전환도 미실행.
+- shadow 모드 라이브 테스트로 인해 `db/comment_events.db`에 실계정 댓글 다수가 `SHADOW_SEEN` 태그로 이미 존재 — 향후 baseline `--apply` 실행 시 이 행들을 "확정완료 아님"으로 분류해 정상 처리하도록 이미 코드 반영됨(P0-4).
+
+### P0 Backlog (다음 세션)
+1. **[최우선]** Meta App Review 결과 확인 + ManyChat 전환 여부 최종 결정(ERR-064/FP-048/INC-036) — 이전 세션부터 이어지는 미결 사안, 여전히 미확인
+2. 가격 키워드 확대 정책 변경(`comment_auto_reply.py`)의 별도 커밋 여부 결정
+3. Package 1 Phase B 착수 여부 결정 — allowlist 모드 전환 → 6개 media 순차 baseline(`--dry-run`/`--apply`/`--verify`) → enforce 전제조건(원문 평문 저장/Airtable preflight) 해소 → 자동 Runtime Proof 시스템 → 1개 media Canary → 전체 활성화, 각 단계 별도 승인
+4. FP-047 enforce 진입 전제조건(원문 평문 저장, Airtable 필드 preflight) 착수 여부
+5. ⚠️ 260706~260709 구간 여전히 별도 미반영 — 과거 Backlog 그대로 승계
+
+### 관련 문서
+- ERR-067~069, FP-047/050, INC-035/038, `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`, `porting_logs/MERGE_JOURNAL.md`(상세 구현 로그·9라운드 버그 목록) — 전체 raw 근거는 각 문서 참조
 
 ---
