@@ -1135,3 +1135,50 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식 적용)
 
 ---
+
+### n8n watchdog 반복 실패 원인 조사 (ERR-065/FP-049/INC-037) (2026-07-15 08:40)
+
+회장 지시로 `logs/watchdog.log`의 n8n 반복 재시작 실패 알림(위 항목 "P2 — 신규" 참조) 원인을 read-only로 조사. 회장 확인: n8n은 아직 워크플로우 미구현(연결만 해놓은 상태), 안정화 작업을 먼저 마친 뒤 n8n을 진행할 예정이며 기존 설계(WF-01~05)도 재검토가 필요할 것으로 판단 — 이번엔 코드 변경 없이 기록만 남기기로 함.
+
+**조사 결과 요약:** watchdog.log 전체(260517~260715) n8n 재시작 실패 5,298건 / 성공 8건, 마지막 성공은 260624 23:56:09 — **260711 NSSM 서비스 LocalSystem 전환(ERR-057/058) 이후로는 성공 0건**. `logs/n8n.log`가 npx의 대화형 원격설치 확인 프롬프트("Ok to proceed? (y)")에서 멈춰 있고, 그 원인으로 보이는 좀비 프로세스(cmd.exe 16948→node.exe 21620, 260714 22:25 생성)가 조사 시점까지 10시간+ 생존 확인. `npm list -g n8n`으로 이미 `n8n@2.15.0`이 전역 설치돼 있음도 확인했으나 npx가 이를 인식하지 못하고 최신버전 원격설치를 시도 — 전역 npm 경로가 admin 사용자 프로필 전용인데 서비스가 LocalSystem으로 실행 중이라는 점이 ERR-058(ngrok)과 동일 클래스의 정황으로 의심됨(가설, 미확정).
+
+**문서 반영 3건:** `docs/ERROR_DATABASE.md`(ERR-065 신규) / `docs/FAILURE_PATTERN.md`(FP-049 신규) / `docs/INCIDENT_TIMELINE.md`(INC-037 신규, OPEN).
+
+**상태:** 조사 완료, 가설 수립(확정 아님 — 확정하려면 좀비 프로세스 강제종료+재현 테스트 필요, 이번 범위 밖). 좀비 프로세스 종료, watchdog.ps1 n8n 감시 블록 비활성화, n8n 재설계 등 실제 조치는 전부 이 기록과 별도로 논의·승인 대상 — 코드/프로세스 변경 없음.
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push
+
+---
+
+### P0-1 / FP-047 재확인 조사 — 둘 다 Gate G 이후에도 여전히 OPEN (2026-07-15)
+
+회장 지시로 P0-1(`dm_receiver.send_telegram()` PII 노출)과 FP-047(댓글 Airtable 기록 실패 시 재시도 없이 유실) 두 건을 코드 직접 재확인. 둘 다 코드 수정 없이 read-only 확인 후 기록만 갱신.
+
+**P0-1 → ERR-066 신규 승격:** 그동안 ERR-061 Fix 항목에서 "범위 밖, OPEN"으로만 언급돼 있었고 자체 번호가 없었음 — 이번에 전용 항목(ERR-066)으로 승격. 핵심 확인 사항: (1) `dm_receiver.py:54-71`/`:147` 여전히 IGSID 전체·원문 200자 무마스킹 전송, (2) **재사용 가능한 마스킹 유틸이 Gate C 때 이미 만들어져 있음**(`dm_auto_reply._mask_igsid()`/`_telegram_preview()`/`_PII_PATTERNS`) — 신규 개발 없이 기존 `send_telegram()`에 적용만 하면 되는 상태, (3) 문서에 없던 추가 노출 발견 — `dm_receiver.py:143`의 `logger.info`도 원문을 `app.log`에 무마스킹 기록.
+
+**FP-047 재확인:** Gate G(Private Reply 전환)가 `comment_auto_reply.py`에 `_try_private_reply()` 등을 추가하며 줄 번호가 이동했으나(`comment_poller.py:116`/`:123-125`, `comment_auto_reply.py:146-157`), **로직 자체(예외를 삼키는 `_record_comment()` + 무조건 캐시하는 호출부의 조합)는 변경 없이 그대로**. `handle_comment()`의 부정 댓글 경로(`:236`)와 일반/가격 댓글 경로(`:246`) 양쪽 다 동일하게 취약함을 추가 확인.
+
+**문서 반영:** `docs/ERROR_DATABASE.md`(ERR-066 신규) / `docs/FAILURE_PATTERN.md`(FP-047에 "재확인(260715)" 단락 추가, 신규 번호 아님).
+
+**상태:** 조사·기록 완료, 코드 변경 없음. 둘 다 실제 수정은 별도 승인 대상으로 남김.
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push
+
+---
+
+### ERR-063 원인 확인 — 실제 Gemini API 호출을 mock하지 않은 테스트 설계 누락 (2026-07-15)
+
+회장 지시로 ERR-063("hang, 원인 UNKNOWN") 재조사. 코드 대조로 `TestAutoReplyHook` 클래스 중 `test_send_failure_does_not_mark_replied_or_schedule_followup`(`PRICE_AUTO_REPLY_ENABLED=True` + `get_base_price` non-None mock)만 유일하게 `dm_auto_reply.py:289`의 실제 `generate_reply()`(Gemini API) 호출까지 도달하며, 이 호출이 테스트에서 mock되지 않음을 확인. `ai_reply_generator.py`의 429 재시도 로직(`_RETRY_DELAYS=[20,40,60]`, 누적 최대 120초+)이 있어, 260714 최초 발견 당시(Gemini 무료 쿼터 소진 상태였다는 기록과 일치) 25초 격리 타임아웃을 넘겨 "hang"으로 보였던 것으로 설명됨.
+
+**실증:** `.venv` python으로 이 테스트만 넉넉한 타임아웃으로 직접 재실행 — Gemini가 200 OK 즉시 응답, 7.48초 만에 PASSED. 무한 hang이 아니라 실제 API 상태에 좌우되는 테스트임을 직접 확인(Evidence Rule: Runtime 직접 관측).
+
+**문서 반영:** `docs/ERROR_DATABASE.md`(ERR-063 헤딩/Raw/Root Cause/Fix 갱신, RESOLVED로 표기 — 단 mock 미적용 자체는 코드 수정 전까지 잠재).
+
+**상태:** 조사·기록 완료. 실제 수정(테스트에 `generate_reply` mock 추가)은 미실행 — 회장 지시로 이번엔 기록만, 코드 변경 없음.
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push
+
+---

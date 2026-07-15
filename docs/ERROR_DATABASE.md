@@ -969,17 +969,23 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 **관련:** FP-047, INC-035, `docs/design/DM_RELAY_COMMERCE_RFC.md` "기존 코드 결함(8건)" #1, `modules/comment/comment_auto_reply.py:94-105`
 
-## ERR-063 | `test_dm_rules.py::TestAutoReplyHook::test_send_failure_does_not_mark_replied_or_schedule_followup` 실행 시 hang — 원인 UNKNOWN
+## ERR-063 | `test_dm_rules.py::TestAutoReplyHook::test_send_failure_does_not_mark_replied_or_schedule_followup` 실행 시 hang — 원인 확인됨(RESOLVED — mock 미적용으로 인한 실제 Gemini API 호출 지연, 무한 hang 아님)
 
 **발견 경위:** 260714 Gate E-B(Graph API v19.0→v25.0 URL 중앙화, `modules/common/meta_graph.py` 신규) 코드·테스트 검증 중, 신규 테스트(`tests/test_meta_graph_version.py`)와 별개로 기존 `tests/test_dm_rules.py` 전체 실행이 이 테스트에서 멈춤을 발견. 이후 이 테스트 1개만 격리해 25초 타임아웃으로 재실행 — 동일하게 응답 없이 멈춤을 재현(좀비 프로세스는 남기지 않고 타임아웃으로 안전 종료 확인).
 
-**Raw:** `pytest tests/test_dm_rules.py::TestAutoReplyHook::test_send_failure_does_not_mark_replied_or_schedule_followup` — 25초 내 PASS/FAIL/ERROR 어떤 결과도 출력되지 않고 타임아웃.
+**Raw(260714 최초 발견):** `pytest tests/test_dm_rules.py::TestAutoReplyHook::test_send_failure_does_not_mark_replied_or_schedule_followup` — 25초 내 PASS/FAIL/ERROR 어떤 결과도 출력되지 않고 타임아웃.
 
-**Root Cause:** **UNKNOWN.** `_has_recent_auto_replied()`의 실제 Airtable 조회 또는 AI 응답 생성기의 실제 Gemini 연결 등 외부 네트워크 경로가 이 테스트에서 완전히 mock되지 않았을 가능성이 있다고 추정되나, 확정하지 않음. Gate E-B의 URL 중앙화 변경(`meta_graph.py`)과의 인과관계 증거도 없음 — `tests/test_meta_graph_version.py`의 신규 14개 테스트는 전부 정상 통과(1.81초)했고, 이 hang은 별도 실행에서도 재현되므로 Gate E-B 변경으로 인한 회귀라는 근거는 없음.
+**Raw(260715 재조사, 근본원인 확인):**
+- 코드 대조 결과, `TestAutoReplyHook` 클래스 내 테스트 중 **이 테스트만 유일하게** `PRICE_AUTO_REPLY_ENABLED=True`이면서 `get_base_price`를 `None`이 아닌 실제값(`10000.0`)으로 mock함(`tests/test_dm_rules.py:214-215`). 다른 모든 테스트는 `PRICE_AUTO_REPLY_ENABLED=False`이거나, `True`여도 `get_base_price`가 `None`을 반환하도록 되어 있어 `modules/dm/dm_auto_reply.py:283`에서 조기 반환됨.
+- 그 결과 이 테스트만 유일하게 `dm_auto_reply.py:289`의 `generate_reply()`(실제 Gemini API 호출)까지 도달 — 이 호출은 테스트에서 **mock되어 있지 않아 실제 네트워크 요청이 나감**.
+- `modules/dm/ai_reply_generator.py:25` `_RETRY_DELAYS = [20, 40, 60]` — Gemini가 429(rate limit/쿼터 초과)를 반환하면 20초→40초→60초 순서로 `time.sleep()` 하며 재시도(최악의 경우 누적 최대 120초+ 대기).
+- **직접 재현 실행**(`.venv` python, 넉넉한 타임아웃으로 이 테스트만 격리 실행): 이번엔 Gemini가 `POST .../gemini-2.5-flash-lite:generateContent` "HTTP/1.1 200 OK"로 즉시 응답해 **7.48초 만에 PASSED** — 무한 hang이 아니라 **실제 Gemini API 응답 시간(및 429 재시도 지연)에 실행시간이 좌우되는 테스트**임을 실증 확인.
 
-**Fix:** 미적용 — 원인 미확정 상태이며 Gate E-B 승인 범위 밖(관련 없는 기존 테스트 수정 금지). 운영 장애로 이어진 증거가 없어 INC 미등록, 반복 재현 패턴 증거가 아직 없어 FP도 보류.
+**Root Cause:** **확인됨.** 이 테스트가 `generate_reply()`(실제 Gemini API 호출)를 mock하지 않은 테스트 설계상의 누락. 260714 최초 발견 당시엔 Gemini 무료 티어 일일 쿼터가 소진된 상태였다는 기록(memory: Gemini Status)과 대조하면, 그 시점엔 429 재시도 지연(최소 20초 이상)이 누적되며 조사자가 설정한 25초 격리 타임아웃을 넘겨 "hang"으로 관측된 것으로 설명됨. Gate E-B의 URL 중앙화 변경(`meta_graph.py`)과는 무관 — `tests/test_meta_graph_version.py`의 신규 14개 테스트는 전부 정상 통과(1.81초)했고, 이번 재현도 Gate E-B 변경과 무관하게 재현됨.
 
-**관련:** `tests/test_dm_rules.py`, Gate E-B(`modules/common/meta_graph.py`)
+**Fix:** 미적용(OPEN, 회장 지시로 이번엔 기록만 갱신, 코드 수정 없음). 향후 수정 시 `tests/test_dm_rules.py:199` 테스트에 `monkeypatch.setattr("modules.dm.ai_reply_generator.generate_reply", lambda *a, **k: "...")` 형태로 Gemini 호출을 mock 처리하면 테스트 실행시간이 외부 API 상태(quota/rate-limit)에 좌우되지 않게 됨 — `generate_reply`가 `dm_auto_reply.py:289`에서 함수 내부 지역 import(`from modules.dm.ai_reply_generator import generate_reply`)로 매 호출마다 다시 조회되므로, `dm_auto_reply` 모듈이 아니라 `ai_reply_generator` 모듈 쪽 속성을 patch해야 함.
+
+**관련:** `tests/test_dm_rules.py`, `modules/dm/ai_reply_generator.py`, Gate E-B(`modules/common/meta_graph.py`), Gemini Status(memory)
 
 ## ERR-064 | Private Reply로 시작된 대화의 손님 답장이 웹훅으로 수신되지 않음 — Standard Access(앱 테스터 미등록) 의심
 
@@ -994,3 +1000,48 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **영향:** 실제 손님(앱에 테스터로 등록되지 않은 일반 계정 — 사실상 모든 실제 고객)의 Private Reply 답장이 우리 시스템에 도달하지 않을 수 있음. Gate G의 `comment_poller.py`/`comment_auto_reply.py` 자체 로직(키워드 감지·게이트·Private Reply 발송)은 오늘 실증으로 정상 확인됐으나, 문제는 그 앞단인 Meta 인프라(웹훅 배달) 레이어 — "손님 답장 감지 → `dm_auto_reply`가 24시간 상담을 이어받는다"는 24/7 자동화의 핵심 전제 자체가 위협받는 발견.
 
 **관련:** FP-048, INC-036, Gate G(`modules/comment/comment_auto_reply.py`, `modules/comment/comment_poller.py`)
+
+## ERR-065 | n8n watchdog 재시작이 무한 실패 반복 — 좀비 npx 프로세스가 대화형 설치 프롬프트에서 정지, LocalSystem 전환 이후 성공 0건
+
+**발견 경위:** 회장 지시로 `logs/watchdog.log`의 n8n 반복 실패 알림 원인 조사(260715 08:40경). n8n은 워크플로우가 아직 구현되지 않은 설계 단계(WF-01~05 설계만 확정, execution_owner 미구현, ERR-056 참조) 컴포넌트이며 "연결만 해놓은" 상태 — 정식 운영 대상이 아님에도 `watchdog.ps1`이 계속 감시·재시작을 시도 중이었음.
+
+**Raw:**
+- `logs/watchdog.log` 전체(260517~260715, 25,153줄): `n8n 재시작 실패` 5,298건 / `n8n 재시작 성공` 8건. 조사 시점(260715 08:41) 연속 실패 카운터 668회, 계속 증가 중.
+- 성공 8건의 타임스탬프는 전부 260517~260624 사이(마지막 성공 260624 23:56:09)이며, **ERR-057/ERR-058(260711 NSSM 서비스 LocalSystem 전환) 이후로는 성공 0건** — 실패만 누적.
+- `logs/n8n.log` 내용 전체: `Need to install the following packages:\nn8n@2.30.4\nOk to proceed? (y)` — npx가 원격 설치 확인을 묻는 대화형 프롬프트에서 멈춰 있음. 파일 마지막 수정시각 2026-07-14 22:25:44, 이후 갱신 없음(조사 시점까지 10시간+ 정체).
+- `Get-CimInstance Win32_Process`로 확인한 결과 PID 16948(cmd.exe, 생성 2026-07-14 22:25:39) → 자식 PID 21620(node.exe, 생성 22:25:40)이 조사 시점(260715 08:4x, 10시간+ 경과)에도 여전히 살아있음 — 이 프로세스가 위 대화형 프롬프트에서 응답 없이 정지된 좀비 프로세스로 추정.
+- `npm list -g n8n` → `n8n@2.15.0` 이미 전역 설치 확인됨. 그럼에도 `npx n8n start`는 이를 인식하지 못하고 최신버전(2.30.4) 원격 설치를 제안.
+- `npm config get prefix -g` → `C:\Users\admin\AppData\Roaming\npm` (admin 사용자 프로필 전용 경로).
+- `Get-CimInstance Win32_Service -Filter "Name='SNS_Watchdog'"` → `StartName=LocalSystem` 확인(ERR-057/058과 동일).
+- `netstat -ano`에서 `:5678` LISTENING 없음 확인 — n8n 서버 자체는 조사 시점까지 한 번도 뜨지 않은 상태.
+
+**Root Cause:** **가설 단계(미확정, 프로세스 강제종료·재현 테스트 없이는 확정 불가 — 이번 조사는 회장 지시로 read-only에 국한).**
+1. `watchdog.ps1`의 `Start-N8n()`(152~159행)이 `npx n8n start`를 hidden window + 출력 리다이렉션(`> n8n.log 2>&1`)으로 실행하며 `-y`/`--yes` 옵션을 주지 않음. npx가 로컬에서 즉시 실행 가능한 n8n을 찾지 못하면 원격 설치 여부를 묻는 대화형 프롬프트를 띄우는데, stdin이 연결되지 않은 실행 컨텍스트라 그 프롬프트에서 무기한 대기(hang)하는 것으로 추정. 260714 22:25에 생성된 이 좀비 프로세스 1건이 계속 살아있으면서 로그 파일과 포트 상태에 영향을 주고, 이후 매 감시 주기(약 35~55초)마다 새로 시도되는 `Start-N8n` 호출들은 정상적으로 진행되지 못하고 있는 것으로 보임(로그 파일이 260714 22:25:44 이후 갱신되지 않는 것과 정황 일치).
+2. npx가 이미 설치된 전역 `n8n@2.15.0`을 인식하지 못하는 이유는 미확정이나, 전역 npm 경로(`C:\Users\admin\AppData\Roaming\npm`)가 admin 사용자 프로필 전용이고 `SNS_Watchdog` 서비스가 260711부터 `LocalSystem` 계정으로 실행 중이라는 점이 **ERR-058(ngrok이 admin 프로필 전용 authtoken 경로에 접근 못해 실패)과 동일한 클래스의 정황**으로 유력하게 의심됨.
+
+**Fix:** 미실행. 회장 방침(260715): n8n은 워크플로우 미구현 상태이며 안정화 작업을 우선 완료한 뒤 n8n 진행 예정, 설계(WF-01~05) 자체도 재검토 예정 — 이번엔 코드/프로세스 변경 없이 기록만 남김.
+
+**Prevention(제안, 미실행 — 추후 n8n 재개 시 검토):**
+- 워크플로우가 실제로 구현되기 전까지는 `watchdog.ps1`의 n8n 감시 블록(240~256행)을 비활성화하거나 알림 빈도를 제한해 Slack 알림 잡음(5,298건 누적)을 줄일 것
+- 재개 시 `Start-N8n`을 `npx --yes n8n start`로 변경하거나, 사전에 `npm install -g n8n`으로 로컬 확정 설치 후 `npx` 대신 `n8n start`를 직접 호출하는 방식 검토
+- LocalSystem 계정 실행 시 사용자 프로필 종속 경로(전역 npm, ngrok authtoken 등) 접근성을 사전 점검하는 것을 서비스 계정 전환 표준 체크리스트에 포함(ERR-058 Prevention과 통합 검토)
+
+**관련:** ERR-056, ERR-057, ERR-058, PENDING-A, MERGE_JOURNAL(260714 Gate G 후속 "P2 — 신규" 항목)
+
+## ERR-066 | `dm_receiver.send_telegram()`이 모든 DM에서 IGSID 전체·원문 200자를 마스킹 없이 Telegram으로 전송 (P0-1, 재확인 — 여전히 OPEN)
+
+**발견 경위:** P0-1은 Gate C(ERR-061) Fix 항목에서 "범위 밖, 계속 OPEN"으로만 언급돼 왔고 자체 ERR 번호가 없었음. 회장 지시로 260715 코드 직접 재확인 — 전용 항목으로 승격.
+
+**Raw:**
+- `modules/dm/dm_receiver.py:54-71`의 `send_telegram(sender_igsid, message_text)` — `f"\U0001f464 \`{sender_igsid}\`\n\U0001f4ac {message_text[:200]}"` 형태로 IGSID 전체와 메시지 원문 최대 200자를 마스킹 전혀 없이 그대로 Telegram 메시지 본문에 포함.
+- `modules/dm/dm_receiver.py:147` `send_telegram(sender_id, text)` — 매 신규 DM 수신마다(웹훅 처리 경로 전체) 무조건 호출됨.
+- **재사용 가능한 재료가 이미 존재함**: Gate C(260713~14)에서 `modules/dm/dm_auto_reply.py`에 마스킹 유틸이 이미 구현돼 있음 — `_mask_igsid()`(`:55-56`, IGSID 앞 4자리+`***`), `_PII_PATTERNS`(`:48-52`, 전화번호·이메일 정규식), `_telegram_preview()`(`:59-63`, 위 패턴 제거 후 20자 미리보기). 단 이 유틸은 신규 함수 `send_telegram_price_pending()`(`:219-238`)에만 적용됐고, 기존 `dm_receiver.send_telegram()`에는 적용되지 않은 채 그대로 방치.
+- **부수 발견(문서에 없던 추가 노출 지점):** `modules/dm/dm_receiver.py:143` `logger.info(f"[DM] from={sender_id} | text={text[:100]}")` — IGSID와 메시지 원문 100자가 `logs/summary/app.log`에도 마스킹 없이 남음. Telegram(외부 채널)과는 별개로 로컬 로그 파일에도 동일 성격의 PII가 평문 저장되고 있음 — 기존 P0-1 정의(Telegram 노출)의 범위를 넘어서는 인접 노출.
+
+**Root Cause:** DM 자동응답(12단계, 260512 이전 구현) 당시 알림 편의를 위해 IGSID·원문을 그대로 Telegram에 실어보내는 구조로 만들어졌고, 이후 Gate C에서 마스킹 로직을 도입할 때 신규 함수에만 적용하고 기존 함수는 "범위 밖"으로 명시적으로 이월(P0-1)한 뒤 지금까지 재적용되지 않음.
+
+**Fix:** 미적용(OPEN) — 회장 지시로 이번엔 기록만 갱신, 코드 수정 없음.
+
+**Prevention(제안, 미실행):** 재개 시 `dm_receiver.send_telegram()`이 `dm_auto_reply._mask_igsid()`/`_telegram_preview()`를 그대로 재사용하도록 교체(신규 유틸 개발 불필요, import + 호출부 교체만 필요). 동시에 `dm_receiver.py:143`의 `logger.info` 원문 노출도 같은 패스에서 마스킹 검토.
+
+**관련:** ERR-061(Gate C Fix에서 최초 P0-1 이월 언급), FP-046, `modules/dm/dm_auto_reply.py`(`_mask_igsid`/`_telegram_preview`/`_PII_PATTERNS`)
