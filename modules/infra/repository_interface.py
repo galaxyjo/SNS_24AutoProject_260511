@@ -285,6 +285,14 @@ class RepositoryInterface(ABC):
         LOOKUP_FAILED를 NOT_FOUND로 취급해 생성을 진행하면 중복 레코드가 생긴다."""
 
     @abstractmethod
+    def verify_field_exists(self, table: str, field_name: str) -> bool:
+        """table에 field_name 필드가 실제로 존재하는지 Airtable Metadata API로 확인 —
+        FP-047/Package1 enforce 전제조건 B(startup preflight). 테이블 자체가 없어도
+        False(필드도 당연히 없음). 조회 자체가 실패하면(네트워크/권한 등) 예외를 그대로
+        전파한다 — 호출부는 False(필드 없음)와 예외(조회 실패)를 구분해서 fail-closed
+        판단에 반영해야 한다."""
+
+    @abstractmethod
     def is_repeat_inquiry(self, igsid: str) -> bool:
         """동일 igsid의 dm_received 이외 이전 레코드 존재 여부 (재문의 판단)."""
 

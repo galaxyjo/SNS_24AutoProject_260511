@@ -1307,3 +1307,32 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — B(Airtable startup preflight) 완료 전까지 보류
 
 ---
+
+### FP-047 enforce 전제조건 B — Airtable 필드 존재 startup preflight + 부수 발견(테스트 격리 버그) (2026-07-16)
+
+A(원문 평문 저장)에 이어 B(Airtable 필드 존재 startup preflight) 구현 완료 — FP-047 enforce 전제조건 2개 모두 마감.
+
+**B 구현:**
+- `repository_interface.py` — `verify_field_exists(table, field_name) -> bool` 추상 메서드 신규 추가.
+- `airtable_repository.py` — Metadata API(`GET /v0/meta/bases/{base_id}/tables`)로 구현. 기존 `tools/add_lead_interactions_source_event_field.py`가 이미 같은 엔드포인트로 필드를 추가한 전례가 있어 토큰 스코프(`schema.bases:write`, read 포함)는 이미 확인된 상태 — 신규 의존성 없음. 테이블 자체를 못 찾으면 `False`(필드도 당연히 없음), 조회 자체의 실패(네트워크/권한)는 예외로 전파해 기존 `_raise()`/`RepositoryUnavailableError` 패턴 그대로 재사용.
+- `comment_auto_reply.py` — `_verify_airtable_preflight()` 신규, A-2의 `_verify_payload_cipher()`와 완전히 동일한 패턴(모듈 레벨 `_airtable_preflight_ok` 플래그, `register_retry_handlers()`에서 launcher 시작 시 1회 호출, 실패해도 launcher 전체가 아니라 enforce 모드의 댓글 처리만 `REJECTED_NOT_READY`로 거부).
+- `tests/test_process_comment_event.py` — `_enforce_ready` fixture에 `_airtable_preflight_ok=True` 추가(A-2 때와 동일하게, 안 하면 기존 enforce 테스트들이 새 게이트에 걸려 깨짐 — 이번엔 처음부터 반영).
+
+**Codex 리뷰(Repository Interface 변경 — CLAUDE.md상 High-Risk 분류, 회장이 직접 Codex 호출):** 확인 요청 3건 — ① `verify_field_exists()`가 기존 `_raise()`/`RepositoryUnavailableError` 패턴 준수 여부 ② preflight 실패 시 "댓글 처리만 거부"(launcher 안 막음) 원칙이 B에도 A-2와 동일하게 적용됐는지 ③ 시작 시 1회만 확인하고 런타임 중 필드 삭제는 못 잡는 한계가 적절한지. **판정: 코드는 PASS, ③은 향후 주기적 health check 후보로 backlog 전환(이번 범위 아님, 커밋 차단 사유 아님).**
+
+**부수 발견 — ERR-071/FP-052(신규 등록):** B의 신규 테스트 파일 2개 추가로 pytest 전체 수집 순서가 바뀌면서, B와 전혀 무관한 기존 테스트 2건(`test_reply_lock_serializes_concurrent_calls_prevents_double_send`, `test_mark_user_replied_recovers_from_corrupted_state`)이 전체 회귀에서 실패. 최초엔 "단독 실행 시 통과"를 근거로 무관 판단하고 UNCLASSIFIED로 남기려 했으나, **Codex가 "단독 통과는 순서 의존성의 증거일 뿐 무관하다는 증거는 아니다"로 반박** — 재조사 착수. **실제 원인 규명:** `comment_safety_guard.py:26`의 `COOLDOWN_HOURS = float(os.getenv("COMMENT_REPLY_COOLDOWN_HOURS", "24"))`가 모듈 import 시점에 딱 한 번만 평가되는데, 실제 `.env`는 260715 회장 지시로 `COMMENT_REPLY_COOLDOWN_HOURS=0`(쿨다운 사실상 해제) — `.env` 로드(`load_dotenv(override=True)`) 이후에 이 모듈이 처음 import되면 `COOLDOWN_HOURS`가 `0.0`으로 고정돼 `is_user_in_cooldown()`의 판정식(`elapsed_hours < COOLDOWN_HOURS`)이 사실상 항상 거짓이 됨. 두 실패 테스트가 이 상수를 명시적으로 override하지 않고 방치돼 있었고(같은 파일의 다른 테스트 `test_cooldown_expires_after_window`는 이미 `monkeypatch.setattr`로 고정하고 있었음), B의 테스트 파일 추가가 수집 순서를 바꿔 이번에 처음 이 잠재 결함을 표면화시킨 것. **B의 실제 프로덕션 코드는 무관, B의 테스트 추가가 방아쇠였을 뿐.**
+
+**수정:** `tests/test_comment_safety_guard.py`의 `_isolate_state`(autouse)와 `tests/test_comment_auto_reply.py`의 REPLY_LOCK 테스트에 `monkeypatch.setattr(guard, "COOLDOWN_HOURS", 24)` 명시 추가. **B와는 다른 성격의 발견(테스트 인프라 결함)이라 별도 커밋으로 분리.**
+
+**검증:** B 신규 테스트 11개(`test_airtable_repository_field_preflight.py` 5, `test_comment_airtable_preflight.py` 6) 전부 통과. 테스트 격리 수정 후 `tests/ -k "comment or repository or airtable"` **반복 2회 실행 모두 219 passed/0 failed**(우연한 재통과 아님 확인). 전체 프로젝트 회귀 **407 passed / 4 failed(무관 기존 `test_dm_close.py`) / 3 xfailed** — 원래 확립된 베이스라인으로 정확히 복귀.
+
+**상태:** **FP-047 enforce 전제조건 A+B 모두 완료.** `COMMENT_EVENT_STORE_MODE`/`COMMENT_POLL_ALLOWLIST_MODE` 등 운영 모드 전환(enforce/allowlist)은 이번 범위 밖 — 별도 승인·별도 세션 대상. **push도 미실행.** 이후 ManyChat 전환 검토(RFC 검수 + 1계정 Canary)로 작업 전환 예정 — 회장 확정: 자체 시스템과 ManyChat 병행 사용(양자택일 아님, [[project_manychat_hybrid_decision_260716]] 참조).
+
+**커밋 범위(2개로 분리):**
+1. B 기능: `modules/infra/repository_interface.py`, `modules/infra/airtable_repository.py`, `modules/comment/comment_auto_reply.py`(B 부분), `tests/test_process_comment_event.py`(fixture 갱신), `tests/test_airtable_repository_field_preflight.py`(신규), `tests/test_comment_airtable_preflight.py`(신규) + 의무기록(ERROR_DATABASE.md 없음 — B 자체는 버그가 아니라 기능 구현이라 ERR 항목 없음, VALIDATION_STATUS.md/본 파일만 해당)
+2. 테스트 격리 수정: `tests/test_comment_safety_guard.py`, `tests/test_comment_auto_reply.py`(COOLDOWN_HOURS 부분) + 의무기록(`ERROR_DATABASE.md` ERR-071 / `FAILURE_PATTERN.md` FP-052 / 본 파일)
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 세션 종료 시 일괄 push(또는 다음 세션)
+
+---

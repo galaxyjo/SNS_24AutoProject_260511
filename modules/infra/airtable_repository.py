@@ -45,6 +45,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=T
 _API_KEY  = os.getenv("AIRTABLE_API_KEY", "")
 _BASE_ID  = os.getenv("AIRTABLE_BASE_ID", "")
 _BASE_URL = f"https://api.airtable.com/v0/{_BASE_ID}"
+_META_URL = f"https://api.airtable.com/v0/meta/bases/{_BASE_ID}/tables"
 _TIMEOUT  = 30
 
 
@@ -623,6 +624,27 @@ class AirtableRepository(RepositoryInterface):
 
         records = r.json().get("records", [])
         return records[0]["id"] if records else None
+
+    # ── FP-047/Package1 enforce 전제조건 B: Airtable 필드 존재 startup preflight ──
+
+    def verify_field_exists(self, table: str, field_name: str) -> bool:
+        """Metadata API(`/v0/meta/bases/{base}/tables`)로 조회 — 이 프로젝트에서 사람이
+        Airtable UI에서 실수로 필드를 지운 전례(caption/retry_count 등)가 반복됐던 것에
+        대한 startup 방어선. 조회 실패(네트워크/권한 등)는 예외로 전파 — 호출부가
+        False(필드 없음 확인됨)와 구분해서 fail-closed 판단에 반영해야 한다."""
+        try:
+            r = requests.get(_META_URL, headers=_headers(), timeout=_TIMEOUT)
+            r.raise_for_status()
+            log_api_call(table, "META_GET")
+        except requests.HTTPError as e:
+            _raise(e, table)
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        for t in r.json().get("tables", []):
+            if t["name"] == table:
+                return any(f["name"] == field_name for f in t.get("fields", []))
+        return False  # 테이블 자체가 없으면 필드도 당연히 없음
 
     # ── 14. 재문의 여부 확인 ──────────────────────────────────────────────────
 

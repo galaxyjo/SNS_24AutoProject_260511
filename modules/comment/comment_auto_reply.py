@@ -70,6 +70,26 @@ def _verify_payload_cipher() -> bool:
         _cipher_verified = False
     return _cipher_verified
 
+
+# 260716 FP-047/Package1 enforce 전제조건 B: Airtable Lead_Interactions.source_event_id
+# 필드가 실제로 존재하는지 startup에 확인 — 이 프로젝트는 사람이 Airtable UI에서 실수로
+# 필드를 지운 전례(caption/retry_count 등)가 반복됐음.
+_airtable_preflight_ok = False
+
+
+def _verify_airtable_preflight() -> bool:
+    """launcher 시작 시(register_retry_handlers) 1회 호출 — 결과는 로그로만 남기고
+    launcher 기동은 막지 않는다(A-2와 동일 원칙: enforce 모드 댓글 처리만 게이팅)."""
+    global _airtable_preflight_ok
+    try:
+        _airtable_preflight_ok = _repo.verify_field_exists("Lead_Interactions", "source_event_id")
+        if not _airtable_preflight_ok:
+            logger.error("[Comment] Airtable Lead_Interactions.source_event_id 필드 없음 — enforce 모드 댓글 처리 거부 예정")
+    except Exception as exc:
+        logger.error(f"[Comment] Airtable startup preflight 조회 실패(enforce 모드 댓글 처리 거부 예정) | {exc}")
+        _airtable_preflight_ok = False
+    return _airtable_preflight_ok
+
 # ── 키워드 ─────────────────────────────────────────────────────────────────────
 
 PRICE_KEYWORDS = [
@@ -676,6 +696,12 @@ def process_comment_event(
         logger.error("[Comment] enforce 모드인데 COMMENT_PAYLOAD_ENC_KEY 검증 실패 — 처리 거부(fail-closed, 댓글 응답만 중단)")
         return CommentProcessResult.REJECTED_NOT_READY
 
+    if mode == "enforce" and not _airtable_preflight_ok:
+        # FP-047/Package1 enforce 전제조건 B — 위 cipher 게이트와 동일 원칙(comment 처리만
+        # 거부, launcher 전체는 무관).
+        logger.error("[Comment] enforce 모드인데 Airtable source_event_id 필드 미확인 — 처리 거부(fail-closed, 댓글 응답만 중단)")
+        return CommentProcessResult.REJECTED_NOT_READY
+
     if mode == "shadow":
         # shadow=True(260715 Codex 4차 리뷰) — 이 claim은 migration_tag='SHADOW_SEEN'으로
         # 남아 나중에 enforce의 stale reclaim 대상에서 영구 제외된다(shadow 중엔 아래
@@ -722,4 +748,5 @@ def register_retry_handlers(rq) -> None:
     global _retry_handlers_registered
     rq.register("comment_airtable_record", _retry_record_comment)
     _retry_handlers_registered = True
-    _verify_payload_cipher()  # 결과는 로그로만 남김 — launcher 기동은 막지 않음(260716 결정)
+    _verify_payload_cipher()      # 결과는 로그로만 남김 — launcher 기동은 막지 않음(260716 결정)
+    _verify_airtable_preflight()  # 결과는 로그로만 남김 — launcher 기동은 막지 않음(260716 결정, B)
