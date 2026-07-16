@@ -1111,3 +1111,23 @@ ImportError: cannot import name 'process_comment_event' from partially initializ
 **Prevention:** `__init__.py`가 형제 모듈들을 eager import하는 패키지(이 프로젝트의 `modules/dm/__init__.py`가 대표적 예 — `dm_receiver`/`dm_auto_reply`/`dm_followup_scheduler`를 전부 즉시 re-export)에서는, 그 패키지 밖의 다른 도메인이 "서브모듈 하나만" import해도 순환 위험이 생길 수 있음을 항상 의식할 것. 여러 도메인이 함께 쓸 유틸(마스킹, 포맷팅 등)은 처음부터 특정 도메인 패키지 안이 아니라 `modules/common/`에 둘 것 — 나중에 다른 도메인이 재사용하려 할 때마다 이런 순환을 새로 겪지 않도록.
 
 **관련:** FP-051, ERR-066(같은 클래스의 PII 마스킹 문제 계열)
+
+## ERR-071 | 테스트 2건이 `comment_safety_guard.COOLDOWN_HOURS`(모듈 import 시점에 실제 `.env` 값으로 고정)에 우연히 의존해, pytest 수집 순서가 바뀌자 실패로 표면화 (RESOLVED — 260716)
+
+**발견 경위:** FP-047 enforce 전제조건 B(Airtable startup preflight) 구현 후 신규 테스트 파일 2개(`test_airtable_repository_field_preflight.py`, `test_comment_airtable_preflight.py`)를 추가하고 `tests/ -k "comment or repository or airtable"` 전체를 실행하자, B 코드와 아무 관련 없는 `test_reply_lock_serializes_concurrent_calls_prevents_double_send`(`test_comment_auto_reply.py`)와 `test_mark_user_replied_recovers_from_corrupted_state`(`test_comment_safety_guard.py`) 2건이 새로 실패. 각각 단독 실행하면 통과해 최초엔 "순서 의존 flaky"로만 기록(UNCLASSIFIED)했으나, Codex 재검토("단독 통과는 무관 증거가 아니다")로 실제 원인 규명 착수.
+
+**Raw:**
+- `modules/comment/comment_safety_guard.py:26` — `COOLDOWN_HOURS = float(os.getenv("COMMENT_REPLY_COOLDOWN_HOURS", "24"))`. **모듈 import 시점에 딱 한 번만 평가**되는 모듈 레벨 상수.
+- 실제 `.env`는 260715 회장 지시로 `COMMENT_REPLY_COOLDOWN_HOURS=0`(쿨다운 사실상 해제, 적극 테스트 목적).
+- `is_user_in_cooldown()`(`comment_safety_guard.py:87`)의 판정식 `elapsed_hours < COOLDOWN_HOURS` — `COOLDOWN_HOURS=0.0`이면 이 식은 사실상 항상 거짓이 됨. 즉 "방금 응답 표시했으니 쿨다운 중이어야 한다"를 검증하는 두 테스트가 **자기도 모르게 실제 운영 정책값(0)에 의존**하고 있었음.
+- pytest는 세션당 각 모듈을 한 번만 import한다 — `comment_safety_guard`가 이번 세션에서 **어느 테스트 파일에 의해 처음 import되는지**(즉 다른 모듈의 `load_dotenv(override=True)` 호출보다 먼저인지 나중인지)에 따라 `COOLDOWN_HOURS`가 24(기본값, `.env` 로드 전)로 고정되거나 0(`.env` 로드 후)으로 고정됨. 신규 테스트 파일 2개 추가로 전체 수집 순서가 바뀌면서 이번에 처음 후자 경로를 탐.
+
+**Root Cause:** 운영 정책(비즈니스 요구에 따라 수시로 바뀌는 `.env` 값)을 읽어 **모듈 import 시점에 고정하는 상수**를, 그 상수에 의존하는 테스트에서 명시적으로 override하지 않고 방치함. 같은 파일의 다른 테스트(`test_cooldown_expires_after_window`)는 이미 `monkeypatch.setattr(guard, "COOLDOWN_HOURS", 24)`로 명시 고정하고 있었으나, 이번에 실패한 2건은 그 관례를 따르지 않았음.
+
+**Fix:** `tests/test_comment_safety_guard.py`의 `_isolate_state`(autouse fixture)와 `tests/test_comment_auto_reply.py`의 REPLY_LOCK 동시성 테스트에 `monkeypatch.setattr(guard, "COOLDOWN_HOURS", 24)`를 명시 추가 — 실제 `.env` 값·모듈 import 순서와 완전히 무관하게 결정적으로 동작하도록 격리.
+
+**Runtime Proof:** 수정 전 `tests/ -k "comment or repository or airtable"` 1회 실패 확인(2건) → 수정 후 동일 명령 **2회 연속 실행 모두 219 passed, 0 failed**(우연한 재통과 아님을 반복 실행으로 확인). 전체 프로젝트 회귀도 원래 기존 베이스라인(`test_dm_close.py` 4건만 무관 실패)으로 정확히 복귀: 407 passed / 4 failed(무관) / 3 xfailed.
+
+**Prevention:** 모듈 레벨 상수를 실제(변경 가능한) `.env`/설정값에서 import 시점에 읽어오는 코드가 있다면, 그 상수를 사용하는 모든 테스트는 반드시 `monkeypatch.setattr()`로 명시 고정할 것 — "이 파일의 다른 테스트가 이미 하고 있으니 나도 괜찮겠지"라고 안 하고 파일 안의 모든 테스트에 일관 적용해야 한다(이번에 정확히 그 누락으로 발생). 신규 테스트 파일을 추가할 때는 그것만으로 기존 테스트의 pytest 수집 순서가 바뀔 수 있다는 점도 인지할 것 — "내가 만든 코드는 안 건드렸다"가 "회귀 없음"의 증거가 아니다.
+
+**관련:** ERR-070(같은 세션에서 발견된 또 다른 테스트 인프라 문제), FP-052

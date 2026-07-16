@@ -313,6 +313,12 @@ def test_reply_lock_serializes_concurrent_calls_prevents_double_send(monkeypatch
     monkeypatch.setattr(comment_auto_reply.guard, "_CAMPAIGN_CONFIG_PATH", tmp_path / "campaign.json")
     monkeypatch.setattr(comment_auto_reply.guard, "_COOLDOWN_STATE_PATH", tmp_path / "cooldown.json")
     monkeypatch.setattr(comment_auto_reply.guard, "_BUDGET_STATE_PATH", tmp_path / "budget.json")
+    # 260716 발견 — guard.COOLDOWN_HOURS는 import 시점에 실제 .env(현재
+    # COMMENT_REPLY_COOLDOWN_HOURS=0)에서 한 번만 읽혀 고정된다. 0으로 고정되면 쿨다운
+    # 가드 자체가 무력화돼(elapsed_hours < 0은 항상 거짓이 아니라 항상 참이 되는 게
+    # 아니라, "쿨다운 중"이 항상 거짓이 됨) 이 테스트가 검증하려는 "REPLY_LOCK이 중복을
+    # 막는다"는 것과 무관하게 통과/실패가 갈릴 수 있어 명시적으로 고정한다.
+    monkeypatch.setattr(comment_auto_reply.guard, "COOLDOWN_HOURS", 24)
     comment_auto_reply.guard._CAMPAIGN_CONFIG_PATH.write_text(
         json.dumps({"media_ids": ["media-campaign"]}), encoding="utf-8"
     )

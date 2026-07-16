@@ -13,6 +13,12 @@ def _isolate_state(tmp_path, monkeypatch):
     monkeypatch.setattr(guard, "_CAMPAIGN_CONFIG_PATH", tmp_path / "campaign.json")
     monkeypatch.setattr(guard, "_COOLDOWN_STATE_PATH", tmp_path / "cooldown.json")
     monkeypatch.setattr(guard, "_BUDGET_STATE_PATH", tmp_path / "budget.json")
+    # 260716 발견 — guard.COOLDOWN_HOURS는 모듈 import 시점에 실제 .env(현재
+    # COMMENT_REPLY_COOLDOWN_HOURS=0, 260715 회장 지시)에서 한 번만 읽혀 고정된다.
+    # pytest 세션 안에서 이 모듈이 언제 처음 import되는지(다른 테스트 파일의 import
+    # 순서)에 따라 0.0이 그대로 굳어버려, "방금 응답했으니 쿨다운 중이어야 한다"는
+    # 테스트가 실제 운영 정책값에 우연히 의존하게 된다 — 명시적으로 고정해 격리한다.
+    monkeypatch.setattr(guard, "COOLDOWN_HOURS", 24)
     guard._circuit_failure_count = 0
     guard._circuit_open_until = 0.0
     yield
