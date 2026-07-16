@@ -5,6 +5,7 @@ import os
 import json as _json
 import logging
 import random
+import re
 import requests
 from datetime import datetime, timezone
 from enum import Enum
@@ -38,6 +39,21 @@ NEGATIVE_KEYWORDS = [
     "스팸", "신고", "짝퉁", "가짜", "허위", "불량",
 ]
 
+# 260716 회장 지시: "스팸/부정 댓글 외 전부"의 스팸을 NEGATIVE_KEYWORDS 문자열 매칭이 아니라
+# 실제 광고·홍보성 스팸으로 판별 — (1) 외부 링크/단축URL 포함 (2) 팔로우·좋아요 품앗이 등
+# 광고성 문구 (3) 도박/불법대출/성인 등 불법·유해 홍보 (4) 댓글창 밖 채널(카톡/텔레그램/라인)로
+# 유도하는 문구(실제 손님은 댓글에서 바로 문의하지, 계정 홍보봇처럼 외부 채널 유도부터 안 함).
+# 오탐(false positive)으로 실제 손님 문의를 걸러내는 게 ERR-069와 같은 리드 유실이므로,
+# 애매한 표현(예: "무료" 단독)은 제외하고 명확한 스팸 신호만 포함.
+SPAM_KEYWORDS = [
+    "도박", "카지노", "토토", "대출상담", "먹튀검증",
+    "비아그라", "성인용품", "출장마사지",
+    "맞팔", "선팔환영", "팔로우해주세요", "팔로우 부탁", "좋아요 눌러주세요", "구독해주세요",
+    "카톡 아이디", "카톡문의", "텔레그램 상담", "라인 아이디 추가",
+]
+
+_SPAM_URL_RE = re.compile(r"https?://|www\.\S+\.\S+|\bt\.me/\S+|\bbit\.ly/\S+")
+
 # 단가 댓글 → Private Reply 문구 (가격 직접 노출 지양)
 # 이 메시지 자체가 이미 DM이므로 "DM으로 문의해주세요"는 말이 안 됨(Codex 리뷰 260714 발견·정정) —
 # Meta 공식 사양상 발송만으로는 24시간 창이 안 열리고 손님이 "답장"해야 열리므로, 문구는 답장을 유도해야 함.
@@ -68,6 +84,13 @@ def detect_price_comment(text: str) -> bool:
 def detect_negative_comment(text: str) -> bool:
     lower = text.lower()
     return any(kw in lower for kw in NEGATIVE_KEYWORDS)
+
+
+def detect_spam_comment(text: str) -> bool:
+    if _SPAM_URL_RE.search(text):
+        return True
+    lower = text.lower()
+    return any(kw in lower for kw in SPAM_KEYWORDS)
 
 
 # ── Graph API: 댓글 답글 ──────────────────────────────────────────────────────
@@ -404,14 +427,21 @@ def _handle_comment_impl(
         _send_telegram_if_pending("negative")
         return _record_comment_if_pending()
 
-    if detect_price_comment(text):
-        if _AUTO_REPLY_ENABLED and not _private_reply_settled():
-            _try_private_reply(claim_token, comment_id, username, media_id, cooldown_key)
-        elif _AUTO_REPLY_ENABLED:
-            logger.info(f"[Comment] Private Reply 이미 처리됨(재개 스킵) | comment={comment_id}")
-        _send_telegram_if_pending("price")
-    else:
-        _send_telegram_if_pending("new")
+    if detect_spam_comment(text):
+        _send_telegram_if_pending("spam")
+        return _record_comment_if_pending()
+
+    # 260715 회장 지시: 가격 키워드로 좁혀서 걸러내지 않고, 스팸/부정 댓글(위에서 이미
+    # 제외됨) 외에는 전부 Private Reply 대상으로 넓힘 — "재고있나요"/"연락주세요"/
+    # "MOQ" 등 키워드 목록에 없던 실제 구매의사 표현을 놓치던 문제(jiho2987 사례) 해결.
+    # 260716: "스팸" 판별을 NEGATIVE_KEYWORDS 문자열 매칭이 아니라 detect_spam_comment()
+    # (URL/광고성 문구/불법홍보/외부채널 유도)로 실질화.
+    # 캠페인 게시물 제한·쿨다운·일일예산·circuit breaker(guard)는 그대로 유지.
+    if _AUTO_REPLY_ENABLED and not _private_reply_settled():
+        _try_private_reply(claim_token, comment_id, username, media_id, cooldown_key)
+    elif _AUTO_REPLY_ENABLED:
+        logger.info(f"[Comment] Private Reply 이미 처리됨(재개 스킵) | comment={comment_id}")
+    _send_telegram_if_pending("price" if detect_price_comment(text) else "new")
 
     return _record_comment_if_pending()
 
