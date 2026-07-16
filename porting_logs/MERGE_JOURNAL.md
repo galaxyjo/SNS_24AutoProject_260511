@@ -1271,3 +1271,39 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push
 
 ---
+
+### FP-047 enforce 전제조건 A — 댓글 원문 평문 저장 해소 (2026-07-16)
+
+FP-047(ERR-067)/Package 1(ERR-069) 구현 당시부터 "enforce 진입 전 필수 해결(OPEN)"로 명시돼 있던 전제조건 2개(A: 댓글 원문 평문 저장, B: Airtable startup preflight) 중 A를 이번 세션에서 완료. 회장 지시: "지금 새는 개인정보부터 막고, 그다음 Airtable 필드 삭제 자동감지 순서로" — A→B 순서 확정, 이번 범위는 A만.
+
+**A-1(로그·Telegram 마스킹):**
+- `comment_auto_reply.py` — 로그(`app.log`)의 `text={text[:80]}`, Telegram의 `text[:200]`을 전부 `_telegram_preview(text)`(PII 정규식 마스킹 후 20자)로 교체. username은 게시물에 이미 공개로 노출된 IG 핸들이라 마스킹 대상에서 제외(회장 확인).
+- **구현 중 순환 임포트 발견(ERR-070/FP-051 신규 등록):** `_telegram_preview()`가 `modules/dm/dm_auto_reply.py`에 있어 그대로 import하면 `modules.dm.__init__`(eager import) → `dm_receiver` → `comment_auto_reply` 순환 발생. 신규 `modules/common/pii_mask.py`로 `_mask_igsid`/`_telegram_preview`/PII 정규식을 추출해 해소 — `dm_auto_reply.py`는 별칭 재-import로 기존 호출부 하위호환 유지, 미사용 `import re` 제거.
+
+**A-2(retry payload 암호화) — Codex 2라운드 리뷰 반영:**
+- `db/retry_queue.db`의 `comment_airtable_record` payload에 댓글 원문이 그대로 저장되던 문제(재처리를 위해 원문이 필요해 단순 마스킹 불가 — 암호화만 허용)를 Fernet 대칭키 암호화로 해소. `.env`에 `COMMENT_PAYLOAD_ENC_KEY`(신규 생성, 커밋 대상 아님) 추가, `.env.example`에 생성 명령어와 함께 안내 등록.
+- `requirements.txt`에 `cryptography>=42.0.0` 명시 등록(1차 리뷰 지적 — 이전엔 다른 의존성의 transitive 설치에 우연히 의존하고 있었음).
+- `enc_version: 1` 필드를 payload에 저장하고, `_retry_record_comment()`가 재처리 시 **엄격 검증**한다 — `enc_version` 불일치, `text_enc` 없음, `text`(구형 평문 키)가 섞여 있음 중 하나라도 해당하면 `ValueError`로 fail-closed(1차 리뷰 지적: 저장만 하고 검증 안 하면 손상된 payload가 빈 문자열로 조용히 "처리완료" 될 위험). 배포 시점 `db/retry_queue.db` 실측으로 `comment_airtable_record` 행 0건을 확인해, 구형 평문 payload 호환 fallback은 완전히 제거(마이그레이션 불필요).
+- 암호화 자체의 실패(키 미설정 등)는 기존 enqueue-실패 fail-closed 경로(`mark_retry_enqueue_failed`)를 그대로 재사용(신규 상태 불필요). 복호화 실패(재처리 시점)는 예외를 그대로 전파해 retry_queue의 기존 backoff→3회 초과 시 dead 전환→`comment_retry_dead_monitor` Slack 알림 인프라를 그대로 태움 — enqueue 실패와 다른 성격이라 구분(1차 리뷰 지적).
+- `register_retry_handlers()`(launcher 시작 시 eager 호출)에서 키 존재·형식·암복호화 왕복을 1회 검증(`_verify_payload_cipher()`). **실패해도 launcher 전체(FB크롤링/IG업로드/DM 등 무관 서비스)는 막지 않고, enforce 모드의 댓글 처리만 `REJECTED_NOT_READY`로 거부** — Codex 원안은 "enforce 모드에서 실패 시 launcher 기동 자체를 차단"이었으나, 댓글과 무관한 서비스까지 멈추는 건 blast radius가 과하다고 판단해 회장이 "댓글 답장만 잠깐 멈춰"로 결정. 기존 `_retry_handlers_registered` 체크(enforce 전제조건 ①)와 동일한 자리·동일한 `REJECTED_NOT_READY` 패턴 재사용.
+- `.env.example`의 초기 안내 문구가 "disabled/shadow 모드는 Airtable 1차 쓰기 실패 시에만 영향받는다"고 잘못 서술돼 있던 것을 2차 리뷰에서 지적받아 수정 — 실제로는 `_record_comment()`의 `claim_token=None` 분기(disabled/shadow)가 애초에 retry_queue 자체를 쓰지 않으므로("레거시 경로 — 기존 동작 그대로, retry 없음" 코드 주석 재확인) 이 암호화 경로와 완전히 무관함.
+- 미사용 `InvalidToken` import 제거(2차 리뷰 지적 — 모듈 코드에서 실제로 이름을 참조하지 않고 `Fernet.decrypt()`가 던지는 예외를 그대로 전파만 함).
+
+**부수 발견 — 기존 테스트 3건 파손:** `tests/test_comment_airtable_idempotency.py`의 `test_retry_handler_replays_successfully`/`test_retry_handler_completes_even_after_claim_token_went_stale`/`test_retry_handler_no_duplicate_on_ambiguous_success`가 구형 `{"text": ...}` payload를 직접 만들어 `_retry_record_comment()`를 호출하고 있어, 이번 엄격 검증 강화로 파손됨을 회귀 테스트 실행 중 발견. `text_enc`/`enc_version` 형식으로 갱신 + 테스트 전용 암호화 키 fixture(`_enc_key`, autouse) 추가 — 개발자 로컬 `.env`의 실제 키 값에 의존하지 않고 결정적으로 동작하도록.
+
+**검증:** 신규 테스트 18개(`tests/test_comment_payload_encryption.py` 16개 — 암호화 왕복/키 검증/payload 엄격검증 4종/게이트, `tests/test_comment_auto_reply.py` 마스킹 검증 2개), 기존 파손 테스트 3개 수정. `tests/ -k comment` 190 passed. 전체 회귀 **396 passed / 4 failed(무관 기존 `test_dm_close.py`, Telegram `ConnectionResetError` — ERR-068과 같은 계열) / 3 xfailed** — 이번 변경으로 인한 신규 실패 0건.
+
+**Codex 리뷰:** 1라운드에서 위 4개 지적(cryptography 미등록/enc_version 미검증/.env.example 오기술/미사용 import) 전부 발견 → 반영 → 2라운드 조건 없이 PASS 확인("코드 검수는 PASS"). 리뷰 과정에서 회장이 Codex 원안(launcher 전체 차단)을 그대로 수락하지 않고 반론(blast radius 근거로 `comment_auto_reply.py:599`의 기존 `REJECTED_NOT_READY` 패턴 재사용을 대안 제시) → 최종 채택.
+
+**상태:** A(댓글 원문 평문 저장) 완료. **`COMMENT_EVENT_STORE_MODE`/`COMMENT_POLL_ALLOWLIST_MODE` 등 운영 모드는 이번 변경과 무관하게 그대로**(A-2 암호화 경로는 enforce 모드에서 Airtable 1차 쓰기가 실패했을 때만 실행되며, 현재 운영은 여전히 `shadow` — 이 경로가 아직 한 번도 실제로 실행된 적 없음은 배포 전 `db/retry_queue.db` 실측 0건으로 이미 확인됨). **B(Airtable `Lead_Interactions.source_event_id` 필드 존재 startup preflight)는 미착수 — "FP-047 enforce 전제조건 전체 완료"로 선언하지 않음.**
+
+**커밋 범위:**
+- `modules/comment/comment_auto_reply.py`, `modules/dm/dm_auto_reply.py`, `modules/common/pii_mask.py`(신규), `requirements.txt`, `.env.example`
+- `tests/test_comment_auto_reply.py`, `tests/test_comment_payload_encryption.py`(신규), `tests/test_process_comment_event.py`, `tests/test_comment_airtable_idempotency.py`
+- 의무기록 4종(`ERROR_DATABASE.md` ERR-070 / `FAILURE_PATTERN.md` FP-051 / `VALIDATION_STATUS.md` / 본 파일) — `INCIDENT_TIMELINE.md`는 운영 영향 없음(코드 구현 단계, 미배포)으로 회장 판단하에 해당 없음 처리
+- **제외:** `configs/comment_campaign_posts.json`(무관), `docs/ERROR_DATABASE.md`의 ERR-068(무관, Telegram ConnectionReset 조사 — hunk 단위로 분리해 섞지 않음), `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`(무관), `.env`(gitignore 대상)
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — B(Airtable startup preflight) 완료 전까지 보류
+
+---

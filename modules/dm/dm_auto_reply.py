@@ -2,7 +2,6 @@
 # 단가 문의 키워드 감지 → 10% 마진 가격 자동 응답
 
 import os
-import re
 import json as _json
 import logging
 import threading
@@ -45,22 +44,9 @@ PRODUCT_CONFIRM_TEMPLATE = (
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
 
 # Telegram PII 마스킹 (RFC §10 — 전화번호/이메일 등 패턴 제거 후 20자 미리보기)
-_PII_PATTERNS = [
-    re.compile(r'01[0-9]-?\d{3,4}-?\d{4}'),
-    re.compile(r'\d{2,4}-\d{3,4}-\d{4}'),
-    re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
-]
-
-
-def _mask_igsid(igsid: str) -> str:
-    return f"{igsid[:4]}***" if igsid and len(igsid) > 4 else "***"
-
-
-def _telegram_preview(text: str, limit: int = 20) -> str:
-    masked = text or ""
-    for pat in _PII_PATTERNS:
-        masked = pat.sub("***", masked)
-    return masked[:limit]
+# 260716: 댓글 채널(comment_auto_reply.py)도 재사용하게 되면서 modules.common.pii_mask로
+# 실제 구현을 옮기고, 여기서는 기존 호출부(dm_receiver.py 등) 호환을 위해 별칭만 유지.
+from modules.common.pii_mask import mask_igsid as _mask_igsid, telegram_preview as _telegram_preview
 
 
 def _has_recent_auto_replied(sender_igsid: str, minutes: int = 3) -> bool:

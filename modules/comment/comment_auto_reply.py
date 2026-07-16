@@ -10,11 +10,14 @@ import requests
 from datetime import datetime, timezone
 from enum import Enum
 
+from cryptography.fernet import Fernet
+
 from modules.comment import comment_safety_guard as guard
 from modules.comment import comment_event_store as event_store
 from modules.comment import comment_poll_targets as poll_targets
 from modules.comment.comment_campaign_config import CampaignConfigError, load_campaign_media_ids
 from modules.common.meta_graph import messaging_graph_url
+from modules.common.pii_mask import telegram_preview as _telegram_preview
 from modules.infra.airtable_repository import AirtableRepository
 from modules.infra.repository_interface import LeadInteractionCreate
 
@@ -26,6 +29,46 @@ _AUTO_REPLY_ENABLED = os.getenv("COMMENT_AUTO_REPLY_ENABLED", "false").lower() =
 
 # FP-047: disabled(기본)=기존 동작 그대로 / shadow=관측만 / enforce=실제 dedup 게이트
 _EVENT_SOURCE = "instagram_comment"
+
+# 260716 회장 지시(A-2): retry_queue.db에 댓글 원문이 평문으로 영구 보존되던 문제(ERR-066과
+# 같은 클래스) 해소 — Fernet 대칭키로 암호화 후 저장, 재시도 시 복호화해서 사용.
+# enc_version은 향후 키/포맷 변경 시 구버전 payload 구분용(Codex 260716 리뷰 반영).
+_PAYLOAD_ENC_VERSION = 1
+_cipher_verified = False  # register_retry_handlers()에서 launcher 시작 시 1회 왕복 검증, enforce 모드 게이트로만 사용(launcher 전체는 막지 않음 — 회장 260716 결정)
+
+
+def _get_payload_cipher() -> Fernet:
+    key = os.getenv("COMMENT_PAYLOAD_ENC_KEY", "")
+    if not key:
+        raise RuntimeError("COMMENT_PAYLOAD_ENC_KEY 미설정 — retry payload 암호화 불가")
+    return Fernet(key.encode())
+
+
+def _encrypt_payload_text(text: str) -> str:
+    return _get_payload_cipher().encrypt(text.encode("utf-8")).decode("ascii")
+
+
+def _decrypt_payload_text(token: str) -> str:
+    # InvalidToken/RuntimeError를 그대로 전파한다 — 호출부(retry_queue 핸들러)가 이걸
+    # "enqueue 실패"가 아니라 "재시도 실패"로 처리해야 backoff→dead→Slack 알림까지
+    # 이어지는 기존 retry_queue 인프라를 탄다(Codex 260716 리뷰 반영, 단순 enqueue
+    # 실패 취급과 구분).
+    return _get_payload_cipher().decrypt(token.encode("ascii")).decode("utf-8")
+
+
+def _verify_payload_cipher() -> bool:
+    """launcher 시작 시(register_retry_handlers) 1회 호출 — 키 존재·형식·암복호화 왕복을
+    검증한다. 실패해도 launcher 자체는 막지 않고(FB크롤링/IG업로드/DM 등 무관 기능까지
+    멈추는 건 blast radius 과잉 — 회장 260716 결정), enforce 모드의 댓글 처리 진입만
+    이 결과로 게이팅한다."""
+    global _cipher_verified
+    try:
+        probe = "healthcheck"
+        _cipher_verified = _decrypt_payload_text(_encrypt_payload_text(probe)) == probe
+    except Exception as exc:
+        logger.error(f"[Comment] COMMENT_PAYLOAD_ENC_KEY 검증 실패 — retry payload 암호화 불가(enforce 모드 댓글 처리 거부 예정) | {exc}")
+        _cipher_verified = False
+    return _cipher_verified
 
 # ── 키워드 ─────────────────────────────────────────────────────────────────────
 
@@ -233,11 +276,15 @@ def _record_comment(claim_token: str | None, username: str, text: str, comment_i
         try:
             from modules.common.retry_queue import get_retry_queue
             rq = get_retry_queue()
+            # 260716: 원문을 평문으로 payload에 넣지 않는다 — 암호화 자체가 실패해도
+            # (키 미설정 등) 이 try 블록 안이라 아래 except가 잡아 enqueue 실패와
+            # 동일하게 fail-closed 처리된다(신규 상태 불필요, 기존 경로 재사용).
             task_id = rq.enqueue("comment_airtable_record", {
                 "claim_token": claim_token,
                 "comment_id":  comment_id,
                 "username":    username,
-                "text":        text,
+                "text_enc":    _encrypt_payload_text(text),
+                "enc_version": _PAYLOAD_ENC_VERSION,
                 "media_id":    media_id,
             })
             marked = event_store.mark_airtable_retry_pending(_EVENT_SOURCE, comment_id, claim_token, task_id)
@@ -264,9 +311,27 @@ def _retry_record_comment(payload: dict) -> None:
     P0(260715 Codex 3차 리뷰): payload의 claim_token은 enqueue 시점 값이라 그 사이
     lease 만료→stale reclaim(P0-2)이 일어나면 무효화된다 — claim_token 기반
     mark_airtable_done() 대신, airtable_status='RETRY_PENDING' 조건만으로 전이하는
-    mark_airtable_retry_completed()를 사용해 세대교체와 무관하게 완료를 반영한다."""
+    mark_airtable_retry_completed()를 사용해 세대교체와 무관하게 완료를 반영한다.
+
+    260716: payload["text_enc"]는 암호화된 원문 — 복호화 실패(키 교체/손상 등)는 여기서
+    예외를 그대로 던진다. enqueue 실패와 달리 이건 "재시도 자체의 실패"라 retry_queue의
+    기존 backoff→3회 초과 시 dead 전환 로직(retry_queue.py)을 그대로 태워야
+    comment_retry_dead_monitor의 Slack DEAD 알림까지 자연스럽게 이어진다(Codex 260716
+    리뷰 반영 — enqueue 실패와 동일하게 조용히 삼키면 안 됨).
+
+    260716 2차 리뷰(Codex): enc_version을 저장만 하고 검증 안 하면, 향후 포맷이 바뀌거나
+    payload가 손상돼도 조용히 잘못 처리될 수 있다 — enc_version이 정확히 일치하고
+    text_enc만 있어야(구버전 평문 "text" 키가 섞여 있으면 손상/오염 신호) 처리한다.
+    260716 실측으로 db/retry_queue.db에 comment_airtable_record 행 0건을 확인했으므로
+    구형 평문 payload 호환 fallback은 불필요 — 제거하고 fail-closed(예외)로 통일한다."""
     comment_id = payload["comment_id"]
-    _create_lead_interaction_idempotent(payload["username"], payload["text"], comment_id)
+    if payload.get("enc_version") != _PAYLOAD_ENC_VERSION or "text_enc" not in payload or "text" in payload:
+        raise ValueError(
+            f"[Comment] 잘못된 retry payload(enc_version={payload.get('enc_version')!r}, "
+            f"text_enc존재={'text_enc' in payload}, text존재={'text' in payload}) | comment={comment_id}"
+        )
+    text = _decrypt_payload_text(payload["text_enc"])
+    _create_lead_interaction_idempotent(payload["username"], text, comment_id)
     ok = event_store.mark_airtable_retry_completed(_EVENT_SOURCE, comment_id)
     if not ok:
         # RETRY_PENDING이 아닌 상태(이미 다른 경로로 DONE 처리됐거나 예상 밖 상태 전이) —
@@ -298,11 +363,15 @@ def _send_telegram_comment(claim_token: str | None, comment_id: str, username: s
     icon   = icons.get(tag, "\U0001f4ac")
     label  = labels.get(tag, "신규 댓글")
 
+    # 260716 회장 지시(A-1): 원문을 그대로 Telegram에 실어보내지 않는다 — ERR-066(DM
+    # 채널)과 같은 클래스 문제. DM 채널과 동일 기준(_telegram_preview, PII 정규식
+    # 마스킹 후 20자)으로 통일. username은 게시물에 이미 공개로 노출된 IG 핸들이라
+    # 마스킹 대상에서 제외(회장 260716 확인).
     msg = (
         f"{icon} *{label}*\n"
         f"─────────────────\n"
         f"\U0001f464 @{username}\n"
-        f"\U0001f4ac {text[:200]}"
+        f"\U0001f4ac {_telegram_preview(text)}"
     )
     try:
         resp = requests.post(
@@ -394,7 +463,7 @@ def _handle_comment_impl(
     (이전 worker가 이미 일부 effect를 완료한 뒤 crash) — 재실행 전 기존 상태를 먼저
     조회해 이미 DONE/UNKNOWN인 effect는 건너뛴다. 그러지 않으면 재개 시 이미 보낸
     Telegram/Private Reply/Airtable 기록을 중복 실행하게 된다."""
-    logger.info(f"[Comment] 처리 | comment={comment_id} | from=@{username} | text={text[:80]}")
+    logger.info(f"[Comment] 처리 | comment={comment_id} | from=@{username} | text={_telegram_preview(text)}")
     cooldown_key = commenter_id or username
 
     existing = event_store.get_status(_EVENT_SOURCE, comment_id) if claim_token else None
@@ -599,6 +668,14 @@ def process_comment_event(
         logger.error("[Comment] enforce 모드인데 comment_airtable_record 핸들러 미등록 — 처리 거부(fail-closed)")
         return CommentProcessResult.REJECTED_NOT_READY
 
+    if mode == "enforce" and not _cipher_verified:
+        # 260716 회장 결정: COMMENT_PAYLOAD_ENC_KEY 검증 실패 시 launcher 전체(FB크롤링/
+        # IG업로드/DM 등)를 막지 않고 댓글 처리만 거부한다(blast radius를 comment_
+        # airtable_record와 무관한 다른 서비스까지 넓히지 않기 위함 — Codex 원안은
+        # launcher 기동 자체를 차단하자는 것이었으나 범위가 과잉이라고 판단).
+        logger.error("[Comment] enforce 모드인데 COMMENT_PAYLOAD_ENC_KEY 검증 실패 — 처리 거부(fail-closed, 댓글 응답만 중단)")
+        return CommentProcessResult.REJECTED_NOT_READY
+
     if mode == "shadow":
         # shadow=True(260715 Codex 4차 리뷰) — 이 claim은 migration_tag='SHADOW_SEEN'으로
         # 남아 나중에 enforce의 stale reclaim 대상에서 영구 제외된다(shadow 중엔 아래
@@ -645,3 +722,4 @@ def register_retry_handlers(rq) -> None:
     global _retry_handlers_registered
     rq.register("comment_airtable_record", _retry_record_comment)
     _retry_handlers_registered = True
+    _verify_payload_cipher()  # 결과는 로그로만 남김 — launcher 기동은 막지 않음(260716 결정)

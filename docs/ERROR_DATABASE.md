@@ -1091,3 +1091,23 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 **Prevention:** "감시 대상"과 "최근성"을 분리할 것 — 운영자 의도(캠페인 등록)를 표현하는 목록과, 그 목록의 각 항목이 실제로 안전하게 감시 가능한 상태인지(baseline 검증 여부)를 나타내는 상태를 별도로 관리해야 한다. 하나의 "최근 N개"류 지표에 감시 대상 결정을 의존시키면 그 지표가 변할 때(게시 빈도 증가 등) 감시 범위가 조용히 줄어드는 사고가 재발한다.
 
 **관련:** FP-050, INC-038, FP-047, `docs/design/FP047_COMMENT_EVENT_IDEMPOTENCY_260715.md`
+
+## ERR-070 | `comment_auto_reply.py`가 `modules.dm.dm_auto_reply`를 직접 import하면 `modules.dm` 패키지와 순환 임포트 발생 (RESOLVED — 260716)
+
+**발견 경위:** FP-047 enforce 전제조건(A-1, 댓글 채널 로그·Telegram 원문 마스킹) 구현 중, ERR-066에서 만든 `_telegram_preview()`(DM 채널용, `modules/dm/dm_auto_reply.py`)를 댓글 채널에도 재사용하려고 `comment_auto_reply.py`에 `from modules.dm.dm_auto_reply import _telegram_preview`를 추가. 이후 `pytest tests/ -k comment` 실행 시 전체 테스트 수집이 1건의 ImportError로 중단됨.
+
+**Raw:**
+```
+ImportError: cannot import name 'process_comment_event' from partially initialized module
+'modules.comment.comment_auto_reply' (most likely due to a circular import)
+  modules/dm/__init__.py:1: from .dm_receiver import app, record_interaction
+  modules/dm/dm_receiver.py:24: from modules.comment.comment_auto_reply import process_comment_event, CommentProcessResult
+```
+
+**Root Cause:** `modules/dm/__init__.py`가 패키지 로드 시점에 `dm_receiver`를 즉시(eager) import하고, `dm_receiver.py`는 다시 `comment_auto_reply`를 import한다. 이 상태에서 `comment_auto_reply.py`가 `modules.dm.dm_auto_reply`를 import하려고 하면, Python은 특정 서브모듈만 로드하는 게 아니라 `modules.dm` 패키지(`__init__.py`) 전체를 먼저 실행하려 하고, 그 과정에서 아직 완성되지 않은(현재 import 진행 중인) `comment_auto_reply` 모듈을 다시 요구하게 되어 순환이 발생함.
+
+**Fix:** `_mask_igsid()`/`_telegram_preview()`(및 이들이 쓰는 PII 정규식)를 도메인 중립적인 신규 `modules/common/pii_mask.py`로 추출. `comment_auto_reply.py`는 `modules.common.pii_mask`에서 직접 import(`modules.dm` 패키지를 전혀 거치지 않음). `dm_auto_reply.py`는 기존 이름(`_mask_igsid`/`_telegram_preview`)을 `pii_mask` 모듈에서 재-import해 별칭으로 유지 — `dm_receiver.py` 등 기존 호출부는 변경 없이 그대로 동작. 이제 미사용이 된 `dm_auto_reply.py`의 `import re`도 함께 제거.
+
+**Prevention:** `__init__.py`가 형제 모듈들을 eager import하는 패키지(이 프로젝트의 `modules/dm/__init__.py`가 대표적 예 — `dm_receiver`/`dm_auto_reply`/`dm_followup_scheduler`를 전부 즉시 re-export)에서는, 그 패키지 밖의 다른 도메인이 "서브모듈 하나만" import해도 순환 위험이 생길 수 있음을 항상 의식할 것. 여러 도메인이 함께 쓸 유틸(마스킹, 포맷팅 등)은 처음부터 특정 도메인 패키지 안이 아니라 `modules/common/`에 둘 것 — 나중에 다른 도메인이 재사용하려 할 때마다 이런 순환을 새로 겪지 않도록.
+
+**관련:** FP-051, ERR-066(같은 클래스의 PII 마스킹 문제 계열)

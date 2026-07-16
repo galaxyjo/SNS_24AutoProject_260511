@@ -8,6 +8,11 @@ import pytest
 
 from modules.comment import comment_auto_reply
 
+# autouse _enable_auto_reply 픽스처가 모든 테스트에서 _send_telegram_comment를 no-op으로
+# 스텁하므로(아래), 실제 마스킹 동작 자체를 테스트하려면 스텁되기 전의 원본 함수 참조가
+# 필요하다 — 모듈 임포트 시점(픽스처 실행 전)에 미리 잡아둔다.
+_REAL_SEND_TELEGRAM_COMMENT = comment_auto_reply._send_telegram_comment
+
 
 class _FakeResponse:
     def __init__(self, payload=None, *, ok=True):
@@ -348,3 +353,44 @@ def test_negative_comment_skips_reply_path_entirely(monkeypatch):
     comment_auto_reply.handle_comment("c1", "buyer1", "사기 아니에요?", "media-campaign")
 
     assert called == []
+
+
+def test_handle_comment_logs_masked_preview_not_raw_text(monkeypatch, caplog):
+    """260716 회장 지시(A-1) — app.log에도 댓글 원문이 그대로 남으면 안 된다(ERR-066과
+    같은 클래스). _telegram_preview() 재사용: PII 정규식 마스킹 후 20자로 잘림."""
+    monkeypatch.setattr(comment_auto_reply.guard, "is_campaign_post", lambda m: False)
+    long_text = "제 번호는 010-1234-5678이니 여기로 꼭 연락 부탁드립니다"
+
+    with caplog.at_level("INFO", logger="modules.comment.comment_auto_reply"):
+        comment_auto_reply.handle_comment("c1", "buyer1", long_text, "media1")
+
+    combined = " ".join(r.message for r in caplog.records)
+    assert "010-1234-5678" not in combined, "전화번호가 로그에 그대로 남으면 안 됨"
+    assert long_text not in combined, "원문 전체가 로그에 그대로 남으면 안 됨(20자 미리보기여야 함)"
+
+
+def test_send_telegram_comment_masks_pii_and_truncates(monkeypatch):
+    """260716 회장 지시(A-1) — Telegram 본문에도 원문을 그대로 싣지 않는다. username(공개
+    IG 핸들)은 마스킹 대상에서 제외(회장 260716 확인)."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "12345")
+    sent = {}
+
+    class _Resp:
+        ok = True
+        status_code = 200
+        text = ""
+
+    def _fake_post(url, json, timeout):
+        sent["json"] = json
+        return _Resp()
+
+    monkeypatch.setattr(comment_auto_reply.requests, "post", _fake_post)
+
+    long_text = "제 번호는 010-1234-5678이니 여기로 꼭 연락 부탁드립니다"
+    _REAL_SEND_TELEGRAM_COMMENT(None, "c1", "buyer1", long_text, "new")
+
+    body = sent["json"]["text"]
+    assert "010-1234-5678" not in body, "전화번호가 마스킹 없이 그대로 노출되면 안 됨"
+    assert long_text not in body, "원문 전체가 그대로 실리면 안 됨(20자 미리보기여야 함)"
+    assert "@buyer1" in body, "username(공개 IG 핸들)은 마스킹 대상 아님"

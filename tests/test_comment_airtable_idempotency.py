@@ -1,6 +1,7 @@
 """tests/test_comment_airtable_idempotency.py — FP-047 Airtable 3-way 조회 + retry 경로 테스트."""
 
 import pytest
+from cryptography.fernet import Fernet
 
 from modules.comment import comment_auto_reply
 from modules.comment import comment_event_store as ces
@@ -12,6 +13,13 @@ def _isolated_db(tmp_path, monkeypatch):
     monkeypatch.setattr(ces, "_DB_PATH", db_path)
     monkeypatch.setattr(ces, "_conn", None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _enc_key(monkeypatch):
+    """260716 A-2 — retry payload 암호화 키. 개발자 로컬 .env 값에 의존하지 않도록
+    테스트마다 명시적으로 새 키를 설정(ambient .env 상태와 무관하게 결정적이어야 함)."""
+    monkeypatch.setenv("COMMENT_PAYLOAD_ENC_KEY", Fernet.generate_key().decode())
 
 
 class _FakeRepo:
@@ -147,7 +155,8 @@ class TestRecordCommentRetryPath:
             "claim_token": token,
             "comment_id":  "c1",
             "username":    "buyer1",
-            "text":        "가격문의",
+            "text_enc":    comment_auto_reply._encrypt_payload_text("가격문의"),
+            "enc_version": 1,
             "media_id":    "media1",
         })
 
@@ -230,7 +239,8 @@ class TestRecordCommentRetryPath:
             "claim_token": token,  # 옛(무효화된) token — 더 이상 사용 안 함
             "comment_id":  "c1",
             "username":    "buyer1",
-            "text":        "가격문의",
+            "text_enc":    comment_auto_reply._encrypt_payload_text("가격문의"),
+            "enc_version": 1,
             "media_id":    "media1",
         })
 
@@ -252,7 +262,8 @@ class TestRecordCommentRetryPath:
             "claim_token": token,
             "comment_id":  "c1",
             "username":    "buyer1",
-            "text":        "가격문의",
+            "text_enc":    comment_auto_reply._encrypt_payload_text("가격문의"),
+            "enc_version": 1,
             "media_id":    "media1",
         })
 

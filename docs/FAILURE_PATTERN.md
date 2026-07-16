@@ -646,3 +646,17 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** "감시/처리 대상 목록"을 정의할 때, 그 목록이 다른 변동 가능한 파생 지표(최근성, 개수 제한, 정렬 순서 등)에 암묵적으로 의존하고 있지 않은지 확인할 것. 운영자 의도를 담은 목록과 그 목록의 실행 범위를 결정하는 지표가 다른 소스라면, 반드시 명시적 동기화·검증 로직으로 둘을 묶어야 한다(이번엔 두 목록이 몇 달째 조용히 어긋나 있었는데도 발견되지 않았음 — 실사용자 테스트가 아니었다면 계속 몰랐을 것).
 
 **관련:** ERR-069, INC-038, FP-047
+
+## FP-051 | 다른 도메인 패키지 안의 유틸 함수를 재사용하려고 직접 import하면, 그 패키지의 `__init__.py`가 eager import하는 형제 모듈과 순환 임포트가 발생할 수 있다
+
+**발생일:** 260716, FP-047 enforce 전제조건(A-1, 댓글 채널 PII 마스킹 재사용) 구현 중 발견.
+
+**증상:** `comment_auto_reply.py`가 `modules.dm.dm_auto_reply`의 `_telegram_preview()`를 재사용하려고 `from modules.dm.dm_auto_reply import _telegram_preview`를 추가하자, `modules.dm.__init__`이 eager import하는 `dm_receiver.py`가 이미 `comment_auto_reply`를 import하고 있어 순환 발생(ERR-070 상세).
+
+**근본원인:** 패키지 경계를 넘어 유틸을 재사용할 때 "서브모듈 하나만 import한다"고 생각하기 쉽지만, Python은 상위 패키지의 `__init__.py`를 먼저 완전히 실행한다. 이 프로젝트의 `modules/dm/__init__.py`처럼 `__init__.py`가 이미 여러 형제 모듈(`dm_receiver`/`dm_auto_reply`/`dm_followup_scheduler`)을 eager re-export하고 있으면, 그 결합도가 겉으로 드러나지 않아 재사용 시점에야 순환이 드러난다.
+
+**해결:** 공용 유틸은 특정 도메인 패키지가 아니라 처음부터 `modules/common/`에 둘 것 — 이번엔 `modules/common/pii_mask.py`(신규)로 추출해 해소, 기존 호출부(`dm_auto_reply.py` 등)는 별칭 재-import로 하위호환 유지.
+
+**예방:** 도메인 A의 모듈이 도메인 B 패키지 내부 함수를 재사용하고 싶어지면, import를 추가하기 전에 "이게 정말 도메인 B 전용인가, 실은 공용 유틸인가"부터 판단할 것. 공용이면 `modules/common/`으로 먼저 옮기고 양쪽이 거기서 import하게 할 것. 특히 대상 패키지의 `__init__.py`가 형제 모듈들을 eager import하는 구조인지 먼저 확인할 것(이 프로젝트에 흔한 패턴이라 순환 위험이 특히 높음).
+
+**관련:** ERR-070

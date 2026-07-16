@@ -53,10 +53,13 @@ def _stub_effects(monkeypatch):
 @pytest.fixture
 def _enforce_ready(monkeypatch):
     """enforce 모드가 실제로 event_store 경로를 타려면 (1) 캠페인 게시물이어야 하고
-    (2) retry handler가 등록돼 있어야 한다(P0-5, 260715 — 전역이 아니라 캠페인
-    게시물 단위로 스코핑, handler 미등록 시 fail-fast로 legacy 폴백)."""
+    (2) retry handler가 등록돼 있어야 하고(P0-5, 260715 — 전역이 아니라 캠페인
+    게시물 단위로 스코핑, handler 미등록 시 fail-fast로 legacy 폴백) (3) 260716부터는
+    retry payload 암호화 키 검증(_cipher_verified)도 통과해야 한다(A-2, 안 통과 시
+    REJECTED_NOT_READY로 댓글 처리만 거부 — launcher 전체는 무관)."""
     monkeypatch.setattr(comment_auto_reply.guard, "is_campaign_post", lambda media_id: True)
     monkeypatch.setattr(comment_auto_reply, "_retry_handlers_registered", True)
+    monkeypatch.setattr(comment_auto_reply, "_cipher_verified", True)
 
 
 class TestKillSwitchModes:
