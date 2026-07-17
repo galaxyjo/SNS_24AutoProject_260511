@@ -1,19 +1,21 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260716_FP-047_구현+Package1_Phase_A_캠페인_allowlist_폴링_ (⚠️ 260706~260709 구간 여전히 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
+_마지막 업데이트: 260717_FP-047_enforce_전제조건_A+B_완료+ManyChat_kbeautiquewholesale_Canary_성공+RFC_웜핸드오프_설계변경_ (⚠️ 260706~260709 구간 여전히 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
 
 ## 현재 단계
-**FP-047(댓글 이벤트 idempotency) 실제 구현+커밋 완료(`disabled` 기본값) → shadow 모드 실계정 라이브 테스트로 E2E 검증 → 그 과정에서 발견한 신규 결함(ERR-069/FP-050/INC-038)을 Package 1(Phase A, 캠페인 allowlist 폴링)로 근본 수정, 커밋+push 완료(`legacy` 기본값, 운영 미전환)**
-- **FP-047 구현**(커밋 `00466a3`): GPT/Codex 12라운드 교차검토. 신규 `comment_event_store.py`(fencing token 원자적 claim), 단일 진입점 `process_comment_event()`(`COMMENT_EVENT_STORE_MODE`: disabled/shadow/enforce). `COMMENT_EVENT_STORE_MODE=disabled`로 커밋 — 운영 동작 무변화.
-- **shadow 모드 실계정 라이브 테스트(260715)**: `.env`를 `shadow`+`COMMENT_AUTO_REPLY_ENABLED=true`로 전환해 실제 테스트 계정(hsy00718g/jiho2987/reviewasiamarket 등) 댓글 → 실제 Private Reply DM 수신까지 회장 육안 확인(E2E PASS). 회장 지시로 비즈니스 정책도 이 세션에서 변경: 가격 키워드 한정 → 스팸/부정 댓글 외 전부 응답 대상으로 확대, 쿨다운 24h→0h, 일일예산 30→100000(사실상 무제한). **이 정책 변경(comment_auto_reply.py 일부)은 아직 미커밋 상태로 워킹트리에 남아있음** — Package 1 커밋(`eb98741`)에서 의도적으로 제외.
-- **ERR-069/FP-050/INC-038 발견**: 라이브 테스트 중 회장이 서로 다른 상품 게시물 2곳에 댓글을 남겼는데 1곳만 응답 — 조사 결과 `comment_poller.py`가 "최근 게시물 5개"만 폴링하고 있어, 캠페인 게시물(6개 등록)이 계정의 잦은 게시 빈도로 감시 범위 밖에 밀려나 있었음(웹훅도 이 계정에서 안정적으로 안 들어와 보완 안 됨). 실제 손님 문의 1건이 시스템에 아예 진입 못 하고 유실됨을 raw로 확인.
-- **Package 1(Phase A) 구현**(커밋 `eb98741`, push 완료): GPT 전략자문 1라운드("최근 N개" 폐기, 캠페인 목록 직접 폴링 전환 확정) + Codex 코드검수 9라운드(설계 아닌 구현 후 실제 코드 재현 기반). 신규 `comment_poll_targets.py`(media별 `PENDING_BASELINE→ACTIVE→PAUSED` 상태머신), `comment_campaign_config.py`(공용 loader), `tools/comment_campaign_baseline_cli.py`(media별 수동 cutover: `--dry-run`/`--apply --expected-config-hash`/`--verify`/`--activate --acknowledge-runtime-proof`). `COMMENT_POLL_ALLOWLIST_MODE=legacy`(기본값)로 커밋 — 감시 대상 선택은 기존 "최근 N개" 그대로 유지되나, 신규 fail-closed 안전 게이트(`_blocked_by_allowlist_gating()`)는 이미 활성(설정/DB 이상 시 처리 차단 가능 — "운영 동작 완전 무변화"는 아님).
-  - **9라운드 중 재현·수정된 핵심 버그**: PENDING media 새 댓글이 SHADOW_SEEN 태그로 영구 고착돼 나중에 ACTIVE 전환 후에도 처리 못 하는 버그(가장 심각, 응답 영구 유실), legacy 모드가 실수로 전체 페이지네이션을 써서 배포만으로 과거 댓글 대량발송 위험 재현, disabled 모드가 게이트 우회, JSON에서 방금 제거된 ACTIVE media가 DB 동기화 전까지 통과되는 경쟁 구간, `--activate` "경고만"의 위험성(allowlist+shadow+ACTIVE 조합이 다음 폴링 주기부터 실발송으로 이어짐 재현) — 전부 ERR-069/FP-050/`porting_logs/MERGE_JOURNAL.md`에 상세 기록.
-  - 신규 테스트 87개(FP-047 65개 별도), 전체 회귀 424 total/416 passed/5 failed(무관 기존 `test_dm_close.py` 4건 + flaky 후보 `test_review_grid_ui.py` 1건)/3 xfailed.
-- Gate C~G(260713~715, 이전 요약 그대로 유효) + Meta App Review(4개 권한 신청, 260715 00:35 제출)/ManyChat 전환 검토는 **여전히 미결론 — 다음 세션 최우선 확인 대상**.
-- 이전 마일스톤(260711 NSSM 전환, 260624 Repository Interface 전체 작업)은 그대로 유효.
+**FP-047 enforce 전제조건 A+B 모두 완료(코드 구현만, 운영 모드 전환은 미실행) → ManyChat 병행 전략 확정 및 1개 계정(kbeautiquewholesale) 실운영 Canary 성공 → DM_RELAY_COMMERCE_RFC 설계 방향 수정("웜 핸드오프") 확정, 파일 반영은 다음 세션 예정**
+
+- **FP-047 enforce 전제조건 A**(커밋 `ab3c25d`, 260716): 댓글 원문이 로그/Telegram/retry payload 3곳에 평문으로 남던 문제(ERR-066과 같은 클래스) 해소. 공용 마스킹 유틸 `modules/common/pii_mask.py`(신규, ERR-070/FP-051 순환임포트 해결 겸용) + Fernet 암호화(retry payload, `enc_version` 엄격검증, fail-closed). enforce 모드 키검증 실패 시 launcher 전체가 아니라 댓글 처리만 거부(blast radius 한정 원칙 확립).
+- **FP-047 enforce 전제조건 B**(커밋 `d456102`, 260716): `repository_interface.py`에 `verify_field_exists()` 추가, Airtable `Lead_Interactions.source_event_id` 필드 존재를 launcher 시작 시 Metadata API로 확인(startup preflight). A-2와 동일한 blast-radius 원칙 재사용.
+- **부수 발견 — ERR-071/FP-052**(커밋 `e70f733`): B단계 신규 테스트 파일 추가로 pytest 수집 순서가 바뀌며 무관 테스트 2건이 일시 실패 — 근본원인은 `comment_safety_guard.COOLDOWN_HOURS`가 모듈 import 시점에 실제 `.env`(현재 0) 값으로 고정되는 구조였음. 테스트에 명시적 override 추가로 해결, 전체 회귀 원래 베이스라인(4 failed, `test_dm_close.py`만 무관)으로 복귀 확인.
+- **커밋 4개 전부 push 완료**(210f72b~e70f733, origin/master와 동기화됨).
+- **ManyChat 전략 확정**: 자체 시스템과 ManyChat **병행 사용**(양자택일 아님) — 계정 1개(kbeautiquewholesale)는 ManyChat "Auto-DM links from comments"로 실운영 Canary 성공(실제 테스트 계정 댓글→Contact 등록→Inbox DM 확인). 도매/소매 qualifying 문구 반영("Wholesale"/"Retail" 표준 용어, "웜 핸드오프" 대화패턴 적용), FREE 플랜은 버튼 1개만 지원함을 확인(2버튼+태그 분기는 정식 Flow Builder 필요, 이번엔 버튼 1개+텍스트질문으로 타협). **남은 미완료: `View Details` 링크가 아직 `ubk.com` 플레이스홀더 — Shopify 결제 연동 완료 후 회장 직접 교체 예정.**
+- **ManyChat 1000계정 확장 비용조사**: FREE는 활성 contact 25개로 제한(2026-03 정책변경), 유료 최저 $14/월(워크스페이스=계정당 별도과금) — 1000계정이면 월 $14,000+로 "마중물" 전략에 경제적으로 불가능함을 확정. **결론: 소수 대표계정(kbeautiquewholesale 등)=ManyChat, 대량 확장(1000계정 목표)=자체 시스템 필수. 단, 자체 시스템으로 1000계정을 실제로 뒷받침하는 인프라 설계는 "지금 필요 없음"으로 판단(회장 260717 확정) — 계정 1~2개조차 아직 매출 전환 증거가 없어 ROI-Gated Rollout 원칙상 시기상조.**
+- **DM_RELAY_COMMERCE_RFC 설계 변경(260717, 파일 미반영 — 메모리만)**: 불변조건 #7("Supplier 답변 매번 회장님 수동승인") 폐기 → **"웜 핸드오프(Warm Handoff)"** 방식 확정 — Buyer 정보 확인 버튼 클릭이 트리거가 되어 실Supplier에게 DM 발송, 이후 Buyer↔Supplier 직접 소통. 불변조건 #1("Buyer에게 나가는 메시지는 항상 회장님 계정에서 발송")과 충돌 가능성 있어 재검토 필요. **다음 세션 최우선 작업: RFC 파일(`docs/design/DM_RELAY_COMMERCE_RFC.md`) 본문에 이 변경 정식 반영** — 세션 시작 프롬프트 이미 작성돼 회장님이 다음 세션 첫 메시지로 사용 예정.
+- Meta App Review(4개 권한 신청, 260715 제출)는 **260716 확인 시점 기준 "검토 진행 중"(20일 소요 예상), 여전히 미결론** — 다음 세션 재확인 대상.
+- Gate C~G(260713~715, 이전 요약 그대로 유효) + 이전 마일스톤(260711 NSSM 전환, 260624 Repository Interface 전체 작업)은 그대로 유효.
 
 ## 최종 확인 커밋
-eb98741 (fix(comment): add campaign allowlist polling checkpoint [260716], push 완료) — 직전 00466a3(FP-047 구현), 07e6521(ERR-066 PII 마스킹)도 이번에 함께 push됨
+e70f733 (test(comment): ERR-071 COOLDOWN_HOURS 테스트 격리 수정 [260716], push 완료) — 직전 d456102(FP-047 B), ab3c25d(FP-047 A), 210f72b(스팸/부정 댓글 필터)도 이번에 함께 push됨
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
@@ -139,11 +141,15 @@ eb98741 (fix(comment): add campaign allowlist polling checkpoint [260716], push 
 - ~~**[P2]** PENDING-A(NSSM 전환) 최종 결정 — 사용자 승인 필요~~ → **260711 완전 종결**(ERR-057/058 참조)
 - ~~**[P2 — 신규]** n8n(PID 10248 등) watchdog.ps1이 계속 재시작 시도·실패하며 알림만 반복 발생~~ → **260715 근본원인 확인**(ERR-065/FP-049/INC-037): LocalSystem 전환 후 npx 대화형 설치 프롬프트에서 좀비 프로세스 발생 가설(미확정), 성공 0건·실패 5,298건+ 누적. **Fix 미적용** — 회장 방침: 안정화 우선, n8n은 나중에 진행+설계(WF-01~05) 재검토 예정
 - ~~**[P0-1 → ERR-066, OPEN]** `dm_receiver.send_telegram()` IGSID·원문 무마스킹~~ → **260715 RESOLVED**(패키지 A1): `_mask_igsid()`/`_telegram_preview()` 재사용 적용 + DM 수신 로그 원문 완전 제거, Runtime Proof로 마스킹 확인, pytest 30 passed
-- ~~**[FP-047, OPEN, 재확인 260715]** 댓글 Airtable 기록(`_record_comment()`) 실패 시 예외를 삼키고 무조건 캐시에 처리완료로 남겨 재시도 없이 영구 유실~~ → **260715~716 코드 구현 완료**(커밋 `00466a3`): `comment_event_store.py` fencing claim + retry_queue 위임으로 근본 수정. `COMMENT_EVENT_STORE_MODE=disabled`(기본값)로 커밋 — enforce 전환 전 필수(OPEN): 댓글 원문 평문 저장(ERR-066과 같은 클래스), Airtable 필드 존재 startup preflight 미구현.
-- **[ERR-069/FP-050/INC-038, 코드 구현 완료·운영 미전환]** "최근 게시물 N개" 폴링 한도로 캠페인 댓글이 시스템 진입 자체를 못 하던 결함(실사용자 테스트로 발견) — Package 1(Phase A, 커밋 `eb98741`)로 근본 수정. `COMMENT_POLL_ALLOWLIST_MODE=legacy`(기본값)로 커밋 — **이 결함을 만든 "최근 N개" 방식이 여전히 운영 중**이라, allowlist 모드 전환 전까지는 동일 누락이 재발할 수 있음을 인지할 것. 전환 전 필수(OPEN, Codex와 Phase C/D로 명시 합의): 자동 Runtime Proof 시스템(launcher가 PID·boot_id·모드를 DB에 남기고 CLI가 교차검증 — 지금은 `--acknowledge-runtime-proof` 수동 선언만 존재), 위 FP-047 enforce 전제조건과 동일 항목(원문 평문 저장/Airtable preflight).
-- **[신규, 미커밋]** `modules/comment/comment_auto_reply.py`의 가격 키워드 확대(스팸/부정 제외 전부 응답 대상, 260715 회장 지시) + 쿨다운 0h·일일예산 사실상 무제한 — **`.env`에는 이미 반영돼 실제 shadow 모드로 라이브 테스트 완료(PASS)했으나, 코드(`.env.example` 아님 — 실제 로직 파일)는 Package 1 커밋에서 의도적으로 제외돼 아직 미커밋 상태**. 다음 세션에서 별도 커밋 여부 결정 필요.
-- **[ERR-064/FP-048/INC-036, OPEN]** 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장 웹훅 미도착(Standard Access 의심, 미확정) — Meta App Review 4개 권한 신청 제출(260715 00:35, 검토 중), ManyChat 우회 전환도 검토 후보. 24/7 자동화 핵심 전제("손님 답장 감지→AI 이어받기")에 직접 영향 가능한 리스크로 최우선 추적 필요 — **다음 세션 시작 시 Meta 대시보드에서 심사 결과부터 확인**.
+- ~~**[FP-047, OPEN, 재확인 260715]** 댓글 Airtable 기록(`_record_comment()`) 실패 시 예외를 삼키고 무조건 캐시에 처리완료로 남겨 재시도 없이 영구 유실~~ → **260715~716 코드 구현 완료**(커밋 `00466a3`): `comment_event_store.py` fencing claim + retry_queue 위임으로 근본 수정. `COMMENT_EVENT_STORE_MODE=disabled`(기본값)로 커밋 — enforce 전환 전 필수 항목이던 원문 평문 저장/Airtable preflight는 **260716~17 A+B로 완료**(아래 항목).
+- ~~**[enforce 전환 전 필수 A+B, OPEN]** 댓글 원문 평문 저장(ERR-066과 같은 클래스), Airtable 필드 존재 startup preflight 미구현~~ → **260716~17 코드 구현 완료**: A(커밋 `ab3c25d`, PII 마스킹+retry payload 암호화), B(커밋 `d456102`, `verify_field_exists()` startup preflight). **`COMMENT_EVENT_STORE_MODE`/`COMMENT_POLL_ALLOWLIST_MODE` 운영 모드 전환(enforce/allowlist)은 여전히 미실행 — 별도 승인 대상으로 남음.**
+- **[ERR-069/FP-050/INC-038, 코드 구현 완료·운영 미전환]** "최근 게시물 N개" 폴링 한도로 캠페인 댓글이 시스템 진입 자체를 못 하던 결함(실사용자 테스트로 발견) — Package 1(Phase A, 커밋 `eb98741`)로 근본 수정. `COMMENT_POLL_ALLOWLIST_MODE=legacy`(기본값)로 커밋 — **이 결함을 만든 "최근 N개" 방식이 여전히 운영 중**이라, allowlist 모드 전환 전까지는 동일 누락이 재발할 수 있음을 인지할 것. **Phase B(allowlist 전환·6개 media 순차 baseline) 자체는 아직 착수 안 함 — 별도 세션·별도 승인 대상.**
+- ~~**[신규, 미커밋]** `modules/comment/comment_auto_reply.py`의 가격 키워드 확대(스팸/부정 제외 전부 응답 대상, 260715 회장 지시) + 쿨다운 0h·일일예산 사실상 무제한~~ → **260716 커밋 완료**(`210f72b`, 스팸/부정 필터 강화와 함께 커밋됨).
+- **[ERR-064/FP-048/INC-036, OPEN — 부분 완화]** 앱 테스터 미등록 실계정과의 DM 왕복 시 손님 답장 웹훅 미도착(Standard Access 의심, 미확정) — Meta App Review 4개 권한 신청 260716 재확인 기준 "검토 진행 중"(최대 20일 소요, 여전히 미결론). **ManyChat 병행 전략 확정 + kbeautiquewholesale 1개 계정 실운영 Canary 성공**(Advanced Access라 이 문제 자체가 없음) — 완전한 대체는 아니지만 리스크 완화 경로 확보됨. Meta 심사 결과는 **다음 세션 시작 시에도 계속 확인 필요**.
 - ~~**[ERR-063]** `test_dm_rules.py` hang, 원인 UNKNOWN~~ → **260715 RESOLVED**: 실제 Gemini API 호출(`generate_reply()`)을 mock하지 않은 테스트 설계 누락 확인, 7.48초 재현 실증. 테스트에 mock 추가하는 실제 수정은 미착수(기록만)
+- ~~**[ERR-071/FP-052, OPEN]** 신규~~ → **260716 RESOLVED**: `comment_safety_guard.COOLDOWN_HOURS` 모듈 상수가 실제 `.env` 값에 고정되던 테스트 격리 버그, 커밋 `e70f733`로 해결.
+- **[신규, 260717]** DM_RELAY_COMMERCE_RFC 설계 변경(불변조건 #7 폐기→웜 핸드오프) — **파일 본문 미반영, 다음 세션 최우선 작업**. 불변조건 #1과의 충돌 가능성 재검토 필요.
+- **[신규, 260717]** ManyChat kbeautiquewholesale `View Details` 링크 — 아직 `ubk.com` 플레이스홀더, Shopify 결제 연동 완료 후 회장 직접 교체 예정(코드/승인 불필요, 순수 운영 작업).
 
 ## 절대 금지
 - 250723 삭제/dead 판정
