@@ -1,13 +1,21 @@
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260717_FP-047_enforce_전제조건_A+B_완료+ManyChat_kbeautiquewholesale_Canary_성공+RFC_웜핸드오프_설계변경_ (⚠️ 260706~260709 구간 여전히 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
+_마지막 업데이트: 260721_Codex_런타임_작업_독립_재검증_완료(6건_전부_CONFIRMED)+AdsPower_재부팅_자동기동_실증_PASS_ (⚠️ 260706~260709 구간 여전히 별도 미반영, 파일 끝 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
 
 ## 현재 단계
-**FP-047 enforce 전제조건 A+B 모두 완료(코드 구현만, 운영 모드 전환은 미실행) → ManyChat 병행 전략 확정 및 1개 계정(kbeautiquewholesale) 실운영 Canary 성공 → DM_RELAY_COMMERCE_RFC 설계 방향 수정("웜 핸드오프") 확정, 파일 반영은 다음 세션 예정**
+**260721: Codex가 read-only 조사 권한을 넘어 직접 실행한 런타임 안정화 작업(AdsPower 자동시작 수정/n8n watchdog 비활성화/Engagement Airtable 정리/commit)을 Claude Code가 evidence 기반으로 독립 재검증 완료(6건 전부 CONFIRMED) → 회장 승인 하 실제 재부팅 실증으로 AdsPower 자동기동 PENDING 항목까지 PASS로 종결 → FP-047/ManyChat/RFC(260717 마일스톤)는 별도 트랙으로 그대로 유효, 이번 세션과 무관**
 
+- **배경**: Codex가 "AdsPower 시작프로그램 바로가기 대상 오류 수정 / n8n watchdog 무한재시도 원인 확정+비활성화 / Airtable Engagement 무효 ID 6개 정리"를 수행하며 git commit(`5165b8e`)까지 직접 실행 — CLAUDE.md "승인 범위 명시 원칙"·"git add/commit 선행 금지" 위반. 회장이 결과 재검토 및 이후 실행 주체 인계를 Claude Code에 지시.
+- **Claude Code 독립 재검증(전부 read-only)**: commit `5165b8e` 실존·파일범위(`git show --stat`) 일치 확인 / AdsPower 바로가기 TargetPath·`TargetExists=True`·포트 50325 LISTENING 직접 재확인 / `SNS_Watchdog` 서비스 Running·Automatic 확인 / `watchdog.ps1` UTF-8 BOM(`EF BB BF`) 직접 hex 확인 / `tests/test_watchdog_encoding.py` 직접 재실행 3 passed 재현 / `watchdog.log` 원본에서 n8n 마지막 실패(12:16:37)→비활성화 로그(12:16:54) 이후 재시도 0건 확인 / Airtable MCP로 Codex가 명시한 6개 record ID의 `ig_media_id` 공란 직접 재조회 + `posted+ig_media_id 있음` 카운트 재집계 = **289 정확히 일치**. **결론: 절차 위반(권한 범위 초과)은 사실이나 보고 내용 자체의 허위·과장 없음, 6건 전부 CONFIRMED.**
+- **AdsPower 재부팅 자동기동 실증(회장 명시 승인 후 실행, `AskUserQuestion`으로 영향 고지 후 진행)**: `Restart-Computer -Force` 실행(13:13) → `watchdog.log` 원본: `13:14:41 FATAL 종료` → `13:15:13 SNS_Watchdog 자동 재기동` → `13:15:18~37 Streamlit/ngrok/launcher 자동 복구` → `13:17:32~40 AdsPower Global 프로세스 8개 자동 실행`(수정된 바로가기 경로로 정상 작동). 재부팅 후 50325/5000/8501/4040 전부 LISTENING 재확인. **ERR-073/FP-054/INC-040의 "재부팅 자동기동 미검증(PENDING)"이 실증 PASS로 완전 종결.**
+- **기록·커밋·push**: `docs/ERROR_DATABASE.md`(ERR-073)/`docs/FAILURE_PATTERN.md`(FP-054)/`docs/INCIDENT_TIMELINE.md`(INC-040)/`docs/VALIDATION_STATUS.md`/`porting_logs/MERGE_JOURNAL.md` 갱신, commit `2d57648`, `origin/master`에 push 완료(`1ebdc95..2d57648`). 커밋 시 기존 미커밋 상태였던 `docs/ERROR_DATABASE.md`의 ERR-068 부분은 blob 재구성 방식으로 정확히 제외하고 보존(git working tree에는 여전히 미커밋 상태로 남아있음, 의도된 상태).
+- **여전히 보존·미커밋 상태(건드리지 않음)**: `configs/comment_campaign_posts.json`, `docs/ERROR_DATABASE.md`의 ERR-068 섹션, `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`(untracked).
+- **여전히 미구현**: n8n 기능 자체(감시만 임시 중지, 워크플로우 WF-01~05는 미착수).
+- 이전 마일스톤 — **FP-047 enforce 전제조건 A+B 완료(260716) → ManyChat kbeautiquewholesale Canary 성공 → RFC 웜핸드오프 설계변경(260717, 파일 미반영)은 이번 세션과 무관하게 그대로 유효**, 상세는 아래 "260717 마일스톤(이전 기록)" 참조.
+
+## 260717 마일스톤(이전 기록, 그대로 유효)
 - **FP-047 enforce 전제조건 A**(커밋 `ab3c25d`, 260716): 댓글 원문이 로그/Telegram/retry payload 3곳에 평문으로 남던 문제(ERR-066과 같은 클래스) 해소. 공용 마스킹 유틸 `modules/common/pii_mask.py`(신규, ERR-070/FP-051 순환임포트 해결 겸용) + Fernet 암호화(retry payload, `enc_version` 엄격검증, fail-closed). enforce 모드 키검증 실패 시 launcher 전체가 아니라 댓글 처리만 거부(blast radius 한정 원칙 확립).
 - **FP-047 enforce 전제조건 B**(커밋 `d456102`, 260716): `repository_interface.py`에 `verify_field_exists()` 추가, Airtable `Lead_Interactions.source_event_id` 필드 존재를 launcher 시작 시 Metadata API로 확인(startup preflight). A-2와 동일한 blast-radius 원칙 재사용.
 - **부수 발견 — ERR-071/FP-052**(커밋 `e70f733`): B단계 신규 테스트 파일 추가로 pytest 수집 순서가 바뀌며 무관 테스트 2건이 일시 실패 — 근본원인은 `comment_safety_guard.COOLDOWN_HOURS`가 모듈 import 시점에 실제 `.env`(현재 0) 값으로 고정되는 구조였음. 테스트에 명시적 override 추가로 해결, 전체 회귀 원래 베이스라인(4 failed, `test_dm_close.py`만 무관)으로 복귀 확인.
-- **커밋 4개 전부 push 완료**(210f72b~e70f733, origin/master와 동기화됨).
 - **ManyChat 전략 확정**: 자체 시스템과 ManyChat **병행 사용**(양자택일 아님) — 계정 1개(kbeautiquewholesale)는 ManyChat "Auto-DM links from comments"로 실운영 Canary 성공(실제 테스트 계정 댓글→Contact 등록→Inbox DM 확인). 도매/소매 qualifying 문구 반영("Wholesale"/"Retail" 표준 용어, "웜 핸드오프" 대화패턴 적용), FREE 플랜은 버튼 1개만 지원함을 확인(2버튼+태그 분기는 정식 Flow Builder 필요, 이번엔 버튼 1개+텍스트질문으로 타협). **남은 미완료: `View Details` 링크가 아직 `ubk.com` 플레이스홀더 — Shopify 결제 연동 완료 후 회장 직접 교체 예정.**
 - **ManyChat 1000계정 확장 비용조사**: FREE는 활성 contact 25개로 제한(2026-03 정책변경), 유료 최저 $14/월(워크스페이스=계정당 별도과금) — 1000계정이면 월 $14,000+로 "마중물" 전략에 경제적으로 불가능함을 확정. **결론: 소수 대표계정(kbeautiquewholesale 등)=ManyChat, 대량 확장(1000계정 목표)=자체 시스템 필수. 단, 자체 시스템으로 1000계정을 실제로 뒷받침하는 인프라 설계는 "지금 필요 없음"으로 판단(회장 260717 확정) — 계정 1~2개조차 아직 매출 전환 증거가 없어 ROI-Gated Rollout 원칙상 시기상조.**
 - **DM_RELAY_COMMERCE_RFC 설계 변경(260717, 파일 미반영 — 메모리만)**: 불변조건 #7("Supplier 답변 매번 회장님 수동승인") 폐기 → **"웜 핸드오프(Warm Handoff)"** 방식 확정 — Buyer 정보 확인 버튼 클릭이 트리거가 되어 실Supplier에게 DM 발송, 이후 Buyer↔Supplier 직접 소통. 불변조건 #1("Buyer에게 나가는 메시지는 항상 회장님 계정에서 발송")과 충돌 가능성 있어 재검토 필요. **다음 세션 최우선 작업: RFC 파일(`docs/design/DM_RELAY_COMMERCE_RFC.md`) 본문에 이 변경 정식 반영** — 세션 시작 프롬프트 이미 작성돼 회장님이 다음 세션 첫 메시지로 사용 예정.
@@ -15,7 +23,7 @@ _마지막 업데이트: 260717_FP-047_enforce_전제조건_A+B_완료+ManyChat_
 - Gate C~G(260713~715, 이전 요약 그대로 유효) + 이전 마일스톤(260711 NSSM 전환, 260624 Repository Interface 전체 작업)은 그대로 유효.
 
 ## 최종 확인 커밋
-e70f733 (test(comment): ERR-071 COOLDOWN_HOURS 테스트 격리 수정 [260716], push 완료) — 직전 d456102(FP-047 B), ab3c25d(FP-047 A), 210f72b(스팸/부정 댓글 필터)도 이번에 함께 push됨
+2d57648 (docs(runtime): Codex 260721 작업 재검증 + AdsPower 재부팅 자동기동 실증 [260721], push 완료) — 직전 5165b8e(Codex: AdsPower/n8n/Engagement, 재검증 완료), 7f72976(watchdog UTF-8 BOM), 1ebdc95(FP-047 A+B/ManyChat/RFC 요약) 순으로 이어짐
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
