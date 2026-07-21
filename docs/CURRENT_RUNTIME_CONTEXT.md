@@ -19,7 +19,7 @@ _마지막 업데이트: 260721_Codex_런타임_작업_독립_재검증_완료(6
 - **ManyChat 전략 확정**: 자체 시스템과 ManyChat **병행 사용**(양자택일 아님) — 계정 1개(kbeautiquewholesale)는 ManyChat "Auto-DM links from comments"로 실운영 Canary 성공(실제 테스트 계정 댓글→Contact 등록→Inbox DM 확인). 도매/소매 qualifying 문구 반영("Wholesale"/"Retail" 표준 용어, "웜 핸드오프" 대화패턴 적용), FREE 플랜은 버튼 1개만 지원함을 확인(2버튼+태그 분기는 정식 Flow Builder 필요, 이번엔 버튼 1개+텍스트질문으로 타협). **남은 미완료: `View Details` 링크가 아직 `ubk.com` 플레이스홀더 — Shopify 결제 연동 완료 후 회장 직접 교체 예정.**
 - **ManyChat 1000계정 확장 비용조사**: FREE는 활성 contact 25개로 제한(2026-03 정책변경), 유료 최저 $14/월(워크스페이스=계정당 별도과금) — 1000계정이면 월 $14,000+로 "마중물" 전략에 경제적으로 불가능함을 확정. **결론: 소수 대표계정(kbeautiquewholesale 등)=ManyChat, 대량 확장(1000계정 목표)=자체 시스템 필수. 단, 자체 시스템으로 1000계정을 실제로 뒷받침하는 인프라 설계는 "지금 필요 없음"으로 판단(회장 260717 확정) — 계정 1~2개조차 아직 매출 전환 증거가 없어 ROI-Gated Rollout 원칙상 시기상조.**
 - **DM_RELAY_COMMERCE_RFC 설계 변경(260717, 파일 미반영 — 메모리만)**: 불변조건 #7("Supplier 답변 매번 회장님 수동승인") 폐기 → **"웜 핸드오프(Warm Handoff)"** 방식 확정 — Buyer 정보 확인 버튼 클릭이 트리거가 되어 실Supplier에게 DM 발송, 이후 Buyer↔Supplier 직접 소통. 불변조건 #1("Buyer에게 나가는 메시지는 항상 회장님 계정에서 발송")과 충돌 가능성 있어 재검토 필요. **다음 세션 최우선 작업: RFC 파일(`docs/design/DM_RELAY_COMMERCE_RFC.md`) 본문에 이 변경 정식 반영** — 세션 시작 프롬프트 이미 작성돼 회장님이 다음 세션 첫 메시지로 사용 예정.
-- Meta App Review(4개 권한 신청, 260715 제출)는 **260716 확인 시점 기준 "검토 진행 중"(20일 소요 예상), 여전히 미결론** — 다음 세션 재확인 대상.
+- Meta App Review(4개 권한 신청 — `instagram_manage_comments`/`instagram_content_publish`/`instagram_manage_messages`/`instagram_basic`, 260715 00:35 제출)는 **260721 13:45 회장 직접 재확인(스크린샷) 기준으로도 여전히 "검토 진행 중"(상태: 정상, 대부분 20일 이내 소요 예상)** — 이용 사례별로 제출한 동영상 검수도 아직 안 끝남. 260716 최초 확인 이후 6일째 미결론, 다음 세션에도 재확인 필요.
 - Gate C~G(260713~715, 이전 요약 그대로 유효) + 이전 마일스톤(260711 NSSM 전환, 260624 Repository Interface 전체 작업)은 그대로 유효.
 
 ## 최종 확인 커밋
