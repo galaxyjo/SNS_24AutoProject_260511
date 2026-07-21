@@ -883,6 +883,25 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 ---
 
+## ERR-074 | 학습용 사진 수집(`run_for_training_photos`)이 스케줄러에 연결되지 않아 260713 이후 8일간 신규 수집 0건 — 설계상 수동 1회성 러너만 존재
+
+**발견 경위:** 260721 21:24 회장이 대시보드 "학습 검토" 탭에서 전체 299건(PASS 56/BLOCK 243/PENDING 0, "검토할 것이 없습니다")을 보고 "학습이 멈췄다"고 지적 — read-only 조사 착수.
+
+**Raw:**
+- `launcher/main.py`, `core/run_engine.py`(APScheduler 잡 등록 파일) grep 결과 "training" 문자열 0건 — 두 스케줄러 어디에도 학습용 크롤 job 미등록.
+- `run_all_training_targets()`/`run_for_training_photos()`(`modules/sns/facebook_crawler.py`)의 유일한 호출부는 `tools/_run_training_photo_crawl.py` — 수동 실행 전용 러너.
+- 커밋 `17dae25`(260713) 메시지에 이미 "커밋되지 않은 1회성 러너 스크립트(`tools/_run_training_photo_crawl.py`, 반복 실행용이라 tools/ 관례대로 미커밋)"라고 명시 — 처음부터 사람이 매번 직접 실행하는 설계였음.
+- 로그(`logs/function/modules_sns_facebook_crawler.log.1`) 마지막 `[Training] 저장 완료`: 2026-07-13 00:32:17. 현재 로그 파일(260714~260721 21:19까지 계속 기록 중)에는 `[Training]` 태그 0건 — 반면 동일 파일의 `[FB Crawler]`(Instagram 업로드용)는 오늘도 정상 기록됨, 즉 시스템 장애가 아니라 이 스크립트만 재실행되지 않은 것.
+- Training_Review_Queue 현황(대시보드 260721 21:24 기준): 전체 299 / PASS 56 / BLOCK 243 / PENDING 0 — 260713 확보된 PENDING 107건(커밋 `17dae25` 기록)을 이후 8일간 리뷰 그리드로 전부 소진, 신규 보충 없음과 정확히 일치.
+
+**Root Cause:** 학습 데이터 "수집" 단계는 애초에 자동 반복 실행으로 설계되지 않았고, 사람이 필요할 때 `tools/_run_training_photo_crawl.py`를 수동 실행해야만 큐가 채워지는 구조. "리뷰/저장" 단계(그리드 UI, 배치 커밋, undo)는 ERR-059/FP-044로 안전성까지 하드닝됐으나, "수집" 단계의 반복 실행 설계는 애초에 범위 밖이었음.
+
+**Fix:** 미적용 — 회장 결정 대기 중(A: 수동 재실행 매번 명령 필요 / B: 스케줄러 자동화 신규 구현).
+
+**Prevention:** FP-056 참조.
+
+**관련:** ERR-059, FP-044, FP-056, INC-041
+
 ## ERR-059 | 학습 리뷰 그리드 실제 50건 저장 시 GET 재검증이 전부 "값 불일치"로 오탐 — 저장은 성공했으나 확인 로직이 예외를 은폐
 
 **발견 경위:** 260712 세션 — 학습 리뷰 그리드(Training_Review_Queue PASS/BLOCK, `modules/infra/review_grid_ui.py`) 실제 운영 50건 배치에서 사용자가 확정 버튼(44 BLOCK/6 PASS)을 클릭했으나 화면에 "저장 후 확인(GET)이 일치하지 않습니다" 오류와 함께 50개 record_id 전부가 나열됨. 사용자는 "실행이 잘 됐다는 내용이 안 나온다"고 보고.

@@ -1419,3 +1419,20 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 세션 종료 시 일괄 push(또는 다음 세션)
 
 ---
+
+### 학습용 Training_Review_Queue 정체 원인 조사 — 스케줄러 미연결 확인 (2026-07-21 21:40 KST)
+
+회장이 대시보드 "학습 검토" 탭에서 전체 299건(PASS 56/BLOCK 243/PENDING 0, "검토할 것이 없습니다")을 보고 "학습이 멈췄다"고 지적, read-only 조사 진행.
+
+**조사 결과:** `run_for_training_photos()`/`run_all_training_targets()`(`modules/sns/facebook_crawler.py`)를 호출하는 곳이 `launcher/main.py`/`core/run_engine.py`(APScheduler 등록 파일) 어디에도 없음(grep "training" 0건). 유일한 호출부는 `tools/_run_training_photo_crawl.py` — 260713 커밋(`17dae25`) 메시지에 이미 "반복 실행용이라 tools/ 관례대로 미커밋"이라고 명시된 수동 전용 러너. 로그(`logs/function/modules_sns_facebook_crawler.log.1`) 확인 결과 마지막 `[Training] 저장 완료`는 2026-07-13 00:32:17, 이후 현재 로그 파일(260714~260721 21:19까지 계속 기록 중)에 `[Training]` 태그 0건 — 같은 파일의 `[FB Crawler]`(Instagram 업로드용 크롤링)는 오늘도 정상 기록돼, 시스템 장애가 아니라 이 스크립트만 8일간 재실행되지 않은 것으로 확정. 대시보드 숫자(전체 299=260713 확보 PENDING 107건 포함 누적분을 8일간 리뷰로 전부 소진, PENDING 0)와 정확히 일치.
+
+**결론:** 버그 아님 — 학습 데이터 "수집" 단계는 애초에 반복 자동 실행으로 설계된 적이 없고, "필요할 때 사람이 직접 실행하는 도구"로 처음부터 설계됨. "리뷰/저장" 단계(그리드, 배치 커밋, undo)만 ERR-059/FP-044로 안전성 하드닝이 됐을 뿐, 수집 단계의 자동화는 설계 범위 밖이었음.
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-074) / `docs/FAILURE_PATTERN.md`(FP-056) / `docs/INCIDENT_TIMELINE.md`(INC-041) / `docs/VALIDATION_STATUS.md` 신규 추가.
+
+**다음 결정(회장 선택 대기):** A(수동 재실행, 매번 명령 필요) 또는 B(스케줄러 자동화 신규 구현 — Runtime 스케줄러 변경이라 CLAUDE.md 기준 Codex 리뷰 필수 High-Risk 대상, 예상 1세션 분량)
+
+commit: 이 기록과 함께 커밋 예정
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식)
+
+---
