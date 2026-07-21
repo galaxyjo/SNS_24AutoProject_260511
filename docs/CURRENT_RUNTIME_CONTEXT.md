@@ -11,6 +11,7 @@ _마지막 업데이트: 260721_Codex_런타임_작업_독립_재검증_완료(6
 - **여전히 보존·미커밋 상태(건드리지 않음)**: `configs/comment_campaign_posts.json`, `docs/ERROR_DATABASE.md`의 ERR-068 섹션, `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`(untracked).
 - **여전히 미구현**: n8n 기능 자체(감시만 임시 중지, 워크플로우 WF-01~05는 미착수).
 - 이전 마일스톤 — **FP-047 enforce 전제조건 A+B 완료(260716) → ManyChat kbeautiquewholesale Canary 성공 → RFC 웜핸드오프 설계변경(260717, 파일 미반영)은 이번 세션과 무관하게 그대로 유효**, 상세는 아래 "260717 마일스톤(이전 기록)" 참조.
+- **[신규 백로그, 260721 13:51 회장 지정] 옴니채널 메시징(Omnichannel Messaging)**: 카카오톡/WhatsApp/Messenger 등 여러 채널로 들어오는 DM을 하나로 맵핑해 통합 대화 스레드로 응대하는 기능(에어비앤비 호스트-게스트 메시징 방식 참고). **현재 미구현 확인**(코드 전수조사 결과 — `modules/sns/content_filter.py`의 kakao/whatsapp/zalo/line 관련 코드는 FB 크롤링 중 판매자 연락처 노출을 걸러내는 스팸필터일 뿐, 실제 그 채널의 DM을 수신·통합하는 기능이 아님. 현재 실제로 살아있는 채널은 Instagram DM 1개뿐). 회장이 작업 착수를 지시했으나, 채널별로 각각 별도 Business API 심사(WhatsApp Business Platform/Kakao 비즈니스 채널/Messenger Platform)가 필요해 지금 진행 중인 Meta App Review(6일째 대기)와 유사한 규모의 대기시간이 각 채널마다 추가로 발생할 가능성이 높음 — 착수 전 회장과 범위·우선순위 재확인 필요(다음 세션 시작 시 first-touch 대상).
 
 ## 260717 마일스톤(이전 기록, 그대로 유효)
 - **FP-047 enforce 전제조건 A**(커밋 `ab3c25d`, 260716): 댓글 원문이 로그/Telegram/retry payload 3곳에 평문으로 남던 문제(ERR-066과 같은 클래스) 해소. 공용 마스킹 유틸 `modules/common/pii_mask.py`(신규, ERR-070/FP-051 순환임포트 해결 겸용) + Fernet 암호화(retry payload, `enc_version` 엄격검증, fail-closed). enforce 모드 키검증 실패 시 launcher 전체가 아니라 댓글 처리만 거부(blast radius 한정 원칙 확립).
