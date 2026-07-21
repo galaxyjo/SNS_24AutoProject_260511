@@ -384,6 +384,16 @@
 **Evidence:** PATCH 200 OK / 다음 실행부터 해당 레코드 engagement_tracker 조회 제외
 **관련:** INC-021
 
+**260721 재발·해결:** Engagement 실행 중 동일 `GraphMethodException code=100 / subcode=33`이 4개 ID에서 다시 관측되어 전체 범위를 read-only 배치 조사. Airtable `posted + ig_media_id 있음` 291개 중 Graph API 접근 가능 285개, 접근 불가 6개로 확정했다. 계정 ID·토큰은 정상(`INSTA_IG_USER_ID` 계정 조회 성공, 최근 media 100개 조회 성공)이며 6개만 개별 조회도 모두 100/33이었다. 승인 후 아래 레코드의 현재 ID·`posted` 상태가 예상값과 일치할 때만 `ig_media_id`를 공란 처리하고 각 레코드를 재조회해 6/6 `null` 확인.
+- `rec2v96YaBLQJvLyl` — `18071004683495931`
+- `recCv8cUnDUf2oZR9` — `17880870432453703`
+- `recFMnnjmU94erZs5` — `18444932203139480`
+- `recFyw7OUaZ666JDJ` — `18101360630320704`
+- `recsmA4WIlrur1wHO` — `18105411013959035`
+- `recw3EHD8d9uiP2FX` — `18122871268709171`
+
+정리 직후 Engagement 대상은 289개로 확인됐는데, 기존 정상 285개에 260721 12:23경 신규 게시물 4개가 추가된 결과였다. 현재 289개 전체를 Graph API 배치 재검증해 **available=289 / unavailable=0** 확인. ERR-039 패턴 재발은 해소됨.
+
 ---
 
 ## ERR-040 | post_status Single Select 옵션 소실
@@ -1021,6 +1031,8 @@ Get-ScheduledTask -TaskName "SNS_AUTO_PRODUCTION","SNS_Auto_Run" | Select-Object
 
 **Fix:** 미실행. 회장 방침(260715): n8n은 워크플로우 미구현 상태이며 안정화 작업을 우선 완료한 뒤 n8n 진행 예정, 설계(WF-01~05) 자체도 재검토 예정 — 이번엔 코드/프로세스 변경 없이 기록만 남김.
 
+**260721 Root Cause 확정·임시 조치:** LocalSystem 기준 경로에는 `n8n.cmd`가 없고(`C:\Windows\System32\config\systemprofile\AppData\Roaming\npm\n8n.cmd=False`), admin 사용자 경로에만 존재(`C:\Users\admin\AppData\Roaming\npm\n8n.cmd=True`)함을 직접 확인. `watchdog.ps1`은 PATH에서 찾은 `C:\Program Files\nodejs\npx.cmd`로 `npx n8n start`를 실행하므로, LocalSystem 컨텍스트에서 n8n을 찾지 못해 `Need to install ... Ok to proceed? (y)`로 진입하는 원인이 확정됐다. `N8N_WATCHDOG_ENABLED` feature flag를 추가해 기본값 `false`로 감시·재시작·Slack 경고를 임시 중지하고 `.env.example`에도 등록. `tests/test_watchdog_encoding.py` 포함 타깃 테스트 3 passed, PowerShell Parser 오류 0, 서비스 재시작 후 12:16:54 비활성화 로그 확인. 마지막 실패 12:16:38 이후 heartbeat만 지속되고 추가 n8n 재시도 0건. **n8n 기능 자체는 여전히 미구현·미기동이며 이 조치는 알림/프로세스 누적을 막는 임시 완화다.**
+
 **Prevention(제안, 미실행 — 추후 n8n 재개 시 검토):**
 - 워크플로우가 실제로 구현되기 전까지는 `watchdog.ps1`의 n8n 감시 블록(240~256행)을 비활성화하거나 알림 빈도를 제한해 Slack 알림 잡음(5,298건 누적)을 줄일 것
 - 재개 시 `Start-N8n`을 `npx --yes n8n start`로 변경하거나, 사전에 `npm install -g n8n`으로 로컬 확정 설치 후 `npx` 대신 `n8n start`를 직접 호출하는 방식 검토
@@ -1169,3 +1181,5 @@ ImportError: cannot import name 'process_comment_event' from partially initializ
 **Prevention:** LocalSystem 서비스에서 GUI 앱을 무리하게 직접 실행하지 말고, 사용자 로그인 세션에서의 AdsPower 자동 시작 또는 별도 readiness gate를 설계해야 한다. launcher가 크롤링 직전에 50325 상태를 명확히 기록·알림하고, 의존성이 없을 때 4개 URL을 연속 실패시키는 대신 단일 원인으로 종료하는 개선도 후보. 실제 자동기동 구현은 이번 커밋 범위 밖이다.
 
 **관련:** FP-054, INC-040, ERR-058(Session 0/LocalSystem과 AdsPower 실행 컨텍스트 참고)
+
+**260721 추가 조사·해결:** 공용 시작프로그램에 `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\AdsPower.lnk`가 이미 있었으나, 대상이 존재하지 않는 `C:\Program Files\AdsPower Global\AdsPower.exe`였고 실제 설치 파일은 `AdsPower Global.exe`였다. 관리자 승인으로 바로가기 TargetPath를 `C:\Program Files\AdsPower Global\AdsPower Global.exe`로 수정하고 `TargetExists=True` 재확인. AdsPower 실행 후 50325 LISTENING, 다음 예약 FB 크롤링(12:03:48~12:07:02) 4개 그룹 전체 연결 성공·총 1건 처리로 E2E PASS. **다음 실제 로그인/재부팅에서 자동실행되는지는 아직 미검증(PENDING).**

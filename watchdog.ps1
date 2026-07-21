@@ -11,15 +11,26 @@ try {
 
 Set-Location $PSScriptRoot
 
+$envFile = Join-Path $PSScriptRoot ".env"
+
 # .env에서 SLACK_WEBHOOK_URL 로드 (시스템 환경변수 미설정 시 폴백)
 if (-not $env:SLACK_WEBHOOK_URL) {
-    $envFile = Join-Path $PSScriptRoot ".env"
     if (Test-Path $envFile) {
         Get-Content $envFile | Where-Object { $_ -match '^SLACK_WEBHOOK_URL\s*=' } | ForEach-Object {
             $env:SLACK_WEBHOOK_URL = ($_ -split '=', 2)[1].Trim()
         }
     }
 }
+
+# n8n은 운영 미승인 상태이므로 기본 비활성화. 환경변수 또는 .env에서 true일 때만 감시한다.
+$n8nWatchdogRaw = $env:N8N_WATCHDOG_ENABLED
+if (-not $n8nWatchdogRaw -and (Test-Path $envFile)) {
+    $n8nWatchdogLine = Get-Content $envFile | Where-Object { $_ -match '^N8N_WATCHDOG_ENABLED\s*=' } | Select-Object -First 1
+    if ($n8nWatchdogLine) {
+        $n8nWatchdogRaw = ($n8nWatchdogLine -split '=', 2)[1].Trim()
+    }
+}
+$N8N_WATCHDOG_ENABLED = $n8nWatchdogRaw -match '^(true|1|yes|on)$'
 
 $python      = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $streamlit   = Join-Path $PSScriptRoot ".venv\Scripts\streamlit.exe"
@@ -159,6 +170,9 @@ function Start-N8n {
 }
 
 Write-Log "===== watchdog 시작 (주기: ${POLL_SEC}초 / 연속실패알림: ${FAIL_ALERT_TH}회) ====="
+if (-not $N8N_WATCHDOG_ENABLED) {
+    Write-Log "[INFO] n8n watchdog 감시 비활성화 — N8N_WATCHDOG_ENABLED=false"
+}
 
 try {
     while ($true) {
@@ -237,19 +251,23 @@ try {
                 Register-Success "Launcher"
             }
 
-            # --- n8n 감시 (HTTP 헬스체크) ---
-            if (-not (Test-Http $N8N_URL)) {
-                Write-Log "[WARN] n8n 응답 없음 — 재시작 시도"
-                Send-SlackAlert "n8n 응답 없음 — 재시작 시도" "warning"
-                Start-N8n
-                if (Test-Http $N8N_URL) {
-                    Write-Log "[OK]   n8n 재시작 성공"
-                    Send-SlackAlert "n8n 재시작 성공" "success"
-                    Register-Success "N8n"
+            # --- n8n 감시 (운영 승인 전 기본 비활성화) ---
+            if ($N8N_WATCHDOG_ENABLED) {
+                if (-not (Test-Http $N8N_URL)) {
+                    Write-Log "[WARN] n8n 응답 없음 — 재시작 시도"
+                    Send-SlackAlert "n8n 응답 없음 — 재시작 시도" "warning"
+                    Start-N8n
+                    if (Test-Http $N8N_URL) {
+                        Write-Log "[OK]   n8n 재시작 성공"
+                        Send-SlackAlert "n8n 재시작 성공" "success"
+                        Register-Success "N8n"
+                    } else {
+                        Write-Log "[ERROR] n8n 재시작 실패 — logs/n8n.log 확인 필요"
+                        Send-SlackAlert "n8n 재시작 실패 — logs/n8n.log 확인 필요" "error"
+                        Register-Failure "N8n"
+                    }
                 } else {
-                    Write-Log "[ERROR] n8n 재시작 실패 — logs/n8n.log 확인 필요"
-                    Send-SlackAlert "n8n 재시작 실패 — logs/n8n.log 확인 필요" "error"
-                    Register-Failure "N8n"
+                    Register-Success "N8n"
                 }
             } else {
                 Register-Success "N8n"

@@ -42,3 +42,11 @@ def test_watchdog_parses_in_windows_powershell():
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_n8n_watchdog_is_disabled_by_default_and_guarded():
+    source = WATCHDOG.read_text(encoding="utf-8-sig")
+
+    assert "$N8N_WATCHDOG_ENABLED = $n8nWatchdogRaw -match" in source
+    assert "if ($N8N_WATCHDOG_ENABLED) {" in source
+    assert "N8N_WATCHDOG_ENABLED=false" in source

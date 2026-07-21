@@ -5,6 +5,34 @@
 
 ---
 
+### AdsPower 자동시작 수정 + n8n 감시 임시 중지 + Engagement 무효 ID 정리 (2026-07-21)
+
+**AdsPower — ERR-073/FP-054/INC-040:**
+- 공용 시작프로그램 `AdsPower.lnk`의 대상이 존재하지 않는 `C:\Program Files\AdsPower Global\AdsPower.exe`였고, 실제 설치 파일은 `AdsPower Global.exe`임을 확인.
+- 승인 후 바로가기 TargetPath를 실제 실행파일로 수정, `TargetExists=True`와 50325 LISTENING 확인.
+- 다음 예약 FB 크롤링(12:03:48~12:07:02)에서 4개 그룹 연결 성공·총 1건 처리로 E2E PASS. 다음 실제 로그인/재부팅 자동실행은 PENDING.
+
+**n8n — ERR-065/FP-049/INC-037:**
+- LocalSystem에는 `n8n.cmd`가 없고 admin 프로필에만 존재. watchdog의 `npx n8n start`가 `Need to install ... Ok to proceed? (y)`로 진입하는 근본원인 확정.
+- `watchdog.ps1`에 `N8N_WATCHDOG_ENABLED` feature flag를 추가하고 기본값 `false`, `.env.example`에 운영 예시 등록. 미완성 n8n의 감시·재시작·Slack 경고만 임시 중지.
+- UTF-8 BOM 유지, Windows PowerShell Parser 오류 0, 타깃 테스트 3 passed. SNS_Watchdog 재시작 후 12:16:54 비활성화 로그, 마지막 실패 12:16:38 뒤 추가 재시도 0건. 8501/4040 HTTP 200, Flask 5000 LISTENING(루트는 404), 5678 closed(의도된 상태).
+
+**Engagement — ERR-039/FP-055/INC-021:**
+- Airtable `posted + ig_media_id` 291개 전체 검사: Graph API available 285 / unavailable 6. 계정·토큰·최근 media 조회는 정상이고 6개만 개별 `100/33`.
+- 승인 후 6개 레코드의 ID·`posted` 상태가 예상값과 일치할 때만 `ig_media_id` 공란 처리, 6/6 `null` 재확인.
+- 조사 중 신규 게시물 4개가 추가되어 최종 대상 289개. 289/289 Graph API 접근 가능, unavailable 0으로 PASS.
+
+**변경 범위:**
+- 코드/설정/테스트: `watchdog.ps1`, `.env.example`, `tests/test_watchdog_encoding.py`.
+- 외부 상태: AdsPower 공용 시작프로그램 바로가기 1개, Airtable `Instagram_Posts.ig_media_id` 6개.
+- 의무기록 5종: ERR-039/065/073, FP-049/054/055, INC-021/037/040, `VALIDATION_STATUS.md`, 본 파일.
+- 기존 사용자 변경 `configs/comment_campaign_posts.json`, `docs/ERROR_DATABASE.md`의 ERR-068, `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`는 보존하고 이번 커밋에서 제외.
+
+commit: 본 기록·코드·테스트만 선택해 단일 커밋(최종 해시는 `git log`로 확인)
+push: 범위 밖
+
+---
+
 ### Watchdog UTF-8 BOM cold-start 복구 + AdsPower 부팅 의존성 조사 (2026-07-21)
 
 노트북 부팅 후 `SNS_Watchdog=Paused`, 5000/8501/4040 전체 닫힘 상태를 재검사. 단순 서비스 일시중지가 아니라 NSSM이 `watchdog.ps1` 실행 실패 후 `AppRestartDelay=60000`으로 재시도 대기하는 상태임을 Application 이벤트로 확정했다.
