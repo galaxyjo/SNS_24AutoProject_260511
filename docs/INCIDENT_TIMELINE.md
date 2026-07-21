@@ -629,3 +629,27 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-050 참조.
 
 **관련:** ERR-069, FP-050, FP-047
+
+## INC-039 | 부팅 후 watchdog 파서 오류로 핵심 서비스 자동복구 실패 (2026-07-21 11:07경 ~ 11:32:16)
+
+**발생:** 노트북 부팅 후 NSSM `SNS_Watchdog`는 Automatic으로 시작됐으나, BOM 없는 한글 포함 `watchdog.ps1`을 Windows PowerShell 5.1이 잘못 해석해 매번 1.5초 이내 종료 코드 1로 종료. NSSM이 60초 재시작 지연 중 `Paused`로 표시되며 반복 재시도.
+
+**영향:** 부팅 후 약 25분간 Streamlit 8501, Flask 5000, ngrok 4040이 모두 닫혀 대시보드 접근·DM 웹훅 수신·스케줄 작업이 중단됨. 노트북이 실제로 꺼져 있던 260716~260721 구간은 시스템이 실행될 수 없는 사용자 의도 정지이므로 이 인시던트의 자동복구 실패 시간 계산에서 제외.
+
+**해결:** `watchdog.ps1`에 UTF-8 BOM 추가. NSSM의 다음 자동 재시도에서 11:32:16 새 watchdog 시작 배너 확인, Streamlit/ngrok/launcher 순차 자동복구, 5000/8501/4040 HTTP 200 확인. `tests/test_watchdog_encoding.py` 2건 추가·통과.
+
+**재발 방지:** FP-053 참조. 실제 OS 재부팅 실증은 이번 세션에서 수행하지 않았으며 다음 계획된 재부팅 때 확인 필요.
+
+**관련:** ERR-072, FP-053
+
+## INC-040 | watchdog 복구 후 첫 Facebook 크롤링이 AdsPower 미기동으로 4개 그룹 전부 실패 (2026-07-21 11:33:48 ~ 11:34:17)
+
+**발생:** launcher 복구 직후 예약된 `_job_fb_crawl`이 실행됐으나 AdsPower Local API 50325가 열려 있지 않아 4개 대상 모두 `WinError 10061`로 실패, 결과 0건.
+
+**영향:** 해당 사이클에서 신규 Facebook 콘텐츠 수집이 전혀 이루어지지 않음. 다른 핵심 서비스(대시보드/Flask/ngrok)는 정상 유지.
+
+**해결:** AdsPower 앱을 사용자 세션에서 실행해 50325 LISTENING 복구. **다음 크롤링 사이클의 E2E 성공은 아직 미확인**이며, 자동기동 구조도 미구현.
+
+**재발 방지:** FP-054 참조. LocalSystem watchdog과 사용자 세션 GUI 앱의 실행 컨텍스트를 분리한 자동기동/readiness 설계가 필요.
+
+**관련:** ERR-073, FP-054, ERR-058

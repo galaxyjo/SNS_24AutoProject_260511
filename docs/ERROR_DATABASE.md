@@ -1131,3 +1131,41 @@ ImportError: cannot import name 'process_comment_event' from partially initializ
 **Prevention:** 모듈 레벨 상수를 실제(변경 가능한) `.env`/설정값에서 import 시점에 읽어오는 코드가 있다면, 그 상수를 사용하는 모든 테스트는 반드시 `monkeypatch.setattr()`로 명시 고정할 것 — "이 파일의 다른 테스트가 이미 하고 있으니 나도 괜찮겠지"라고 안 하고 파일 안의 모든 테스트에 일관 적용해야 한다(이번에 정확히 그 누락으로 발생). 신규 테스트 파일을 추가할 때는 그것만으로 기존 테스트의 pytest 수집 순서가 바뀔 수 있다는 점도 인지할 것 — "내가 만든 코드는 안 건드렸다"가 "회귀 없음"의 증거가 아니다.
 
 **관련:** ERR-070(같은 세션에서 발견된 또 다른 테스트 인프라 문제), FP-052
+
+## ERR-072 | BOM 없는 한글 포함 `watchdog.ps1`을 Windows PowerShell 5.1이 재기동 시 오해석해 NSSM이 60초마다 종료 코드 1로 재시작 (RESOLVED — 260721)
+
+**발견 경위:** 260721 노트북 부팅 후 대시보드·Flask·ngrok이 모두 내려간 상태에서 `SNS_Watchdog`가 `Paused`로 보임. 단순 일시중지로 판단해 `CONTINUE`, `Restart-Service`, `STOP→START`를 시도했으나 새 PID가 생긴 직후 다시 `Paused`로 돌아가 원인 조사.
+
+**Raw:**
+- NSSM Application 이벤트: `powershell.exe ... -File ...\watchdog.ps1`가 매번 1.5초 이내 `return code 1`로 종료, `AppRestartDelay=60000` 때문에 재시도 사이에 서비스가 `PAUSED`로 표시됨.
+- 수정 전 첫 4바이트: `23 20 77 61`(UTF-8 BOM 없음).
+- Windows PowerShell `5.1.26100.8894`의 `Parser.ParseFile()` 결과: 닫히지 않은 문자열, 누락된 `}`, try에 대응하는 catch/finally 없음 등 4개 파싱 오류.
+- 같은 파일을 `Get-Content -Raw -Encoding UTF8`로 읽어 `Parser.ParseInput()`에 전달하면 오류 `0개` — 코드 블록 자체가 아니라 파일 디코딩 경로 문제임을 격리.
+- BOM 추가 후 첫 3바이트 `EF BB BF`, `Parser.ParseFile()` 오류 `0개`.
+- NSSM 자동 재시도 후 `SNS_Watchdog=Running`, watchdog 새 시작 배너 `2026-07-21 11:32:16`, 5000/8501/4040 HTTP 200 확인.
+
+**Root Cause:** 한글·긴 대시 등 비ASCII 문자가 들어 있는 `watchdog.ps1`이 BOM 없는 UTF-8로 저장되어, Windows PowerShell 5.1 `-File` 경로가 현재 부팅 환경에서 파일을 시스템 코드페이지로 잘못 해석했다. 그 결과 문자열 경계가 깨져 실행 전 파서 단계에서 종료 코드 1이 발생했다. **과거에는 같은 파일이 실행됐는데 이번 재기동에서 처음 실패한 정확한 환경 차이는 증거 부족으로 UNKNOWN**이며, "기존 프로세스가 이미 메모리에 읽어 둔 상태였다"는 설명은 가능한 가설일 뿐 확정 근거가 아니다.
+
+**Fix:** `watchdog.ps1` 선두에 UTF-8 BOM 추가. `tests/test_watchdog_encoding.py` 신규 추가 — (1) BOM 바이트 직접 검증, (2) Windows PowerShell 5.1 `Parser.ParseFile()` 실제 실행 검증. 타깃 테스트 `2 passed`.
+
+**Prevention:** 한글 포함 Windows PowerShell 5.1 실행 스크립트는 BOM을 배포 계약으로 고정하고, cold start 전에 실제 `ParseFile()` 검사를 통과해야 한다. 단순 텍스트 diff만으로는 BOM 소실을 놓칠 수 있으므로 바이트 검사와 런타임 파서 검사를 함께 유지한다. 실제 OS 재부팅 실증은 이번 작업에서 수행하지 않았으며 다음 계획된 재부팅 때 별도 확인한다.
+
+**관련:** FP-053, INC-039
+
+## ERR-073 | 부팅 후 AdsPower가 실행되지 않아 Facebook 크롤링 4개 대상이 모두 Local API 연결 거부로 실패 (RECOVERED, 자동기동 미해결 — 260721)
+
+**발견 경위:** watchdog 복구 직후 launcher가 예약된 FB 크롤링을 실행했지만 Airtable에서 읽은 4개 그룹 모두 `WinError 10061`로 실패. 현재 활성 진입점 `launcher/main.py → modules.sns.facebook_crawler`와 실제 의존 포트 `local.adspower.net:50325`를 확인.
+
+**Raw:**
+- 실패 시 AdsPower 관련 프로세스 없음, 50325 LISTENING 없음.
+- `app.log` 11:34:01~11:34:17: 그룹 4개 모두 `<urlopen error [WinError 10061] 대상 컴퓨터에서 연결을 거부>`; 결과 `account1: 0`.
+- 설치 실행파일: `C:\Program Files\AdsPower Global\AdsPower Global.exe`.
+- AdsPower UI 실행 후 창 제목 `AdsPower Browser | 8.4.3 | 2.8.6.9`, `0.0.0.0:50325 LISTENING` 확인.
+
+**Root Cause:** FB 크롤러는 AdsPower Local API가 먼저 실행 중이어야 하지만, 노트북 부팅 후 AdsPower가 자동 실행되지 않았다. 현재 watchdog은 Streamlit/ngrok/launcher/n8n만 감시하며 AdsPower의 실행·50325 readiness를 보장하지 않는다.
+
+**Fix:** 이번에는 AdsPower 앱을 수동 실행해 50325 포트를 복구. **전체 FB 크롤링 E2E 재실행 증거는 아직 없음** — 실패한 예약 사이클은 AdsPower 실행 전에 끝났고 다음 사이클 검증이 남아 있다.
+
+**Prevention:** LocalSystem 서비스에서 GUI 앱을 무리하게 직접 실행하지 말고, 사용자 로그인 세션에서의 AdsPower 자동 시작 또는 별도 readiness gate를 설계해야 한다. launcher가 크롤링 직전에 50325 상태를 명확히 기록·알림하고, 의존성이 없을 때 4개 URL을 연속 실패시키는 대신 단일 원인으로 종료하는 개선도 후보. 실제 자동기동 구현은 이번 커밋 범위 밖이다.
+
+**관련:** FP-054, INC-040, ERR-058(Session 0/LocalSystem과 AdsPower 실행 컨텍스트 참고)

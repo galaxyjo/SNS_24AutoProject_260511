@@ -5,6 +5,35 @@
 
 ---
 
+### Watchdog UTF-8 BOM cold-start 복구 + AdsPower 부팅 의존성 조사 (2026-07-21)
+
+노트북 부팅 후 `SNS_Watchdog=Paused`, 5000/8501/4040 전체 닫힘 상태를 재검사. 단순 서비스 일시중지가 아니라 NSSM이 `watchdog.ps1` 실행 실패 후 `AppRestartDelay=60000`으로 재시도 대기하는 상태임을 Application 이벤트로 확정했다.
+
+**ERR-072/FP-053/INC-039 — watchdog 파서 실패:**
+- 수정 전 `watchdog.ps1` 첫 4바이트 `23 20 77 61`(BOM 없음).
+- Windows PowerShell 5.1 `Parser.ParseFile()`은 문자열/중괄호 관련 파싱 오류 4개, 같은 내용을 UTF-8 명시 후 `ParseInput()`하면 오류 0개.
+- 파일 선두에 UTF-8 BOM 추가 후 `EF BB BF`, `ParseFile()` 오류 0개.
+- 신규 `tests/test_watchdog_encoding.py`: BOM 바이트 계약 + 실제 Windows PowerShell 파서 회귀검사. 프로젝트 venv 실행 시 일반 샌드박스 계정에서 admin 사용자 Python shim 실행이 거부되어 승인된 환경으로 재실행, 최종 `2 passed in 1.73s`.
+- NSSM 다음 자동 재시도에서 `SNS_Watchdog=Running/Automatic`, watchdog 시작 배너 11:32:16. Streamlit/ngrok/launcher 순차 복구 후 8501/5000/4040 HTTP 200.
+- 과거에는 실행됐는데 이번 재기동에서 처음 파싱 실패한 정확한 환경 차이는 UNKNOWN. 실제 OS 재부팅 실증은 이번 범위에서 미실시.
+
+**ERR-073/FP-054/INC-040 — AdsPower 부팅 의존성:**
+- watchdog 복구 후 첫 `_job_fb_crawl`이 4개 그룹 모두 `WinError 10061`, 결과 0건.
+- active source 확인: `launcher/main.py → modules/sns/facebook_crawler.py → local.adspower.net:50325`.
+- 실패 시 AdsPower 프로세스/50325 없음. 설치된 AdsPower 앱을 사용자 세션에서 실행해 `AdsPower Browser | 8.4.3 | 2.8.6.9`, 50325 LISTENING 확인.
+- 다음 FB 크롤링 E2E와 재부팅 후 AdsPower 자동기동은 미검증. LocalSystem watchdog이 GUI 앱을 직접 실행하도록 변경하지 않았으며 별도 설계 대상으로 남김.
+
+**변경 범위:**
+- `watchdog.ps1` — UTF-8 BOM 추가(업무 로직 불변).
+- `tests/test_watchdog_encoding.py` — 신규 회귀 테스트 2건.
+- 의무기록 5종: `ERROR_DATABASE.md` ERR-072/073, `FAILURE_PATTERN.md` FP-053/054, `INCIDENT_TIMELINE.md` INC-039/040, `VALIDATION_STATUS.md`, 본 파일.
+- 기존 사용자 변경 `configs/comment_campaign_posts.json`, `docs/ERROR_DATABASE.md`의 ERR-068, `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`는 보존하며 이번 커밋에서 제외 예정.
+
+commit: 본 기록·코드·테스트를 포함한 단일 커밋으로 실행(최종 해시는 `git log`로 확인)
+push: 범위 밖
+
+---
+
 ## [260619_Airtable_crawl_urls_전환] CRAWL_TARGET_SOURCE Feature Flag + Airtable 단일 소스 전환
 
 | 항목 | 내용 |

@@ -1,4 +1,4 @@
-# watchdog.ps1 — Flask / Streamlit / ngrok / launcher/main.py / n8n 프로세스 감시 및 자동 재시작
+﻿# watchdog.ps1 — Flask / Streamlit / ngrok / launcher/main.py / n8n 프로세스 감시 및 자동 재시작
 # 사용법: .\watchdog.ps1
 # run_scheduler.ps1로 서버를 먼저 띄운 뒤 이 스크립트를 별도 터미널에서 실행.
 

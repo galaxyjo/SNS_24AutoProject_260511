@@ -674,3 +674,31 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** (1) 모듈 레벨 상수가 `os.getenv(...)`로 채워진다면, 그 상수를 쓰는 테스트는 파일 안의 일부가 아니라 **전부** 명시적으로 override할 것(autouse fixture에 넣는 게 가장 안전). (2) 신규 테스트 파일을 추가하는 작업(오늘의 B단계처럼)이 "내 코드와 무관한 다른 테스트를 깨뜨릴 수 있다"는 점을 인지할 것 — pytest는 세션당 모듈을 한 번만 import하므로, 무엇이 무엇보다 먼저 import되는지는 파일 추가만으로도 바뀔 수 있다. (3) 단독 실행 시 통과한다고 "전체 스위트와 무관"이라고 성급히 결론짓지 말 것 — 그 자체가 import/실행 순서 의존성의 증거이지, 무관함의 증거가 아니다.
 
 **관련:** ERR-071
+
+## FP-053 | BOM 없는 비ASCII PowerShell 스크립트는 텍스트 diff가 정상이어도 Windows PowerShell 5.1 cold start에서 파싱 자체가 깨질 수 있다
+
+**발생일:** 260721 노트북 부팅 후 NSSM `SNS_Watchdog` 자동복구 실패 조사에서 발견.
+
+**증상:** 한글이 포함된 `watchdog.ps1`의 괄호·따옴표 구조는 UTF-8로 읽으면 정상인데, Windows PowerShell 5.1이 BOM 없는 파일을 시스템 코드페이지로 읽으면서 닫히지 않은 문자열과 누락된 블록 오류를 만들었다. NSSM은 자식 종료 코드 1을 감지해 60초마다 재시도했으나, 실행 전 파서 단계에서 계속 죽어 서비스 화면에는 재시도 대기 상태인 `Paused`만 보였다.
+
+**근본원인:** 소스 내용뿐 아니라 파일 인코딩 메타데이터(BOM)가 Windows PowerShell 5.1 실행 계약의 일부인데, 기존 테스트·검증은 텍스트 내용과 장기 실행 상태만 확인하고 cold-start 파일 디코딩을 검사하지 않았다.
+
+**해결:** `watchdog.ps1`에 UTF-8 BOM 추가. `tests/test_watchdog_encoding.py`가 BOM 바이트와 실제 Windows PowerShell `Parser.ParseFile()`을 모두 검증하도록 추가.
+
+**예방:** 비ASCII PowerShell 스크립트는 (1) BOM 바이트 검사, (2) 대상 PowerShell 버전의 실제 파서 검사, (3) 계획된 재부팅/cold-start 검증을 서로 다른 계층으로 유지한다. 이미 떠 있는 프로세스의 장시간 정상 동작만으로 디스크의 현재 파일이 다음 부팅에도 실행된다고 판단하지 않는다.
+
+**관련:** ERR-072, INC-039
+
+## FP-054 | 사용자 세션 GUI 의존성을 24/7 파이프라인의 선행조건으로 두고 자동기동·readiness를 보장하지 않으면 재부팅 후 예약 잡 전체가 실패한다
+
+**발생일:** 260721 watchdog 복구 후 첫 FB 크롤링에서 발견.
+
+**증상:** launcher와 스케줄러는 정상 기동했지만 AdsPower Local API(50325)가 없어 4개 Facebook 대상이 같은 `WinError 10061`로 연속 실패했다. 핵심 프로세스가 살아 있다는 사실과 실제 업무 의존성이 준비됐다는 사실이 분리되어 있었다.
+
+**근본원인:** AdsPower는 사용자 로그인 세션의 GUI 앱인데 watchdog은 LocalSystem 서비스로 실행된다. 현재 운영 구조에는 AdsPower 자동 시작 주체와 크롤링 전 readiness gate가 없다.
+
+**해결:** 이번 사고에서는 AdsPower 앱을 수동 실행해 50325 LISTENING을 복구. 자동기동 구조는 미구현.
+
+**예방:** 사용자 세션이 필요한 GUI 의존성은 LocalSystem 서비스에서 직접 띄우는 방식으로 섣불리 해결하지 않는다. 로그인 세션 자동 시작, 별도 태스크, 또는 명시적 운영 절차 중 하나를 결정하고, 크롤러는 fan-out 전에 50325를 한 번 검사해 공통 선행조건 실패로 보고해야 한다.
+
+**관련:** ERR-073, INC-040, ERR-058
