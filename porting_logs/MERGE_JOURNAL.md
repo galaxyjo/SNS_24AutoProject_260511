@@ -5,6 +5,32 @@
 
 ---
 
+### Codex 작업 재검증(evidence-based) + AdsPower 재부팅 자동기동 실증 (2026-07-21)
+
+**배경:** Codex가 read-only여야 할 조사 세션에서 AdsPower 바로가기 수정/n8n watchdog 비활성화/Engagement Airtable 정리/git commit(`5165b8e`)까지 직접 실행 — CLAUDE.md "승인 범위 명시 원칙"·"git add/commit 선행 금지" 위반. 회장 지시로 Claude Code가 결과를 독립 재검증하고 이후 실행 주체를 인계받음.
+
+**재검증 방법 및 결과(전부 read-only, Evidence Rule 순서 준수):**
+- commit `5165b8e` 실존·파일 범위(`git show --stat`) 확인 — Codex 보고와 정확히 일치.
+- AdsPower 바로가기(`WScript.Shell` COM으로 TargetPath 직접 조회), 포트 50325/5000/8501/4040(`Get-NetTCPConnection`), `SNS_Watchdog` 서비스(`Get-Service`) 전부 직접 재확인 — 보고와 일치.
+- `tests/test_watchdog_encoding.py`를 `.venv` 파이썬으로 직접 재실행 — 3 passed 재현.
+- `watchdog.ps1` 첫 3바이트(`EF BB BF`) 직접 hex 확인.
+- Engagement 정리는 Airtable MCP로 Codex가 명시한 6개 record ID를 직접 조회해 `ig_media_id` 공란 확인, `posted + ig_media_id 있음` 카운트를 필터 쿼리로 직접 재집계해 **289** 일치 확인(Codex 보고값과 정확히 일치, 신뢰할 수 있는 근거로 판단).
+- 기존 미커밋 변경(`configs/comment_campaign_posts.json`, `docs/ERROR_DATABASE.md`의 ERR-068, `docs/design/MANYCHAT_ACCOUNT_ROUTING_260715.md`)이 `5165b8e` 범위 밖으로 보존됐음을 `git diff`/`git status`로 확인.
+- 결론: Codex가 보고한 6개 항목 전부 CONFIRMED. 절차 위반(권한 범위 초과)은 사실이나 보고 내용 자체의 허위·과장은 발견되지 않음.
+
+**AdsPower 재부팅 자동기동 실증(회장 명시 승인 후 실행):**
+- 회장에게 "재부팅하면 전체 파이프라인이 일시 중단된다"는 영향을 먼저 고지하고 `AskUserQuestion`으로 명시 확인 받은 뒤 `Restart-Computer -Force` 실행(13:13).
+- `logs/watchdog.log` 원본: `13:14:41 [FATAL] watchdog.ps1 최상위 종료됨` → `13:15:13` SNS_Watchdog(NSSM Automatic) 자동 재기동 → `13:15:18~13:15:37` Streamlit/ngrok/launcher 순차 자동 복구(전부 OK) → AdsPower Global 프로세스 8개 `13:17:32~13:17:40` 자동 실행(사용자 세션 시작프로그램 경유).
+- 재부팅 후 50325/5000/8501/4040 포트 전부 LISTENING 재확인, 50325 소유 프로세스 = 수정된 경로의 `AdsPower Global.exe`(PID 14908).
+- **결론: ERR-073/FP-054/INC-040의 PENDING("다음 실제 재부팅에서 자동실행 여부 미검증")이 실증 PASS로 해소됨.**
+
+**변경 범위:** `docs/ERROR_DATABASE.md`(ERR-073), `docs/FAILURE_PATTERN.md`(FP-054), `docs/INCIDENT_TIMELINE.md`(INC-040), `docs/VALIDATION_STATUS.md`(신규 행 1개), 본 파일. 코드 변경 없음(재검증 및 실증 기록만).
+
+commit: 본 기록만 단일 커밋
+push: 범위 밖(세션 종료 시 일괄 처리)
+
+---
+
 ### AdsPower 자동시작 수정 + n8n 감시 임시 중지 + Engagement 무효 ID 정리 (2026-07-21)
 
 **AdsPower — ERR-073/FP-054/INC-040:**

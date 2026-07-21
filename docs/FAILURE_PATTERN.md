@@ -697,7 +697,7 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 
 **근본원인:** AdsPower는 사용자 로그인 세션의 GUI 앱인데 watchdog은 LocalSystem 서비스로 실행된다. 공용 시작프로그램 바로가기는 있었지만 존재하지 않는 `AdsPower.exe`를 가리켰고, 실제 설치 파일은 `AdsPower Global.exe`였다. 이 오래된 실행파일명 때문에 로그인 후 자동 시작이 실패했다. 크롤링 전 readiness gate는 여전히 없다.
 
-**해결:** 공용 시작프로그램 `AdsPower.lnk`의 대상을 실제 `AdsPower Global.exe`로 수정하고 `TargetExists=True`를 재확인했다. 50325 LISTENING 복구 후 다음 예약 FB 크롤링에서 4개 그룹 연결 성공·총 1건 처리로 E2E PASS. 다음 실제 로그인/재부팅 자동실행은 아직 미검증(PENDING).
+**해결:** 공용 시작프로그램 `AdsPower.lnk`의 대상을 실제 `AdsPower Global.exe`로 수정하고 `TargetExists=True`를 재확인했다. 50325 LISTENING 복구 후 다음 예약 FB 크롤링에서 4개 그룹 연결 성공·총 1건 처리로 E2E PASS. **260721 실제 재부팅 실증 완료:** `Restart-Computer -Force` 실행 후 SNS_Watchdog 자동 재기동(13:15:13)→Streamlit/ngrok/launcher 자동 복구(13:15:18~37)→AdsPower Global 자동 실행(13:17:32~40), 재부팅 후 50325/5000/8501/4040 전부 LISTENING 재확인. PENDING 해소.
 
 **예방:** 사용자 세션이 필요한 GUI 의존성은 LocalSystem 서비스에서 직접 띄우는 방식으로 섣불리 해결하지 않는다. 로그인 세션 자동 시작, 별도 태스크, 또는 명시적 운영 절차 중 하나를 결정하고, 크롤러는 fan-out 전에 50325를 한 번 검사해 공통 선행조건 실패로 보고해야 한다.
 

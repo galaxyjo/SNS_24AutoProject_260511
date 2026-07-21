@@ -650,7 +650,7 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 
 **영향:** 해당 사이클에서 신규 Facebook 콘텐츠 수집이 전혀 이루어지지 않음. 다른 핵심 서비스(대시보드/Flask/ngrok)는 정상 유지.
 
-**해결:** 공용 시작프로그램 `AdsPower.lnk`가 존재하지 않는 `AdsPower.exe`를 가리키는 것을 확인해 실제 `AdsPower Global.exe`로 수정하고 `TargetExists=True`를 확인했다. AdsPower 50325 LISTENING 복구 후 다음 예약 크롤링(12:03:48~12:07:02)이 4개 그룹 모두 연결 성공·총 1건 처리로 E2E PASS. 다음 실제 로그인/재부팅 자동실행은 아직 미검증(PENDING).
+**해결:** 공용 시작프로그램 `AdsPower.lnk`가 존재하지 않는 `AdsPower.exe`를 가리키는 것을 확인해 실제 `AdsPower Global.exe`로 수정하고 `TargetExists=True`를 확인했다. AdsPower 50325 LISTENING 복구 후 다음 예약 크롤링(12:03:48~12:07:02)이 4개 그룹 모두 연결 성공·총 1건 처리로 E2E PASS. **260721 재부팅 실증 완료:** 회장 승인 후 실제 `Restart-Computer -Force` 실행, `watchdog.log` 원본으로 재부팅→SNS_Watchdog 자동 재기동(13:15:13)→Streamlit/ngrok/launcher 자동 복구(13:15:18~37)→AdsPower Global 자동 실행(13:17:32~40) 전 구간 확인, 재부팅 후 50325/5000/8501/4040 전부 LISTENING. PENDING 해소, 자동기동 자체 정상 작동 확인.
 
 **재발 방지:** FP-054 참조. LocalSystem watchdog과 사용자 세션 GUI 앱의 실행 컨텍스트를 분리한 자동기동/readiness 설계가 필요.
 

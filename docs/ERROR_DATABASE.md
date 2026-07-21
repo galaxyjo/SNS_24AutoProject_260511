@@ -1164,7 +1164,7 @@ ImportError: cannot import name 'process_comment_event' from partially initializ
 
 **관련:** FP-053, INC-039
 
-## ERR-073 | 부팅 후 AdsPower가 실행되지 않아 Facebook 크롤링 4개 대상이 모두 Local API 연결 거부로 실패 (RECOVERED, 자동기동 미해결 — 260721)
+## ERR-073 | 부팅 후 AdsPower가 실행되지 않아 Facebook 크롤링 4개 대상이 모두 Local API 연결 거부로 실패 (RESOLVED, 재부팅 자동기동 실증 PASS — 260721)
 
 **발견 경위:** watchdog 복구 직후 launcher가 예약된 FB 크롤링을 실행했지만 Airtable에서 읽은 4개 그룹 모두 `WinError 10061`로 실패. 현재 활성 진입점 `launcher/main.py → modules.sns.facebook_crawler`와 실제 의존 포트 `local.adspower.net:50325`를 확인.
 
@@ -1182,4 +1182,6 @@ ImportError: cannot import name 'process_comment_event' from partially initializ
 
 **관련:** FP-054, INC-040, ERR-058(Session 0/LocalSystem과 AdsPower 실행 컨텍스트 참고)
 
-**260721 추가 조사·해결:** 공용 시작프로그램에 `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\AdsPower.lnk`가 이미 있었으나, 대상이 존재하지 않는 `C:\Program Files\AdsPower Global\AdsPower.exe`였고 실제 설치 파일은 `AdsPower Global.exe`였다. 관리자 승인으로 바로가기 TargetPath를 `C:\Program Files\AdsPower Global\AdsPower Global.exe`로 수정하고 `TargetExists=True` 재확인. AdsPower 실행 후 50325 LISTENING, 다음 예약 FB 크롤링(12:03:48~12:07:02) 4개 그룹 전체 연결 성공·총 1건 처리로 E2E PASS. **다음 실제 로그인/재부팅에서 자동실행되는지는 아직 미검증(PENDING).**
+**260721 추가 조사·해결:** 공용 시작프로그램에 `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\AdsPower.lnk`가 이미 있었으나, 대상이 존재하지 않는 `C:\Program Files\AdsPower Global\AdsPower.exe`였고 실제 설치 파일은 `AdsPower Global.exe`였다. 관리자 승인으로 바로가기 TargetPath를 `C:\Program Files\AdsPower Global\AdsPower Global.exe`로 수정하고 `TargetExists=True` 재확인. AdsPower 실행 후 50325 LISTENING, 다음 예약 FB 크롤링(12:03:48~12:07:02) 4개 그룹 전체 연결 성공·총 1건 처리로 E2E PASS.
+
+**260721 실제 재부팅 실증(PASS, PENDING 해소):** 회장 승인 하에 `Restart-Computer -Force`로 실제 재부팅 실행(13:13 명령). `logs/watchdog.log` 원본 확인 — `13:14:41 [FATAL] watchdog.ps1 최상위 종료됨` → `13:15:13` SNS_Watchdog(NSSM, Automatic) 자동 재기동 → `13:15:18~13:15:37` Streamlit/ngrok/launcher 순차 자동 복구. AdsPower Global 프로세스 8개 전부 `13:17:32~13:17:40`에 기동 시작(사용자 로그인 세션 시작프로그램 바로가기 경유, 수정한 대상 경로로 정상 실행). 재부팅 후 포트 4개 재검사 — 50325/5000/8501/4040 전부 LISTENING, 50325 소유 프로세스 PID 14908 `C:\Program Files\AdsPower Global\AdsPower Global.exe` 확인. **자동기동 PENDING 항목 완전 해소.**
