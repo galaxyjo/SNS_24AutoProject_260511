@@ -278,6 +278,63 @@ class _HttpLikeError(Exception):
         self.status_code = status_code
 
 
+class TestUncertainSaveDoesNotPermanentlyFail:
+    """260722 Codex 리뷰 2차 반영: 저장 후 확인(GET) 자체가 실패한 경우(verification_errors만
+    있고 failed_id/mismatched_ids는 없는 경우)는 "확정 실패"가 아니므로 mark_failed를
+    호출하면 안 된다 — undo_store에 'prepared' 상태로 남겨서 다음 접속 시 기존 복구
+    로직(get_latest_prepared -> verify_only)이 자동으로 재확인하게 해야 한다.
+
+    (test_stuck_prepared_batch_that_actually_succeeded_recovers_to_committed 등은 이미
+    'prepared'로 시작하는 배치의 복구를 검증하지만, 여기서는 _submit_grid_batch() 자신의
+    최초 제출이 verification_errors만 내는 상황에서 mark_failed가 호출되지 않는지를 검증한다.)"""
+
+    def test_verification_error_only_leaves_batch_prepared_not_failed(self, tmp_path):
+        from modules.infra.undo_state_store import UndoStateStore
+
+        db_path = str(tmp_path / "undo_state.db")
+        store = UndoStateStore(db_path)
+        repo = FakeRepo(
+            _make_candidates(5),
+            get_error_for={"rec_3": _HttpLikeError("forbidden", status_code=403)},
+        )
+        at = _run_with_store(repo, store)
+        at.button(key="grid_submit").click().run()
+
+        assert not at.exception
+        assert len(at.error) > 0  # 확인 실패 안내는 여전히 표시됨
+        # 확정 실패(failed)로 넘어가지 않고 prepared 그대로 — 다음 접속 시 자동 재확인 대상.
+        prepared = store.get_latest_prepared()
+        assert prepared is not None
+        assert prepared["batch_id"] is not None
+        assert store.get_latest_undoable() is None  # committed도 아님(당연히)
+
+    def test_confirmed_mismatch_still_marks_failed(self, tmp_path):
+        """대조군 — 진짜 값 불일치(mismatched_ids)는 여전히 확정 실패로 mark_failed 호출."""
+        from modules.infra.undo_state_store import UndoStateStore
+
+        db_path = str(tmp_path / "undo_state.db")
+        store = UndoStateStore(db_path)
+        repo = FakeRepo(_make_candidates(5), mismatch_for=["rec_3"])
+        at = _run_with_store(repo, store)
+        at.button(key="grid_submit").click().run()
+
+        assert not at.exception
+        assert store.get_latest_prepared() is None  # failed로 확정 전환됨(더 이상 prepared 아님)
+
+    def test_confirmed_save_failure_still_marks_failed(self, tmp_path):
+        """대조군 — 저장 자체가 확정 실패(failed_id)면 여전히 mark_failed 호출."""
+        from modules.infra.undo_state_store import UndoStateStore
+
+        db_path = str(tmp_path / "undo_state.db")
+        store = UndoStateStore(db_path)
+        repo = FakeRepo(_make_candidates(5), fail_on_save_for=["rec_2"])
+        at = _run_with_store(repo, store)
+        at.button(key="grid_submit").click().run()
+
+        assert not at.exception
+        assert store.get_latest_prepared() is None  # failed로 확정 전환됨
+
+
 class TestVerificationErrorBlocksConfirmButton:
     """260712 사고 이후: verification_errors 발생 시 확정 버튼을 잠그고, 재클릭으로 인한
     재-PATCH를 막는다. 새 배치를 받으면 잠금이 풀린다."""

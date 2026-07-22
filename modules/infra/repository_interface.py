@@ -397,6 +397,18 @@ class RepositoryInterface(ABC):
         """record_id의 현재 review_status를 GET으로 재조회. 저장 직후 실제 반영 여부 검증용.
         레코드가 없으면 None."""
 
+    # ── 선택 기능(optional capability) — 이 인터페이스에는 두지 않는다 ───────────
+    # batch_save_review_decisions()/batch_get_review_status()는 모든 저장소 구현체가
+    # 반드시 지원해야 하는 필수 계약이 아니라서 여기 두지 않는다(260722 Codex 리뷰 2차
+    # 지적: 기본 메서드가 NotImplementedError를 던지더라도 그 메서드 자체는 여전히
+    # callable=True이므로, RepositoryInterface를 상속하고 오버라이드하지 않은 구현체가
+    # review_batch_committer._supports_batch()에서 "지원함"으로 오인되어 단건 폴백 대신
+    # 예외가 발생하는 결함이 있었음). 선택 계약은 modules/infra/review_batch_committer.py의
+    # `BatchReviewCapability` Protocol에만 문서화하고, AirtableRepository가 이 인터페이스와
+    # 무관하게 별도로 두 메서드를 구현한다. 감지는 여전히
+    # callable(getattr(repo, "batch_save_review_decisions", None)) 방식이며, 이 메서드
+    # 자체가 아예 존재하지 않는 구현체에서는 getattr이 None을 반환해 정확히 폴백된다.
+
     @abstractmethod
     def count_candidates_by_status(self) -> dict[str, int]:
         """review_status별 건수 반환 (리뷰 화면 진행률 카운터용)."""

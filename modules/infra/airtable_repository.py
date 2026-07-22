@@ -1120,6 +1120,81 @@ class AirtableRepository(RepositoryInterface):
         except requests.RequestException as e:
             raise RepositoryUnavailableError(str(e)) from e
 
+    # ── 31a-batch. 사람 판정(PASS/BLOCK) 배치 저장 — 최대 10건/호출 ─────────────
+    # Airtable 배치 PATCH(요청당 최대 10건)로 순차 개별 PATCH 대비 호출 횟수를 줄인다.
+    # 이 청크의 원자성(부분 성공 없음)은 Airtable 공식 문서로 확인되지 않았다 — 특히
+    # 타임아웃/커넥션 오류는 응답만 유실됐을 뿐 서버에는 실제로 반영됐을 수 있다.
+    # 호출자(review_batch_committer._save_all)가 저장 예외 발생 시 배치 GET으로
+    # 실제 반영 여부를 재확인한 뒤에만 최종 성공/실패를 판정한다.
+
+    _BATCH_CHUNK_SIZE = 10
+
+    def batch_save_review_decisions(self, updates: list[dict]) -> None:
+        if not updates:
+            return
+        if len(updates) > self._BATCH_CHUNK_SIZE:
+            raise RepositoryValidationError(
+                f"batch_save_review_decisions: 최대 {self._BATCH_CHUNK_SIZE}건, 받음 {len(updates)}건"
+            )
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        records = [
+            {
+                "id": u["record_id"],
+                "fields": {
+                    "review_status": u["decision"],
+                    "reviewed_at":   now,
+                    "other_note":    u.get("other_note", ""),
+                },
+            }
+            for u in updates
+        ]
+        try:
+            r = requests.patch(
+                _url("Training_Review_Queue"),
+                headers=_headers(json_body=True),
+                json={"records": records},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "PATCH")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e), original_error_type=type(e).__name__) from e
+
+    # ── 31b-batch. 배치 GET 재검증 — 최대 10건/호출 ─────────────────────────────
+
+    def batch_get_review_status(self, record_ids: list[str]) -> dict:
+        if not record_ids:
+            return {}
+        if len(record_ids) > self._BATCH_CHUNK_SIZE:
+            raise RepositoryValidationError(
+                f"batch_get_review_status: 최대 {self._BATCH_CHUNK_SIZE}건, 받음 {len(record_ids)}건"
+            )
+        formula = "OR(" + ",".join(f"RECORD_ID()='{rid}'" for rid in record_ids) + ")"
+        try:
+            r = requests.get(
+                _url("Training_Review_Queue"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": formula,
+                    "pageSize":        self._BATCH_CHUNK_SIZE,
+                    "fields[0]":       "review_status",
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Training_Review_Queue", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Training_Review_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e), original_error_type=type(e).__name__) from e
+
+        result: dict = {}
+        for rec in r.json().get("records", []):
+            result[rec["id"]] = rec.get("fields", {}).get("review_status")
+        return result
+
     # ── 31b. 저장 직후 GET 재검증용 — 현재 review_status 재조회 ──────────────
 
     def get_review_status(self, record_id: str) -> str | None:

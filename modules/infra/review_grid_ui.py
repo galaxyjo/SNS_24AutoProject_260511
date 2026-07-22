@@ -178,9 +178,16 @@ def render_review_grid(repo, undo_store=None) -> None:
             result = commit_batch_with_verification(repo, batch_ids, block_ids)
 
         if not result.committed:
-            if undo_store is not None and _bid is not None:
+            # failed_id(입력 자체가 거부되는 등 확정 실패) 또는 mismatched_ids(재확인으로
+            # 확정된 진짜 값 불일치)만 "확정 실패"로 취급해 mark_failed(영구 종결)한다.
+            # verification_errors만 있는 경우(확인 자체가 안 됨 — 저장은 실제로 성공했을 수
+            # 있음)는 mark_failed를 호출하지 않는다 — SQLite 기록을 'prepared' 그대로 두면
+            # 다음 접속 시 render_review_grid() 상단의 기존 복구 로직(get_latest_prepared→
+            # verify_only)이 자동으로 다시 확인한다(260722 Codex 리뷰 2차 반영).
+            _confirmed_failure = bool(result.failed_id) or bool(result.mismatched_ids)
+            if undo_store is not None and _bid is not None and _confirmed_failure:
                 try:
-                    undo_store.mark_failed(_bid, result.failed_error or "GET 재검증 실패")
+                    undo_store.mark_failed(_bid, result.failed_error or "값 불일치 확인됨")
                 except Exception as e:
                     st.warning(
                         f"실행취소 기록(실패 상태) 갱신 실패 — {e}\n"
@@ -206,7 +213,7 @@ def render_review_grid(repo, undo_store=None) -> None:
                             f"{e.record_id}(HTTP {e.status_code or '?'} {e.error_type})"
                             for e in result.verification_errors
                         ) + "\n저장은 이미 완료됐을 수 있습니다. "
-                        "확정 버튼을 다시 누르지 마세요 — 재확인 후 별도로 안내해드리겠습니다."
+                        "확정 버튼을 다시 누르지 마세요 — 다음 접속 시 자동으로 재확인됩니다."
                     )
             return False
 
