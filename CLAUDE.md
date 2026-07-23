@@ -209,8 +209,10 @@ C:\SNS_24AutoProject_260511\
   - `core/log_initializer.py` — 시작 시 중앙 로거 1회 초기화
   - `core/error_handler.py` — `@handle_errors` 데코레이터 / `safe_run()` 헬퍼
   - `core/task_router.py` — 태스크 이름 → 핸들러 분기 (register/dispatch)
-  - `core/run_engine.py` — APScheduler 오케스트레이터, retry_queue 연동
-    - `python -m core.run_engine` 으로 `launcher/main.py` 대신 단독 실행 가능
+  - `core/run_engine.py` — **INACTIVE LEGACY / HOLD** (260723 Runtime Truth 정정, 근거·상세는 본 문서 하단 `[260723 Runtime Truth Safety Lock 추가]` 섹션 참조)
+    - 현재 유일하게 증명된 Live Posting Entry Point: `watchdog.ps1` → `launcher/main.py` → APScheduler → `_job_insta_upload()` → `AirtableRepository` → `publish_single()` → Meta Graph API → `mark_post_result()`
+    - `core/run_engine.py`는 Caller 미확인 상태이며 watchdog 감시 대상이 아니고, 현재 Airtable Schema와 어긋나는 필드를 참조하며, 공용 `publish_single()`과 Repository 선점 계약을 우회한다
+    - 사용자 별도 승인과 Runtime 검증 전에는 실행·활성화·삭제·병행 사용 금지 — APScheduler와 병행 실행하여 Execution Owner를 이중화하지 않는다
 - interaction_engine (F-11):
   - `engagement_tracker.py` — Graph API로 like_count / comments_count 갱신 (30분 간격)
   - `auto_liker.py` — 게시물 댓글 자동 좋아요 (15분 간격), 중복 방지: `db/liked_comments.db`
@@ -223,12 +225,12 @@ C:\SNS_24AutoProject_260511\
   - `notify_daily_kpi(kpi)` — 일일 KPI 요약 발송
   - `notify_process_restart(name, status)` — watchdog 재시작 이벤트
   - watchdog.ps1: `Send-SlackAlert` 함수 추가, `$env:SLACK_WEBHOOK_URL` 참조
-  - run_engine + launcher: 전체 스케줄 잡에 `notify_fn=_slack` 연동
+  - run_engine + launcher: 전체 스케줄 잡에 `notify_fn=_slack` 연동 (주: `core/run_engine.py`는 INACTIVE LEGACY — 위 `core/run_engine.py` 항목 참조, 실제 알림은 `launcher/main.py` 경로에서만 발생)
 - KPI 수집: `from modules.metrics.kpi_collector import collect_kpi, run_hourly_snapshot`
   - `collect_kpi(period)` — period: 'today' / '7d' / '30d' / 'all'
   - 반환: {upload, lead, followup, comment, queue} 각 지표 dict
   - SQLite 스냅샷: `db/kpi_snapshots.db` (시간별 저장)
-  - 스케줄러: 1시간 간격 자동 수집 (run_engine + launcher 모두 등록)
+  - 스케줄러: 1시간 간격 자동 수집 (run_engine + launcher 모두 등록, 주: `core/run_engine.py`는 INACTIVE LEGACY — 위 `core/run_engine.py` 항목 참조)
   - 대시보드: dashboard.py KPI 탭 — 지표 카드 / 등급·파이프라인 차트 / 시계열 추이
 
 ---
@@ -297,8 +299,9 @@ read-only 조사 단계에 대한 승인은 그 조사 자체에만 유효하다
 1. Get-Content "C:\SNS_24AutoProject_260511\docs\CURRENT_RUNTIME_CONTEXT.md" -Encoding UTF8
 2. Get-Content "C:\SNS_24AutoProject_260511\porting_logs\MERGE_JOURNAL.md" -Tail 20 -Encoding UTF8
 3. git status --short
+4. Get-Content "C:\SNS_24AutoProject_260511\docs\SILICON_VALLEY_EXECUTION_STANDARD.md" -Encoding UTF8 (260722 추가 — 실행 표준 SSOT, 표준 결과 출력 포맷·FACT/INFERENCE/UNKNOWN/RISK·Single Canary·상태변경 실행주체 등)
 
-위 3개 확인 전 어떤 작업도 시작하지 않는다.
+위 4개 확인 전 어떤 작업도 시작하지 않는다.
 
 ### STALE STATE CHECK
 명령/조사를 설계하기 직전, 확인하려는 값의 현재 실제 출처(현재 활성 config vs 과거 백업/git 이력)를 먼저 특정한 뒤 명령을 설계한다.
@@ -322,6 +325,41 @@ read-only 조사 명령(`Get-*`, `grep`, `diff`, `status` 조회, 이미 승인�
 ### ONE-LINE ELI10 PREFIX
 Claude Code가 작업 결과를 보고하거나 다음 행동을 제안하는 모든 응답의 맨 첫 줄에, 지금 하려는/한 작업이 무엇인지 10살 아이도 이해할 수 있는 아주 쉬운 한 문장을 먼저 쓴다. 그다음 빈 줄 하나, 그다음부터는 기존 응답 형식(결과 보고, raw 로그, 진행 상황 등)을 그대로 이어간다 — 순서·내용 변경 없이 맨 위에 한 줄만 추가하는 것이며, 이 한 줄 때문에 기존 raw 출력이나 상세 보고가 생략·축약되지 않는다.
 근거: 260709 세션 사용자 확정 요청 — 매 응답을 이해하기 쉽게 하기 위함.
+
+---
+
+## [260723 Runtime Truth Safety Lock 추가]
+
+> 목적: CLAUDE.md 서술과 실제 Runtime Evidence가 어긋나 있던 2개 항목(core/run_engine.py, n8n 게시 Endpoint)을 정정하고, 재발 방지를 위해 현재 상태를 명시적으로 잠근다. 근거: 260723 Claude Code/Codex 교차검증 세션 — Airtable MCP 직접 쿼리(Instagram_Posts.post_status 스키마에 draft/scheduled/rejected 선택지가 존재하나 Runtime 코드는 미사용 확인), n8n 로컬 `~/.n8n/database.sqlite` 직접 쿼리(workflow_entity 1행, active=0, triggerCount=0, 미설정 스캐폴드 확인), `launcher/main.py` publish_single() 독스트링과 `docs/ARCHITECTURE_LOCK.md`의 n8n Endpoint(P0 미구현) 서술 대조.
+
+### Active Runtime
+- Active Posting Owner: `launcher/main.py`
+  - 실제 경로: `watchdog.ps1` → `launcher/main.py` → APScheduler → `_job_insta_upload()` → `AirtableRepository` → `publish_single()` → Meta Graph API → `mark_post_result()`
+- Inactive Legacy: `core/run_engine.py`
+  - 현재 Caller가 확인되지 않음(자기 자신 외 import/호출부 없음)
+  - watchdog 감시 대상 아님
+  - 현재 Airtable Schema와 어긋나는 필드를 참조함
+  - 공용 `publish_single()`과 Repository 선점 계약을 우회함
+  - 사용자 별도 승인과 Runtime 검증 전에는 실행·활성화·삭제·병행 사용 금지
+- Execution Owner 이중화 금지: APScheduler(`launcher/main.py`)와 `core/run_engine.py`를 병행 실행하지 않는다.
+
+### n8n 상태
+- 운영 Workflow: 0개
+- 비활성 테스트 초안: 1개(`My workflow`, 실행 이력 없음 — 운영 자산 또는 재사용 가능한 Workflow로 간주하지 않음)
+- Python Publish API Contract(`/api/v1/instagram/publish`): 미구현 — 인증, 입력 Schema, 출력 Schema, 오류 계약 모두 미구현
+- n8n WF-01~WF-05 운영 Workflow: 구현되지 않음
+- `publish_single()` 관련 문서/독스트링에 n8n Endpoint가 이미 호출하는 것처럼 표현된 내용은 현재 구현 사실이 아니라 미래 설계 의도임
+- 현재 상태: `PLANNED / NOT IMPLEMENTED`
+- n8n은 안전 Gate 완료 후 Trigger·Schedule·Orchestration 역할로만 구현한다 — Instagram Graph API를 직접 호출하거나 Token을 보유하지 않는다.
+
+### 구현 전 필수 조건 (n8n 연결 이전)
+1. User Approval Gate
+2. 발행 직전 Final Quality Gate
+3. Publish Idempotency 또는 Ledger
+4. Account-level Kill Switch
+5. Execution Owner 단일화
+6. n8n ↔ Python API Contract
+7. 불확실한 게시 결과 Reconciliation
 
 ---
 

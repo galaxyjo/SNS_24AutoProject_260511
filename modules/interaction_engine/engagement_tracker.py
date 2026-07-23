@@ -15,6 +15,7 @@ import requests
 
 from modules.common.airtable_bridge import get_table
 from modules.common.logger import get_logger
+from modules.common.log_sanitizer import redact_sensitive
 
 logger = get_logger(__name__)
 
@@ -37,7 +38,7 @@ def _fetch_metrics(media_id: str, token: str) -> dict | None:
             "comments_count":  data.get("comments_count", 0),
         }
     except Exception as exc:
-        logger.warning(f"[Engagement] 조회 실패 | {media_id} | {exc}")
+        logger.warning(f"[Engagement] 조회 실패 | {media_id} | {redact_sensitive(str(exc))}")
         return None
 
 

@@ -45,6 +45,7 @@ from modules.common.retry_queue import get_retry_queue
 from modules.common.health_monitor import get_health, print_health
 from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 from modules.infra.airtable_usage_logger import log_api_call
+from modules.common.log_sanitizer import redact_sensitive
 
 init_logging()
 logger = get_logger(__name__)
@@ -282,7 +283,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
             return {"ok": True, "ig_media_id": ig_media_id}
 
         except Exception as e:
-            logger.warning(f"[publish_single] 시도 {attempt}/3 실패 | rid={rid} | {e}")
+            logger.warning(f"[publish_single] 시도 {attempt}/3 실패 | rid={rid} | {redact_sensitive(str(e))}")
             if attempt == 3:
                 logger.error(f"[publish_single] 3회 실패 최종 | rid={rid}")
                 return {"ok": False, "error": str(e)}
