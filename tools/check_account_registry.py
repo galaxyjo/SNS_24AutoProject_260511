@@ -15,7 +15,7 @@ from modules.common.airtable_bridge import get_table
 EXPECTED = {
     "ig_user_id":    "17841476202821375",
     "fb_page_id":    "868456346356581",
-    "account_email": "nhm880808@gmail.com",
+    "account_email": "nguyenknv15@gmail.com",
 }
 
 TABLE = "Account_Registry"
