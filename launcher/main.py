@@ -46,6 +46,7 @@ from modules.common.health_monitor import get_health, print_health
 from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 from modules.infra.airtable_usage_logger import log_api_call
 from modules.common.log_sanitizer import redact_sensitive
+from modules.sns.content_filter import passes_keyword_filter
 
 init_logging()
 logger = get_logger(__name__)
@@ -308,6 +309,7 @@ def _job_insta_upload():
     logger.info(f"[Main] insta_upload | {len(posts)}건 처리 시작")
     for post in posts:
         post_id   = post["post_id"]
+        logger.info(f"[Approval] ready 레코드 처리 시작 | rid={post_id}")
         image_url = post.get("image_url", "")
         caption   = f"{post.get('caption','')}\n{post.get('hashtag','')}".strip()
 
@@ -315,6 +317,14 @@ def _job_insta_upload():
         if post.get("ig_media_id"):
             logger.warning("[Main] unverified ig_media_id detected — skip | post_id=%s", post_id)
             continue
+
+        # 발행 직전 텍스트 Quality Gate (기본 비활성 — PUBLISH_TEXT_GATE_ENABLED=true 시에만 적용)
+        if os.getenv("PUBLISH_TEXT_GATE_ENABLED", "false").lower() == "true":
+            if not passes_keyword_filter(caption):
+                logger.info(f"[PublishGate] 텍스트 차단 | rid={post_id}")
+                from modules.infra.repository_interface import PostPublishResult as _PPR
+                repo.mark_post_result(post_id, _PPR(status="rejected", platform_post_id="", error_code=""))
+                continue
 
         # claim: uploading 마킹 (non-atomic, single-worker only)
         if not repo.claim_post_for_upload(post_id):

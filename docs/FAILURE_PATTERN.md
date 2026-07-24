@@ -730,3 +730,17 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** 수집→검토처럼 앞단이 뒷단을 채우는 구조의 파이프라인은 (1) 앞단이 자동인지 수동인지를 대시보드에 명시하거나, (2) 마지막 수집 시각 기준 경과일이 임계치를 넘으면 별도 알림을 내보내는 가드를 둔다. "PENDING 0건"을 무조건 좋은 신호로 표시하지 않는다.
 
 **관련:** ERR-074, ERR-059, FP-044
+
+---
+
+## FP-057 | 실패경로가 Airtable Schema에 없는 필드를 참조하는 패턴이 필드명을 바꿔가며 반복 재발한다
+
+**설명:** 게시/작업 실패 시 상태를 기록하려는 코드가 Airtable에 실제로 존재하지 않는 필드를 PATCH payload에 포함시켜, 그 상태-기록 PATCH 자체가 422 UNKNOWN_FIELD_NAME으로 거부되고 대상 레코드가 중간 상태(`uploading` 등)에 영구 고착되는 패턴.
+
+**근본 원인:** 실패 경로 코드(예외 처리·상태전환 로직)를 작성·수정할 때 Repository Interface에 새 필드를 추가하면서 실제 Airtable Schema와 대조하는 절차가 없음. 최초 발생(ERR-041, 2026-06-16, `retry_count`/`last_error_msg`)이 커밋 `463c350`으로 수정됐으나, 이후 별도 리팩터링(추정: Repository DI 전환)에서 동일 실패 경로에 새 필드(`error_code`)가 다시 도입되며 동일 클래스가 재발(ERR-075).
+
+**증상:** 게시/작업 실패 시 `422 Client Error: Unprocessable Entity` + `UNKNOWN_FIELD_NAME` 메시지가 error.log에 기록되고, 해당 레코드의 상태값이 `failed` 등 최종 상태로 전환되지 않은 채 중간 상태에 남는다.
+
+**예방:** (1) Repository Interface에 새 필드를 추가할 때마다 실제 Airtable Schema(get_table_schema 등)와 대조하는 절차를 필수화한다. (2) 실패 경로 자체의 오류(상태 기록 실패)를 별도로 감지·알림해 "실패의 실패"가 조용히 묻히지 않게 한다. (3) 동일 클래스 재발 이력(ERR-041 → ERR-075)이 있으므로 향후 수정 시 회귀 테스트에 이 필드 존재 여부 확인을 포함한다.
+
+**관련:** ERR-041, ERR-075, INC-022, INC-042, FP-009

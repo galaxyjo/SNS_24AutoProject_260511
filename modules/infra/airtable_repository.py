@@ -154,7 +154,11 @@ class AirtableRepository(RepositoryInterface):
         if not post.get("image_url"):
             raise RepositoryValidationError("image_url 필수")
         payload = {k: v for k, v in post.items() if v is not None}
-        payload.setdefault("post_status", InstagramPostStatus.READY.value)
+        _require_approval = os.getenv("REQUIRE_APPROVAL_BEFORE_PUBLISH", "false").lower() == "true"
+        _default_status = (
+            InstagramPostStatus.DRAFT.value if _require_approval else InstagramPostStatus.READY.value
+        )
+        payload.setdefault("post_status", _default_status)
         try:
             r = requests.post(
                 _url("Instagram_Posts"),
@@ -397,12 +401,16 @@ class AirtableRepository(RepositoryInterface):
     # ── 10. 업로드 결과 기록 ──────────────────────────────────────────────────
 
     def mark_post_result(self, post_id: str, result: PostPublishResult) -> None:
+        # ERR-075: Instagram_Posts에 error_code 필드가 존재하지 않아 이 필드를 payload에
+        # 넣으면 422 UNKNOWN_FIELD_NAME으로 PATCH 전체(post_status 포함)가 거부되고
+        # 레코드가 uploading에 고착된다(ERR-041과 동일 클래스, retry_count/last_error_msg
+        # 재발). ERR-041 선례와 동일하게 실패 사유는 Airtable에 쓰지 않고 로그로만 남긴다
+        # (호출부에서 이미 logger.error로 기록됨).
         status = result.get("status", "")
         payload: dict = {"post_status": status}
         if result.get("platform_post_id"):
             payload["ig_media_id"] = result["platform_post_id"]
-        if result.get("error_code"):
-            payload["error_code"] = result["error_code"]
+        # error_code는 의도적으로 payload에 넣지 않음 — 위 주석 참조. 호출부에서 이미 로깅됨.
         try:
             r = requests.patch(
                 _url("Instagram_Posts", post_id),

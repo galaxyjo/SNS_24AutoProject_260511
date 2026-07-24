@@ -1225,3 +1225,56 @@ ImportError: cannot import name 'process_comment_event' from partially initializ
 **260721 추가 조사·해결:** 공용 시작프로그램에 `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\AdsPower.lnk`가 이미 있었으나, 대상이 존재하지 않는 `C:\Program Files\AdsPower Global\AdsPower.exe`였고 실제 설치 파일은 `AdsPower Global.exe`였다. 관리자 승인으로 바로가기 TargetPath를 `C:\Program Files\AdsPower Global\AdsPower Global.exe`로 수정하고 `TargetExists=True` 재확인. AdsPower 실행 후 50325 LISTENING, 다음 예약 FB 크롤링(12:03:48~12:07:02) 4개 그룹 전체 연결 성공·총 1건 처리로 E2E PASS.
 
 **260721 실제 재부팅 실증(PASS, PENDING 해소):** 회장 승인 하에 `Restart-Computer -Force`로 실제 재부팅 실행(13:13 명령). `logs/watchdog.log` 원본 확인 — `13:14:41 [FATAL] watchdog.ps1 최상위 종료됨` → `13:15:13` SNS_Watchdog(NSSM, Automatic) 자동 재기동 → `13:15:18~13:15:37` Streamlit/ngrok/launcher 순차 자동 복구. AdsPower Global 프로세스 8개 전부 `13:17:32~13:17:40`에 기동 시작(사용자 로그인 세션 시작프로그램 바로가기 경유, 수정한 대상 경로로 정상 실행). 재부팅 후 포트 4개 재검사 — 50325/5000/8501/4040 전부 LISTENING, 50325 소유 프로세스 PID 14908 `C:\Program Files\AdsPower Global\AdsPower Global.exe` 확인. **자동기동 PENDING 항목 완전 해소.**
+
+---
+
+## ERR-075 | mark_post_result() 실패경로 `error_code` 미존재 필드 → 422 UNKNOWN_FIELD_NAME → uploading 11건 고착 (ACTIVE, ERR-041 재발)
+
+**Type:** Airtable 422 UNKNOWN_FIELD_NAME (ERR-041과 동일 클래스, 참조 필드명만 다름)
+
+**Raw:**
+```
+2026-07-23 14:23:02 [ERROR] __main__ - [publish_single] 3회 실패 최종 | rid=recuqN2wQu6bFNzDp
+2026-07-23 14:23:03 [ERROR] core.error_handler - [ErrorHandler] insta_upload 실패 | [Instagram_Posts] 입력 오류: {"error":{"type":"UNKNOWN_FIELD_NAME","message":"Unknown field name: \"error_code\""}}
+requests.exceptions.HTTPError: 422 Client Error: Unprocessable Entity for url: https://api.airtable.com/v0/apphJNTHWNoFcVb1D/Instagram_Posts/recuqN2wQu6bFNzDp
+modules.infra.repository_interface.RepositoryValidationError: [Instagram_Posts] 입력 오류: {"error":{"type":"UNKNOWN_FIELD_NAME","message":"Unknown field name: \"error_code\""}}
+```
+(동일 스택 2026-07-14 16:01:24~26 `rid=recknmIxozEIhpmfn`에서도 재현 확인)
+
+**Root Cause (Confirmed):** `launcher/main.py:328` `publish_single()` 실패 시 `PostPublishResult(error_code=raw.get("error", ""))` 구성 → `modules/infra/airtable_repository.py:404-405, 412-416` `mark_post_result()`가 이 `error_code`를 Instagram_Posts PATCH payload에 포함 → 현재 Airtable Schema에 `error_code` 필드가 존재하지 않아 422 반환 → 상태 갱신 PATCH 전체가 거부되어 `post_status`가 `failed`로 전환되지 못하고 `uploading`에 영구 고착.
+
+**Fix:** 미적용 — 이번 세션은 문서화만 승인됨. 아래 "향후 수정 Gate" 충족 후 별도 승인 필요.
+
+**Prevention:** (향후 수정 시 반영 예정) Repository Interface에 필드 추가 시 실제 Airtable Schema 대조 절차 필수화. 상세는 FP-057 참조.
+
+**Risk:** `HIGH` — (1) 현재도 재발 중인 활성 Production Bug(2026-06-30~2026-07-23 today), (2) 실패 레코드가 최종 상태로 전환되지 않아 운영 상태 왜곡, (3) `retry_count`(ERR-041) → `error_code`로 필드명만 바뀌며 반복되는 Failure Pattern(FP-057), (4) Live E2E Test에서 실패경로 검증을 방해, (5) 방치 시 신규 `uploading` 고착 레코드가 계속 발생 가능.
+
+**Status:** OPEN / ACTIVE — 수정 미적용, 고착 레코드 11건 확인: `recEl21XwVS1fQMLM, recDe7zuva9DU4Kpo, recRXuRK8M9LhksKs, rech2WtIaNBv6QAh3, recK5BOXjGQbWszDG, recZgm5co4xrhR61v, reca9Xztuir5D6Fbg, recknmIxozEIhpmfn, recrma9TOOVYQ9zX7, rec2FFjFQRikBf3xs, recuqN2wQu6bFNzDp`
+
+**Evidence:** `error.log:45076-45096`(2026-07-14), `error.log:46284-46304`(2026-07-23) — 11건 전부 "[publish_single] 3회 실패 최종" 직후 동일 `error_code` UNKNOWN_FIELD_NAME 스택트레이스 1:1 매칭 확인(260723 Runtime Evidence 감사).
+
+**ERR-041과의 관계 (재오픈 아님):** ERR-041(2026-06-16, `retry_count`/`last_error_msg` 필드)은 커밋 `463c350`으로 RESOLVED 처리됨 — 그 수정 자체는 여전히 유효하다. 이후(정확한 시점 UNKNOWN, Repository DI 리팩터링 추정) 실패 경로에 `error_code` 필드가 새로 도입되며 **동일 실패 클래스가 다른 필드명으로 재발**해 이 신규 번호로 별도 기록한다.
+
+**향후 수정 Gate (아래 전부 충족 + 별도 승인 후에만 코드 수정 착수):**
+1. Runtime Caller 확인
+2. Active File 확인
+3. Repository Interface와 실제 Airtable Schema 대조
+4. 영향받는 모든 실패 호출경로 확인
+5. 기존 `retry_count` 유사 재발 패턴(ERR-041) 확인
+6. Blast Radius 확인
+7. Rollback 방법 정의
+8. 성공 기준 사전 확정
+9. 사용자 별도 수정 승인
+
+**향후 수정 성공 기준 (기록만, 이번 세션 미실행):**
+1. 게시 실패 시 Airtable PATCH가 HTTP 성공한다.
+2. 실패 레코드가 `uploading → failed`로 전환된다.
+3. 존재하지 않는 Airtable 필드 전송이 0건이다.
+4. 실패 원인 정보는 실제 Schema에 존재하는 필드 또는 승인된 저장경로에 남는다.
+5. 정상 게시 성공경로에는 회귀가 없다.
+6. 단위 Test와 Repository 실패경로 Test가 PASS한다.
+7. 격리 Canary에서 실패 1건이 `failed`로 저장된다.
+8. 새로운 `uploading` 고착 레코드가 발생하지 않는다.
+9. 기존 11건 복구는 별도 승인·별도 작업으로 분리한다.
+
+**관련:** ERR-041, INC-022, INC-042, FP-057

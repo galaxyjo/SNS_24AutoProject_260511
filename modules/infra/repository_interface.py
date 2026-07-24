@@ -24,6 +24,8 @@ class InstagramPostStatus(str, Enum):
     UPLOADING = "uploading"
     POSTED    = "posted"
     FAILED    = "failed"
+    DRAFT     = "draft"
+    REJECTED  = "rejected"
 
 
 class LeadBridgeStatus(str, Enum):

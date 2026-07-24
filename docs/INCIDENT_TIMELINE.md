@@ -669,3 +669,23 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-056 참조.
 
 **관련:** ERR-074, FP-056
+
+---
+
+## INC-042 | mark_post_result() `error_code` 미존재 필드 재발 — uploading 11건 고착, ERR-041(retry_count)과 동일 클래스 (OPEN, 2026-06-30~진행중)
+
+**발생:** 최초 확인 가능 시점 2026-06-30 22:44(`recEl21XwVS1fQMLM`) ~ 2026-07-23 14:23(`recuqN2wQu6bFNzDp`, 오늘)까지 간헐 재발, 현재도 활성.
+
+**요약:** `launcher/main.py`의 `publish_single()`이 3회 재시도 실패 후 `mark_post_result()`로 상태를 `failed`로 전환하려 하나, payload에 포함된 `error_code` 필드가 Airtable Instagram_Posts Schema에 존재하지 않아 422 UNKNOWN_FIELD_NAME 반환 → 상태 전환 자체가 실패해 레코드가 `uploading`에 영구 고착.
+
+**영향:** 확인된 고착 레코드 11건(`recEl21XwVS1fQMLM, recDe7zuva9DU4Kpo, recRXuRK8M9LhksKs, rech2WtIaNBv6QAh3, recK5BOXjGQbWszDG, recZgm5co4xrhR61v, reca9Xztuir5D6Fbg, recknmIxozEIhpmfn, recrma9TOOVYQ9zX7, rec2FFjFQRikBf3xs, recuqN2wQu6bFNzDp`). 운영 상태 왜곡(`uploading`으로 표시되나 실제로는 실패 확정) — 향후 자동 정합성 로직(예: n8n 게이트)이 이 상태값을 신뢰할 수 없게 됨.
+
+**근본 원인:** `launcher/main.py:328` → `airtable_repository.py:404-416` `mark_post_result()`의 `error_code` 필드 write. 상세는 ERR-075 참조.
+
+**진행 상황:** 260723 read-only 감사로 근본원인 Confirmed, HIGH Risk로 등록(ERR-075/FP-057). 코드 수정은 미실행 — 별도 승인 대상.
+
+**해결:** 미적용 — ERR-075에 기록된 "향후 수정 Gate" 충족 후 별도 승인 받아 진행 예정.
+
+**재발 방지:** FP-057 참조.
+
+**관련:** ERR-075, ERR-041(2026-06-16 원본 사건, 필드명만 다른 동일 클래스), FP-057
