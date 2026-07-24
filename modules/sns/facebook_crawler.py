@@ -207,7 +207,10 @@ def save_to_training_queue(image_url, source_url, text, target_id_ref):
     from datetime import datetime, timezone
     from modules.infra.airtable_repository import AirtableRepository
     repo = AirtableRepository()
-    image_hash = hashlib.sha256(image_url.encode()).hexdigest()
+    import re as _re
+    _m = _re.search(r"/(\d+_\d+(?:_\d+)*)[_.]", image_url)
+    _hash_key = _m.group(1) if _m else image_url
+    image_hash = hashlib.sha256(_hash_key.encode()).hexdigest()
     if repo.exists_candidate_by_hash(image_hash):
         logger.info(f"[Training] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return False
