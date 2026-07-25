@@ -29,9 +29,14 @@ def _resp(ok: bool = True, status: int = 200) -> MagicMock:
 
 
 def _extract_all_fields(mock_patch_obj) -> list[dict]:
-    """mock requests.patch 호출 목록에서 전송된 fields dict 전부 추출."""
+    """mock requests.patch 호출 목록에서 전송된 fields dict 전부 추출.
+    현재 프로덕션 계약(json=)을 우선 확인하고, data=(bytes) 호출도 호환 유지한다."""
     result = []
     for c in mock_patch_obj.call_args_list:
+        json_kw = c.kwargs.get("json")
+        if isinstance(json_kw, dict):
+            result.append(json_kw.get("fields", {}))
+            continue
         raw = c.kwargs.get("data")
         if raw is None and len(c.args) > 1:
             raw = c.args[1]
@@ -44,6 +49,12 @@ def _extract_all_fields(mock_patch_obj) -> list[dict]:
 
 class TestCloseTransition:
     """mark_lead_closed() PATCH payload 정확성 검증."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_telegram(self):
+        """이 클래스는 PATCH 계약 검증이 목적 — Telegram 실네트워크 호출 방지."""
+        with patch("requests.post", return_value=_resp()):
+            yield
 
     def test_close_patches_bridge_status_closed(self, monkeypatch):
         monkeypatch.setenv("AIRTABLE_BASE_ID", "base_test")
