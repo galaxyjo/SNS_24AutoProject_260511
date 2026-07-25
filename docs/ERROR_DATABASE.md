@@ -1363,3 +1363,52 @@ GET https://api.airtable.com/v0/{base}/Instagram_Posts (offset 파라미터 없�
 **Status:** RESOLVED (260725) — 라이브 재확인: `fetch_all_instagram_posts()` 594건 반환(수정 전 100건), `collect_kpi("all").upload` = `{total:594, posted:393, failed:169, success_rate:66.2%}`(수정 전 `{total:100, posted:61, failed:34, success_rate:61.0%}`). 신규 단위테스트 6개(`tests/test_airtable_repository_pagination.py`) + 관련 기존 테스트 65개 전부 PASS.
 
 **관련:** FP-060, [[project_kpi_collector_limitations_260725]], ERR-041/ERR-075(같은 `uploading` 고착 레코드가 이번 KPI 누락과도 연결됨을 확인)
+
+---
+
+## ERR-079 | 7-C Token 교체 후 발급된 신규 토큰이 단기(만료됨) 토큰이라 교체 당일 오후 재만료 → DM/댓글 API 전면 실패 재발 (RESOLVED, 260725)
+
+**Type:** 토큰 수명 오분류 — 장기 토큰 교환 단계 누락
+
+**Raw:**
+```
+2026-07-25 15:39:51 [ERROR] modules.dm.dm_auto_reply - [AutoReply] IG DM 발송 실패 | 401 |
+{"error":{"message":"Error validating access token: Session has expired on Friday, 24-Jul-26 23:00:00 PDT. ...","type":"OAuthException","code":190,"error_subcode":463}}
+```
+15:39~16:30 사이 `ig_auto_reply`/`comment_poller` 반복 실패, retry_queue `dead` 신규 적재(`id=10004~10009` 등).
+
+**Root Cause:** 오전 ERR-077 해소 시 Graph API Explorer에서 Page("AI+24autoprogram") 토큰을 발급받아 `.env`에 저장했으나, 장기 토큰(60일) 교환 단계를 실행하지 않고 그대로 사용 — Graph API Explorer가 기본 발급하는 토큰은 수명이 짧아(이번 사례 발급~만료 간격 약 5시간), 같은 날 오후 만료됨.
+
+**Fix:** Meta Access Token Debugger(`developers.facebook.com/tools/debug/accesstoken`)에서 "액세스 토큰 확장(Extend Access Token)" 실행 → "만료되지 않는 새 액세스 토큰" 발급 확인 → `.env` `INSTA_ACCESS_TOKEN` 재교체 → `SNS_Watchdog` 재시작(회장 관리자 권한) → 신규 프로세스(재기동 16:31경)에서 read-only GET(HTTP 200, id 일치) + `comment_poller.get_recent_media_ids()` 직접 재현 호출(정상 5건 반환)로 재검증.
+
+**Prevention:** (제안, 미착수) 토큰 재발급 절차에 "Graph API Explorer에서 받은 토큰은 항상 그 자리에서 Access Token Debugger로 장기 교환까지 마친 뒤 저장한다"를 필수 단계로 명시(`docs/Instagram_토큰발급_매뉴얼.md`는 여전히 이 단계 없음 — 별도 갱신 필요).
+
+**Risk:** 수정 전 `MEDIUM` — 실제 업무 영향은 낮음(같은 날 확인된 DM/댓글 트래픽 대부분이 테스트 데이터, [[project_kpi_collector_limitations_260725]] 참조), 다만 자동화가 약 1시간 무인 상태로 전부 실패했고 재발 방지 없이는 매 토큰 재발급마다 반복될 위험.
+
+**Status:** RESOLVED (260725) — 장기 토큰 교체 후 read-only GET + `comment_poller` 직접 재현 둘 다 정상 확인.
+
+**관련:** FP-059, FP-061, ERR-077, INC-043, INC-044
+
+---
+
+## ERR-080 | order_detector.mark_lead_converted()가 Airtable에 없는 converted_at 필드를 PATCH → 전환 감지돼도 기록 실패, 예외가 삼켜져 무기록 (RESOLVED, 260725)
+
+**Type:** Airtable UNKNOWN_FIELD_NAME — Repository 필드 스키마 불일치(ERR-041/ERR-075와 동일 클래스, 세 번째 재발)
+
+**Raw:**
+```
+2026-07-25 15:40:19 [ERROR] modules.crm.order_detector - [Order] 전환 처리 실패 |
+[Lead_Interactions] 입력 오류: {"error":{"type":"UNKNOWN_FIELD_NAME","message":"Unknown field name: \"converted_at\""}}
+```
+
+**Root Cause:** `modules/infra/airtable_repository.py:889-894` `mark_lead_converted()`가 `bridge_status`/`lead_status`와 함께 `converted_at`을 PATCH하지만, Airtable `Lead_Interactions` 테이블에 이 필드가 실제로 존재하지 않았음(유사 필드 `lost_at`은 존재). `modules/crm/order_detector.py:28-34` `handle_order_conversion()`이 이 호출을 넓은 `except Exception`으로 감싸 로그만 남기고 예외를 삼켜(재시도 큐 위임 없음) — 전환이 실제로 감지돼도 `lead_status`가 `converted`로 절대 전환되지 않고 영구 유실됨. 10단계(Metric·수익 검증) KPI 실측 중 "전환 0건"이 관찰돼 원인 조사 보류 중이었는데, 같은 세션에서 우연히 error.log 점검 중 발견.
+
+**Fix:** Airtable Metadata API로 `Lead_Interactions`에 `converted_at`(dateTime, `lost_at`과 동일 설정: iso 날짜형식/24시간제/Asia-Bangkok 타임존) 필드 신규 추가(`fldznhZsTiC3kVFog`). `verify_field_exists("Lead_Interactions", "converted_at")` → `True`로 재확인. 코드 변경 없음(필드만 보강).
+
+**Prevention:** (제안, 미착수) ERR-041/ERR-075와 동일 근본 예방책 — Repository Interface에 신규 필드를 쓰는 코드를 추가할 때 실제 Airtable Schema와 대조하는 절차 필수화(FP-057 예방 항목 참조, 세 번째 재발).
+
+**Risk:** 수정 전 `HIGH`(전환 데이터 영구 유실 + 예외를 삼켜 증상이 표면화되지 않음) — RESOLVED로 해소되었으나, 이 버그가 언제부터 있었는지(최초 도입 시점)는 미조사 — 그동안 감지된 모든 전환이 실제로 유실됐을 가능성.
+
+**Status:** RESOLVED (260725) — 필드 추가 완료, `verify_field_exists()`로 재확인. 실제 전환 이벤트로 end-to-end 재현 검증은 미실시(다음 실제 전환 발생 시 확인 필요).
+
+**관련:** FP-057(같은 클래스 3번째 재발), ERR-041, ERR-075, INC-045

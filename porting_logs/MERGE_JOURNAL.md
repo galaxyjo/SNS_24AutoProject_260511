@@ -1539,3 +1539,18 @@ commit: 이 기록과 함께 커밋 예정
 push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
 
 ---
+
+## [260725_토큰단기만료+전환유실_2건수정] — 10단계 계속 조사 중 실시간 발견·수정
+
+**배경:** 대시보드 헬스 탭에서 "최근 1시간 에러 47건"을 발견, `logs/error/error.log` 직접 확인 중 서로 무관한 활성 문제 2건을 동시에 포착. 회장 지시("토큰부터 고치자. 둘다 고친다")로 즉시 수정.
+
+**①ERR-079/FP-061/INC-044 — 토큰 단기만료 재발:** 오전 ERR-077 해소 시 Graph API Explorer에서 발급받은 Page 토큰을 장기교환 없이 그대로 저장·사용 — 발급 후 약 5시간 만에(15:39경) 만료돼 `ig_auto_reply`/`comment_poller`가 `OAuthException 190 "Session has expired"`로 전면 실패, retry_queue `dead`에 신규 적재(`id=10004~10009` 등). **수정**: Meta Access Token Debugger(`developers.facebook.com/tools/debug/accesstoken`)에서 회장이 "액세스 토큰 확장" 실행 → "만료되지 않는 새 액세스 토큰" 발급 확인 → `.env` `INSTA_ACCESS_TOKEN` 재교체(회장 직접) → `SNS_Watchdog` 재시작(회장 관리자 권한) → **재검증**: read-only GET(HTTP 200, `id=17841476202821375` 기존과 일치) + `comment_poller.get_recent_media_ids()` 신규 프로세스에서 직접 재현 호출(정상 5건 반환, 에러 0건) — **PASS**. 프로세스 재기동 시각(`Get-CimInstance Win32_Process`로 확인, 16:31경) 이후 error.log에 동일 에러 재발 없음도 함께 확인.
+
+**②ERR-080/INC-045 — 리드 전환 기록 유실(같은 로그 점검 중 우연 발견):** `modules/crm/order_detector.py` `handle_order_conversion()` → `airtable_repository.py` `mark_lead_converted()`가 Airtable `Lead_Interactions`에 존재하지 않는 `converted_at` 필드를 PATCH — 매번 `UNKNOWN_FIELD_NAME`으로 실패하고 넓은 `except Exception`에 예외가 삼켜져(재시도 큐 위임 없음) 전환이 실제로 감지돼도 `lead_status`가 `converted`로 절대 갱신되지 못하고 영구 유실됨. **10단계에서 "1번 PASS"로 보류했던 "전환 0건" 의문의 유력한 실제 원인**(다만 실제 트래픽 자체가 대부분 테스트였던 정황도 겹쳐 있어 100% 확정은 아님). **수정**: Airtable Metadata API로 `Lead_Interactions.converted_at`(dateTime, `lost_at`과 동일 설정: iso/24시간제/Asia-Bangkok) 필드 신규 추가(`fldznhZsTiC3kVFog`) — 회장 승인 하 Airtable Write 실행. `verify_field_exists("Lead_Interactions", "converted_at")` → `True` 재확인 — **PASS**. 코드 변경 없음(필드 보강만). 실제 전환 이벤트로 end-to-end 재현 검증은 다음 실제 발생 시로 남음.
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-079, ERR-080) / `docs/FAILURE_PATTERN.md`(FP-061) / `docs/INCIDENT_TIMELINE.md`(INC-044, INC-045) / `docs/VALIDATION_STATUS.md`(`token_expiry_and_converted_at_fix_260725`) / 이 항목 / Claude 자체 메모리([[project_kpi_collector_limitations_260725]]) 동시 갱신.
+
+commit: 이 기록과 함께 커밋 예정
+push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
+
+---
