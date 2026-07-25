@@ -512,38 +512,66 @@ class AirtableRepository(RepositoryInterface):
         return [{"id": rec["id"], **rec.get("fields", {})} for rec in records]
 
     def fetch_all_instagram_posts(self) -> list[dict]:
-        try:
-            r = requests.get(
-                _url("Instagram_Posts"),
-                headers=_headers(),
-                timeout=_TIMEOUT,
+        """Instagram_Posts 전체 레코드 반환(전체 페이지 순회, KPI 집계용)."""
+        records: list[dict] = []
+        offset = None
+        while True:
+            params = {"pageSize": 100}
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(
+                    _url("Instagram_Posts"),
+                    headers=_headers(),
+                    params=params,
+                    timeout=_TIMEOUT,
+                )
+                r.raise_for_status()
+                log_api_call("Instagram_Posts", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Instagram_Posts")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+            data = r.json()
+            records.extend(
+                {"id": rec["id"], **rec.get("fields", {})} for rec in data.get("records", [])
             )
-            r.raise_for_status()
-            log_api_call("Instagram_Posts", "GET")
-        except requests.HTTPError as e:
-            _raise(e, "Instagram_Posts")
-        except requests.RequestException as e:
-            raise RepositoryUnavailableError(str(e)) from e
-        return [{"id": rec["id"], **rec.get("fields", {})} for rec in r.json().get("records", [])]
+            offset = data.get("offset")
+            if not offset:
+                break
+        return records
 
     def fetch_all_lead_interactions(self, since_utc: str | None = None) -> list[dict]:
-        params = {}
-        if since_utc:
-            params["filterByFormula"] = f"{{relay_scheduled_at}}>='{since_utc}'"
-        try:
-            r = requests.get(
-                _url("Lead_Interactions"),
-                headers=_headers(),
-                params=params,
-                timeout=_TIMEOUT,
+        """Lead_Interactions 전체 레코드 반환(전체 페이지 순회). since_utc 지정 시 relay_scheduled_at>=필터."""
+        records: list[dict] = []
+        offset = None
+        while True:
+            params = {"pageSize": 100}
+            if since_utc:
+                params["filterByFormula"] = f"{{relay_scheduled_at}}>='{since_utc}'"
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(
+                    _url("Lead_Interactions"),
+                    headers=_headers(),
+                    params=params,
+                    timeout=_TIMEOUT,
+                )
+                r.raise_for_status()
+                log_api_call("Lead_Interactions", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Lead_Interactions")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+            data = r.json()
+            records.extend(
+                {"id": rec["id"], **rec.get("fields", {})} for rec in data.get("records", [])
             )
-            r.raise_for_status()
-            log_api_call("Lead_Interactions", "GET")
-        except requests.HTTPError as e:
-            _raise(e, "Lead_Interactions")
-        except requests.RequestException as e:
-            raise RepositoryUnavailableError(str(e)) from e
-        return [{"id": rec["id"], **rec.get("fields", {})} for rec in r.json().get("records", [])]
+            offset = data.get("offset")
+            if not offset:
+                break
+        return records
 
     # ── Private: Lead_Interactions PATCH 공통 ────────────────────────────────
 

@@ -1338,3 +1338,28 @@ HTTP 200 {"id": "25455384140796901", "username": "yuna18253", "account_type": "B
 **Status:** RESOLVED (260725) — 최종 read-only GET으로 정상 동작 확인.
 
 **관련:** FP-059, INC-043, [[project_workflow_architecture_priority_260723]] 9단계/7-C
+
+---
+
+## ERR-078 | Instagram_Posts/Lead_Interactions KPI 집계가 Airtable 페이지네이션(offset) 미처리로 첫 100건만 반환 → 게시 성공률 등 전체 KPI 왜곡 (RESOLVED, 260725)
+
+**Type:** 데이터 완전성 버그 — Airtable REST API 페이지네이션 미구현
+
+**Raw:**
+```
+GET https://api.airtable.com/v0/{base}/Instagram_Posts (offset 파라미터 없이 단일 요청)
+응답: records=100건, "offset" 필드 존재(추가 페이지 있음을 의미) — 코드가 이를 무시하고 종료
+```
+대시보드(Streamlit) 실제 총건수: 592건(확인 시점) vs `kpi_collector.collect_kpi()`가 본 건수: 100건 — 83% 데이터 누락.
+
+**Root Cause:** `modules/infra/airtable_repository.py`의 `fetch_all_instagram_posts()`/`fetch_all_lead_interactions()`가 Airtable REST API의 페이지당 최대 100건 제한을 감안하지 않고 단일 `requests.get()` 호출로 끝남 — 응답의 `offset` 필드(다음 페이지 존재 신호)를 따라가지 않음. 같은 파일의 `count_candidates_by_status()`(Training_Review_Queue)는 이미 올바른 offset 순회 패턴을 쓰고 있었고, `fetch_candidate_phashes()`엔 동일 한계를 인지한 주석("NOTE: offset 페이지네이션 미구현...")까지 있었음에도 KPI 집계 경로 2곳은 미수정 상태로 방치됨. 결과: `uploading`(11건, ERR-041/ERR-075 고착 레코드와 겹침 가능성)·`rejected`(20건) 상태가 KPI에서 통째로 누락되는 등 실사용에 영향.
+
+**Fix:** 두 메서드 모두 `count_candidates_by_status()`와 동일한 `while True` + `offset` 순회 패턴으로 재작성(같은 커밋). `fetch_all_lead_interactions()`는 기존 `since_utc` 필터(`filterByFormula`)를 페이지마다 유지하도록 함께 처리. `repository_interface.py`의 두 추상메서드 docstring도 "전체 페이지 순회" 명시로 갱신.
+
+**Prevention:** (제안, 미착수) `fetch_candidate_phashes()`에 남아있는 동일 클래스 한계(주석으로 이미 인지된 상태)도 향후 동일 패턴으로 정리 필요 — 이번 수정 범위 밖(FP-060 예방 항목 참조).
+
+**Risk:** 수정 전 `HIGH`(신뢰할 수 없는 KPI로 의사결정 위험, 10단계 Metric·수익 검증 착수 직후 발견) — RESOLVED로 해소.
+
+**Status:** RESOLVED (260725) — 라이브 재확인: `fetch_all_instagram_posts()` 594건 반환(수정 전 100건), `collect_kpi("all").upload` = `{total:594, posted:393, failed:169, success_rate:66.2%}`(수정 전 `{total:100, posted:61, failed:34, success_rate:61.0%}`). 신규 단위테스트 6개(`tests/test_airtable_repository_pagination.py`) + 관련 기존 테스트 65개 전부 PASS.
+
+**관련:** FP-060, [[project_kpi_collector_limitations_260725]], ERR-041/ERR-075(같은 `uploading` 고착 레코드가 이번 KPI 누락과도 연결됨을 확인)

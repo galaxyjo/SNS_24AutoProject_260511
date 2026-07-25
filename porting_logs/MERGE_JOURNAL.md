@@ -1514,3 +1514,28 @@ commit: 이 기록과 함께 커밋 예정
 push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
 
 ---
+
+## [260725_10단계_KPI페이지네이션버그] — 10단계(Metric·수익 검증) 착수 중 발견·수정
+
+**배경:** 7-C Token 교체 완료 후 10단계 착수. Airtable 테이블·필드 점검 → `modules/metrics/kpi_collector.py` 실제 실행(read-only) → `collect_kpi("today")`/`collect_kpi("all")` 결과 `upload.total`이 두 기간 모두 100으로 동일한 것을 발견, Streamlit 대시보드(총 592건)와 대조해 불일치 확인.
+
+**원인 확인:** `modules/infra/airtable_repository.py`의 `fetch_all_instagram_posts()`/`fetch_all_lead_interactions()`가 Airtable REST API의 페이지당 100건 상한과 `offset` 페이지네이션을 처리하지 않고 단일 요청으로 끝남 — `requests.get()` 직접 호출로 실측: `records=100`, `offset` 필드 존재(추가 페이지 있음) 확인. 같은 파일 `count_candidates_by_status()`는 이미 올바른 offset 순회 패턴을 쓰고 있었고, `fetch_candidate_phashes()`엔 동일 한계를 인지한 주석까지 있었음에도 KPI 경로 2곳은 미수정 상태.
+
+**수정(회장 승인 "이건 고치자"):** 두 메서드를 `count_candidates_by_status()`와 동일한 `while True`+`offset` 순회 패턴으로 재작성(`fetch_all_lead_interactions()`는 기존 `since_utc` 필터를 페이지마다 유지). `repository_interface.py` 추상메서드 docstring도 갱신. 신규 테스트 `tests/test_airtable_repository_pagination.py`(6개: 단일페이지/2페이지 offset 추적/3페이지 210건 무손실/lead since_utc 필터 유지 등) 전부 PASS, 관련 기존 테스트(`test_airtable_repository_field_preflight.py`/`test_airtable_repository_batch_review.py`/`test_smoke_metrics.py`/`test_repository_exceptions.py`) 65개 전부 PASS.
+
+**라이브 재확인(Runtime evidence):** `fetch_all_instagram_posts()` 594건 반환(수정 전 100건). `collect_kpi("all").upload` = `{total:594, posted:393, failed:169, rejected:20, uploading:11, draft:1, success_rate:66.2%}`(수정 전 `{total:100, posted:61, failed:34, success_rate:61.0%}`) — 이전엔 `uploading`(11건)·`rejected`(20건) 상태가 KPI에서 통째로 누락돼 있었음.
+
+**부수 발견(OUT OF SCOPE, 기록만):**
+1. 전체 pytest 스위트(`pytest -q`)를 필터 없이 돌리면 본 수정과 무관하게 39개 파일이 collection 단계에서 `ModuleNotFoundError`로 실패 — `.pytest_cache` 생성 시 Windows `WinError 5`(액세스 거부)와 연관 추정, 미확정. 관련 파일만 선별 실행하면 전부 PASS하므로 본 수정의 회귀는 아님.
+2. `fetch_candidate_phashes()`에 동일 클래스 페이지네이션 한계가 이미 주석으로 인지된 채 남아있음 — 이번 범위 밖.
+3. KPI 리드 전환(`lead_status=converted`) 전체 기간 0건 — 원인 미조사, 회장 지시로 보류("1번 PASS").
+4. 게시 KPI(`upload`)는 여전히 기간(period) 필터가 없어 today/7d/30d 요청해도 항상 전체누적 — 설계상 한계로 별도 기록, 이번 수정 범위 밖.
+5. Instagram Graph API의 "조회수/노출(reach/impressions)" 인사이트 데이터는 코드 어디서도 수집하지 않음(좋아요·댓글만 수집) — 10단계 후속 검토 대상.
+6. 매출/주문금액을 저장하는 구조화 필드가 Airtable 어디에도 없음 — 회장이 별도 Notion 자산 보유, 활용 여부는 GPT 상의 후 결정 예정(별도 메모).
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-078) / `docs/FAILURE_PATTERN.md`(FP-060) / `docs/VALIDATION_STATUS.md`(`kpi_pagination_fix_260725`) / 이 항목 / Claude 자체 메모리([[project_kpi_collector_limitations_260725]], [[project_revenue_tracking_notion_260725]]) 동시 갱신.
+
+commit: 이 기록과 함께 커밋 예정
+push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
+
+---
