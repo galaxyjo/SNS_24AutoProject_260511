@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ from modules.infra.repository_interface import (
     LeadInteraction,
     LeadInteractionCreate,
     PostPublishResult,
+    PublishAccount,
     RepositoryError,
     RepositoryInterface,
     RepositoryNotFoundError,
@@ -371,9 +373,53 @@ class AirtableRepository(RepositoryInterface):
                     hashtag=f.get("hashtag", ""),
                     post_status=f.get("post_status", ""),
                     ig_media_id=f.get("ig_media_id", ""),
+                    account_code_ref=f.get("account_code_ref", ""),
                 )
             )
         return result
+
+    # ── 8-1. 계정 조회 (Provider 분기용, access_token 미포함) ─────────────────
+
+    _ACCOUNT_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+    def get_publish_account(self, account_code: str) -> PublishAccount | None:
+        if not account_code or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code):
+            # 형식이 이상하면(공백/쉼표 등 다중값처럼 보이는 값 포함) 추측하지 않고 차단
+            return None
+
+        try:
+            r = requests.get(
+                _url("Account_Registry"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": f"{{account_code}}='{account_code}'",
+                    "maxRecords": 2,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Account_Registry", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Account_Registry")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if len(records) != 1:
+            # 0건(없음) 또는 2건 이상(중복, 모호함) 전부 안전하게 차단
+            return None
+
+        f = records[0].get("fields", {})
+        api_provider = f.get("api_provider", "")
+        if isinstance(api_provider, dict):  # singleSelect는 {"name": ...} 형태로 올 수 있음
+            api_provider = api_provider.get("name", "")
+
+        return PublishAccount(
+            account_code=f.get("account_code", ""),
+            api_provider=api_provider,
+            ig_user_id=f.get("ig_user_id", ""),
+            credential_key=f.get("credential_key", ""),
+        )
 
     # ── 9. 업로드 선점 마킹 ───────────────────────────────────────────────────
 

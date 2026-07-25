@@ -83,12 +83,21 @@ class SourceItem(TypedDict, total=False):
 
 
 class InstagramPost(TypedDict, total=False):
-    post_id:     str
-    image_url:   str
-    caption:     str
-    hashtag:     str
-    post_status: str
-    ig_media_id: str
+    post_id:          str
+    image_url:        str
+    caption:          str
+    hashtag:          str
+    post_status:      str
+    ig_media_id:      str
+    account_code_ref: str  # 공란=기존 전역 계정 경로, 값 있음=Account_Registry.account_code 참조
+
+
+class PublishAccount(TypedDict):
+    """Account_Registry 조회 결과 — access_token은 절대 포함하지 않는다."""
+    account_code:   str
+    api_provider:   str
+    ig_user_id:     str
+    credential_key: str
 
 
 class CrawlTarget(TypedDict, total=False):
@@ -236,6 +245,11 @@ class RepositoryInterface(ABC):
     @abstractmethod
     def fetch_pending_posts(self, limit: int = 10) -> list[InstagramPost]:
         """post_status='ready' 인 게시물 최대 limit 건 반환."""
+
+    @abstractmethod
+    def get_publish_account(self, account_code: str) -> PublishAccount | None:
+        """account_code로 Account_Registry 조회. 없으면 None. access_token은 반환하지 않는다
+        (실제 자격증명은 modules.common.credential_resolver.resolve_credential()로 별도 조회)."""
 
     @abstractmethod
     def claim_post_for_upload(self, post_id: str) -> bool:

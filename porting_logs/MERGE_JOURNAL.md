@@ -1436,3 +1436,29 @@ commit: 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식)
 
 ---
+
+
+### 계정별 Provider 분기 최소변경 구현 — 9단계 구조적 블로커 해소 (2026-07-25 KST)
+
+**배경:** Workflow Architecture 9단계(2계정 재현 Test) 진행 중 `launcher/main.py`가 `.env` 전역 토큰 1쌍만 사용해 실제 "2번째 독립 계정" 게시가 코드상 불가능함을 확인. 조사 과정에서 회장이 이미 Airtable `Account_Registry`에 만들어둔 AI 페르소나 계정(`IDN-000036`/`aijomoojin`)을 발견 — 회사계정(`yuna18253`)과 다른 Meta API 계열(Instagram API with Instagram Login, `graph.instagram.com`)임을 read-only GET(`account_type=MEDIA_CREATOR`)으로 실측 확인.
+
+**아키텍처 방향(GPT):** 별도 Airtable base/Repository로 분리하지 않고 `Account_Registry`를 공통 SSOT로 유지, Provider(facebook_login/instagram_login)만 분기하는 구조로 확정([[project_persona_avatar_architecture_260724]] — Claude 자체 메모리 참조).
+
+**설계 검증:** Codex 읽기전용 리뷰 2라운드 — 1라운드 6개 보완사항 지적(Repository 계약 누락, claim 순서, Provider allowlist 등) 전부 반영한 개정안에 대해 2라운드에서 `account_code_ref`가 Airtable 링크 필드라 `list[str]` 처리가 필요하다고 지적했으나, 라이브 스키마 직접 재조회(`multilineText` 확인)로 이 지적이 틀렸음을 확인·정정. GPT 아키텍처 감사 2라운드 — 1라운드에서 `ig_user_id` Airtable/.env 이중 기준 충돌·`credential_key` 형식검증 미확정을 이유로 조건부 반려, 규칙 확정 후 2라운드에서 `SUCCESS`(구현 승인 가능) 판정.
+
+**구현(회장 명시 승인 범위 — 코드+Airtable 필드 2개+로컬 회귀, git commit/배포/Flag활성화 제외):**
+- Airtable Write: `Account_Registry`에 `api_provider`(singleSelect)/`credential_key`(text) 신규 필드, `IDN-000036`에 `instagram_login`/`AI` 값 입력 — 둘 다 비밀값 아님(`docs/ARCHITECTURE_LOCK.md` LOCK#2 "credentials 저장 금지" 준수, 실제 토큰은 `.env`의 `AI_INSTA_IG_USER_ID`/`AI_INSTA_ACCESS_TOKEN`에만 존재)
+- 신규 `modules/common/credential_resolver.py`: `credential_key` → `.env` 조회, 형식검증(`^[A-Z0-9_]+$`), 토큰 미로그
+- `repository_interface.py`: `InstagramPost.account_code_ref` 추가, `PublishAccount` TypedDict 신규, `get_publish_account()` 추상메서드 추가
+- `airtable_repository.py`: `fetch_pending_posts()` account_code_ref 매핑, `get_publish_account()` 구현(형식오류/0건/2건이상 전부 안전 차단, access_token 미반환)
+- `launcher/main.py`: `PROVIDER_CONFIG` 고정매핑(미등록 Provider 폴백 금지), `publish_single(api_host=...)` 추가(기본값 `graph.facebook.com`로 기존 호출부 무변경), `_job_insta_upload()` 순서 재배치 — `account_code_ref` 공란이면 기존 전역경로 100% 동일(전역 자격증명 검사도 이 분기 안으로 이동), 값 있으면 `INSTAGRAM_PROVIDER_ROUTING_ENABLED=false`(기본) 킬스위치 확인→계정조회→Provider allowlist→credential 해석→Airtable/.env ig_user_id 교차검증, 전부 통과해야 `claim_post_for_upload()` 호출(실패 시 claim 전 차단, `ready` 상태 유지)
+- `.env.example`: 신규 킬스위치 문서화
+
+**검증:** 신규 테스트 25개(`tests/test_credential_resolver.py` 13, `tests/test_provider_routing.py` 12 — 미지원Provider/중복계정/ig_user_id불일치/혼합배치 크로스오염 등 리뷰 필수조건 전부 커버) 전부 PASS. 전체 회귀 `pytest tests/`: `557 passed / 5 failed / 3 xfailed` — 실패 5건 전부 기존 무관 baseline(`test_dm_close.py` 4건 Telegram 네트워크, `test_review_grid_ui.py` 1건 Streamlit flaky, 260716부터 반복 기록된 baseline과 일치). **신규 회귀 0건.**
+
+**상태:** Flag 기본값 `false`로 커밋 — 실제 게시 Runtime 동작 무변경. Runtime 배포·Flag 활성화·`aijomoojin` 실제 Canary 게시는 별도 승인 대상으로 보류.
+
+commit: 이 기록과 함께 커밋 예정
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식)
+
+---

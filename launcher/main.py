@@ -245,11 +245,20 @@ def _job_comment_dead_monitor():
         logger.warning(f"[comment_dead_monitor] 신규 dead 알림 {n}건")
 
 
-def publish_single(rid, image_url, caption, access_token, ig_user_id):
+# Provider별 Meta Graph API 호스트 — 계정마다 다른 로그인 방식(260725 설계)을 고정 매핑한다.
+# 미등록 Provider는 이 dict에 없으므로 .get()이 None을 반환해 호출부에서 게시 전 차단된다(폴백 금지).
+PROVIDER_CONFIG = {
+    "facebook_login":  {"host": "graph.facebook.com"},
+    "instagram_login": {"host": "graph.instagram.com"},
+}
+
+
+def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="graph.facebook.com"):
     """
     단일 Record 게시 실행 함수.
     APScheduler와 n8n Endpoint가 공통으로 호출한다.
     Token/ig_user_id는 호출자가 주입 — 이 함수는 저장소를 모른다.
+    api_host: Provider별 Graph API 호스트(기본값 graph.facebook.com — 기존 호출부는 인자를 안 주므로 동작 무변경).
     로그에 access_token 출력 금지.
     """
     import requests as _req
@@ -263,7 +272,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
     for attempt in range(1, 4):
         try:
             r1 = _req.post(
-                f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
+                f"https://{api_host}/v21.0/{ig_user_id}/media",
                 params={"image_url": image_url, "caption": caption,
                         "access_token": access_token},
                 timeout=30,
@@ -272,7 +281,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
             c1 = r1.json()
 
             r2 = _req.post(
-                f"https://graph.facebook.com/v21.0/{ig_user_id}/media_publish",
+                f"https://{api_host}/v21.0/{ig_user_id}/media_publish",
                 params={"creation_id": c1["id"], "access_token": access_token},
                 timeout=30,
             )
@@ -294,12 +303,9 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id):
 def _job_insta_upload():
     from modules.infra.airtable_repository import AirtableRepository
     from modules.infra.repository_interface import PostPublishResult
+    from modules.common.credential_resolver import CredentialResolutionError, resolve_credential
 
-    token      = os.getenv("INSTA_ACCESS_TOKEN")
-    ig_user_id = os.getenv("INSTA_IG_USER_ID", "").strip()
-    if not token or not ig_user_id:
-        logger.warning("[Main] INSTA 환경변수 미설정 — upload 생략")
-        return
+    routing_enabled = os.getenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "false").strip().lower() == "true"
 
     repo  = AirtableRepository()
     posts = repo.fetch_pending_posts(limit=50)
@@ -308,10 +314,11 @@ def _job_insta_upload():
 
     logger.info(f"[Main] insta_upload | {len(posts)}건 처리 시작")
     for post in posts:
-        post_id   = post["post_id"]
+        post_id           = post["post_id"]
         logger.info(f"[Approval] ready 레코드 처리 시작 | rid={post_id}")
-        image_url = post.get("image_url", "")
-        caption   = f"{post.get('caption','')}\n{post.get('hashtag','')}".strip()
+        image_url         = post.get("image_url", "")
+        caption           = f"{post.get('caption','')}\n{post.get('hashtag','')}".strip()
+        account_code_ref  = post.get("account_code_ref", "")
 
         # ig_media_id 있으면 이미 업로드된 레코드 — 재업로드 차단
         if post.get("ig_media_id"):
@@ -326,11 +333,62 @@ def _job_insta_upload():
                 repo.mark_post_result(post_id, _PPR(status="rejected", platform_post_id="", error_code=""))
                 continue
 
-        # claim: uploading 마킹 (non-atomic, single-worker only)
+        if not account_code_ref:
+            # ── 기존 경로(무변경): 전역 계정 ──────────────────────────────
+            token      = os.getenv("INSTA_ACCESS_TOKEN")
+            ig_user_id = os.getenv("INSTA_IG_USER_ID", "").strip()
+            if not token or not ig_user_id:
+                logger.warning("[Main] INSTA 환경변수 미설정 — upload 생략 | rid=%s", post_id)
+                continue
+            api_host = "graph.facebook.com"
+        else:
+            # ── 신규 경로: 계정별 Provider 분기(260725 설계, 기본 비활성) ──
+            if not routing_enabled:
+                logger.info(
+                    "[Main] account_code_ref 존재하나 라우팅 비활성(INSTAGRAM_PROVIDER_ROUTING_ENABLED=false) "
+                    "— 처리 보류 | rid=%s | account_code_ref=%s", post_id, account_code_ref,
+                )
+                continue
+
+            account = repo.get_publish_account(account_code_ref)
+            if account is None:
+                logger.warning(
+                    "[Main] account_code_ref 조회 실패(없음/중복/형식오류) — 처리 보류 | rid=%s | account_code_ref=%s",
+                    post_id, account_code_ref,
+                )
+                continue
+
+            provider_conf = PROVIDER_CONFIG.get(account["api_provider"])
+            if provider_conf is None:
+                logger.warning(
+                    "[Main] 미지원 api_provider — 처리 보류 | rid=%s | api_provider=%r",
+                    post_id, account["api_provider"],
+                )
+                continue
+
+            try:
+                cred = resolve_credential(account["credential_key"])
+            except CredentialResolutionError as e:
+                logger.warning(f"[Main] credential 해석 실패 — 처리 보류 | rid={post_id} | {e}")
+                continue
+
+            if cred.ig_user_id != account["ig_user_id"]:
+                # Airtable ig_user_id와 .env ig_user_id가 다르면 어느 쪽도 신뢰하지 않고 차단(GPT 감사 필수조건)
+                logger.warning(
+                    "[Main] ig_user_id 불일치(Airtable vs .env) — 처리 보류 | rid=%s | account_code_ref=%s",
+                    post_id, account_code_ref,
+                )
+                continue
+
+            token      = cred.access_token
+            ig_user_id = cred.ig_user_id
+            api_host   = provider_conf["host"]
+
+        # claim: uploading 마킹 (non-atomic, single-worker only) — 자격증명 해석 성공 이후에만 도달
         if not repo.claim_post_for_upload(post_id):
             continue
 
-        raw = publish_single(post_id, image_url, caption, token, ig_user_id)
+        raw = publish_single(post_id, image_url, caption, token, ig_user_id, api_host=api_host)
 
         pub_result = PostPublishResult(
             status="posted" if raw.get("ok") else "failed",
