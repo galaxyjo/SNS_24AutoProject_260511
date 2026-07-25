@@ -1309,3 +1309,32 @@ permalink: https://www.instagram.com/p/DbMth5Skgy_/, username: aijomoojin
 **Status:** OPEN — 260725 `aijomoojin` 실게시 중 1회 실측 재현, 수동 재시도로 해소(레코드 `recHTfHrFPQh79XGy`, `ig_media_id=18110242561955523`로 Airtable 정정 완료). 코드 수정(Prevention 항목)은 미착수.
 
 **관련:** FP-058, ERR-075(같은 세션에서 별도로 발견된, 무관한 필드 스키마 버그)
+
+---
+
+## ERR-077 | Meta 콘솔 토큰 재발급 시 잘못된 Use Case(Instagram API with Instagram Login) 선택 → IGAA 포맷 토큰 저장, graph.facebook.com OAuth 파싱 실패 (RESOLVED, 260725)
+
+**Type:** 토큰 포맷/호스트 불일치 (OAuthException code 190)
+
+**Raw:**
+```
+GET https://graph.facebook.com/v21.0/17841476202821375?fields=id,username,account_type&access_token=IGAAL14Dve...
+HTTP 400
+{"error":{"message":"Invalid OAuth access token - Cannot parse access token","type":"OAuthException","code":190,"fbtrace_id":"A2jdsAJEXFMAYf-cygxZ_jR"}}
+```
+같은 토큰으로 `graph.instagram.com` 호출 시:
+```
+HTTP 200 {"id": "25455384140796901", "username": "yuna18253", "account_type": "BUSINESS"}
+```
+
+**Root Cause:** 7-C Token 교체([[project_workflow_architecture_priority_260723]] GPT 260725 확정 1순위 과제) 진행 중, `yuna18253` 계정은 원래 "Facebook Login for Business" 플로우(EAA 접두 토큰, `graph.facebook.com`)로 발급받은 계정이었으나, Meta 개발자 콘솔에서 "이용 사례 → API 설정 → 액세스 토큰 생성"(Instagram API with Instagram Login 전용 화면 — `docs/Instagram_토큰발급_매뉴얼.md`에 기술된 절차를 그대로 재사용해 발생, 그 매뉴얼은 원래 `aijomoojin`용으로 작성됨)으로 재발급해 `IGAA` 접두 토큰이 나왔다. `IGAA` 토큰은 `graph.instagram.com`에서만 유효하고, 계정 ID 체계도 다르다(`25455384140796901` vs 기존 `17841476202821375`). `launcher/main.py`의 `PROVIDER_CONFIG`는 `yuna18253`을 `graph.facebook.com` 고정 경로로 호출하므로 즉시 `OAuthException 190` 발생.
+
+**Fix:** Graph API Explorer(`developers.facebook.com/tools/explorer`)에서 "사용자 또는 페이지"를 `yuna18253` 연결 Page("AI+24autoprogram")로 전환해 정식 Page Access Token(EAA 접두) 재발급 → `.env` `INSTA_ACCESS_TOKEN` 교체. 최종 검증: `graph.facebook.com` GET `id,username` → HTTP 200, `id=17841476202821375`(기존과 일치)/`username=yuna18253`.
+
+**Prevention:** (제안, 미구현) `docs/Instagram_토큰발급_매뉴얼.md` 상단에 "이 매뉴얼은 Instagram API with Instagram Login 전용"임을 명시하고, Facebook Login for Business 계열 계정 재발급 절차(Graph API Explorer의 Page Access Token 경로)를 별도 섹션으로 추가.
+
+**Risk:** `MEDIUM` — 잘못된 토큰이 `.env`에 저장된 동안(1차 저장+재시작 ~ 정정 재저장+재시작까지) `yuna18253` 게시 경로가 깨진 상태였음(INC-043). fail-closed 설계로 중복게시·데이터손상은 없음. 이 구간에 실제 예약 게시 시도가 있었는지는 로그 미조회(UNKNOWN).
+
+**Status:** RESOLVED (260725) — 최종 read-only GET으로 정상 동작 확인.
+
+**관련:** FP-059, INC-043, [[project_workflow_architecture_priority_260723]] 9단계/7-C

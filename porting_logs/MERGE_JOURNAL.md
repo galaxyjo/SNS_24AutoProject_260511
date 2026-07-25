@@ -1495,3 +1495,22 @@ commit: 이 기록과 함께 커밋 예정
 push: 세션 종료 — 이번엔 일괄 push 진행([[feedback_push_cadence]] 방식)
 
 ---
+
+## [260725_7C_Token교체] — 7-C Token 교체 (GPT 260725 확정 1순위 과제)
+
+**배경:** [[project_workflow_architecture_priority_260723]]/[[project_persona_avatar_architecture_260724]]의 GPT 사후 컨설팅 후속과제 4개 중 🔴 1순위. "596건, 260723 감사"로 기록된 토큰노출 위험을 실제로 처리.
+
+**1단계 — 596건 재조사(read-only):** 원본 감사 기록이 `docs/` 어디에도 없어 직접 `logs/` 전체를 grep으로 재현. `INSTA_ACCESS_TOKEN`(yuna18253) 243건(`app.log.1`:25, `app.log.5`:208, `AI_chat/*.txt` 4개 파일 합 10) 확인, `AI_INSTA_ACCESS_TOKEN`(aijomoojin) 0건, `db/`·git 이력 0건. 596과 243 불일치 사유는 UNKNOWN으로 기록(원본 방법론 부재). **결론: 노출된 yuna18253 토큰만 교체 대상으로 확정**, aijomoojin은 대상 아님 — 회장 승인.
+
+**2단계 — 1차 재발급(실패, ERR-077):** 회장이 Meta 콘솔 "이용 사례→API 설정→액세스 토큰 생성"(`docs/Instagram_토큰발급_매뉴얼.md` 절차, 원래 aijomoojin/Instagram Login용)으로 재발급 → `IGAA` 접두 토큰 발급됨 → `.env` 저장 → `SNS_Watchdog` 재시작(회장 관리자 권한) → read-only GET 검증 결과 `graph.facebook.com`에서 `HTTP 400 OAuthException 190 "Cannot parse access token"`. 같은 토큰을 `graph.instagram.com`으로 재확인하니 `HTTP 200`(계정은 `yuna18253` 맞으나 계정ID `25455384140796901`로 기존 `17841476202821375`와 다름) — Instagram Login 플로우 토큰이라 Facebook Login for Business 경로(`graph.facebook.com`, 기존 코드 고정 경로)와 근본적으로 호환 안 됨을 확인. 이 구간 `yuna18253` 게시 경로 일시 중단(INC-043, fail-closed로 안전).
+
+**3단계 — 정정 재발급(성공):** Graph API Explorer(`developers.facebook.com/tools/explorer`) 안내 — "사용자 또는 페이지" 드롭다운을 `yuna18253` 연결 Page("AI+24autoprogram")로 전환해 정식 Page Access Token(EAA 접두) 재발급. 회장이 `.env` `INSTA_ACCESS_TOKEN`에 저장(구 IGAA 토큰은 `INSTA_FBCRAWING_ACCESS_TOKEN`으로 보존, 코드 미참조). `SNS_Watchdog` 재시작(회장 관리자 권한, 2차) → read-only GET 재검증: `graph.facebook.com` `HTTP 200`, `id=17841476202821375`(기존과 일치)/`username=yuna18253` — **PASS**.
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-077) / `docs/FAILURE_PATTERN.md`(FP-059) / `docs/INCIDENT_TIMELINE.md`(INC-043) / `docs/VALIDATION_STATUS.md`(`token_rotation_yuna18253_260725`) / 이 항목 / Claude 자체 메모리([[project_workflow_architecture_priority_260723]], [[project_persona_avatar_architecture_260724]], [[project_token]]) 동시 갱신.
+
+**미해결(OPEN, 낮은 우선순위):** 구 EAA 토큰(노출분) Meta 콘솔에서 명시적 revoke 확인 미실시(재발급으로 자연 무효화 추정, 미확정). 로그에 남은 243건 원문은 삭제하지 않음(영구삭제는 별도 승인 대상). `docs/Instagram_토큰발급_매뉴얼.md`는 여전히 Instagram Login 전용 절차만 기술 — Facebook Login for Business 절차 추가는 미착수(FP-059 Prevention 참조).
+
+commit: 이 기록과 함께 커밋 예정
+push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
+
+---

@@ -758,3 +758,15 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** (1) 외부 API 재시도 정책을 설계할 때 "상태코드만으로 최종성 단정 금지"를 기본 원칙으로 삼는다. (2) 가능하면 공식 문서의 "polling/status 확인 후 다음 단계 진행" 패턴을 따른다. (3) 4xx를 최종실패로 분류해 기록하더라도, 재시도에 필요한 컨텍스트(예: `creation_id`)는 사람이 수동으로라도 복구할 수 있게 최종 저장소(Airtable 등)에 남긴다 — 로그에만 남기면 복구 난이도가 불필요하게 올라간다.
 
 **관련:** ERR-076
+
+---
+
+## FP-059 | 계정마다 Meta Auth 플로우(Facebook Login for Business vs Instagram API with Instagram Login)가 다르면, 토큰 재발급 화면을 잘못 고르는 것만으로 토큰 포맷·호스트·계정ID 체계가 통째로 바뀐다
+
+**설명:** Meta는 Instagram Graph API 접근에 최소 두 가지 플로우를 제공한다 — (A) Facebook Login for Business: FB 페이지를 경유, `EAA` 접두 토큰, `graph.facebook.com`, 계정ID는 FB 연결 기준. (B) Instagram API with Instagram Login: Instagram 계정 직접 로그인, `IGAA` 접두 토큰, `graph.instagram.com` 전용, 계정ID 체계도 별도. 같은 Instagram 계정이라도 어느 화면에서 토큰을 발급받았는지에 따라 완전히 다른 토큰·ID·호스트가 나오며, 기존 코드가 특정 플로우에 고정 배선돼 있으면 다른 플로우로 재발급 시 즉시 호환 오류가 난다.
+
+**증상:** 재발급된 토큰으로 기존 호출 경로(`graph.facebook.com`)를 그대로 두면 `OAuthException code 190 "Cannot parse access token"` 발생(ERR-077). 토큰 자체는 유효하지만(다른 호스트에서는 200), 계정ID까지 다르게 나와 필드 조회도 어긋난다.
+
+**예방:** (1) 계정별로 "어느 플로우로 발급됐는지"를 `Account_Registry` 등 SSOT에 명시 필드로 남긴다(이 프로젝트는 260724에 `api_provider`/`credential_key`로 이미 도입 — 재발급 매뉴얼에도 계정별 플로우를 함께 기록해야 함). (2) 토큰 재발급용 매뉴얼(`docs/Instagram_토큰발급_매뉴얼.md`)이 특정 플로우 전용임을 문서 제목/상단에 명시한다. (3) 토큰 교체 후 반드시 실제 호출 경로(호스트)로 read-only GET 검증하고, 계정ID가 기존 값과 일치하는지까지 대조한다(포맷만 맞고 ID가 다른 경우를 놓치지 않기 위해).
+
+**관련:** ERR-077, INC-043

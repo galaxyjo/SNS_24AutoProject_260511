@@ -689,3 +689,19 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-057 참조.
 
 **관련:** ERR-075, ERR-041(2026-06-16 원본 사건, 필드명만 다른 동일 클래스), FP-057
+
+---
+
+## INC-043 | yuna18253 Instagram 게시 경로 일시 중단 — 잘못된 플로우로 재발급된 토큰 저장 구간 (RESOLVED, 260725)
+
+**발생:** 260725, 7-C Token 교체(GPT 확정 1순위 과제) 진행 중. 최초 재발급 토큰(IGAA, ERR-077 원인) 저장 + `SNS_Watchdog` 재시작(1차) 이후부터, Graph API Explorer로 정식 EAA 토큰 재발급 + 재저장 + 재시작(2차) 완료 시점까지의 구간.
+
+**요약:** `yuna18253` 계정의 `INSTA_ACCESS_TOKEN`이 `graph.facebook.com`과 호환되지 않는 포맷(`IGAA`)으로 교체된 채 서비스가 재시작되어, 이 구간 동안 해당 계정의 실제 게시 시도는 전부 `OAuthException 190`으로 실패했을 것(fail-closed, `failed` 상태로 안전 종료 — 코드 설계 의도대로 동작).
+
+**영향:** 실제 예약 게시 시도가 이 구간에 있었는지는 미조회(UNKNOWN). 중복게시·데이터손상은 발생하지 않음(설계상 안전). 회장이 직접 발견(read-only GET 검증 요청)해 같은 세션 내 신속 정정.
+
+**해결:** Graph API Explorer의 Page Access Token 경로로 재발급, `.env` 재교체, 서비스 재시작(회장 관리자 권한), read-only GET 재검증(HTTP 200, id/username 기존과 일치)으로 종결.
+
+**재발 방지:** FP-059 참조.
+
+**관련:** ERR-077, FP-059
