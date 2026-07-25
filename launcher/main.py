@@ -260,6 +260,14 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
     Token/ig_user_id는 호출자가 주입 — 이 함수는 저장소를 모른다.
     api_host: Provider별 Graph API 호스트(기본값 graph.facebook.com — 기존 호출부는 인자를 안 주므로 동작 무변경).
     로그에 access_token 출력 금지.
+
+    Phase A(컨테이너 생성 /media)와 Phase B(발행 /media_publish)를 분리한다 —
+    creation_id를 한 번 확보한 이후에는 어떤 예외·응답이 와도 새 컨테이너를
+    만들지 않는다(같은 이미지 중복게시 방지, 260725 Codex 리뷰 STOP ITEM).
+    Phase B에서 서버가 실제로 게시했는지 확정할 수 없는 모호한 실패
+    (ReadTimeout/ConnectionError/5xx/파싱실패 등)는 재시도하지 않고
+    outcome_unknown=True로 즉시 반환한다 — 호출자는 이를 실패로 치환하지
+    말고 uploading 상태로 격리한 뒤 수동 확인을 받아야 한다.
     """
     import requests as _req
 
@@ -269,6 +277,8 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
 
     image_url = _preprocess_image(image_url)
 
+    # ── Phase A: 컨테이너 생성 (/media) — 아직 아무것도 게시 안 됐으므로 안전하게 재시도 ──
+    creation_id = None
     for attempt in range(1, 4):
         try:
             r1 = _req.post(
@@ -278,25 +288,76 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
                 timeout=30,
             )
             r1.raise_for_status()
-            c1 = r1.json()
+            creation_id = r1.json()["id"]
+            break
+        except Exception as e:
+            logger.warning(f"[publish_single] media 생성 시도 {attempt}/3 실패 | rid={rid} | {redact_sensitive(str(e))}")
+            if attempt == 3:
+                logger.error(f"[publish_single] 3회 실패 최종(media 생성) | rid={rid}")
+                return {"ok": False, "error": str(e)}
 
+    # ── Phase B: 발행 (/media_publish) — creation_id 확보 후 새 컨테이너 생성 절대 금지 ──
+    for attempt in range(1, 4):
+        try:
             r2 = _req.post(
                 f"https://{api_host}/v21.0/{ig_user_id}/media_publish",
-                params={"creation_id": c1["id"], "access_token": access_token},
+                params={"creation_id": creation_id, "access_token": access_token},
                 timeout=30,
             )
-            r2.raise_for_status()
-            c2 = r2.json()
-
-            ig_media_id = c2.get("id", "")
-            logger.info(f"[publish_single] 성공 | rid={rid} | ig_media_id={ig_media_id}")
-            return {"ok": True, "ig_media_id": ig_media_id}
-
-        except Exception as e:
-            logger.warning(f"[publish_single] 시도 {attempt}/3 실패 | rid={rid} | {redact_sensitive(str(e))}")
+        except _req.exceptions.ConnectTimeout as e:
+            # 서버 연결 전 timeout — 요청이 전달 안 됐으므로 같은 creation_id로 재시도해도 안전
+            logger.warning(
+                f"[publish_single] media_publish ConnectTimeout, 재시도 {attempt}/3 | "
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}"
+            )
             if attempt == 3:
-                logger.error(f"[publish_single] 3회 실패 최종 | rid={rid}")
-                return {"ok": False, "error": str(e)}
+                logger.error(f"[publish_single] media_publish 결과 불명(ConnectTimeout 3회) | rid={rid} | creation_id={creation_id}")
+                return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+            continue
+        except (_req.exceptions.ReadTimeout, _req.exceptions.ConnectionError,
+                _req.exceptions.ChunkedEncodingError) as e:
+            # 요청이 서버에 도달했을 가능성이 있는 모호한 실패 — 재시도하면 중복게시 위험, 즉시 중단
+            logger.error(
+                f"[publish_single] media_publish 결과 불명(모호한 전송오류) — 재시도 중단 | "
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}"
+            )
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+        except Exception as e:
+            # 분류되지 않은 예외 — "서버가 게시하지 않았음이 확실한가?"를 확신할 수 없으므로 보수적으로 중단
+            logger.error(
+                f"[publish_single] media_publish 결과 불명(미분류 예외) — 재시도 중단 | "
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}"
+            )
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+
+        # 여기 도달 = 네트워크 레벨 예외 없이 HTTP 응답을 받음 → 상태코드/본문으로 분류
+        if r2.status_code >= 500:
+            # Meta 5xx는 멱등성이 보장되지 않음 — 보수적으로 모호한 실패 취급, 재시도 없음
+            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}")
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+
+        if r2.status_code >= 400:
+            # 서버가 명확히 거부 — 게시 안 됐음이 확실하므로 재시도 없이 실패 확정
+            logger.error(f"[publish_single] media_publish 명확한 실패(HTTP {r2.status_code}) | rid={rid} | creation_id={creation_id}")
+            return {"ok": False, "error": f"http_{r2.status_code}"}
+
+        try:
+            ig_media_id = r2.json()["id"]
+        except (ValueError, KeyError):
+            # 200인데 본문 파싱 실패/id 없음 — 실제로는 게시됐을 수 있으므로 모호한 실패로 취급
+            logger.error(f"[publish_single] media_publish 결과 불명(응답 파싱 실패/id 없음) — 재시도 중단 | rid={rid} | creation_id={creation_id}")
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+
+        if not ig_media_id:
+            # 200 + {"id": "" 또는 None} — id 키는 있지만 값이 비어있음, 성공으로 오인하면 안 됨(260725 Codex 재검수)
+            logger.error(f"[publish_single] media_publish 결과 불명(id 값이 비어있음) — 재시도 중단 | rid={rid} | creation_id={creation_id}")
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+
+        logger.info(f"[publish_single] 성공 | rid={rid} | ig_media_id={ig_media_id}")
+        return {"ok": True, "ig_media_id": ig_media_id}
+
+    # 이론상 도달 불가(각 분기가 continue/return으로 종료) — 안전망
+    return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
 
 
 @handle_errors(task="insta_upload", notify_fn=_slack)
@@ -389,6 +450,23 @@ def _job_insta_upload():
             continue
 
         raw = publish_single(post_id, image_url, caption, token, ig_user_id, api_host=api_host)
+
+        if raw.get("outcome_unknown"):
+            # media_publish 결과 불명(응답 유실 가능) — 자동으로 failed/재게시 처리하지 않는다.
+            # claim_post_for_upload()가 이미 남긴 uploading 상태 그대로 격리하고, 운영자가
+            # 실제 Instagram 계정을 직접 확인한 뒤 수동으로 상태를 확정해야 한다(260725 Codex 리뷰).
+            logger.error(
+                "[Main] OUTCOME_UNKNOWN — 수동 확인 필요 | rid=%s | creation_id=%s | account_ref=%s | stage=media_publish",
+                post_id, raw.get("creation_id", ""), account_code_ref or "legacy",
+            )
+            if _slack:
+                _slack(
+                    f"[긴급] Instagram 게시 결과 불명 — 수동 확인 필요\n"
+                    f"rid={post_id} | creation_id={raw.get('creation_id','')} | "
+                    f"account_ref={account_code_ref or 'legacy'}\n"
+                    f"Instagram 계정에서 실제 게시 여부를 직접 확인한 뒤 Airtable 상태를 수동으로 확정하세요."
+                )
+            continue
 
         pub_result = PostPublishResult(
             status="posted" if raw.get("ok") else "failed",

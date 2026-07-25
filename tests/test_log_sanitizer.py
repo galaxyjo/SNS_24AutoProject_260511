@@ -130,6 +130,8 @@ def test_publish_single_success_path_unaffected(monkeypatch):
     from launcher import main as launcher_main
 
     class _OkResp:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
