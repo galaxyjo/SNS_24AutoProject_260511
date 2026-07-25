@@ -1554,3 +1554,20 @@ commit: 이 기록과 함께 커밋 예정
 push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
 
 ---
+
+## [260725_GPT감사_4단계복구+P0-1_pytest원인] — GPT 지시 기반 Workflow 정합성 감사 후속
+
+**배경:** GPT가 전체 Workflow Architecture 상태표 정합성 감사를 지시(코드/Airtable/Runtime/commit 전부 금지, read-only). 감사 결과 GPT가 놓쳤던 4단계(Build·Reuse·Buy)가 공식 문서 없이 암묵 처리된 채 6~9단계로 넘어갔음을 발견 → GPT가 4단계 복구를 별도 단계로 지시 → 12개 미완료 기능 각각 REUSE/BUILD/DEFER/UNKNOWN 판정(1차) → GPT가 Persona·Sourcebook 임의 DEFER 등 8개 항목 표적 정정 지시 → 정정 반영, GPT "SUCCESS" 확정 → GPT가 다음 단계로 P0-1(전체 pytest 39개 Collection Error 원인 진단, read-only)을 지시.
+
+**4단계 결과 요약**: 12개 항목(Persona/Sourcebook/Quality Gate/Approval/중복게시방지/Kill Switch/Retry/n8n/테스트데이터분리/계정별KPI/Reach/매출원본) 전부 REUSE·BUILD(최소)·DEFER·UNKNOWN 중 하나로 방향 결정 + Evidence(Caller/Import Chain/Test/Git) 첨부 완료. 실행(코드/Schema 변경)은 0%, 결정 자체만 SUCCESS로 종결. 상세는 대화 기록(문서화 미실시, 별도 승인 필요 — §7 참조).
+
+**P0-1 결과**: `snapshots/snapshot_260516_project/tests/`(gitignore 대상, 260516~260712 사이 정지된 죽은 스냅샷)가 진짜 `tests/`와 동일 파일명 4개 + 자체 `__init__.py`를 가져, pytest 인자없는 전체탐색 시 `sys.modules['tests']` 오염 → 39개 전부 `ModuleNotFoundError`. `--ignore=snapshots`로 반증(579 passed/4 known-baseline failed/3 xfailed, 코드 자체는 건강함 확인) 후, 회장 승인 하 `pytest.ini`(`testpaths = tests`) 신규 추가 — 최종 `pytest -q`(인자 없음) 재실행 동일 결과로 **PASS**. `snapshots/` 폴더 삭제는 회장 판단으로 이번 범위 밖(별도 하우스키핑).
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-081) / `docs/FAILURE_PATTERN.md`(FP-062) / `docs/VALIDATION_STATUS.md`(`pytest_collection_error_root_cause_260725`) / 이 항목.
+
+**미기록(승인 대기)**: 4단계 12개 항목 결정표 자체는 아직 `docs/`에 옮겨지지 않음 — GPT 감사에서 지적된 "단계 1~5 산출물이 메모리에만 있다"는 문제와 동일 클래스로, 이번 4단계 결정표도 지금 이 커밋에는 포함하지 않음(범위 확인 필요, 다음 지시 대기).
+
+commit: 이 기록과 함께 커밋 예정
+push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
+
+---

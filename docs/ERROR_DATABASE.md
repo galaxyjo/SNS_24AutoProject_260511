@@ -1412,3 +1412,27 @@ GET https://api.airtable.com/v0/{base}/Instagram_Posts (offset 파라미터 없�
 **Status:** RESOLVED (260725) — 필드 추가 완료, `verify_field_exists()`로 재확인. 실제 전환 이벤트로 end-to-end 재현 검증은 미실시(다음 실제 전환 발생 시 확인 필요).
 
 **관련:** FP-057(같은 클래스 3번째 재발), ERR-041, ERR-075, INC-045
+
+---
+
+## ERR-081 | 전체 pytest 실행 시 39개 파일 Collection Error — 로컬 snapshots/ 폴더의 중복 tests 패키지가 원인 (RESOLVED, 260725)
+
+**Type:** 테스트 실행환경 문제(로컬 작업폴더 클러터, 코드 결함 아님)
+
+**Raw:**
+```
+pytest -q (인자 없음) → Interrupted: 39 errors during collection
+ModuleNotFoundError: No module named 'tests.test_X' (39개 파일 전부)
+```
+
+**Root Cause:** 로컬 저장소에 `snapshots/snapshot_260516_project/tests/`(260516 시점 프로젝트 전체 스냅샷 백업, `.gitignore` 대상이라 git 미추적, 0 tracked files)가 남아있었고, 이 안에도 자체 `tests/__init__.py` + `test_smoke_common.py`/`test_smoke_crawler.py`/`test_smoke_crm.py`/`test_smoke_metrics.py` 4개가 진짜 `tests/`와 동일 파일명으로 존재. pytest를 인자 없이 실행하면 저장소 전체를 알파벳순으로 훑는데 `snapshots`가 `tests`보다 먼저 발견돼 `sys.modules['tests']`가 스냅샷 쪽 패키지로 먼저 바인딩됨 → 이후 진짜 `tests/`의 나머지 파일 전부가 "그 이름의 모듈이 없다"고 오판되어 39개 전부 `ModuleNotFoundError`.
+
+**Fix:** `pytest.ini` 신규 추가(`[pytest]` / `testpaths = tests`) — pytest가 인자 없이 실행돼도 `tests/`만 탐색하도록 범위 고정. `snapshots/` 폴더 자체는 삭제하지 않음(별도 하우스키핑 결정, 이번 범위 밖 — 폴더 내용은 260516~260712 사이 정지된 죽은 스냅샷으로 확인됨, 최근 갱신 없음).
+
+**Prevention:** 신규 스냅샷/백업 폴더를 저장소 루트에 만들 때는 `tests/`류 하위구조를 통째로 복제하지 않거나, `pytest.ini`의 `testpaths` 고정이 항상 이런 충돌을 원천 차단한다는 걸 인지.
+
+**Risk:** 수정 전 `MEDIUM` — 실제 코드/테스트 자체는 건강했음(격리 실행 시 항상 정상), 다만 "전체 회귀 실행"이라는 안전장치가 매번 이 문제로 막혀있어 회귀 검증 습관 자체가 무력화될 위험이 있었음.
+
+**Status:** RESOLVED (260725) — `pytest -q`(인자 없음) 재실행으로 collection error 0건, `579 passed / 4 failed(기존 known baseline test_dm_close.py) / 3 xfailed` 확인.
+
+**관련:** FP-062
