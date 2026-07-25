@@ -1278,3 +1278,34 @@ modules.infra.repository_interface.RepositoryValidationError: [Instagram_Posts] 
 9. 기존 11건 복구는 별도 승인·별도 작업으로 분리한다.
 
 **관련:** ERR-041, INC-022, INC-042, FP-057
+
+---
+
+## ERR-076 | media_publish HTTP 400이 컨테이너 처리중 일시적 상태일 수 있음 → "명확한 실패" 오분류 (OPEN, 운영영향 없이 수동복구)
+
+**Type:** 설계 가정 오류 — "HTTP 4xx=재시도 금지, 항상 최종실패"로 확정한 규칙에 실측 반례 발견
+
+**Raw:**
+```
+2026-07-25 09:11:07 [ERROR] __main__ - [publish_single] media_publish 명확한 실패(HTTP 400) | rid=recHTfHrFPQh79XGy | creation_id=17943613074257522
+```
+수동 재현(같은 creation_id로 재시도):
+```
+POST /media_publish (creation_id=17943613074257522) → HTTP 200 {"id": "18110242561955523"}
+```
+GET으로 실제 공개 게시 재확인:
+```
+permalink: https://www.instagram.com/p/DbMth5Skgy_/, username: aijomoojin
+```
+
+**Root Cause (Confirmed):** `launcher/main.py` `publish_single()` Phase B는 `r2.status_code >= 400`을 "서버가 명확히 거부, 게시 안 됐음이 확실"로 분류해 재시도 없이 `failed` 확정한다(260725 Codex 리뷰 STOP ITEM 대응으로 확정한 규칙, `test_publish_outcome_unknown.py`로 회귀 고정됨). 그러나 Meta 컨테이너가 이미지 다운로드/처리를 아직 끝내지 못한 상태에서 `/media_publish`를 호출하면 HTTP 400을 반환하고, 몇 초~수십 초 뒤 같은 `creation_id`로 재시도하면 정상 발행(HTTP 200)되는 사례가 `aijomoojin` 실게시 중 실측 확인됨 — 이 케이스의 400은 "영구 거부"가 아니라 "아직 준비 안 됨"이었다.
+
+**Fix:** 미적용 — 실제 발생 시 사람이 로그의 `creation_id`로 수동 재시도해 복구(운영 영향 없이 해소, Airtable도 수동으로 `posted`+`ig_media_id` 정정 완료). 코드 수정은 별도 승인 필요.
+
+**Prevention (제안, 미구현):** (1) `/media_publish` 전에 `/{creation_id}?fields=status_code`로 컨테이너가 `FINISHED` 상태인지 폴링 후 발행하는 Meta 권장 패턴 도입 검토, (2) 최초 400 응답의 `error_subcode`로 "처리중" 케이스만 선별해 제한적 재시도 허용, (3) `mark_post_result()`가 실패 시 `creation_id`를 Airtable에도 남기도록 확장(현재는 로그에만 남음 — Airtable만 보고는 수동 재시도 자체가 불가능).
+
+**Risk:** `MEDIUM` — 중복게시로 이어지지 않음(fail-closed 유지, 코드 설계 의도대로 안전하게 작동), 하지만 자동화 목적에 반하게 사람 개입이 필요해짐. `INSTAGRAM_PROVIDER_ROUTING_ENABLED=true`로 라이브 운영 중이라 향후 계속 재현될 가능성 있음.
+
+**Status:** OPEN — 260725 `aijomoojin` 실게시 중 1회 실측 재현, 수동 재시도로 해소(레코드 `recHTfHrFPQh79XGy`, `ig_media_id=18110242561955523`로 Airtable 정정 완료). 코드 수정(Prevention 항목)은 미착수.
+
+**관련:** FP-058, ERR-075(같은 세션에서 별도로 발견된, 무관한 필드 스키마 버그)

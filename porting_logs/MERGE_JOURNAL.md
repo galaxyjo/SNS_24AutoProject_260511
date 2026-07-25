@@ -1462,3 +1462,36 @@ commit: 이 기록과 함께 커밋 예정
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식)
 
 ---
+
+### `/media_publish` STOP ITEM 안전수정 + Runtime 배포 + aijomoojin 실제 Canary 게시 — 9단계 최종 완료 (2026-07-25 KST)
+
+**배경:** 이전 항목(계정별 Provider 분기 최소변경)의 후속 — Codex가 Canary 진행 전 필수 조건으로 명시한 STOP ITEM("`/media_publish` timeout 시 전체 재시도로 중복게시 가능")을 처리하고, 실제로 Runtime 배포 → Flag 활성화 → `aijomoojin` 실제 게시까지 진행.
+
+**STOP ITEM 구현:** `publish_single()`을 Phase A(`/media` 생성)/Phase B(`/media_publish` 발행)로 분리, `creation_id` 확보 이후 새 컨테이너 생성을 절대 금지. `ConnectTimeout`만 같은 `creation_id`로 제한 재시도, `ReadTimeout`/`ConnectionError`/`ChunkedEncodingError`/HTTP 5xx/JSON파싱실패/`id`값 없음(빈 문자열·None 포함)은 재시도 없이 `outcome_unknown` 반환. `_job_insta_upload()`는 `outcome_unknown` 수신 시 `mark_post_result()`를 호출하지 않고 `claim_post_for_upload()`가 남긴 `uploading` 상태로 격리 + ERROR 로그 + Slack 즉시알림. 신규 Airtable 상태값 도입 없음(기존 `uploading` 재사용).
+
+**리뷰:** Codex 읽기전용 리뷰 3라운드 — 1차(설계 단계, `Timeout`만 처리는 불충분·`ConnectionError`/5xx 등 전체 분류 필요 지적) → 구현 → 2차(빈 `id` 값 `""`/`None`을 성공으로 오인하는 버그, 로그 라벨 `provider=`가 실제로는 `account_code_ref` 값이라 오표기인 문제 2건 발견) → 수정 → 3차(`STOP_ITEM_CODE_GATE: PASS`, `TEST_COVERAGE: PASS`, `CANARY_EXECUTION: NOT YET AUTHORIZED` — 코드는 준비됐으나 실제 배포·게시는 별도 승인 필요).
+
+**테스트:** 신규 15개(`tests/test_publish_outcome_unknown.py`) 전부 PASS. 전체 회귀 `572 passed/5 failed(기존 baseline 동일)/3 xfailed`. commit `a33b506`.
+
+**Runtime 배포:** `SNS_Watchdog` 서비스가 관리자 권한을 요구해 이 세션(비관리자 권한)에서는 `Restart-Service`가 거부됨(`CouldNotStopService`) — 회장이 관리자 권한 PowerShell로 직접 2회 재시작(①코드 배포, ②Flag 활성화). 매 재시작 후 서비스 상태·프로세스 PID·포트(5000/8501/4040/50325)·watchdog.log·app.log/error.log(Traceback 없음)를 직접 확인, 신규 회귀 0건.
+
+**Flag 활성화:** `.env`에 `INSTAGRAM_PROVIDER_ROUTING_ENABLED=true` 추가(git 미추적, `.env`는 gitignore 대상). 활성화 전 준비상태 점검(④단계): `Account_Registry`(`IDN-000036`) 계정연결 확인, `get_publish_account()`+`resolve_credential()` 체인을 실제 코드로 직접 실행해 정상 동작 확인, 토큰 read-only GET 재검증(`account_type=MEDIA_CREATOR`), Slack 웹훅 설정 확인, 테스트 레코드(`IP-CANARY-AI-260725`, `recHTfHrFPQh79XGy`) 신규 생성(8단계와 동일 캡션 재사용).
+
+**Canary 실행과 트러블슈팅:** 최초 이미지(imgbb 호스팅, 8단계와 동일 URL)가 `graph.instagram.com`에서 `HTTP 400 "Only photo or video can be accepted as media type"`(code 9004)로 다운로드 거부 — Wikimedia 호스팅 이미지로 진단 테스트한 결과 즉시 성공, **imgbb 호스팅이 이 API 계열과 구조적으로 안 맞을 가능성** 확인(후속 조사 필요, 확정 아님). 이미지를 Wikimedia URL로 교체해 재시도 — 자동 잡의 실제 시도에서 Phase A(컨테이너 생성)는 성공했으나 Phase B(발행)가 `HTTP 400`으로 실패, 설계대로 `failed`로 안전하게 마킹됨. 원인 조사 중 같은 `creation_id`로 수동 재시도한 결과 **실제로 발행에 성공**(`HTTP 200`) — 컨테이너가 처리 완료되기 전에 발행을 시도해 발생한 일시적 400이었던 것으로 판단(ERR-076/FP-058로 신규 기록). Airtable을 `posted`+`ig_media_id=18110242561955523`로 수동 정정.
+
+**4중 검증:** ①Graph API GET(media 단건 재조회) ②Graph API GET(계정 media 목록, 최신 항목으로 확인) ③공개 브라우저(비로그인) 직접 접속 — `permalink: https://www.instagram.com/p/DbMth5Skgy_/` ④회장이 계정 소유자 본인으로 로그인해 화면 직접 확인(최초 다른 계정과 착각했다가 정정 확인).
+
+**9단계 최종 판정:** 완료 — `yuna18253`(Facebook Login for Business)과 `aijomoojin`(Instagram API with Instagram Login) 두 계정 독립 실게시 성공, 중복게시 0건.
+
+**미해결 후속과제(OPEN, 급하지 않음):**
+1. ERR-076/FP-058 — HTTP 4xx "재시도 금지" 규칙의 실측 반례(컨테이너 처리중 400). 현재 fail-closed로 안전하나 자동복구 없음. Prevention 제안만 기록, 코드 수정 미착수.
+2. `Account_Registry.account_email`(nguyenknv15@gmail.com)이 실제 `aijomoojin` 로그인 이메일인지 최종 미확인(회장이 확인 과정에서 다른 계정과 헷갈렸다고 정정했으나 정확한 경위 불명) — 향후 자동화에 이 필드를 쓰기 전 재확인 필요.
+3. imgbb 호스팅과 `graph.instagram.com` 계열의 구조적 비호환 가능성 — 후속 조사 필요.
+4. 7-C Token 교체 여전히 재보류, 토큰노출 위험(596건, 260723 감사) 미해결 기록 유지.
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-076) / `docs/FAILURE_PATTERN.md`(FP-058) / `docs/VALIDATION_STATUS.md`(`instagram_provider_routing_canary_260725`) / 이 항목 / Claude 자체 메모리([[project_workflow_architecture_priority_260723]], [[project_persona_avatar_architecture_260724]]) 동시 갱신.
+
+commit: 이 기록과 함께 커밋 예정
+push: 세션 종료 — 이번엔 일괄 push 진행([[feedback_push_cadence]] 방식)
+
+---
