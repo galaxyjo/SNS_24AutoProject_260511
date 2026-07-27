@@ -117,6 +117,8 @@ C:\SNS_24AutoProject_260511\
 | — | Meta Webhook 등록 확인 (Callback URL / Verify Token / messages·comments 구독) | ✅ |
 | — | FB crawler lazy-load 대응 + MAX_POSTS=10 환경변수화 | ✅ |
 
+※ 이 표의 ✅는 구현·빌드 완료를 의미하며, 현재 Active Runtime 여부는 Runtime Caller·Import Chain·Runtime Evidence로 별도 확인한다.
+
 ### 검증 완료 항목
 
 - FB Crawling / AdsPower + Selenium Attach
@@ -437,3 +439,606 @@ Runtime Before Opinion.
 Review Depth proportional to Risk.
 
 > 참고: 위 "Approval"은 리뷰 파이프라인 내부의 최종 검토 합의 단계를 의미하며, 실제 상태 변경/실행에 대한 승인 권한은 [H] STATE-CHANGE GATE 및 "승인 범위 명시 원칙"에 따라 사용자(회장)에게 있다. 이 섹션이 그 권한을 대체하지 않는다.
+
+---
+
+## [260726 수정 승인 5요소 원칙 추가]
+
+Claude Code가 문제를 발견하고 "고치겠습니다"라고 말하기 전에, 먼저 스스로에게 다음을 묻는다:
+
+> 이건 직접 고쳐야 하는 핵심 기능인가(BUILD) / 기존 기능을 재사용할 수 있는가(REUSE) / 이미 검증된 도구를 가져오는 것이 나은가(BUY/ADOPT)?
+
+그리고 **"고치겠습니다"라는 말과 동시에, 같은 응답 안에** 반드시 아래 5가지를 채워서 출력한다. 이 5가지가 빠진 채로 "고치겠습니다"만 말하는 것은 금지된다 — 회장은 이 5가지가 없으면 수정 승인을 하지 않는다.
+
+### 표준 출력 포맷 (수정 제안 시 필수)
+
+```
+1. 무슨 문제인가: (한두 문장, 증상 요약)
+2. 증거가 무엇인가: (Runtime log / 코드 인용 / 재현 결과 — Evidence Rule 우선순위 그대로)
+3. 직접수정·기존재사용·외부도구의 차이: (BUILD/REUSE/BUY 각각 무엇을 의미하는지, 이번엔 어느 쪽인지와 이유)
+4. 가장 작은 테스트는 무엇인가: (Single Canary — 최소 단위로 뭘 먼저 검증할지)
+5. 실패하면 어떻게 원복하는가: (구체적 Rollback 방법 — git revert, 필드 삭제, 재시작 등)
+```
+
+**Why:** 260726 회장 확정 — "Claude Code가 문제를 발견했을 때 바로 '고치겠습니다'라고 하면 회장은 다음 질문을 한다"는 전제에서, 그 질문·답변 절차 자체를 매번 반복하지 않도록 표준 포맷으로 고정.
+
+**How to apply:** 이 원칙은 [[feedback_sv_methodology]]/`docs/SILICON_VALLEY_EXECUTION_STANDARD.md`의 Stage Gate(Research→Evidence Audit→Decision Memo→...)·12대 체크리스트(Build/Reuse/Buy 포함)와 같은 원칙 계열이며, 이번 항목은 그중 "Decision Memo를 회장에게 제출할 때의 표준 서식"을 구체화한 것이다. 코드 수정뿐 아니라 Airtable Schema 변경·Runtime 설정 변경 등 모든 "상태변경 제안" 상황에 동일하게 적용한다 — 상태변경이 아닌 단순 read-only 조사·보고에는 적용 대상 아님.
+
+### 언제 직접 고치나 (BUILD 기준)
+
+다음 조건이면 내부 최소수정이 적합하다.
+
+- 우리 사업에만 있는 핵심 규칙(Domain Logic)
+- 기존 코드의 작은 연결 누락
+- 1~2개 파일 범위로 수정이 제한됨
+- 성공 기준이 분명함
+- 즉시 원복 가능함
+- 검증된 외부도구를 붙이는 것이 오히려 더 복잡함
+
+예: `DM에 account_code_ref를 기록하는 것`(260726 Bundle B) — 우리 계정과 고객 DM을 연결하는 Domain Logic이라 작은 내부수정이 합리적이었던 실제 사례.
+
+### 언제 GitHub·외부도구를 먼저 보나 (BUY 기준)
+
+다음 기능은 직접 만들기 전에 검증된 도구를 우선 조사한다 — 다른 회사도 반복해서 해결한 공통 문제이며, 직접 만들면 처음엔 간단해 보여도 장애·보안·복구 비용이 계속 발생한다.
+
+- 보안·서명 검증 (예: Webhook 서명 검증)
+- Queue / Retry / 실패 복구
+- Monitoring / Alerting
+- 인증 / Rate-limit 처리
+- 표준 API Client
+- 대규모 스케줄링
+
+**단, GitHub에서 아무 코드나 가져오면 안 된다.** 공식 규격·유지관리 상태·License·보안·현재 프로젝트와의 호환성을 먼저 검증해야 한다 — "GitHub에 있으니 그대로 가져오겠습니다"는 그 자체로 금지어(아래 참조).
+
+### 같은 단계 안에서도 문제마다 처리 방식이 다르다 — 예시(10단계 실제 발견 3건 기준)
+
+| 문제 | 원인 | 처리 방식 | GitHub/외부도구 조사 |
+|---|---|---|---|
+| Airtable 계정 데이터가 비어있음 | 데이터 입력·관리 문제 | 기존 Airtable 데이터 정리 | 불필요 |
+| DM에 계정번호가 저장 안 됨 | 기존 코드의 전달 필드 누락 | 기존 Repository 패턴 최소수정(BUILD) | 대부분 불필요 |
+| Webhook 위조 방지 서명이 없음 | 보안 통제 누락(표준 문제) | 공식 규격과 검증된 라이브러리 비교(BUY) | 필요 |
+
+### 회장이 하지 말아야 할 승인 — 금지어
+
+아래 표현이 (회장 본인의 승인 발화에서든, Claude Code의 제안에서든) 나오면 **즉시 멈추고 §표준 출력 포맷 5가지를 다시 요구한다** — 전부 증거와 통제력이 부족한 진행 방식이다.
+
+- "일단 다 고쳐보겠습니다."
+- "나중에 외부도구를 보겠습니다."
+- "관련된 파일을 한꺼번에 수정하겠습니다."
+- "Commit은 마지막에 몰아서 하겠습니다."(주의: 이건 **commit**에 대한 금지이며, **push**를 세션 종료 시 몰아서 하는 기존 방침([[feedback_push_cadence]])과는 별개 — commit은 변경 단위마다, push만 모아서 하는 게 정석)
+- "테스트가 통과했으니 운영도 성공입니다."
+- "GitHub에 있으니 그대로 가져오겠습니다."
+- "원인은 아마 이것입니다."(추정 — Evidence Rule "추정 금지, 없으면 UNKNOWN" 위반)
+
+### 회장이 승인할 수 있는 좋은 보고 (예시)
+
+> DM 계정 태깅 누락이 Runtime으로 확인됐습니다.
+> 기존 Repository optional 필드 확장으로 해결 가능하며 외부도구는 과잉입니다.
+> DM 경로 1개만 수정하고 댓글·크롤러는 제외합니다.
+> yuna 계정 DM 1건으로 Canary 검증합니다.
+> 실패 시 해당 변경만 원복합니다.
+
+이 정도로 좁고 명확해야 승인 대상이다.
+
+**핵심 원칙**: 많이 고치는 것이 빠른 것이 아니라, 잘못된 해결책을 일찍 버릴 수 있게 작게 검증하는 것이 가장 빠르다.
+
+---
+
+## [260726] SILICON VALLEY ENGINEERING OPERATING MANUAL (Codex 작성, 전문)
+
+> **문서 목적:** 24시간 완전자동화 시스템을 안정화하고, 다계정으로 확장하며, 최종적으로 고객에게 판매 가능한 제품 품질로 만들기 위한 최상위 업무 규정이다.
+> **적용 대상:** Claude Code, Codex, GPT, 사용자 및 이후 참여하는 모든 AI·개발자·운영자
+> **Active Source of Truth:** `C:\SNS_24AutoProject_260511`
+> **Reference/Archive:** `250723` 및 과거 프로젝트는 사용자 명시 승인 없이 Active Runtime으로 취급하지 않는다.
+>
+> **편집 메모(Claude Code, 260726):** 이 섹션은 Codex가 작성한 전문을 원문 그대로(제목 레벨만 CLAUDE.md 하위 문서로 nesting) 보존한 것이다. 기존 CLAUDE.md 상단부(Multi-AI Review Policy, Git Safety Protocol, Session Start Rule 등)·`docs/SILICON_VALLEY_EXECUTION_STANDARD.md`와 상당 부분 개념이 겹친다 — 이번 편집에서는 임의로 병합·중복제거하지 않았다. 충돌처럼 보이는 지점이 발견되면 추정으로 해소하지 말고 회장 확인 후 정정한다.
+
+### 0. 최상위 운영 원칙
+
+#### 0.1 최종 목표
+
+이 프로젝트의 목표는 코드를 많이 만드는 것이 아니다. 다음 조건을 만족하는 시스템을 만드는 것이다.
+
+1. 24시간 안정적으로 동작한다.
+2. 실패를 조용히 숨기지 않는다.
+3. 장애가 발생해도 데이터가 유실되지 않는다.
+4. 운영자가 원인과 영향을 확인할 수 있다.
+5. 계정이 늘어나도 데이터가 섞이지 않는다.
+6. 외부 도구를 교체해도 Core가 무너지지 않는다.
+7. 사용자가 혼자 운영할 수 있다.
+8. 설치·설정·복구·업데이트가 가능하다.
+9. 고객에게 판매 가능한 품질과 문서를 갖춘다.
+10. 실제 문의·주문·매출로 사업가치를 증명한다.
+
+#### 0.2 핵심 전략
+
+```text
+핵심 사업 규칙은 내부에 보유한다.
+표준 인프라 기능은 검증된 도구를 우선 활용한다.
+증거 없이 개발하지 않는다.
+작게 변경하고 실제 Runtime으로 검증한다.
+```
+
+#### 0.3 절대 기준
+
+- 안정성이 속도보다 우선이다.
+- Runtime Evidence가 문서보다 우선이다.
+- 완료 선언보다 원복 가능성이 우선이다.
+- 신규 기능보다 안정화가 우선이다.
+- 테스트 통과보다 실제 운영 경로 검증이 우선이다.
+- 직접개발보다 기존 자산 재사용이 우선이다.
+- 외부 도구 도입보다 문제 정의가 먼저다.
+- 한 번에 많이 고치는 것보다 하나를 확실히 검증하는 것이 우선이다.
+
+### 1. 고정값과 동적값의 분리
+
+업무 오류의 주요 원인은 고정값과 현재 상태를 혼합하는 것이다.
+
+#### 1.1 영구 고정값
+
+다음은 사용자 승인 없이 변경하지 않는다.
+
+- Active Source of Truth: `C:\SNS_24AutoProject_260511`
+- `260511`은 보호된 Active Runtime이다.
+- `250723`은 Reference/Archive다.
+- Core는 Python 기반이다.
+- 외부 도구는 Adapter/Repository 뒤에 둔다.
+- Dependency Inversion을 유지한다.
+- 한 변경은 한 목적만 가진다.
+- 상태변경은 사용자 승인을 받아야 한다.
+- Runtime Evidence 없는 완료 선언은 금지한다.
+- 비밀정보는 로그·Diff·응답에 출력하지 않는다.
+- Big-bang merge와 Bulk copy를 금지한다.
+- GitHub 코드는 검증 없이 복사하지 않는다.
+
+#### 1.2 준고정 설계값
+
+설계 변경 승인 전까지 유지한다.
+
+- 계정 SSOT: `Account_Registry`
+- Runtime 계정 Primary Key: `account_code`
+- 하위 테이블 계정 외래키: `account_code_ref`
+- Instagram Runtime Routing Key: `ig_user_id`
+- `identity_id`: 현재 Runtime Routing에 사용하지 않는 Legacy/관리 식별자
+- `account_email`: 로그인 계정과의 일치가 증명되기 전 보조정보
+- Credential은 `credential_key`를 통해 Resolver가 조회한다.
+- Core가 Airtable 구현에 직접 의존하지 않는다.
+- 계정 확장은 `1계정 → 3계정 → 10계정 → 30계정 → 100계정` Canary 방식으로 진행한다.
+
+#### 1.3 동적 상태값
+
+다음 값은 CLAUDE.md의 영구 규칙으로 고정하지 않는다.
+
+- 현재 테스트 PASS 개수
+- 현재 Git Commit
+- 현재 Process ID
+- 현재 Runtime 시작시각
+- 현재 Airtable 레코드 수
+- 현재 단계 진행률
+- 현재 열린 오류번호
+- 현재 활성 계정 수
+
+동적값은 아래 문서에 기록한다.
+
+- `docs/WORKFLOW_ARCHITECTURE_STATUS.md`
+- `docs/CURRENT_RUNTIME_CONTEXT.md`
+- Error Database
+- Merge Journal
+- Runtime Log
+
+과거 테스트 개수를 현재 Baseline으로 재사용하지 않는다. 변경 전마다 Baseline을 다시 측정한다.
+
+### 2. 지시와 증거의 우선순위
+
+#### 2.1 지시 우선순위
+
+1. 안전·보안·데이터 보호
+2. 사용자의 현재 명시적 승인
+3. CLAUDE.md 최상위 운영 규정
+4. Active Project 문서
+5. 현재 단계 Runbook
+6. 과거 대화·요약·Memory
+
+낮은 우선순위 자료가 높은 우선순위 규정과 충돌하면 높은 규정을 따른다.
+
+#### 2.2 증거 우선순위
+
+1. Runtime Evidence
+2. Filesystem/Git Evidence
+3. Active Project Docs
+4. Airtable Metadata·실제 데이터
+5. 테스트 결과
+6. Memory
+7. Conversation Summary
+8. 추정·의견
+
+Runtime 증거가 문서와 충돌하면 Runtime을 사실로 채택하고 문서를 정정한다.
+
+#### 2.3 FACT 정책
+
+FACT는 다음 중 하나로 확인된 것만 의미한다.
+
+- Runtime Log
+- 실제 API 응답
+- Git Output
+- File Content
+- Airtable Metadata
+- Airtable 실제 Record
+- 테스트 Raw Output
+- 사용자가 직접 확인해 제공한 원문 Evidence
+
+확인되지 않은 파일명·경로·Caller·Root Cause·필드 타입·Process 상태는 UNKNOWN이다.
+
+### 3. 역할과 권한
+
+#### 3.1 사용자
+
+사용자는 최종 승인자다. 다음 상태변경 전 사용자 승인이 필요하다.
+
+- 코드 수정
+- Airtable Write
+- Airtable Schema 변경
+- `.env` 수정
+- Runtime Restart
+- Process Kill
+- Task Scheduler 변경
+- Windows 설정 변경
+- Commit
+- Push
+- 파일 삭제
+- 파일 이동
+- 파일 이름변경
+- 외부 OSS 설치
+- SaaS 연결
+- 대량 데이터 수정
+- Canary 운영 실행
+
+#### 3.2 Claude Code
+
+Claude Code는 실행 담당자다.
+
+허용 업무:
+- 파일·Git·Runtime·Airtable Read-only 확인
+- Caller·Import Chain 확인
+- 승인된 최소 코드수정
+- 승인된 Runtime 변경
+- 테스트 실행
+- Canary 수행
+- Diff·Rollback·Runtime Evidence 제출
+
+금지 업무:
+- 승인 범위를 넘는 수정
+- 여러 문제 동시수정
+- 미확인 가설을 코드에 반영
+- 사용자 승인 없는 Commit·Push
+- 부수적으로 발견된 문제를 임의 조사
+- 테스트 통과만으로 운영 SUCCESS 선언
+- 상태변경 후 증거 없이 다음 단계 진행
+
+#### 3.3 Codex
+
+Codex는 Read-only Adversarial Reviewer다.
+
+담당:
+- 설계 반론
+- Hidden Risk
+- Build-first 탐지
+- 기존 기능 재사용 가능성
+- OSS·SaaS 후보 검토
+- Security·Recovery·License 검토
+- 테스트 누락과 엣지케이스 검토
+- Blast Radius 검토
+
+Codex는 코드수정·Runtime 실행·상태변경을 하지 않는다.
+
+#### 3.4 GPT
+
+GPT는 Architecture·Scope·Evidence Gate 담당이다.
+
+담당:
+- 우선순위 통제
+- FACT / ASSUMPTION / UNKNOWN 분리
+- Build·Buy·Reuse 판단
+- Scope 이탈 차단
+- 리스크·반론 검토
+- 사용자 승인사항 정리
+- 붙여넣은 Evidence 감사
+
+GPT는 다음을 수행하지 않는다.
+- Runtime 파일 직접 확인
+- 디버깅 명령 작성
+- 코드 수정
+- 실제 완료 선언
+- Caller·Import Chain 증명 없는 Active File 가정
+- 텍스트 출력을 실제 파일 변경으로 간주
+
+### 4. 모든 작업에 적용하는 12-Gate 실행 절차
+
+이 12-Gate는 프로젝트의 0~11 제품 로드맵과 다른 **작업 실행 절차**다. 모든 결함·기능·변경은 아래 순서를 따른다.
+
+**Gate 1 — Outcome**: 무엇을 해결하는가 / 누구에게 어떤 영향을 주는가 / 사업 또는 Runtime에 왜 필요한가를 한 문장으로 정의한다. 목표가 모호하면 구현하지 않는다.
+
+**Gate 2 — Success Criteria**: 변경 전에 성공 기준을 정의한다(예: 입력 1건 정상수신/잘못된 데이터 차단/올바른 계정키 저장/기존 자동응답 유지/신규 오류 없음/재시작 후 유지). 변경 후 성공 기준을 만드는 것은 금지한다.
+
+**Gate 3 — Runtime Evidence**: 현재 상태를 실제 Runtime으로 확인한다(장애 실존 여부/재현 입력/끊기는 경로/데이터 저장 여부/사용자 영향). 장애 자체가 확인되지 않으면 Root Cause는 `Not Applicable` 또는 `UNKNOWN`이다.
+
+**Gate 4 — Caller·Import Chain**: 코드수정 전 Runtime Caller/Import Chain/Active File 여부/실제 실행경로/호출빈도/다른 Caller/Blast Radius를 확인한다. 하나라도 UNKNOWN이면 수정 금지다.
+
+**Gate 5 — Gap Classification**: 문제를 Data/Configuration/Code Defect/Missing Feature/Security/Reliability/Observability/Performance/Process/Product Requirement 중 하나로 분류한다. 서로 다른 유형을 하나의 Bundle로 묶지 않는다.
+
+**Gate 6 — Repair·Reuse·OSS·SaaS·Defer 비교**:
+
+| 선택지 | 의미 |
+|---|---|
+| Repair | 기존 코드 최소수정 |
+| Reuse | 프로젝트 내부 기능 재사용 |
+| Official | 공식 SDK·공식 표준 구현 사용 |
+| OSS/GitHub | 검증된 오픈소스 사용 |
+| SaaS | 관리형 외부 서비스 사용 |
+| Defer | 지금 해결하지 않고 보류 |
+| Accept | 위험을 인지하고 현재 상태 수용 |
+
+비교 없이 코드수정에 들어가지 않는다.
+
+**Gate 7 — Design Review**: 최소 변경안(수정파일/파일별 단일목적/데이터흐름/Interface영향/Runtime영향/실패경계/관측성/Rollback/테스트/STOP조건)을 작성한다.
+
+**Gate 8 — Pre-change Baseline**: Git Branch/HEAD/Status/기존 Diff/대상파일/Encoding·BOM/현재 테스트 Baseline/현재 Runtime 상태/Secret 노출여부를 확인한다. Baseline 없이 변경하지 않는다.
+
+**Gate 9 — Approval**: 상태변경 범위를 사용자에게 명확히 제시하고, 승인은 변경 종류별(코드수정/Airtable Write/`.env`수정/Runtime Restart/Canary/Commit/Push)로 분리한다. 하나의 승인을 다른 상태변경 승인으로 확대 해석하지 않는다.
+
+**Gate 10 — Canary**: 한 번에 `one feature / one file purpose / one account / one data path / one validation / one rollback`만 적용한다. 여러 계정·경로·가설을 한 번에 시험하지 않는다.
+
+**Gate 11 — Runtime Validation**: 입력발생/처리경로실행/저장결과/후속동작/오류없음/기존기능 회귀없음/재시작 후 생존/실패시 관측가능/데이터유실없음을 확인한다. 명령 실행 완료는 문제 해결이 아니다.
+
+**Gate 12 — Adopt·Rollback·Document·Commit**: 결과는 ADOPT/ROLLBACK/HOLD/DEFER 중 하나로만 종료한다. ADOPT 시: 실제 Diff 확인→`git diff --check`→Encoding/BOM 확인→Runtime Evidence 기록→문서 업데이트→사용자 Commit 승인→단일목적 Commit→사용자 Push 승인.
+
+### 5. Build·Buy·Reuse 고정정책
+
+#### 5.1 직접개발이 적합한 경우
+
+다음 조건을 모두 만족할 때 내부 최소수정을 우선한다: 프로젝트 고유 사업규칙 / 기존 코드·데이터 구조를 연결하는 작은 누락 / 외부도구가 더 복잡함 / 변경범위가 작음 / 성공기준이 명확함 / Rollback이 쉬움 / 운영부담 증가 없음.
+
+예: `recipient.id`를 기존 Account Registry와 연결 / 기존 Repository optional 필드 전달 / 프로젝트 고유 Lead 상태 규칙 / 계정별 상품·바이어 매핑 규칙.
+
+#### 5.2 외부 도구를 우선 검토하는 경우
+
+인증 / Webhook 서명 검증 / Queue / Durable Retry / Dead Letter Queue / Reconciliation / Monitoring / Alerting / Secret Management / Rate-limit 관리 / Scheduler / Distributed Lock / Backup / Error Tracking / 표준 API Client.
+
+#### 5.3 외부 후보 조사 순서
+
+1. 현재 프로젝트 내부 기능
+2. Python 표준 라이브러리
+3. 공급자 공식 SDK·공식 문서
+4. 널리 검증된 OSS
+5. 관리형 SaaS
+6. 신규 자체개발
+
+#### 5.4 GitHub 후보 Due Diligence
+
+가져오기 전 확인: 문제가 정확히 일치하는가 / 공식 유지관리 주체인가 / 최근 Release·Commit이 있는가 / 열린 Critical Issue가 있는가 / License가 상업적 사용을 허용하는가 / 알려진 CVE가 있는가 / 현재 Stack과 호환되는가 / 의존성이 과도하지 않은가 / 핵심 데이터가 외부로 전송되는가 / Vendor Lock-in이 발생하는가 / 삭제·Rollback이 가능한가 / 현재 사용량 대비 과잉인가. **Star 수만으로 품질을 판단하지 않는다.**
+
+#### 5.5 OSS 도입 원칙
+
+```text
+one dependency / one adapter / one canary / one rollback / one commit
+```
+
+OSS Core를 직접 수정하지 않는다. Adapter로 격리한다.
+
+### 6. 우선순위와 Scope 통제
+
+#### 6.1 현재 단계 고정
+
+현재 단계는 Active Status 문서를 기준으로 한다. 새 문제가 발견돼도 현재 단계와 관계없으면 STOP/HOLD/DEFER 중 하나로 분류한다. 현재 단계가 SUCCESS로 닫히기 전 다음 단계에 들어가지 않는다.
+
+#### 6.2 STOP
+
+즉시 중단: 데이터 손실 / 중복게시 / 오게시 / 보안침해 / Secret 노출 / 운영 Runtime 중단 / 예상하지 않은 대량 Write / 복구불가능한 상태변경 / 기존 완료판정을 뒤집는 신규 Runtime Evidence.
+
+#### 6.3 HOLD
+
+기록만 하고 지금 조사 안 함: 현재 목표와 무관한 결함 / 선행 Evidence 없는 문제 / 구현가치 미증명 기능 / 사용자 승인 필요한 상태변경.
+
+#### 6.4 DEFER
+
+추후 로드맵으로: ROI 낮은 개선 / 현재 규모에 과도한 인프라 / 신규기능 / 대규모 구조개선 / 검증 전 계정확대.
+
+### 7. Tier-1 안정화 Scope
+
+현재 Tier-1 포함: ① `quality_gate.py` 재설계 ② 크롤링 오류 재현·차단 ③ Airtable DI 회귀 확인 ④ Watchdog 자동기동 Root Cause 또는 재부팅 생존 경로 증명.
+
+완료조건: 크롤링 입력 재현가능 수집 / `quality_gate.py` 무관상품·오염데이터 차단 / Airtable DI 회귀없이 동작 / 저장·게시경로 Runtime Log·Airtable로 확인 / Watchdog Root Cause 확인 또는 재부팅·Task Scheduler 생존 증명. 하나라도 UNKNOWN이면 완료선언 금지.
+
+현재 HOLD: `source_exporter.py`의 `ig_payload` / 대규모 구조개선 / n8n 전체 재설계 / `250723` 대량이식 / 신규기능. 단 Runtime Evidence로 실제 운영 Posting Path 사용 또는 게시실패 직접원인 확인 시 Tier-1로 승격.
+
+### 8. 코드수정 고정 Gate
+
+코드 수정 전 6개 확인: Runtime Caller / Import Chain / Active File / Blast Radius / Rollback / Success Criteria.
+
+**8.1 파일 정책**: 1파일=1목적 / 한 함수 여러 책임 추가 금지 / 무관한 Formatting·Import정리·부수적 Refactor 금지 / 파일 삭제·이동·이름변경 금지 / Encoding·BOM 보존 / 기존 Public Contract 보존.
+
+**8.2 Interface 변경**: Repository Interface·DI Contract 변경은 High Risk — 모든 구현체/Fake/Mock/Stub/Test Double/Caller/Dataclass/TypedDict/Serialization/Storage Schema/Backward Compatibility를 확인해야 함. Optional 확장이 가능하면 기존 Caller를 강제수정하지 않는다.
+
+**8.3 하위호환**: 신규 기능은 기본 OFF 또는 기존동작 유지가 원칙 — Kill Switch/Feature Flag/Optional Field/Fail-open 또는 Fail-closed 정책/명확한 Rollback. 기본값 변경은 별도 상태변경으로 취급.
+
+### 9. 오류처리 정책
+
+**9.1 조용한 실패 금지**: `except Exception: pass` 형태의 원인·영향·복구가능성을 숨기는 광범위 예외처리 금지.
+
+**9.2 Fail-open**: 고객 응답 가용성을 지키기 위해 제한적으로 사용(예: 계정태깅 실패→Lead저장·고객응답은 계속→안정적 오류코드 기록→미태깅 건수 Metric→Slack 알림→추후 Reconciliation 대상 기록). 데이터 누락을 정상으로 간주하는 정책이 아니다.
+
+**9.3 Fail-closed**: 보안서명 실패 / 잘못된 결제정보 / 계정식별 모호한 게시 / 오게시 가능성 / 데이터손상 가능성 / 개인정보 유출 가능성.
+
+**9.4 안정적인 오류코드**: 입력누락/조회0건/중복·모호성/네트워크실패/Schema불일치/저장실패/재시도소진/인증실패/보안검증실패를 구별하는 검색가능한 고정 코드로 남긴다.
+
+### 10. 데이터·SSOT 정책
+
+**10.1 단일 SSOT**: 같은 계정정보를 Airtable·`.env`·JSON·Excel에 각각 다른 진실로 저장하지 않는다. 역할분리 — Airtable: 운영 Metadata·계정관계 / `.env`: Secret·Credential / SQLite: Runtime Event·Trace·Queue / Git 문서: 설계·규칙·상태 / Excel: 임시이관용, 최종 SSOT 아님.
+
+**10.2 Primary Key**: 사람이 읽는 이름을 PK로 쓰지 않는다 / Email을 검증없이 계정 PK로 사용하지 않는다 / Handle은 보조키다 / Runtime Routing은 확인된 안정 식별자를 사용 / 외래키는 부모 SSOT를 명확히 가리켜야 함.
+
+**10.3 중복·모호성**: 조회결과 0건=NOT_FOUND / 정확히 1건=SUCCESS / 2건 이상=AMBIGUOUS(첫 레코드 임의선택 금지).
+
+**10.4 데이터 분류**: 운영데이터는 가능한 경우 `production`/`test`/`historical_mixed` 상태를 갖는다. 과거 데이터를 텍스트 패턴만으로 자동분류하지 않는다.
+
+**10.5 Write 안전성**: Airtable Write 전 실제 Field 존재/실제 Field Type/Linked Record 여부/저장형식/Required 여부/Choice 존재여부/Rollback/중복방지/Canary Record를 확인. Metadata 확인 없이 필드타입을 추측하지 않는다.
+
+### 11. 테스트 정책
+
+**11.1 Baseline**: 변경 전 전체 테스트를 실행해 PASS/FAIL/XFAIL/SKIP/Known Flaky/격리실행결과를 기록. 과거 보고 숫자를 현재 Baseline으로 가정하지 않는다.
+
+**11.2 테스트 종류**: Unit/Contract/Repository/Integration/Regression/Failure-path/Runtime Canary/Restart Survival Test. Unit Test만 통과해도 Production 완료가 아니다.
+
+**11.3 Flaky Test**: 실패를 무시하는 라벨이 아니다 — 전체실행결과/격리실행결과/재현빈도/기존Flaky인지 신규인지/제품기능과의 관련성/별도 Fix대상 여부를 반드시 기록.
+
+**11.4 엣지케이스(멀티계정)**: 동일 Payload의 서로 다른 계정 / Event별 다른 Recipient / Recipient 누락 / ID 공란·잘못된 형식 / 조회0건·중복 / Timeout·429·5xx / Echo / Attachment-only / Reaction / Read·Delivery Event / 중복 Webhook / Cross-event Leakage / 동일 고객의 다계정 유입.
+
+### 12. Runtime Evidence 정책
+
+**12.1 Runtime 성공 증거 Chain**: `Input → Handler → Business Logic → Repository → Persistent Storage → Downstream Action → No New Error` (예: 실제DM수신→Webhook Handler실행→Lead생성→Airtable Record확인→Scorer실행→자동응답유지→신규Error 0건).
+
+**12.2 재시작 증거**: Runtime 변경 포함 시 종료시각/재기동시각/새Process/Port Listening/Heartbeat/주요서비스 복구/신규오류/변경기능 반영/임시코드 제거반영을 확인.
+
+**12.3 기존 증거 재사용**: 해당 주장에 정확히 대응할 때만 재사용. 재시작 후 동작을 증명해야 하는데 재시작 전 로그만 있으면 Runtime 기능 전체 SUCCESS로 확대하지 않는다.
+
+### 13. Observability 정책
+
+핵심 경로는 입력건수/성공건수/실패건수/미처리건수/재시도건수/처리시간/계정/Channel/오류코드/Record ID/마지막 성공·실패시각을 관측할 수 있어야 한다.
+
+**13.1 로그 금지정보**: Access Token / Password / API Secret / 전체 DM 본문 / Attachment 원문 / 민감 개인정보 / 전체 이메일 목록 / Payment Credential.
+
+**13.2 임시 관측 로그**: 사용자 승인 필요 / 기존 로그파일 사용(신규파일 생성 금지) / 목적·필드 사전정의 / 개인정보 마스킹 / 관측 후 즉시 제거 / 파일 원복 확인 / Runtime 재시작 필요여부 확인 / 재시작 후 태그 신규발생 0건 확인.
+
+### 14. Security 정책
+
+**14.1 Secret**: `.env` Git추적 금지 / Secret 원문 출력·Diff·로그 포함 금지 / 테스트 Fixture에 실제 Secret 사용 금지 / Secret 존재검증은 Boolean·마스킹 형태로만.
+
+**14.2 Webhook**: 공식 서명검증 / Raw Body 기반검증 / Timing-safe Compare / 실패시 Reject / Replay 위험 / 잘못된 Payload / Rate Limit / Source Authentication / 실패 관측성. 서명검증 부재 시 외부 Payload를 신뢰된 입력으로 간주하지 않는다.
+
+**14.3 권한**: 최소권한 / 읽기·쓰기 Credential 분리검토 / 운영·테스트 Credential 분리 / 개인계정·사업계정 분리 / 계정별 Credential Routing / Credential Rotation 절차.
+
+### 15. Reliability 정책
+
+**15.1 Idempotency**: Webhook 재전송/DM 중복/게시 재시도/Airtable 저장 재시도/Scheduler 중복기동/Watchdog 재기동 — 동일 Event가 두 번 들어와도 중복 Lead·중복게시·중복응답이 발생하지 않아야 함.
+
+**15.2 Retry**: 일시오류/영구오류/인증오류/Schema오류/Rate Limit/중복오류를 구분. 무한 Retry 금지 — 최대시도횟수/Backoff/최종실패저장/Dead-letter 또는 Reconciliation/Alert 필수.
+
+**15.3 Durable Recovery**: 메모리에만 존재하는 재시도는 Process 종료시 사라짐 — 중요작업은 Durable Storage에 남겨야 함. 후보순서: 현재 SQLite Queue → 기존 내부 Queue → n8n → 검증된 OSS Queue → Managed Queue.
+
+**15.4 Watchdog**: 성공은 Process 1회 시작이 아니라 재부팅후 자동시작/로그인 전후 동작/Task Scheduler 실제생존/Heartbeat 지속/Core Runtime 다운감지/복구실행/중복Process방지/실패알림을 증명해야 함.
+
+### 16. Git·Commit 정책
+
+**16.1 변경 전**: Branch/HEAD/Status/기존Diff/대상파일/Encoding·BOM 확인.
+
+**16.2 변경 후**: 실제Diff/예상파일만 변경됐는지/`git diff --check`/Encoding·BOM/테스트/Runtime Evidence/Rollback 가능성.
+
+**16.3 Commit**: `one purpose / one validated change / one user approval / one commit`. **세션 종료 시 여러 변경을 몰아서 Commit하지 않는다.** 문서/코드/테스트/Config/Schema/Runtime 운영변경은 각각 분리한다.
+
+**16.4 금지**: `git add .` / 대량파일 Stage / 무관한 Formatting 포함 / 승인없는 Commit·Push / Big-bang Merge / Canary 검증전 Merge / `250723` 대량이식.
+
+### 17. Canary 정책
+
+**17.1 최소단위**: 계정1개 / 기능1개 / Event1건 / 데이터경로1개 / 성공기준1세트 / Rollback1개.
+
+**17.2 성공기준**: 예상입력수신 / 정확한계정식별 / 정확한저장 / 기존기능유지 / 데이터유실없음 / 신규오류없음 / 비용·Latency 허용범위 / Kill Switch 작동 / Rollback 가능.
+
+**17.3 Kill Criteria**(즉시중단): 오게시 / 중복응답 / 고객데이터 오염 / 계정간 데이터혼합 / 기존 자동응답 중단 / 신규Error / Secret노출 / Airtable Schema오류 / Rollback실패 / 예상보다 넓은 영향.
+
+### 18. 확장 정책
+
+확장은 기능 동작 후가 아니라 **운영 안정성 증명 후** 진행한다.
+
+**18.1 계정 확장 Gate**: 1계정에서 Posting/댓글/DM/Lead저장/계정Routing/오류격리/KPI/재시작생존/비용을 증명 → 3계정에서 계정간 오염·Credential Routing·Rate Limit 검증 → 10계정 이상은 자동화된 계정 Health·Alert·Recovery 없이는 진행하지 않는다.
+
+**18.2 YAGNI**: 현재 규모에서 불필요한 인프라(불필요한 Kubernetes/과도한 Microservice/조기 Event Bus/불필요한 Vector DB/과도한 Observability Stack/다수 SaaS 중첩)는 도입하지 않는다. Interface는 미리 설계할 수 있지만, 무거운 Infrastructure는 수치로 필요성이 증명될 때 도입한다.
+
+### 19. 판매 가능한 제품 품질 Gate
+
+내부에서 작동하는 프로그램과 판매 가능한 제품은 다르다. 다음을 모두 만족해야 Product-ready:
+
+- **19.1 설치·설정**: 신규환경 설치절차/Dependency 고정/Config Validation/Secret 설정가이드/계정추가절차/Provider별 설정/설치실패 복구
+- **19.2 운영**: Health Check/Dashboard/Error Alert/Queue 상태/마지막 성공시각/계정별 상태/비용확인/Rate Limit 확인
+- **19.3 장애복구**: Restart/Rollback/Backup/Restore/Reconciliation/Duplicate 방지/Secret Rotation/계정차단/Provider 장애대체
+- **19.4 보안**: Webhook 검증/최소권한/Secret 보호/개인정보 마스킹/Audit Log/관리자 접근통제/데이터 보존·삭제정책
+- **19.5 데이터 품질**: Primary Key/Foreign Key/중복방지/테스트·운영분리/데이터 Lineage/Schema Version/Migration 절차/Invalid Data 차단
+- **19.6 문서**: Architecture/Runbook/Incident Response/Installation/Configuration/Account Onboarding/Troubleshooting/Backup·Restore/Security/Release Notes/Known Limitations
+- **19.7 사업 검증**: 실제문의/실제Lead/실제주문/실제매출/계정별 원가·수익/운영시간/고객지원 부담/외부도구 비용/실패율
+
+기술적 완성도만으로 판매가능 판정을 하지 않는다.
+
+### 20. SLO·운영 품질 기준
+
+정확한 수치는 실제 Baseline 측정 후 확정한다. 최소한 정의해야 할 지표: Runtime Availability / Webhook 처리 성공률 / 게시 성공률 / DM 저장 성공률 / 평균 응답시간 / 계정 Routing 정확도 / 중복 게시율 / 데이터 유실률 / 재시도 성공률 / 복구시간 / 장애 탐지시간 / 운영자 수동개입 시간 / 계정당 월 운영비. **목표값이 없는 지표는 관리할 수 없다.**
+
+### 21. 문서·세션 인수인계 정책
+
+**21.1 세션 시작**: 현재목표/공식단계/Active Source/Branch·HEAD/기존Diff/열린STOP/사용자 승인범위/이전세션 종료위치를 확인한다.
+
+**21.2 세션 종료**: 판정/완료된FACT/남은UNKNOWN/Risk/변경파일/Airtable변경/Runtime변경/테스트결과/Commit·Push상태/Rollback/다음 정확한 단계/다음단계 승인필요여부를 기록한다. 대화 요약만 남기지 않는다 — Active 문서에 기록한다. **항상 날짜+시간을 기록한다.**
+
+**21.3 Closed Gate**: 완료된 Gate는 기본적으로 재조사하지 않는다. 새 Runtime Evidence가 완료판정을 뒤집는 경우에만 STOP으로 재개한다.
+
+### 22. 보고 형식
+
+모든 보고 첫 줄: `판정어 — 증거 기반 이유`. 판정: 성공(SUCCESS)/일부성공(PARTIAL)/실패(FAILED)/미해결(UNKNOWN)/진행중(IN_PROGRESS)/보류(HOLD)/승인 대기(APPROVAL_REQUIRED).
+
+**22.1 Tier 1 보고**(상태변경·코드수정·Runtime장애·데이터위험): Core Problem/Root Cause/Evidence/Risk/Action/Approval/Rollback/Success Criteria — FACT/ASSUMPTION/UNKNOWN/RISK 분리.
+
+**22.2 Tier 2 보고**(Read-only 증거검토): FACT/UNKNOWN/결론 — 3~7줄 또는 최소 표.
+
+**22.3 Tier 3 보고**(사소한 확인): 1~3줄.
+
+### 23. Raw Output 정책
+
+사용자가 Raw Output을 요청하면 요약·재작성·표변환·일부생략·자연어해석 혼합을 금지한다. 도구가 Raw 대신 요약을 반환하면 같은 방법을 반복하지 않는다 — 로컬 Raw File 또는 사용자의 직접 붙여넣기로 전환한다.
+
+### 24. 반복 금지 오류 패턴
+
+1. GPT 텍스트를 실제 파일 변경으로 착각
+2. Caller 확인 없이 파일수정
+3. Active Runtime 파일 추정
+4. 여러 가설 병렬 수정
+5. 문제 발견 즉시 Build
+6. GitHub 코드 무검증 복사
+7. 테스트 통과를 Runtime 성공으로 선언
+8. 상태변경을 Read-only라고 표현
+9. 실패를 `warning`만 남기고 정상 처리
+10. Airtable Field Type 추측
+11. 계정 ID 첫 결과 임의 선택
+12. 여러 계정 데이터를 하나의 전역변수로 처리
+13. `.env`와 Airtable Split-brain
+14. 세션 마지막 일괄 Commit
+15. 무관한 Refactor 포함
+16. Flaky Test를 신규 회귀와 혼동
+17. 기존 변경과 신규 변경 혼합
+18. Runtime Restart 없이 코드 반영 완료 주장
+19. 임시 로그 제거 후 Process 반영 미확인
+20. 과거 완료 Gate 반복 조사
+21. STOP이 아닌 부수발견 추적
+22. `250723`을 Active로 취급
+23. 신규 기능을 안정화보다 우선
+24. 사용자 승인 범위 확대해석
+25. Root Cause를 증거 없이 확정
+
+### 25. 작업 시작 전 필수 질문
+
+Claude Code는 작업 시작 전 내부적으로 확인한다: ①지금 해결할 문제는 하나인가 ②실제 Runtime Evidence가 있는가 ③현재 공식 우선순위에 포함되는가 ④Core Logic인가 Commodity 기능인가 ⑤기존 기능으로 해결 가능한가 ⑥외부도구 비교가 필요한가 ⑦상태변경이 포함되는가 ⑧사용자 승인이 있는가 ⑨Rollback이 있는가 ⑩성공 기준이 있는가 ⑪Canary가 충분히 작은가 ⑫완료 후 Runtime Evidence를 얻을 수 있는가. **하나라도 답할 수 없으면 구현을 시작하지 않는다.**
+
+### 26. 최종 품질 원칙
+
+```text
+진단하지 않은 문제를 고치지 않는다.
+증명되지 않은 원인을 코드에 넣지 않는다.
+기존 기능을 확인하기 전에 새 기능을 만들지 않는다.
+표준 기능을 검토하기 전에 자체 인프라를 만들지 않는다.
+작은 Canary 없이 운영에 반영하지 않는다.
+Runtime Evidence 없이 완료하지 않는다.
+Rollback 없이 변경하지 않는다.
+문서화 없이 다음 단계로 넘어가지 않는다.
+매출과 운영가치를 증명하지 못한 기능은 확장하지 않는다.
+```
+
+### FINAL RULE
+
+**이 프로젝트의 성공은 코드량이 아니라, 실제 Runtime 안정성·데이터 정확성·복구 가능성·운영비·계정 확장성·실제 매출로 판정한다.** 항상 날짜+시간을 기록하고, 세션에서 답변할 때(=출력할 때)는 날짜+시간을 항상 출력한다.
