@@ -15,7 +15,11 @@ from datetime import datetime, timezone
 from flask import Flask, request, jsonify, abort
 
 from modules.infra.airtable_repository import AirtableRepository
-from modules.infra.repository_interface import LeadInteractionCreate
+from modules.infra.repository_interface import (
+    LeadInteractionCreate,
+    RepositoryError,
+    RepositoryValidationError,
+)
 
 from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry, _mask_igsid, _telegram_preview
 from modules.dm.dm_followup_scheduler import start_scheduler
@@ -27,6 +31,10 @@ PAGE_TOKEN        = os.getenv("INSTA_ACCESS_TOKEN")
 IG_USER_ID        = os.getenv("INSTA_IG_USER_ID")
 VERIFY_TOKEN      = os.getenv("WEBHOOK_VERIFY_TOKEN", "snssecret2024")
 WEBHOOK_PORT      = int(os.getenv("WEBHOOK_PORT", "5000"))
+
+# Bundle B(260726) 킬스위치 — false(기본값)면 아래 계정 역조회·account_code_ref 기록을
+# 전혀 수행하지 않고 기존 DM 경로와 완전히 동일하게 동작한다(Codex/GPT 승인 조건).
+DM_ACCOUNT_ROUTING_ENABLED = os.getenv("DM_ACCOUNT_ROUTING_ENABLED", "false").lower() == "true"
 
 _repo = AirtableRepository()
 
@@ -74,17 +82,44 @@ def send_telegram(sender_igsid: str, message_text: str) -> None:
         logger.warning(f"[Telegram] 알림 실패 | {exc}")
 
 
-def record_interaction(sender_igsid: str, message_text: str) -> str:
-    """수신된 DM 1건을 Lead_Interactions에 기록하고 record_id를 반환한다."""
-    record_id = _repo.create_lead_interaction(LeadInteractionCreate(
+def record_interaction(sender_igsid: str, message_text: str, account_code_ref: str = "") -> str:
+    """수신된 DM 1건을 Lead_Interactions에 기록하고 record_id를 반환한다.
+    account_code_ref는 선택값(Bundle B) — 비어있으면 기존과 완전히 동일하게 동작한다."""
+    create_data = LeadInteractionCreate(
         igsid=sender_igsid,
         source="instagram_dm",
         interaction_type="dm_received",
         occurred_at=_now_iso(),
         inquiry_message=message_text,
-    ))
+    )
+    if account_code_ref:
+        create_data["account_code_ref"] = account_code_ref
+    record_id = _repo.create_lead_interaction(create_data)
     logger.info(f"[Lead_Interactions] CREATED | from={sender_igsid} | record={record_id}")
     return record_id
+
+
+def _resolve_dm_account_code_ref(recipient_id: str | None) -> str:
+    """Bundle B(260726) — recipient.id로 Account_Registry를 역조회해 account_code_ref를 얻는다.
+    킬스위치가 꺼져있거나 조회에 실패해도 예외를 전파하지 않는다(fail-open) —
+    이 함수의 결과와 무관하게 DM 생성·자동응답은 항상 계속돼야 한다."""
+    if not DM_ACCOUNT_ROUTING_ENABLED:
+        return ""
+    if not recipient_id:
+        logger.error("[AccountRouting] ACCOUNT_ROUTING_RECIPIENT_MISSING")
+        return ""
+    try:
+        account = _repo.get_publish_account_by_ig_user_id(recipient_id)
+    except RepositoryValidationError as exc:
+        logger.error(f"[AccountRouting] ACCOUNT_ROUTING_AMBIGUOUS | recipient_id={recipient_id} | {exc}")
+        return ""
+    except RepositoryError as exc:
+        logger.exception(f"[AccountRouting] ACCOUNT_ROUTING_LOOKUP_FAILED | recipient_id={recipient_id} | {exc}")
+        return ""
+    if account is None:
+        logger.error(f"[AccountRouting] ACCOUNT_ROUTING_NOT_FOUND | recipient_id={recipient_id}")
+        return ""
+    return account["account_code"]
 
 
 # ── Webhook 엔드포인트 ────────────────────────────────────────────────────────
@@ -127,6 +162,7 @@ def receive_webhook():
     # 그대로 503을 반환하면, Meta가 전체 배치를 재전송하면서 이미 처리된 DM까지 다시
     # 처리돼 DM 쪽에 새로운 중복(Airtable 재기록·Telegram 재알림 등)을 만들 수 있다.
     durable_accept_failed = False
+    _account_code_cache: dict[str, str] = {}  # Bundle B — 요청 단위 recipient.id 캐시(중복 조회 방지)
     _NON_DURABLE_RESULTS = (CommentProcessResult.REJECTED_NOT_READY, CommentProcessResult.IN_PROGRESS)
 
     for entry in data.get("entry", []):
@@ -157,7 +193,8 @@ def receive_webhook():
 
     for entry in data.get("entry", []):
         for messaging in entry.get("messaging", []):
-            sender_id  = messaging.get("sender", {}).get("id")
+            sender_id    = messaging.get("sender", {}).get("id")
+            recipient_id = messaging.get("recipient", {}).get("id")
             message    = messaging.get("message", {})
             text       = message.get("text", "").strip()
             received_at = datetime.now(timezone.utc)
@@ -168,8 +205,17 @@ def receive_webhook():
             # ERR-066: app.log는 Telegram보다 오래 보존·검색·백업되므로 원문 미포함(260715)
             logger.info(f"[DM] from={_mask_igsid(sender_id)} | text_len={len(text)}")
 
+            # Bundle B(260726) — 계정 역조회는 DM 생성/자동응답과 완전히 분리된 예외 경계.
+            # 이 블록의 실패가 아래 DM 처리를 절대 막지 않는다(fail-open).
+            if recipient_id in _account_code_cache:
+                account_code_ref = _account_code_cache[recipient_id]
+            else:
+                account_code_ref = _resolve_dm_account_code_ref(recipient_id)
+                if recipient_id:
+                    _account_code_cache[recipient_id] = account_code_ref
+
             try:
-                record_id = record_interaction(sender_id, text)
+                record_id = record_interaction(sender_id, text, account_code_ref=account_code_ref)
                 send_telegram(sender_id, text)
             except Exception as exc:
                 logger.error(f"[Airtable] 기록 실패 | sender_id={sender_id} | {exc}")

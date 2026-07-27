@@ -165,6 +165,7 @@ class _LeadInteractionCreateRequired(TypedDict):
 
 class LeadInteractionCreate(_LeadInteractionCreateRequired, total=False):
     source_event_id:  str   # FP-047 idempotency key(선택) — 댓글은 Meta comment_id
+    account_code_ref: str   # Bundle B(260726) — Account_Registry.account_code 참조(선택, DM 경로만 사용)
 
 
 # ── 예외 ──────────────────────────────────────────────────────────────────────
@@ -250,6 +251,13 @@ class RepositoryInterface(ABC):
     def get_publish_account(self, account_code: str) -> PublishAccount | None:
         """account_code로 Account_Registry 조회. 없으면 None. access_token은 반환하지 않는다
         (실제 자격증명은 modules.common.credential_resolver.resolve_credential()로 별도 조회)."""
+
+    @abstractmethod
+    def get_publish_account_by_ig_user_id(self, ig_user_id: str) -> PublishAccount | None:
+        """ig_user_id(숫자 문자열)로 Account_Registry 역조회.
+        0건이면 None. 2건 이상(모호)이면 RepositoryValidationError를 발생시켜야 한다
+        (첫 레코드를 임의 선택하지 않는다). 네트워크/HTTP 오류는 None으로 감추지 않고
+        RepositoryUnavailableError로 구분한다. access_token은 반환하지 않는다."""
 
     @abstractmethod
     def claim_post_for_upload(self, post_id: str) -> bool:

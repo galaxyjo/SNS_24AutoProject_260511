@@ -421,6 +421,54 @@ class AirtableRepository(RepositoryInterface):
             credential_key=f.get("credential_key", ""),
         )
 
+    _IG_USER_ID_PATTERN = re.compile(r"^[0-9]+$")
+
+    def get_publish_account_by_ig_user_id(self, ig_user_id: str) -> PublishAccount | None:
+        """ig_user_id로 Account_Registry 역조회(Bundle B, 260726).
+
+        0건이면 None. 2건 이상(모호)이면 RepositoryValidationError를 발생시켜
+        호출부가 첫 레코드를 임의 선택하지 않도록 강제한다. 네트워크/HTTP 오류는
+        RepositoryUnavailableError로 구분한다(None으로 감추지 않음)."""
+        if not ig_user_id or not self._IG_USER_ID_PATTERN.fullmatch(ig_user_id):
+            return None
+
+        try:
+            r = requests.get(
+                _url("Account_Registry"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": f"{{ig_user_id}}='{ig_user_id}'",
+                    "maxRecords": 2,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Account_Registry", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Account_Registry")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if len(records) == 0:
+            return None
+        if len(records) > 1:
+            raise RepositoryValidationError(
+                f"ig_user_id={ig_user_id}에 대응하는 Account_Registry 레코드가 2건 이상(모호함)"
+            )
+
+        f = records[0].get("fields", {})
+        api_provider = f.get("api_provider", "")
+        if isinstance(api_provider, dict):
+            api_provider = api_provider.get("name", "")
+
+        return PublishAccount(
+            account_code=f.get("account_code", ""),
+            api_provider=api_provider,
+            ig_user_id=f.get("ig_user_id", ""),
+            credential_key=f.get("credential_key", ""),
+        )
+
     # ── 9. 업로드 선점 마킹 ───────────────────────────────────────────────────
 
     def claim_post_for_upload(self, post_id: str) -> bool:
@@ -666,6 +714,8 @@ class AirtableRepository(RepositoryInterface):
         }
         if data.get("source_event_id"):
             fields["source_event_id"] = data["source_event_id"]
+        if data.get("account_code_ref"):
+            fields["account_code_ref"] = data["account_code_ref"]
         try:
             r = requests.post(
                 _url("Lead_Interactions"),
