@@ -1571,3 +1571,26 @@ commit: 이 기록과 함께 커밋 예정
 push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식)
 
 ---
+
+## [260726_CLAUDE거버넌스+BundleB+ERR082+D2통합+MetaTopology] — 세션 종료 인계 기록
+
+**배경**: 260726 세션 전체 작업. Bundle B(DM 계정 태깅) 구현 완료 후 회장이 "Build-first로 바로 진행한 운영절차 자체가 문제"([260726_PROCESS_CORRECTION])를 지적 → 이후 모든 작업을 Read-only 증거수집 → Build·Buy·Reuse 비교 → 최소 승인 순서로 전환. 5개 하위 작업 순차 진행.
+
+**①CLAUDE.md 거버넌스 확장**: "수정 승인 5요소 원칙"(회장 확정) 반영 + Codex 작성 "SILICON VALLEY ENGINEERING OPERATING MANUAL"(26개 섹션) 원문 그대로 append(603줄) + "완료된 단계" 표(라인110 하단) 오독방지 각주 1줄 추가(B안, 표 문구 무변경, 회장 최종 승인). 전부 uncommitted 상태로 진행, 이번에 커밋.
+
+**②Bundle B(DM `account_code_ref` 태깅)**: `modules/dm/dm_receiver.py`+`modules/infra/airtable_repository.py`+`modules/infra/repository_interface.py` 수정, `DM_ACCOUNT_ROUTING_ENABLED`(기본 false) 킬스위치, fail-open 설계, 댓글·크롤러 경로 제외. 신규 테스트 3파일 23개 전부 PASS(`tests/test_dm_account_routing.py`/`test_get_publish_account_by_ig_user_id.py`/`test_create_lead_interaction_account_code_ref.py`). Codex 최종 승인("IMPLEMENTATION READY / PRODUCTION HOLD") 하에 구현, **프로덕션 활성화는 ERR-082 해결 전까지 HOLD**.
+
+**③ERR-082(Webhook `X-Hub-Signature-256` 서명검증 부재) — FAILED 확정**: Codex가 Bundle B 리뷰 중 지적했던 사항을 회장 정정지시 이후 Phase 0~5 Read-only 전수조사로 재확인. `receive_webhook()`이 서명검증 없이 `request.get_json(silent=True)`로 즉시 파싱→Business Logic 실행함을 코드로 확정(`X-Hub-Signature-256`/`hmac`/`hashlib`/`compare_digest`/`APP_SECRET` 매칭 프로젝트 전체 0건, Grep 2회+백그라운드 전체탐색 재확인). Build·Buy·Reuse 비교: Python 표준 `hmac`/`hashlib`로 Meta 공식 스펙 충족 가능(신규 OSS/SaaS 불필요). 구현은 미착수(승인 대기).
+
+**④CLAUDE.md↔`docs/SILICON_VALLEY_EXECUTION_STANDARD.md` 중복 정리(D2)**: CLAUDE.md 신규 매뉴얼과 SVES.md가 Evidence 우선순위(순서 상이)·보고형식·Stage/Gate 절차를 중복·비일관 규정하던 것을 Read-only 전수조사(CODEX 전달용 원문 출력) → GPT [260726_D2_EXECUTION] 지시서 → SVES.md 1개 파일만 편집(§1 7-Stage×12-Gate 매핑/§3 Canonical Reporting Format/§5 Canonical Evidence Priority 9단계 통합/§10~12 승인순서·Atomic Commit·Read-only Batch 규칙 신설, 구원문 512줄 §13 이동·비규범표시). 15/15 성공기준 충족, 다른 파일 무변경 확인.
+
+**⑤Meta App Topology 조사 — Topology B 확정**: GPT [P0-SEC-082A] 지시로 Account_Registry 실측(`yuna18253`=IDN-000041/facebook_login, `aijomoojin`=IDN-000036/instagram_login) + `credential_resolver.py` App Secret 개념 부재 확인 → 1차 Topology UNKNOWN(D) 판정 → 회장이 Meta Dashboard 스크린샷 3장으로 App ID `860604299884476`(Galaxy International)과 `4522543077982497`(AI Strategist)가 별도 App임을 직접 확인 → Topology B 확정. 이어 [260726_ERR-082C] Callback→Runtime 매핑 조사: yuna18253=이 260511 Runtime 연결 CONFIRMED(recipient.id Runtime Evidence 기보유), aijomoojin=연결여부 UNKNOWN(인바운드 증거 0건, `publish_single()` 발신 증거만 존재). 복수 App Secret 설계 HOLD.
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-082) / `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§10-8/§10-9/§9 큐 갱신) / `docs/SILICON_VALLEY_EXECUTION_STANDARD.md`(D2 전면) / `docs/CURRENT_RUNTIME_CONTEXT.md`(세션 인계) / 이 항목 동시 갱신.
+
+**미완료(다음 세션 인계)**: ERR-082 최소해결안(구현 여부 B / Defer 방향 C) 승인 대기 · aijomoojin Callback Runtime Mapping 여전히 UNKNOWN · Bundle B 프로덕션 Canary는 ERR-082 종결 전까지 HOLD · 댓글·크롤러 경로 계정귀속 미착수 · `docs/system_prompt_v2.md` 중복(SVES v3 changelog에 이미 기록된 미해결 항목) 이번에도 미착수.
+
+commit: 이 기록과 함께 커밋 예정(Atomic 분리 — CLAUDE.md / SVES.md / ERROR_DATABASE.md+WORKFLOW_ARCHITECTURE_STATUS.md+CURRENT_RUNTIME_CONTEXT.md+MERGE_JOURNAL.md / Bundle B 코드+테스트, 총 4개 커밋)
+push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식) — 이번 세션 종료로 즉시 push
+
+---

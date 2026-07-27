@@ -1436,3 +1436,32 @@ ModuleNotFoundError: No module named 'tests.test_X' (39개 파일 전부)
 **Status:** RESOLVED (260725) — `pytest -q`(인자 없음) 재실행으로 collection error 0건, `579 passed / 4 failed(기존 known baseline test_dm_close.py) / 3 xfailed` 확인.
 
 **관련:** FP-062
+
+---
+
+## ERR-082 | Webhook(`/webhook`) 엔드포인트에 `X-Hub-Signature-256` 서명 검증 코드가 존재하지 않음 — Meta 공식 요구 보안 통제 부재 확정 (OPEN — FAILED, 260726)
+
+**Type:** Security — 미검증 외부 Payload를 무조건 신뢰하는 구조 (Gap Classification: Security)
+
+**Raw:** Codex가 Bundle B(DM `account_code_ref` 태깅) 리뷰 과정에서 "Webhook 서명검증 부재는 Bundle B 이후 부가사항이 아니라 P0 보안 위험"이라고 지적 → 260726 Claude Code가 별도 Read-only 조사(Phase 0~5)로 코드 전수확인. 핵심 증거:
+```
+modules/dm/dm_receiver.py:142-147
+@app.post("/webhook")
+def receive_webhook():
+    data = request.get_json(silent=True)   # ← 서명검증 없이 즉시 파싱
+    if not data:
+        abort(400)
+```
+`X-Hub-Signature-256`/`hmac.`/`hashlib.`/`compare_digest`/`APP_SECRET`/`app_secret` 문자열이 `dm_receiver.py` 및 프로젝트 `*.py` 전체(`.venv` 서드파티 라이브러리 제외)에서 매칭 0건(Grep 전수확인, 백그라운드 재확인 포함 2회 동일 결과). `.env.example`에도 Meta App Secret을 저장할 변수 자체가 없음(`WEBHOOK_VERIFY_TOKEN`만 존재하며 이는 GET 핸드셰이크 전용, POST Payload 검증과 무관).
+
+**Root Cause:** **CONFIRMED**(더 이상 UNKNOWN 아님) — `launcher/main.py:536,550`이 `modules.dm.dm_receiver.app`을 직접 `app.run()`으로 구동하며, WSGI 미들웨어·리버스프록시 계층이 Python 코드상 존재하지 않음. `POST /webhook`(DM·댓글 이벤트 공용 라우트, `receive_webhook()`)이 `request.get_json(silent=True)`로 Payload를 곧바로 파싱해 Business Logic(Airtable Lead 생성·자동응답·Telegram 알림·댓글 처리)을 실행 — 서명 검증 코드, App Secret 저장소, HMAC 계산 로직이 셋 다 코드베이스 어디에도 없음이 Runtime Caller/Import Chain 전수확인으로 확정됨.
+
+**Fix:** 미착수(승인 대기) — 제안안: (1) 신규 env `META_APP_SECRET`(가칭) 도입 (2) `receive_webhook()` 최상단에서 `request.get_data()`(Raw Body) 확보 후 `hmac.new(app_secret, raw_body, hashlib.sha256)` 계산 → `X-Hub-Signature-256` 헤더의 `sha256=` 이후 값과 `hmac.compare_digest()` 비교 (3) 불일치·헤더누락·Secret미설정 시 401 반환·Business Logic 진입 차단(Fail-closed). Build·Buy·Reuse 비교 결과 Python 표준 `hmac`/`hashlib`만으로 Meta 공식 스펙 충족 가능(신규 OSS/SaaS 불필요) — 상세 비교는 `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-9 참조.
+
+**Prevention:** 서명 검증이 ADOPT로 종결되기 전까지 `DM_ACCOUNT_ROUTING_ENABLED`를 포함한 모든 웹훅 기반 신규 자동화의 Production 활성화(Canary 확대)를 HOLD한다.
+
+**Risk:** `HIGH`(확인됨, 더 이상 잠재적 아님) — 위조된 Payload가 서명검증 없이 그대로 Business Logic에 진입해 가짜 Lead 생성(Airtable Write)·가짜 DM 자동응답 발신·가짜 댓글 Private Reply 트리거·Telegram 스팸 알림을 유발할 수 있음이 코드 추적으로 확인됨. **이 노출은 Bundle B가 만든 새 위험이 아니라 Bundle B 이전부터 있던 기존 운영 경로의 위험**(DM 자동응답은 이미 라이브 운영 중). 단, 현재까지 실제 악용 정황(Incident)은 미확인 — Runtime Evidence는 "구조적 노출 확정"까지이며 "실제 공격 발생"은 별개.
+
+**Status:** **OPEN — FAILED**(Gate 4 판정: 검증 코드 없음, 실패 시 Reject 경로 없음, 모든 운영 POST Webhook 무방비 — CLAUDE.md §신규매뉴얼 §14.2 "서명검증 부재 시 외부 Payload를 신뢰된 입력으로 간주하지 않는다" 위반 상태 확정). RESOLVED 아님, 구현 착수는 별도 승인 필요.
+
+**관련:** Codex Bundle B 리뷰(대화 기록), `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-9(Gate 순서·Build·Buy·Reuse 상세), [[project_dm_relay_supplier_design_260713]] 계열 웹훅 설계 논의와 연관 가능성(재확인 필요)

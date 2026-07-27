@@ -21,7 +21,7 @@
 | 7 | Live E2E 사전 Gate | 완료 | Token 교체(ERR-077/079) 완료, 확장 전 Gate 3개(imgbb/ERR-076/account_email) 잔존 |
 | 8 | 1계정 E2E Canary | 완료 | yuna18253 실제 게시 성공 |
 | 9 | 2계정 재현 Test | 완료 | yuna18253+aijomoojin 독립 게시, 중복게시 0건 |
-| 10 | Metric·수익 검증 | 진행중 | KPI 집계 오류(ERR-078) 해소, 리드전환 유실(ERR-080) 해소. Clean Baseline·테스트/실고객 분리·매출 원본·ROI 경로는 미완료 |
+| 10 | Metric·수익 검증 | 진행중 | KPI 집계 오류(ERR-078) 해소, 리드전환 유실(ERR-080) 해소. **공식 작업 큐: `P1-1 Clean Measurement Baseline`**(진행중). `yuna18253` Account_Registry 신규 등록 완료(`IDN-000041`, §10-6) — Provider Routing SSOT 정합성 확보. `P1-4`~`P1-6A`/`P1-1B`/`P1-1C` 명칭은 별도 우선순위가 아니라 P1-1 하위조사로 재분류(§10 참조). Clean Baseline·테스트/실고객 분리·매출 원본·ROI 경로는 미완료 |
 | 11 | 확장 | 보류 | 확장 전 필수 Gate(imgbb/ERR-076/account_email/계정별Kill Switch) 미통과 |
 
 ---
@@ -210,10 +210,120 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | 순위 | 업무 | 상태 |
 |---|---|---|
 | P0-1 | pytest Collection Error 원인 확인 | 완료(RESOLVED, ERR-081) |
-| P0-2 | 단계 1~5 공식 Evidence 문서 복구 | **이 문서로 완료(A단계)** — B단계(test_dm_close.py 수정)는 별도 승인 대기 |
-| P1-1 | 10-B Clean Measurement Baseline(테스트/실고객분리, 기준시점·계정키 확정) | 미착수 |
+| P0-2 | 단계 1~5 공식 Evidence 문서 복구 | 완료(A단계, B단계 test_dm_close.py 수정도 260725 완료·commit `0da83b1`) |
+| **P0-SEC** | **Webhook `X-Hub-Signature-256` 서명 검증 여부 확인·구현(ERR-082)** | **OPEN — FAILED 확정(260726 Phase 0~5 Read-only 조사 완료, §10-9). 검증 코드 0건 확인, 구현 착수는 승인 대기. DM Bundle B 프로덕션 Canary 전제조건** |
+| **P1-1** | **10-B Clean Measurement Baseline(테스트/실고객분리, 기준시점·계정키 확정)** | **진행중 — yuna18253 Account_Registry 등록 완료(P1-1B/C, §10-5~6), DM Bundle B 구현·테스트 완료(킬스위치 OFF, §10-8 Build·Buy·Reuse 소급기록), 다음은 §10-7(댓글·크롤러 경로) 또는 P0-SEC 우선 여부 결정** |
 | P1-2 | 데이터 유실 동일 패턴(예외삼킴) 표적 감사 | 미착수 — order_detector 외 경로 존재 여부 확인 필요 |
 | P1-3 | fetch_candidate_phashes() Pagination | 미착수 |
-| P1-4 | 단계 6 격리 MVP 완성(Persona·Sourcebook 최소연결+Gate·Approval 통합검증) | 미착수 |
+| P1-4(격리MVP) | 단계 6 격리 MVP 완성(Persona·Sourcebook 최소연결+Gate·Approval 통합검증) | 미착수(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
 | P2-1~3 | imgbb / ERR-076 자동복구 / account_email SSOT | 미착수(기존 Gate 그대로) |
 | P3 | Token 매뉴얼 갱신(장기교환 단계 추가) | 미착수 |
+
+---
+
+## 10. P1-1 하위조사 진행상황 (260725, 세션 종료 기록)
+
+**배경**: 10단계 진행 중 `account_code_ref`가 자동 생성 데이터에 기록되지 않는 원인을 read-only로 추적하다가, GPT 지시로 "P1-2"~"P1-6A"라는 이름이 붙은 일련의 하위조사가 진행됨. **이 명칭들은 §9의 공식 우선순위 큐(P1-2/P1-3/P1-4)와 무관한, P1-1 내부의 임시 조사 순번이었음** — 표기 혼동 방지를 위해 이 섹션에 하위조사로 명확히 재분류해 기록한다.
+
+### 10-1. 완료된 조사
+
+**DM 계정 식별 관측(실측 완료)**:
+- `recipient.id=17841476202821375` Runtime 웹훅으로 직접 확보(`logs/summary/app.log` 21:36:09)
+- `INSTA_IG_USER_ID`(yuna18253)와 **정확히 일치** 확인
+- `sender.id`(마스킹된 발신자 IGSID)와 `recipient.id`가 서로 다른 식별자임을 동일 로그로 확인
+- 임시 관측 로그(`modules/dm/dm_receiver.py` 1줄, INFO 레벨) 추가 → 실측 → **파일·Runtime 양쪽 원복 완료**(재시작 후 `git diff` 빈 결과, 임시 로그 태그 신규 발생 0건 재확인)
+- `account_code_ref` 관련 코드·Repository·Airtable 수정 **0건**(전 과정 read-only 원칙 준수)
+
+**Account_Registry 전수대조(32건 전부 확인)**:
+- 총 레코드 32건(회장 기억상 "33개"와 1건 차이, 원인 미상·범위 밖)
+- `identity_id`: 32/32 populated(사실상 실질 PK)
+- `account_code`(구조적 PK)·`ig_user_id`·`api_provider`·`credential_key`: **1/32만 populated**(전부 aijomoojin)
+- `fb_page_id`: 32/32 전부 공란(aijomoojin 포함)
+- **aijomoojin**: `identity_id=IDN-000036`, `ig_user_id=17841467725643424`, `.env AI_INSTA_IG_USER_ID`와 일치 — CONFIRMED
+- **yuna18253**: `ig_user_id=17841476202821375`(`.env` 기준) — **Account_Registry에 대응 레코드 없음, 32건 전수조회로 Confirmed**(표적검색 2건이 아니라 전수 기준)
+- `account_email` 신뢰도: 여전히 UNKNOWN(기존 Gate 그대로, 이번에도 미해소)
+- 실제 SSOT 키: `account_code`(구조적 설계)와 `identity_id`(실질적으로 항상 채워짐) 두 필드의 역할이 정리 안 돼 **미확정**
+
+### 10-2. 남은 UNKNOWN
+
+- `aijomoojin`의 DM `recipient.id`(이번 관측 창에서 미수신)
+- 댓글 웹훅의 실제 `entry.id` 값(설계만 완료, 실측 안 함)
+- `account_code` vs `identity_id` 중 실제 운영 SSOT 키
+- yuna18253이 기존 32개 Identity 중 어느 것에도 대응 안 되는지, 혹은 완전히 새 레코드가 필요한지
+- 실제 로그인 이메일과 Account_Registry 레코드 일치 여부(32건 전부 미검증)
+- Facebook Crawler 계정 매핑 원본 데이터(accounts.json "account1"의 IG 자격증명 공란 확인됨, 대체 데이터 없음)
+- 댓글·크롤러 경로의 `account_code_ref` 생성 방식(설계 후보만 있음, 미확정)
+
+### 10-3. 현재 Risk
+
+- yuna18253 신규 레코드를 검증 없이 만들면 기존 32개 Identity 중 하나와 실제로는 같은 사람/계정일 위험(중복 생성 위험)
+- `.env` 특수 케이스(Design 옵션 B)로 구현하면 Airtable·`.env` 간 **Split-brain SSOT** 발생 — 계정 확장 시 병목
+- SSOT 키(`account_code` vs `identity_id`) 확정 전 Repository Interface(`LeadInteractionCreate` 등) 수정 시 **High-Risk DI 변경**이 잘못된 전제 위에서 진행되는 것
+- 댓글 `entry.id`를 실측 없이 계정 ID로 가정하면 추측 기반 구현
+- Facebook Crawler는 계정 매핑 데이터 자체가 없어 **Code-first 수정 금지**(데이터 선행 필요)
+
+### 10-4. 260725 세션 종료 상태
+
+코드 변경 0건 / Airtable Write·Schema 변경 0건 / Repository Interface 변경 0건 / `account_code_ref` 구현 0건 / 임시 관측 코드 원복 완료 / Runtime 정상(watchdog heartbeat alive) / `data/exported_data/`(기존 무관) 외 예상치 못한 Git 변경 없음.
+
+### 10-5. `P1-1B: yuna18253 Identity Reconciliation`(Read-only, 260726 완료)
+
+**SSOT PK Confirmed**: `airtable_repository.py:385,395` `get_publish_account(account_code)`가 `{account_code}='...'`로만 조회 — **`account_code`가 코드로 강제되는 실제 Runtime PK**. `identity_id`는 32/32 populated이나 `modules/` 코드 전체에서 참조 **0건**(레거시/미사용 필드로 확정).
+
+**yuna18253 기존 레코드 존재 여부: NO(Confirmed)** — `yuna18253@gmail.com`으로 32건 전수 정확검색 0건. 회장 직접 확인(260726): "`sale1.galaxy@gmail.com`은 `IDN-000001`(kbeautiquewholesale)이며 yuna18253과 완전 별개, yuna18253의 실제 로그인 이메일은 `yuna18253@gmail.com`(Instagram·Facebook 동일)" — Airtable 실측과 100% 일치해 교차검증 성공.
+
+`api_provider` 필드는 `facebook_login`/`instagram_login` 두 choice 모두 기존에 이미 존재(스키마 변경 불필요). `credential_resolver.resolve_credential(key)`는 `{key}_INSTA_IG_USER_ID`/`{key}_INSTA_ACCESS_TOKEN` 접두어를 항상 요구(빈 값 불가) — yuna18253을 Provider Routing에 편입하려면 Airtable Write와 `.env` 신규 변수쌍이 세트로 필요함을 확인.
+
+### 10-6. `P1-1C: yuna18253 Account_Registry 신규 등록`(실행 완료, 260726)
+
+회장 승인(`IDN-000041` 채번, `credential_key=YUNA`)으로 실행:
+
+- **Airtable**: `Account_Registry` 신규 레코드 `rec0m7KxyGBhkhqHK` 생성 — `account_code=IDN-000041` / `identity_id=IDN-000041`(aijomoojin 선례와 동일하게 두 값 일치) / `account_handle=yuna18253` / `account_email=yuna18253@gmail.com` / `ig_user_id=17841476202821375` / `api_provider=facebook_login` / `credential_key=YUNA`
+- **`.env`**: `YUNA_INSTA_IG_USER_ID`/`YUNA_INSTA_ACCESS_TOKEN` 신규 추가(기존 `INSTA_IG_USER_ID`/`INSTA_ACCESS_TOKEN` 값을 그대로 복사 — 토큰 원문은 스크립트로만 처리, 대화에 노출 안 됨). 기존 전역 변수는 그대로 유지(하위호환).
+- **End-to-end Runtime 검증(read-only)**:
+  ```
+  resolve_credential('YUNA') → ig_user_id=17841476202821375, token 정상 조회
+  get_publish_account('IDN-000041') → {account_code: IDN-000041, api_provider: facebook_login,
+                                        ig_user_id: 17841476202821375, credential_key: YUNA}
+  ```
+  전체 체인(Airtable→Repository→credential_resolver) 정상 동작 확인.
+- **현재 영향**: `Instagram_Posts.account_code_ref`에 `IDN-000041`을 채운 레코드가 아직 없어, 실제 게시 Runtime 동작은 무변화(기존 "전역계정 폴백" 경로 그대로 유지). yuna18253이 aijomoojin과 동일하게 Provider Routing 체계에 정식 편입된 상태만 확보됨.
+- **커밋**: 이번 변경은 Airtable/`.env`(gitignore 대상)만 해당 — git 추적 대상 코드 변경 없음. 이 문서 자체의 커밋은 세션 종료 시 일괄 처리(회장 지시).
+
+### 10-7. 다음 재개 위치 — `P1-2` 이후
+
+`yuna18253` SSOT 정합성 확보 완료. 다음 하위작업은 실제 `account_code_ref` 자동 기록 로직 구현(DM/댓글/크롤러 3경로, P1-5 설계 초안 기준) — 단, Repository Interface 변경은 여전히 별도 승인·Codex/GPT 리뷰 대상(CLAUDE.md Multi-AI Review Policy High-Risk).
+
+### 10-8. Bundle B(DM `account_code_ref`) Build·Buy·Reuse 결정 소급 등록 — 260726 정정
+
+**배경**: Bundle B(DM 경로 `account_code_ref` 태깅, `modules/dm/dm_receiver.py`+`modules/infra/airtable_repository.py`+`modules/infra/repository_interface.py`, 킬스위치 `DM_ACCOUNT_ROUTING_ENABLED` 기본 OFF, 신규 테스트 23개)는 260726 세션 중 "결함 발견 → 코드 설계"로 바로 진행되었고, 정식 Build·Buy·Reuse 비교표를 문서로 남기지 않은 채 Codex 리뷰·승인만 거쳐 구현되었다. 회장 지시([260726_PROCESS_CORRECTION])로 이 판단을 소급하여 문서화한다. **구현 자체는 이미 완료·테스트 통과 상태이며 되돌리지 않는다** — 이 섹션은 그 판단 근거를 사후 기록하는 것이다.
+
+| 선택지 | 가능여부 | 비용 | 구현시간 | 운영부담 | 보안위험 | Rollback | 권고 |
+|---|---|---|---|---|---|---|---|
+| Repair(기존 Repository 패턴 최소수정) | 가능 | 낮음 | 완료(약 0.5일) | 낮음 | 낮음(킬스위치 OFF, fail-open 설계) | 쉬움(`git revert` 1건, Airtable Schema 변경 없음) | **채택됨** |
+| Reuse(내부 기존 기능) | 불가 — 동등 기능 없음(계정 역조회 메서드 자체가 없었음) | — | — | — | — | — | 기각 |
+| OSS/GitHub | 과잉 — 단순 FK 조회+선택적 필드 전달에 외부 라이브러리 불필요 | 높음 | 높음 | 높음 | 중(신규 의존성) | 어려움 | 기각 |
+| SaaS | 과잉 — Airtable 자체가 이미 SSOT | 높음 | 높음 | 높음 | 중 | 어려움 | 기각 |
+| Defer/Accept | 계정별 리드 귀속·KPI 왜곡이 계속 누적됨(G7 KPI 항목과 직결) — 10단계 매출검증 목표와 직접 충돌 | — | — | — | — | — | 기각 |
+
+**결론**: Repair가 유일하게 CLAUDE.md 5.1(직접개발 적합 조건: 프로젝트 고유 사업규칙, 기존 코드 구조를 연결하는 작은 누락, 외부도구가 더 복잡함, 변경범위 작음, 성공기준 명확, Rollback 쉬움) 전부를 만족했다. 소급 기록이지만 판단 자체는 유지한다.
+
+**관련**: Codex 최종 승인 기록(대화), `tests/test_dm_account_routing.py`(10 tests) / `tests/test_get_publish_account_by_ig_user_id.py`(9 tests) / `tests/test_create_lead_interaction_account_code_ref.py`(4 tests)
+
+### 10-9. P0 Security Gap 등록 → Read-only 조사 완료 — Webhook 서명 검증 부재 확정 (ERR-082)
+
+**배경**: Codex가 Bundle B 리뷰 중 지적한 "`X-Hub-Signature-256` 서명 검증 부재"가 대화 기록에만 남아있고 `docs/ERROR_DATABASE.md`에 정식 등록되지 않았던 것을 260726 정정 지시로 등록(1차) → 같은 날 회장 지시로 Read-only Phase 0~5 전수조사 실행(2차, 코드수정·Runtime변경·Commit·Push 전부 없음).
+
+**조사 결과 (260726, Phase 0~5 완료)**:
+- **Phase 1 Entry Point**: `launcher/main.py:536,550` → `modules.dm.dm_receiver.app` 직접 `app.run()` 구동, WSGI 미들웨어·리버스프록시 없음. `POST /webhook`(DM·댓글 공용, 유일한 대상 라우트) 1개뿐.
+- **Phase 2 서명검증 코드**: `X-Hub-Signature-256`/`hmac.`/`hashlib.`/`compare_digest`/`APP_SECRET` 매칭 `dm_receiver.py` 및 프로젝트 전체 `*.py`(`.venv` 제외)에서 **0건**(Grep 2회 재확인, 백그라운드 전체탐색 포함). `.env.example`에 Meta App Secret 변수 자체 없음. 유일한 유사 선례는 `modules/ingest/domeggook_ingest.py`의 `hmac.compare_digest`(다른 라우트, 정적 토큰 비교 — Meta HMAC 서명검증과 무관).
+- **Phase 3 Blast Radius**: 위조 Payload가 서명검증 없이 `record_interaction()`(Airtable Write)·`handle_price_inquiry()`(자동응답)·`send_telegram()`·`process_comment_event()`로 직접 진입 가능함을 코드로 확인. 킬스위치(`DM_ACCOUNT_ROUTING_ENABLED=false`)는 이 노출을 전혀 막지 않음(Account Routing 블록만 비활성화). **기존에 이미 라이브 운영 중인 DM 자동응답 경로 자체가 오늘도 이 노출에 해당**(Bundle B가 만든 위험 아님).
+- **Phase 4 판정**: **FAILED**(검증 코드 없음, 실패 시 Reject 경로 없음, 적용 Route 0/1).
+- **Phase 5 Build·Buy·Reuse**: Python 표준 `hmac`/`hashlib`로 Meta 공식 스펙(HMAC-SHA256, Raw Body, `hmac.compare_digest`) 전체 충족 가능 — 신규 OSS/SaaS 불필요(유력 후보). 구현 자체는 이번에 하지 않음(승인 대기).
+
+- **등록 위치**: `docs/ERROR_DATABASE.md` ERR-082 (Status: **OPEN — FAILED**로 정정, RESOLVED 아님)
+- **Gate 순서 잔여**: 최소 해결안 승인 → 코드수정(`dm_receiver.py` 1개 파일, 신규 함수1개+`receive_webhook()` 최상단 삽입) → 테스트(정상서명/서명없음/서명불일치/Secret미설정 4종) → Canary(로컬 test_client 우선) → Rollback(`git revert` 1건) → Production Gate
+- **DM Bundle B와의 관계**: `DM_ACCOUNT_ROUTING_ENABLED=true` 프로덕션 전환(실 Meta 웹훅 트래픽 대상)은 ERR-082가 ADOPT로 종결되기 전까지 **HOLD**. Bundle B 자체(킬스위치 OFF 상태의 코드·테스트)는 이미 완료된 상태로 유지.
+- **남은 승인 필요 항목**: (A) 이번 FAILED 확정을 문서에 반영(이번 갱신으로 완료) (B) §14 최소 해결안(서명검증 구현) 착수 여부 — 코드수정이므로 별도 승인 필수 (C) Defer(위험 명시적 수용) vs 구현 중 방향 결정
+
+---
