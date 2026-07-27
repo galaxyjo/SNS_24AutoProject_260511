@@ -31,7 +31,7 @@ _마지막 업데이트: 260726_ERR-082(Webhook서명검증부재)_FAILED확정+
 - Gate C~G(260713~715, 이전 요약 그대로 유효) + 이전 마일스톤(260711 NSSM 전환, 260624 Repository Interface 전체 작업)은 그대로 유효.
 
 ## 최종 확인 커밋
-2d57648 (docs(runtime): Codex 260721 작업 재검증 + AdsPower 재부팅 자동기동 실증 [260721], push 완료) — 직전 5165b8e(Codex: AdsPower/n8n/Engagement, 재검증 완료), 7f72976(watchdog UTF-8 BOM), 1ebdc95(FP-047 A+B/ManyChat/RFC 요약) 순으로 이어짐
+2419ab2 (feat(dm): Bundle B — DM account_code_ref 계정 태깅 [260726], push 예정) — 직전 3f62213(docs: ERR-082 FAILED확정+세션인계), 519bf0b(docs: SVES D2 통합), 594be15(docs: CLAUDE.md 거버넌스 확장) 순으로 이어짐. 그 이전은 2d57648(docs(runtime): Codex 260721 작업 재검증 + AdsPower 재부팅 자동기동 실증 [260721]) — 직전 5165b8e(Codex: AdsPower/n8n/Engagement, 재검증 완료), 7f72976(watchdog UTF-8 BOM), 1ebdc95(FP-047 A+B/ManyChat/RFC 요약) 순으로 이어짐
 
 ## Source of Truth
 - Runtime: C:\SNS_24AutoProject_260511
