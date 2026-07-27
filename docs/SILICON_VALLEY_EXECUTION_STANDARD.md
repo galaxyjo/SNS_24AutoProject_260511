@@ -32,6 +32,25 @@ Research
 | Measure | Canary의 실제 결과를 관찰한다 — 예상이 아니라 실측. | 위 각 Gate 항목의 "앱 로그 대조", "Airtable 재조회", "화면 육안 확인"(회장이 tgbtgbnate DM함에서 직접 확인) 등 |
 | Continue / Modify / Kill | 측정 결과로 명시적으로 결정한다. | 예: `gate_e_b_v25_migration_260714`의 `comment_auto_reply` 경로는 재시작 직전 운영 위험 판단으로 **Kill**(재시작 취소, `.env` 즉시 원복). `fp047_enforce_precondition_a/b`는 A·B 완료 후에도 enforce 모드 전환은 별도 승인 대상으로 **Hold**. |
 
+### 1.1 7-Stage × 12-Gate Canonical 매핑 (260726 D2 통합)
+
+> **통합 배경**: `CLAUDE.md`의 `[260726] SILICON VALLEY ENGINEERING OPERATING MANUAL` §4가 위 7-Stage와 별개로 "12-Gate 실행 절차"를 자체 상위 프로세스처럼 서술하면서, 두 프로세스가 서로를 참조하지 않는 상태로 공존하게 됐다(260726 Claude Code 조사, CODEX 전달용 원문 참조). 이 문서가 SSOT이므로, 12-Gate를 별개 경쟁 절차가 아니라 **위 7-Stage 각 단계 아래에서 실행하는 상세 Engineering Gate**로 명시적으로 편입한다. `CLAUDE.md` §4의 Gate 1~12 정의 자체는 CLAUDE.md에 그대로 둔다(중복 삭제는 D3 이후 범위) — 이 매핑은 "어느 Gate가 어느 Stage에 속하는가"만 이 문서에서 규범화한다.
+
+| Stage | 소속 Gate | Gate 핵심 확인사항 |
+|---|---|---|
+| **1. Research** | Gate 1 — Outcome | 해결할 문제 / 사용자 영향 / 사업·매출 영향 / 현재 우선순위와의 관계 |
+| | Gate 2 — Success Criteria | 변경 전 측정 가능한 성공 기준 / 실패 기준 / 완료 증거 종류 |
+| **2. Evidence Audit** | Gate 3 — Runtime Evidence | 실제 장애·누락 존재 여부 / 입력→처리→저장→후속 동작 확인 / 장애가 증명되지 않으면 Root Cause 생성 금지 |
+| | Gate 4 — Caller / Import Chain | Runtime Caller / Import Chain / Active File / 다른 Caller / Blast Radius |
+| | Gate 5 — Gap Classification | Data / Configuration / Code Defect / Missing Feature / Security / Reliability / Observability / Performance / Process / Product Requirement 중 하나로 분류, 서로 다른 유형을 한 Bundle로 묶지 않음 |
+| **3. Decision Memo** | Gate 6 — Repair/Reuse/Official/OSS/SaaS/Defer 비교 | 기존 코드 최소수정 / 내부 기능 재사용 / 표준 라이브러리 / 공식 SDK·규격 / 검증된 OSS·GitHub / SaaS·Managed Tool / HOLD·DEFER·Risk Accept 중 비교 없이 코드수정 착수 금지 |
+| | Gate 7 — Design Review | 최소 변경안 / 파일별 단일 목적 / Interface 영향 / 실패 경계 / Observability / Rollback / Test Plan / STOP 조건 |
+| **4. Claim Lock** | Gate 8 — Pre-change Baseline | Branch / HEAD / Status / Existing Diff / Encoding·BOM / Test Baseline / Runtime Baseline / Secret Exposure |
+| | Gate 9 — User Approval | 상태변경 종류별(코드수정/Airtable Write/Schema변경/`.env`수정/Runtime Restart/Canary/문서수정/Commit/Push) 승인을 분리, 한 종류 승인을 다른 종류로 확대 해석 금지 |
+| **5. Single Canary** | Gate 10 — Canary | one purpose / one account / one data path / one hypothesis / one validation / one rollback — §6 Single Canary Rule과 동일 원칙, 여기서는 Gate 형태로 재확인 |
+| **6. Measure** | Gate 11 — Runtime Validation | 실제 입력 / 실제 Handler / Business Logic / Repository / Persistent Storage / Downstream Action / 신규 오류 / 기존 회귀 / 재시작 후 생존 필요 여부 — 테스트 PASS만으로 Runtime SUCCESS 선언 금지 |
+| **7. Continue / Modify / Kill** | Gate 12 — Final Decision | ADOPT / MODIFY / ROLLBACK / HOLD / DEFER / KILL 중 하나로만 종료. **문서 수정·Commit·Push는 Gate 12의 자동 동작이 아니다** — §10 승인 순서를 별도로 따른다 |
+
 ---
 
 ## 2. Blast Radius 최소화 원칙 (기존 실무에서 반복 확인된 패턴, 이번에 명명)
@@ -43,22 +62,42 @@ Research
 
 ---
 
-## 3. 표준 결과 출력 포맷 (신규 — 다른 문서에 없음)
+## 3. Canonical Reporting Format (260726 D2 통합 — 이 문서의 유일한 규범 보고 형식)
 
-**모든 작업 결과를 보고할 때, 다음 블록을 반드시 포함한다** (ONE-LINE ELI10 PREFIX 다음, 응답 말미):
+> **통합 배경**: `CLAUDE.md` §22("판정어 — 증거 기반 이유" + Tier1/2/3)와 이 문서의 기존 §3(완성도%/다음담당자 블록)가 서로 다른 필드를 요구하며 별도로 존재했다(260726 Claude Code 조사). 아래를 이 프로젝트의 **유일한 규범 보고 형식**으로 고정한다. `CLAUDE.md` §22의 판정어 목록·Tier 구분 개념은 유지하되, 필드 구성은 아래로 통합한다.
+
+**모든 공식 보고는 다음 순서를 사용한다** (ONE-LINE ELI10 PREFIX 다음, 응답 말미):
 
 ```
-요약:
-완성도: __%
-채택/폐기: 채택 / 폐기 / 보류
-현재 단계: (Stage Gate §1 중 하나)
-다음 담당자: 회장 / Claude Code / Codex / GPT
-성공 기준: (측정 가능한 구체적 기준)
+1. 쉬운 한 줄 설명
+2. 날짜·시간
+3. 판정어 — 증거 기반 이유
+4. 현재 Stage / Gate
+5. FACT
+6. UNKNOWN
+7. RISK
+8. 수행한 Action
+9. 채택 / 보류 / 폐기
+10. 다음 담당자
+11. 측정 가능한 성공 기준
+12. 필요한 사용자 승인
 ```
 
-- "완성도 %"는 감이 아니라 §4 Evidence Rule로 확인된 항목 수 기준으로 산정한다.
+**판정어(고정 어휘)**: `SUCCESS` / `PARTIAL` / `FAILED` / `UNKNOWN` / `IN_PROGRESS` / `HOLD` / `APPROVAL_REQUIRED`
+
+**완성도 표기**: 근거 없는 `%` 표기를 필수로 요구하지 않는다. 분모가 정의된 경우에만 아래 형식을 사용한다.
+
+```text
+필수 Evidence 8개 중 6개 확인
+필수 Gate 12개 중 9개 통과
+성공 기준 5개 중 4개 충족
+```
+
+"현재 80% 완성"처럼 분모 없는 정밀 수치는 공식 판정으로 사용하지 않는다(기존 §3의 "완성도 __%" 자유기입 형식은 이 규칙으로 대체됨 — 이하 폐기).
+
 - "다음 담당자"를 비워두지 않는다.
 - 이 블록은 CLAUDE.md의 [[feedback_step_subtitle_format|단계 소제목 표기]] · ONE-LINE ELI10 PREFIX · [[feedback_datetime_prefix|날짜시간 프리픽스]] · "단계별 Bookending 원칙"과 중복이 아니라 그 뒤에 붙는 마무리 블록이다 — 저 넷은 응답 스타일 규칙이고 이것은 작업 자체의 상태 요약이다.
+- Tier 구분이 필요한 경우(상태변경·코드수정 vs Read-only 증거검토 vs 사소한 확인) `CLAUDE.md` §22.1~22.3의 Tier1/2/3 분류를 그대로 참조한다(이 문서에서 재복사하지 않음) — 단, 각 Tier 안에서 실제 채우는 필드는 위 12개 항목 기준으로 통일한다.
 
 ---
 
@@ -66,7 +105,7 @@ Research
 
 | 라벨 | 정의 |
 |---|---|
-| FACT | CLAUDE.md Evidence Rule 우선순위(Runtime log>DB/API>grep>file>git>docs) 중 하나로 직접 확인된 사실 |
+| FACT | §5 Canonical Evidence Priority 9단계 중 하나로 직접 확인된 사실 |
 | INFERENCE | 여러 FACT로부터 논리적으로 추론했으나, 그 자체로 직접 확인되지는 않은 것 |
 | UNKNOWN | 확인할 증거가 없거나 접근할 수 없음 — 추정해서 채우지 않는다 |
 | RISK | 확정된 사실은 아니지만 잠재적 위험이라 반드시 표기해야 하는 것 |
@@ -75,14 +114,33 @@ Research
 
 ---
 
-## 5. Evidence Rule (원본: CLAUDE.md, 링크만)
+## 5. Canonical Evidence Priority (260726 D2 통합 — 이 문서의 유일한 규범 Evidence 순서)
+
+> **통합 배경**: `CLAUDE.md` §Runtime Governance(260527)의 `Runtime log > DB/API > grep > file > git > docs`와, `CLAUDE.md` §2.2(260726 신규 매뉴얼)의 별도 8단계 순서(`Runtime Evidence > Filesystem/Git Evidence > Active Project Docs > Airtable Metadata > 테스트결과 > Memory > Conversation Summary > 추정`)가 Airtable/DB의 순위·Docs의 순위를 서로 다르게 규정하며 동시에 존재했다(260726 Claude Code 조사, CODEX 전달용 원문 참조). 아래를 이 프로젝트 전체의 **유일한 규범 Evidence 우선순위**로 고정한다.
 
 ```
-우선순위: Runtime log > DB/API > grep > file > git > docs
-추정 금지. 없으면 UNKNOWN.
+1. Runtime Log·실제 Runtime Output
+2. 실제 DB·API·Airtable 응답
+3. 코드검색·grep·Caller·Import Chain
+4. 실제 File Content
+5. Test Raw Output
+6. Git Evidence
+7. Active Project Documentation
+8. Conversation·Memory
+9. Inference·Assumption
 ```
 
-Runtime 증거 없는 기능·수치·완료 주장 금지. 대화 기록·직전 응답의 자기 진술은 증거가 아니다. (전문은 CLAUDE.md §Runtime Governance 참조, 이 문서에서 재복사하지 않음)
+**해석 규칙**:
+- Runtime과 문서가 충돌하면 Runtime을 채택한다.
+- DB/API 실측값과 문서가 충돌하면 실측값을 채택한다.
+- 테스트는 중요한 증거지만 운영 Runtime을 대체하지 않는다.
+- Git은 변경 이력을 증명하지만 Runtime 동작을 증명하지 않는다.
+- Memory·대화요약은 참고자료이지 완료 증거가 아니다.
+- 추정은 FACT로 승격하지 않는다.
+
+`CLAUDE.md` §Runtime Governance의 기존 6단계 문구와 §2.2의 8단계 문구는 위 9단계로 통합되며, 서로 다른 순서로 재사용하지 않는다(두 원본 문구 자체의 삭제·수정은 이번 D2 범위 밖 — `CLAUDE.md`는 수정 금지 파일).
+
+Runtime 증거 없는 기능·수치·완료 주장 금지. 대화 기록·직전 응답의 자기 진술은 증거가 아니다.
 
 ---
 
@@ -131,8 +189,97 @@ Runtime 증거 없는 기능·수치·완료 주장 금지. 대화 기록·직�
 
 ---
 
-## 10. [260723 실리콘밸리 업무 정석 — 메모장 원문 이전]
+## 10. 문서 수정·Commit·Push 승인 순서 (260726 D2 신설)
 
+이 프로젝트의 공식 상태변경 순서를 아래로 고정한다.
+
+```text
+Raw Evidence 확보
+→ Evidence 보고
+→ 문서 수정 Scope 제안
+→ 사용자 문서 수정 승인
+→ 문서 편집
+→ 실제 Diff 확인
+→ Encoding/BOM 확인
+→ git diff --check
+→ CODEX Read-only 감사
+→ 사용자 Commit 승인
+→ Claude Code Commit
+→ 사용자 Push 승인
+→ Claude Code Push
+```
+
+**절대 규칙**:
+- Read-only 조사 승인은 문서 편집 승인이 아니다.
+- 문서 편집 승인은 Commit 승인이 아니다.
+- Commit 승인은 Push 승인이 아니다.
+- 문서 업데이트를 Gate 12(§1.1)에서 자동 수행하지 않는다.
+- 사용자 승인 전에 파일을 수정하지 않는다.
+- 실제 편집 후 Diff가 승인 Scope를 넘으면 Commit하지 않는다.
+
+원본: `CLAUDE.md` "승인 범위 명시 원칙"(260527)의 확장 — 그 원칙은 "read-only 조사 승인 ≠ 문서기록·commit 승인"만 규정했으나, 이 섹션은 문서편집→commit→push 전체 체인의 각 단계를 개별 승인 대상으로 명시한다.
+
+---
+
+## 11. Atomic Commit 정책 (260726 D2 신설)
+
+파일 종류별 무조건 분리가 아니라 **한 목적의 원자적 변경**을 기준으로 한다.
+
+**허용**:
+- 같은 기능의 코드와 직접 회귀테스트를 하나의 Atomic Commit으로 묶을 수 있다.
+- 하나의 문서 목적을 여러 섹션에서 수정할 수 있다.
+
+**분리**:
+- 무관한 코드와 문서
+- Schema와 Runtime 활성화
+- Config와 다른 기능 수정
+- 서로 다른 오류번호
+- 서로 다른 사업 목적
+- 서로 다른 작업 Bundle
+
+**금지**:
+- 세션 종료 시 무관 변경 일괄 Commit
+- 파일 종류만을 이유로 검증에 필요한 코드와 테스트를 강제 분리
+- 여러 목적을 하나의 Commit 메시지로 묶기
+
+원본: `CLAUDE.md` §16.3("one purpose / one validated change / one user approval / one commit")과 같은 원칙이며, 여기서는 "코드+직접테스트는 같이 묶어도 되는 예외"를 명시적으로 추가한다.
+
+---
+
+## 12. Read-only 실행 규칙 — Batch 허용 범위와 순차실행의 구분 (260726 D2 신설)
+
+이 문서 안의 다음 상반 규칙을 구분한다.
+
+**규범 규칙**:
+- 1 Call = 1 Purpose
+- 1 File Edit = 1 Purpose
+- 상태변경은 순차 실행
+- 현재 Gate 성공 전 다음 상태변경 금지
+- 복합 상태변경 명령 금지
+
+**허용되는 Read-only Batch**: 서로 의존성이 없고 상태를 변경하지 않는 다음 확인은 하나의 조사 단계에서 연속 수행 가능하다.
+- Git Status / Git Diff
+- grep
+- File Read
+- Metadata Read
+- Test Result Read
+- Runtime Log Read
+
+단, 다음 조건을 만족해야 한다:
+- 조사 목적이 하나
+- Raw Evidence 구분 가능
+- 파일 수정 없음
+- 실패 시 어느 확인에서 실패했는지 구별 가능
+- 사용자에게 단계별 증거 제출 가능
+
+"여러 파일 동시조회 절대 금지"(§13 원문자료 내 "방지책(실리콘밸리 디버깅 원칙)")와 "Read-only 자율 배치 허용"(`CLAUDE.md` AUTONOMOUS INVESTIGATION MODE)이 서로 다른 종류의 규칙임을 위 구분으로 명시한다 — 전자는 원자료(비규범, §13)에 있는 디버깅 습관 권고이고, 후자는 `CLAUDE.md`의 규범 규칙이다. 상태를 변경하지 않는 Read-only 조사는 위 조건을 만족하면 배치 수행 가능하며, 상태변경(코드수정/Write/Commit 등)은 항상 순차·개별승인 원칙을 따른다.
+
+---
+
+## 13. [260723 실리콘밸리 업무 정석 — 메모장 원문 이전]
+
+> ⚠️ **비규범 참고자료(Non-normative Reference)**: 이 섹션(원자료·사례·대화 발췌)은 위 §1~§12(Canonical Runbook)와 층위가 다르다. 상위 Canonical Runbook과 내용이 상충하는 것처럼 보이는 경우, **항상 §1~§12를 따른다** — 이 섹션의 문구가 우선하지 않는다.
+>
 > **이 섹션은 회장이 `docs/실리콘밸리업무정석260722.txt`(메모장)에 계속 모아온 원문을 Claude Code가 재해석·재작성 없이 그대로 옮긴 것이다.** 원문의 표현·순서·구분선(`----`)을 그대로 보존했다 — 위 §1~§9(이미 구조화된 SSOT 본문)와 이 섹션은 층위가 다르다: §1~§9는 이 프로젝트의 실제 선례로 재작성된 "운영 절차" 규정이고, 이 섹션은 회장이 여러 세션에 걸쳐 GPT/Perplexity 등과 나눈 대화에서 수집한 "실리콘밸리 업무 방식" 원자료(raw material)다. 둘이 충돌하는 것처럼 보이면 자동으로 어느 한쪽을 우선시키지 않고 **즉시 STOP, 회장 판단 후 정정**한다(현재까지는 충돌 발견 안 됨 — 아래는 주로 제품/성장 전략 층위이고 §1~§9는 주로 운영/승인 프로세스 층위라 서로 다른 질문에 답한다).
 >
 > 원본 파일: `docs/실리콘밸리업무정석260722.txt` (512줄, 최초 이전 260723). **앞으로 메모장이 갱신되면 이 섹션은 diff로만 갱신한다 — 기존 원문 삭제·덮어쓰기 금지, 추가분만 append하고 하단 변경 이력에 날짜와 함께 기록한다.**
@@ -664,4 +811,5 @@ Codex = 코드 리뷰 및 보안 취약점 감사 (정적 분석, 예외 케이�
 | 260722 (v1) | 최초 통합본 — `docs/SILICON_VALLEY_STANDARD_WORKFLOW.md` 최초 작성 |
 | 260722 (v2) | 회장 지시로 SSOT 강화 재작성 — 표준 결과 출력 포맷/FACT·INFERENCE·UNKNOWN·RISK/Single Canary/상태변경 실행주체/Session Start 등록 추가, `SILICON_VALLEY_EXECUTION_STANDARD.md`로 개명·승격. CLAUDE.md Session Start Rule에 등록. |
 | 260722 (v3) | CLAUDE.md/CURRENT_RUNTIME_CONTEXT.md/MERGE_JOURNAL.md/ERROR_DATABASE.md/VALIDATION_STATUS.md/system_prompt_v2.md 조사 후 **중복 제거 + 실제 선례로 재작성**. 모든 원칙에 "원본 위치" 표기 추가(§1~§9 표). 신규 §2 Blast Radius 최소화 원칙 추가(실무에서 이미 반복 사용 중이던 패턴을 처음 명명). §7 상태변경 실행주체의 근거를 정정 — 260721(Codex)과 ERR-053/260710(Claude Code 자신)은 서로 다른 위반이며 둘 다 인용. 12대 체크리스트(§9) 각 항목에 실제 적용 사례 병기. **미해결로 남긴 것**: `docs/system_prompt_v2.md`가 CLAUDE.md의 Multi-AI Review Policy를 그대로 중복 보유 중임을 발견했으나, 이번 작업 범위(이 문서의 통합) 밖이라 손대지 않음 — 별도 확인 필요. |
-| 260723 (v4, 이번) | 회장 지시로 §10 신설 — `docs/실리콘밸리업무정석260722.txt`(회장이 메모장에 계속 모아온 원문, 512줄) **최초 전량 이전, 재해석·재작성 없이 원문 그대로**. §1~§9(운영절차 SSOT)와 §10(제품/성장전략 원자료)은 층위가 달라 충돌 자동판정 안 함 — 이번 이전 시점엔 직접 충돌 발견 안 됨. 앞으로 메모장 갱신 시 §10은 diff로만 추가(덮어쓰기 금지). |
+| 260723 (v4) | 회장 지시로 §10 신설 — `docs/실리콘밸리업무정석260722.txt`(회장이 메모장에 계속 모아온 원문, 512줄) **최초 전량 이전, 재해석·재작성 없이 원문 그대로**. §1~§9(운영절차 SSOT)와 §10(제품/성장전략 원자료)은 층위가 달라 충돌 자동판정 안 함 — 이번 이전 시점엔 직접 충돌 발견 안 됨. 앞으로 메모장 갱신 시 §10은 diff로만 추가(덮어쓰기 금지). |
+| 260726 (v5, 이번, D2) | 회장 지시([260726_D2_EXECUTION])로 `CLAUDE.md`의 `[260726] SILICON VALLEY ENGINEERING OPERATING MANUAL`(같은 날 별도 append됨)과 이 문서 사이에서 발견된 중복·충돌(260726 Claude Code Read-only 조사, CODEX 전달용)을 이 문서 안에서 통합. **①** §1에 "1.1 7-Stage × 12-Gate Canonical 매핑" 신설 — `CLAUDE.md` §4의 12-Gate를 별개 경쟁 절차가 아니라 7-Stage 하위 상세 Gate로 편입. **②** §3을 "Canonical Reporting Format"으로 재작성 — 기존 완성도 `%` 자유기입을 "N개 중 M개" Gate Count 형식으로 대체, `CLAUDE.md` §22 판정어·Tier 개념과 필드를 하나로 통합. **③** §5를 "Canonical Evidence Priority"로 재작성 — `CLAUDE.md`의 서로 다른 두 Evidence 순서(§Runtime Governance 6단계 vs §2.2 8단계, Airtable·Docs 순위가 서로 달랐음)를 9단계 단일 순서로 통합, §4 FACT 정의도 이 순서를 참조하도록 정정. **④** §10(신)/§11/§12 신설 — 문서수정→Commit→Push 승인 순서 분리, Atomic Commit 정책(코드+직접테스트 예외 허용), Read-only Batch와 상태변경 순차실행의 구분. **⑤** 구 §10(원문 이전 512줄)을 §13으로 이동하며 "비규범 참고자료, 상충 시 §1~§12 우선" 경고 추가 — 원문 내용 자체는 삭제·수정하지 않음. `CLAUDE.md`/`docs/system_prompt_v2.md`/`docs/실리콘밸리업무정석260722.txt`/코드/테스트/Airtable/Runtime은 이번 D2 범위에서 손대지 않음(수정 금지 파일로 명시됨). |
