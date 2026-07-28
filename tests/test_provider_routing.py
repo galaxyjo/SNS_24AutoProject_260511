@@ -1,7 +1,7 @@
 """260725 — 계정별 Provider 분기(Instagram API with Instagram Login vs Facebook Login) 테스트.
 
 Codex 2라운드 + GPT 아키텍처 감사에서 확정된 안전 규칙을 회귀로 잠근다:
-  - account_code_ref 공란 → 기존 전역 경로 완전 동일(무변경)
+  - account_code_ref 공란 → Legacy 전역 경로를 사용하지 않고 차단
   - INSTAGRAM_PROVIDER_ROUTING_ENABLED=false(기본) → account_code_ref 있어도 전역 폴백/claim/publish 전부 금지
   - Account_Registry 조회 실패(없음/2건 이상/형식오류) → claim 0회
   - 미지원 api_provider → claim 0회
@@ -110,7 +110,7 @@ def _fake_repo(posts, get_publish_account=None, claim_result=True):
 
 
 class TestJobInstaUploadProviderBranching:
-    def test_empty_account_code_ref_uses_legacy_global_path_unchanged(self, monkeypatch):
+    def test_empty_account_code_ref_blocks_legacy_global_path(self, monkeypatch):
         monkeypatch.setenv("INSTA_ACCESS_TOKEN", "legacy-token")
         monkeypatch.setenv("INSTA_IG_USER_ID", "legacy-iguser")
         monkeypatch.delenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", raising=False)
@@ -132,8 +132,8 @@ class TestJobInstaUploadProviderBranching:
 
         launcher_main._job_insta_upload()
 
-        assert calls["claim"] == ["rec1"]
-        assert publish_calls == [("legacy-token", "legacy-iguser", "graph.facebook.com")]
+        assert calls["claim"] == []
+        assert publish_calls == []
 
     def test_flag_false_blocks_new_path_even_with_valid_account(self, monkeypatch):
         """킬스위치 기본값(false) — account_code_ref가 있어도 전역 폴백 없이 그냥 보류."""
@@ -270,7 +270,7 @@ class TestJobInstaUploadProviderBranching:
         assert publish_calls == [("ai-real-token", "17841467725643424", "graph.instagram.com")]
 
     def test_mixed_batch_accounts_do_not_cross_contaminate(self, monkeypatch):
-        """혼합 배치 — 공란 레코드와 신규계정 레코드가 같은 배치에 있어도 서로 다른 token/host로 호출됨."""
+        """혼합 배치 — 공란은 차단되고 계정키가 있는 레코드만 게시된다."""
         monkeypatch.setenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "true")
         monkeypatch.setenv("INSTA_ACCESS_TOKEN", "legacy-token")
         monkeypatch.setenv("INSTA_IG_USER_ID", "legacy-iguser")
@@ -302,6 +302,7 @@ class TestJobInstaUploadProviderBranching:
 
         launcher_main._job_insta_upload()
 
-        assert calls["claim"] == ["recA", "recB"]
-        assert ("recA", "legacy-token", "legacy-iguser", "graph.facebook.com") in publish_calls
-        assert ("recB", "ai-real-token", "17841467725643424", "graph.instagram.com") in publish_calls
+        assert calls["claim"] == ["recB"]
+        assert publish_calls == [
+            ("recB", "ai-real-token", "17841467725643424", "graph.instagram.com")
+        ]

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+from urllib.parse import parse_qs, urlparse
 from dotenv import load_dotenv
 load_dotenv(override=True)
 from selenium import webdriver
@@ -142,15 +143,245 @@ def expand_see_more(post, driver) -> None:
         pass
 
 
-def save_to_airtable(image_url, source_url, text="", original_text=None, media_type="image", sku_code=""):
+def _validate_publish_context(
+    target_publish_account_code_ref: str,
+    data_classification: str,
+    canary_run_id: str = "",
+    post_status: str = "",
+    repo=None,
+):
+    """Facebook 크롤을 시작하기 전에 Registry와 Credential 일치를 확인한다."""
+    from modules.common.credential_resolver import (
+        CredentialResolutionError,
+        resolve_credential,
+    )
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.infra.repository_interface import RepositoryValidationError
+
+    repo = repo or AirtableRepository()
+    if post_status:
+        account = repo.validate_instagram_post_context(
+            target_publish_account_code_ref,
+            data_classification,
+            canary_run_id,
+            post_status,
+        )
+    else:
+        account = repo.validate_instagram_post_context(
+            target_publish_account_code_ref,
+            data_classification,
+            canary_run_id,
+        )
+    try:
+        credential = resolve_credential(account["credential_key"])
+    except CredentialResolutionError as exc:
+        raise RepositoryValidationError("Target Publish Account Credential 검증 실패") from exc
+    if credential.ig_user_id != account["ig_user_id"]:
+        raise RepositoryValidationError(
+            "Target Publish Account의 Registry/Credential ig_user_id 불일치"
+        )
+    return account
+
+
+class FacebookCanaryError(RuntimeError):
+    """Direct-Permalink Canary 계약 위반."""
+
+
+def extract_facebook_post_id(permalink: str) -> str:
+    """지원되는 Facebook permalink에서 숫자 Post ID를 결정론적으로 추출한다."""
+    parsed = urlparse((permalink or "").strip())
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (
+        hostname == "facebook.com" or hostname.endswith(".facebook.com")
+    ):
+        raise FacebookCanaryError("승인된 HTTPS Facebook permalink 필수")
+
+    candidates = []
+    path_match = re.search(r"/(?:posts|permalink)/(\d+)(?:/|$)", parsed.path)
+    if path_match:
+        candidates.append(path_match.group(1))
+
+    query = parse_qs(parsed.query)
+    for key in ("story_fbid", "fbid"):
+        values = query.get(key, [])
+        if len(values) == 1 and values[0].isdigit():
+            candidates.append(values[0])
+    unique_ids = set(candidates)
+    if len(unique_ids) != 1:
+        raise FacebookCanaryError(
+            "permalink에서 단일 숫자 Facebook Post ID 확인 실패"
+        )
+    return unique_ids.pop()
+
+
+def _validate_approved_canary_image_url(image_url: str) -> str:
+    parsed = urlparse((image_url or "").strip())
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not hostname:
+        raise FacebookCanaryError("승인된 기존 HTTPS 이미지 URL 필수")
+    if hostname == "facebook.com" or hostname.endswith(".facebook.com"):
+        raise FacebookCanaryError("Facebook 원본 URL은 Canary 이미지로 사용 금지")
+    if "fbcdn.net" in hostname:
+        raise FacebookCanaryError("fbcdn URL은 ImgBB 없이 Canary에 사용 금지")
+    return image_url.strip()
+
+
+def _find_exact_permalink_article(driver, expected_post_id: str):
+    """Feed를 조회하지 않고 permalink 페이지에서 expected_post_id와 일치하는 article을 선택한다.
+
+    Facebook이 동일 Post ID를 DOM article 요소 여러 개로 중복 렌더링하는 경우가
+    있으므로, DOM 요소 개수가 아니라 정규화된 Facebook Post ID를 논리 게시물
+    식별자로 사용한다 — expected_post_id와 일치하는 article이 1개 이상이면 모두
+    동일 논리 게시물의 중복 렌더링으로 간주하고, 0개면 fail-closed 한다.
+
+    260729 실측 확인: "게시물 숨기기" 같은 JS 전용 UI 액션 anchor는 실제 이동
+    링크가 아니라 현재 보고 있는 permalink 자체를 의미 없는 href로 재사용하며
+    (끝이 빈 `#`로 끝남 — 실제 목적지가 없는 클릭 핸들러 placeholder), 화면에
+    뜬 모든(무관한) 게시물이 expected_post_id와 오매칭될 수 있다. href가 빈
+    `#`로 끝나는 anchor와, aria-label에 "숨기기"가 포함된 anchor는 실제 게시물
+    식별 근거로 인정하지 않는다.
+    """
+    matches = []
+    for article in driver.find_elements(By.CSS_SELECTOR, "div[role='article']"):
+        matched = False
+        for anchor in article.find_elements(By.CSS_SELECTOR, "a[href]"):
+            href = anchor.get_attribute("href") or ""
+            if href.strip().endswith("#"):
+                continue
+            aria_label = anchor.get_attribute("aria-label") or ""
+            if "숨기기" in aria_label:
+                continue
+            try:
+                if extract_facebook_post_id(href) == expected_post_id:
+                    matched = True
+                    break
+            except FacebookCanaryError:
+                continue
+        if matched:
+            matches.append(article)
+    if not matches:
+        raise FacebookCanaryError(
+            "정확한 Facebook Post article을 찾지 못함: found=0"
+        )
+    return matches[0]
+
+
+def run_exact_permalink_canary(
+    *,
+    permalink: str,
+    expected_post_id: str,
+    approved_image_url: str,
+    approved_caption: str,
+    source_account_name: str,
+    canary_run_id: str,
+    write_guard,
+    target_publish_account_code_ref: str = "IDN-000041",
+) -> dict:
+    """승인 permalink 1개를 검증하고 draft Instagram_Post 1건 이하만 저장한다."""
+    from modules.common.account_manager import get_account
+    from modules.common.canary_execution_guard import CanaryWriteOperation
+    from modules.infra.airtable_repository import AirtableRepository
+
+    if target_publish_account_code_ref != "IDN-000041":
+        raise FacebookCanaryError("Facebook Canary Target Account는 IDN-000041만 허용")
+    expected_post_id = (expected_post_id or "").strip()
+    if not expected_post_id.isdigit():
+        raise FacebookCanaryError("expected_post_id는 숫자 필수")
+    if extract_facebook_post_id(permalink) != expected_post_id:
+        raise FacebookCanaryError("permalink와 expected_post_id 불일치")
+    stable_image_url = _validate_approved_canary_image_url(approved_image_url)
+    caption = (approved_caption or "").strip()
+    if not caption:
+        raise FacebookCanaryError("approved_caption 필수")
+
+    source_account = get_account((source_account_name or "").strip())
+    if source_account is None or not source_account.active:
+        raise FacebookCanaryError("승인된 활성 Facebook Source Account 확인 실패")
+
+    repo = AirtableRepository()
+    _validate_publish_context(
+        target_publish_account_code_ref,
+        "test",
+        canary_run_id,
+        "draft",
+        repo=repo,
+    )
+    if repo.exists_post_by_image_url(stable_image_url):
+        raise FacebookCanaryError("승인 이미지 URL의 기존 Post가 있어 신규 Write 차단")
+
+    driver = get_driver(
+        source_account.adspower_user_id,
+        source_account.selenium_proxy_options(),
+    )
+    try:
+        driver.get(permalink)
+        time.sleep(12)
+        _find_exact_permalink_article(driver, expected_post_id)
+
+        payload = {
+            "image_url": stable_image_url,
+            "original_image_url": stable_image_url,
+            "image_url_hash": hashlib.sha256(stable_image_url.encode()).hexdigest(),
+            "source_url": permalink,
+            "post_status": "draft",
+            "caption": caption,
+            "hashtag": "",
+            "original_text": "",
+            "converted_text": caption,
+            "media_type": "image",
+            "insta_post_code": f"CANARY-FB-{expected_post_id}",
+            "account_code_ref": target_publish_account_code_ref,
+            "data_classification": "test",
+            "canary_run_id": canary_run_id,
+        }
+        write_guard.authorize_write(
+            CanaryWriteOperation.INSTAGRAM_POST_CREATE
+        )
+        record_id = repo.save_instagram_post(payload)
+        if not record_id:
+            raise FacebookCanaryError("Instagram_Posts Create 응답 record_id 없음")
+        return {
+            "created": 1,
+            "record_id": record_id,
+            "facebook_post_id": expected_post_id,
+            "post_status": "draft",
+        }
+    finally:
+        try:
+            driver.quit()
+        except Exception as exc:
+            logger.warning(f"[Canary/CLEANUP] driver.quit 실패 | {exc}")
+        try:
+            stop_browser(source_account.adspower_user_id)
+        except Exception as exc:
+            logger.warning(f"[Canary/CLEANUP] AdsPower Stop API 실패 | {exc}")
+
+
+def save_to_airtable(
+    image_url,
+    source_url,
+    text="",
+    original_text=None,
+    media_type="image",
+    sku_code="",
+    *,
+    target_publish_account_code_ref: str,
+    data_classification: str,
+    canary_run_id: str = "",
+):
     if not image_url:
         print("[AIRTABLE] 이미지 URL 없음 - 저장 생략")
         return
     from modules.infra.airtable_repository import AirtableRepository
     repo = AirtableRepository()
+    repo.validate_instagram_post_context(
+        target_publish_account_code_ref,
+        data_classification,
+        canary_run_id,
+    )
     if repo.exists_post_by_image_url(image_url):
         print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
-        return
+        return False
     caption, hashtags = generate_caption(text)
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
     _original = original_text or text
@@ -190,11 +421,16 @@ def save_to_airtable(image_url, source_url, text="", original_text=None, media_t
             "converted_text":     text,
             "media_type":         media_type,
             "insta_post_code":    sku_code,
+            "account_code_ref":   target_publish_account_code_ref,
+            "data_classification": data_classification,
+            "canary_run_id":      canary_run_id,
         }
         repo.save_instagram_post(payload)
         print(f"[AIRTABLE] 저장 완료: {image_url[:80]}...")
+        return True
     except Exception as exc:
         logger.error(f"[AIRTABLE] 저장 요청 실패 | {type(exc).__name__}: {exc}")
+        return False
 
 
 def save_to_training_queue(image_url, source_url, text, target_id_ref):
@@ -385,7 +621,21 @@ def run_all_training_targets(max_posts=MAX_POSTS) -> dict:
     return summary
 
 
-def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", proxy_opts: dict = None):
+def run(
+    target_url,
+    max_posts=MAX_POSTS,
+    adspower_user_id: str = "k1bto3j4",
+    proxy_opts: dict = None,
+    *,
+    target_publish_account_code_ref: str,
+    data_classification: str,
+    canary_run_id: str = "",
+):
+    _validate_publish_context(
+        target_publish_account_code_ref,
+        data_classification,
+        canary_run_id,
+    )
     _t0 = time.time()
     _stage_log("JOB_START", _t0, f"user={adspower_user_id} url={target_url}")
     _blocklist = load_supplier_blocklist()
@@ -441,8 +691,19 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
                 continue
             converted_text = replace_contacts(raw_text)
             sku = generate_sku(target_url)
-            save_to_airtable(image_url, target_url, converted_text, original_text=raw_text, media_type="image", sku_code=sku)
-            results.append({"target_url": target_url, "content": converted_text, "image_url": image_url})
+            saved = save_to_airtable(
+                image_url,
+                target_url,
+                converted_text,
+                original_text=raw_text,
+                media_type="image",
+                sku_code=sku,
+                target_publish_account_code_ref=target_publish_account_code_ref,
+                data_classification=data_classification,
+                canary_run_id=canary_run_id,
+            )
+            if saved:
+                results.append({"target_url": target_url, "content": converted_text, "image_url": image_url})
 
         logger.info(f"[FB Crawler] 완료 | {len(results)}개 처리 | user={adspower_user_id}")
 
@@ -469,9 +730,20 @@ def run(target_url, max_posts=MAX_POSTS, adspower_user_id: str = "k1bto3j4", pro
             logger.warning(f"[CLEANUP] lock release 실패 | {exc}")
 
 
-def run_all_accounts(max_posts=MAX_POSTS) -> dict:
+def run_all_accounts(
+    max_posts=MAX_POSTS,
+    *,
+    target_publish_account_code_ref: str,
+    data_classification: str,
+    canary_run_id: str = "",
+) -> dict:
     """활성 계정 전체의 crawl_urls를 순회하며 크롤링."""
     from modules.common.account_manager import get_active_accounts
+    _validate_publish_context(
+        target_publish_account_code_ref,
+        data_classification,
+        canary_run_id,
+    )
     summary = {}
     for acct in get_active_accounts():
         if not acct.crawl_urls:
@@ -481,7 +753,15 @@ def run_all_accounts(max_posts=MAX_POSTS) -> dict:
         proxy_opts = acct.selenium_proxy_options()
         for url in acct.crawl_urls:
             try:
-                acct_results.extend(run(url, max_posts, acct.adspower_user_id, proxy_opts))
+                acct_results.extend(run(
+                    url,
+                    max_posts,
+                    acct.adspower_user_id,
+                    proxy_opts,
+                    target_publish_account_code_ref=target_publish_account_code_ref,
+                    data_classification=data_classification,
+                    canary_run_id=canary_run_id,
+                ))
             except Exception as exc:
                 logger.error(f"[FB Crawler] 크롤링 실패 | account={acct.name} | url={url} | {exc}")
         summary[acct.name] = len(acct_results)

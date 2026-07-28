@@ -174,15 +174,23 @@ class TestPublishSinglePhaseHandling:
 # ── 8. Job 레벨 — outcome_unknown 격리 ─────────────────────────────────────
 
 def test_job_isolates_outcome_unknown_without_marking_or_retrying(monkeypatch):
-    monkeypatch.setenv("INSTA_ACCESS_TOKEN", "legacy-token")
-    monkeypatch.setenv("INSTA_IG_USER_ID", "legacy-iguser")
-    monkeypatch.delenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", raising=False)
+    monkeypatch.setenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("YUNA_INSTA_IG_USER_ID", "yuna-ig-user")
+    monkeypatch.setenv("YUNA_INSTA_ACCESS_TOKEN", "yuna-token")
 
     calls = {"claim": [], "mark_post_result": [], "slack": []}
 
     class _FakeRepo:
         def fetch_pending_posts(self, limit=50):
-            return [{"post_id": "recU", "image_url": "http://img", "caption": "c", "hashtag": "", "account_code_ref": ""}]
+            return [{"post_id": "recU", "image_url": "http://img", "caption": "c", "hashtag": "", "account_code_ref": "IDN-000041"}]
+
+        def get_publish_account(self, account_code):
+            return {
+                "account_code": account_code,
+                "api_provider": "facebook_login",
+                "ig_user_id": "yuna-ig-user",
+                "credential_key": "YUNA",
+            }
 
         def claim_post_for_upload(self, post_id):
             calls["claim"].append(post_id)
@@ -214,18 +222,26 @@ def test_job_isolates_outcome_unknown_without_marking_or_retrying(monkeypatch):
 
 def test_job_mixed_batch_outcome_unknown_does_not_block_next_record(monkeypatch):
     """260725 Codex 재검수 지적 — 첫 레코드가 outcome_unknown이어도 배치의 다음 레코드는 정상 처리돼야 함."""
-    monkeypatch.setenv("INSTA_ACCESS_TOKEN", "legacy-token")
-    monkeypatch.setenv("INSTA_IG_USER_ID", "legacy-iguser")
-    monkeypatch.delenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", raising=False)
+    monkeypatch.setenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("YUNA_INSTA_IG_USER_ID", "yuna-ig-user")
+    monkeypatch.setenv("YUNA_INSTA_ACCESS_TOKEN", "yuna-token")
 
     calls = {"claim": [], "mark_post_result": [], "slack": []}
 
     class _FakeRepo:
         def fetch_pending_posts(self, limit=50):
             return [
-                {"post_id": "recFirst", "image_url": "http://img", "caption": "c", "hashtag": "", "account_code_ref": ""},
-                {"post_id": "recSecond", "image_url": "http://img", "caption": "c", "hashtag": "", "account_code_ref": ""},
+                {"post_id": "recFirst", "image_url": "http://img", "caption": "c", "hashtag": "", "account_code_ref": "IDN-000041"},
+                {"post_id": "recSecond", "image_url": "http://img", "caption": "c", "hashtag": "", "account_code_ref": "IDN-000041"},
             ]
+
+        def get_publish_account(self, account_code):
+            return {
+                "account_code": account_code,
+                "api_provider": "facebook_login",
+                "ig_user_id": "yuna-ig-user",
+                "credential_key": "YUNA",
+            }
 
         def claim_post_for_upload(self, post_id):
             calls["claim"].append(post_id)

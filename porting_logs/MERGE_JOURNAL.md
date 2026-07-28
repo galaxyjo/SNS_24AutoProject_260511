@@ -1634,3 +1634,24 @@ commit: 미실행 — 별도 승인 대상
 push: 미실행 — 별도 승인 대상
 
 ---
+
+## [260728_2000~260729_0609_8단계_C1_Facebook_Exact-Post_Canary_완료] — Selector 수정 → C1 실행 SUCCESS → anchor-scan 오매칭 Gate 해소
+
+**배경**: Codex가 토큰 소진으로 중단한 8단계 P1-1 C1(Facebook Direct-Permalink Canary)을 Claude Code가 이어받았다. 중복 DOM article Selector 오판정 수정(코드·테스트)부터 시작해, 회장이 실제 Facebook 화면을 직접 열어 Permalink·Post ID·Source Account·Image URL·Caption을 확정하고, `_validate_approved_canary_image_url()`의 fbcdn 차단 Root Cause를 규명한 뒤 ImgBB 승인·업로드 → Safe Context 생성(W2)·Watchdog 재기동(R2) → C1 실행 → Production 복귀까지 전 과정을 완료했다. 이 세션(Claude Code)은 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` 읽기·쓰기 권한과 `SNS_Watchdog` 서비스 제어 권한이 없음을 반복 확인(`PermissionError`) — 상태변경이 필요한 모든 단계(Boot Policy 생성·활성화·복귀, Watchdog 재시작, C1 CLI 실행)는 회장이 직접 관리자 권한 PowerShell에서 수행했고, Claude Code는 JSON 사전 dry-run 검증과 사후 Read-only 대조(`/health`, `watchdog.log`, `canary_runs.db`, Airtable GET)만 담당했다.
+
+**C1 결과(Runtime Evidence)**: `canary_run_id=c1fb-260728-2111`, `status=COMPLETED`, `write_counts: instagram_post_create=1`(나머지 전부 0). Airtable `Instagram_Posts`(`recFHv9AvW891KaHW`): `account_code_ref=IDN-000041`/`data_classification=test`/`post_status=draft`, caption·image_url 전부 승인값 그대로. Production 복귀는 `/health`(`canary_safe_mode=false`)와 `POST /webhook`(403 정상 재개)로 확인.
+
+**anchor-scan 오매칭 Gate(ERR-084, RESOLVED)**: C1 조사 과정에서 동일 Permalink 재방문마다 완전히 무관한 다른 게시물이 반복적으로 오매칭되는 현상을 발견 — 실제 DOM 전수조사로 원인을 특정: Facebook의 "게시물 숨기기" 등 JS 전용 UI 액션 anchor가 실제 목적지 없이 현재 보고 있는 페이지 자체를 href로 재사용하며(`.../posts/<현재글ID>#`), `extract_facebook_post_id()`가 `#` 뒷부분을 자동 제거하고 파싱해 이 placeholder도 진짜 링크로 오인됐다. `modules/sns/facebook_crawler.py::_find_exact_permalink_article()`에 (1) href가 빈 `#`로 끝나는 anchor (2) aria-label에 "숨기기"가 포함된 anchor를 제외하는 최소 수정을 적용했다. 신규 회귀 테스트 3건 추가(`tests/test_package_s3_facebook_exact_runner.py`, 대상 파일 31/31 PASS, 전체 Suite 626 passed·기존 무관 실패 9건과 동일·신규 실패 0건). 실제 브라우저로 2회 재확인한 결과 더 이상 무관 게시물을 선택하지 않음을 실측 확인(Fail-closed로 안전 종료, 남은 DOM 로딩 비결정성은 기존 별도 이슈).
+
+**C1 Draft 오염 여부**: 이 오매칭은 애초에 `run_exact_permalink_canary()`의 저장 payload에 영향을 준 적이 없음(Adversarial 단위테스트로 별도 증명 — DOM 텍스트·이미지가 payload에 섞일 코드 경로 자체가 없음). 260728에 저장된 draft는 계속 안전하다.
+
+**판정**: 8단계 P1-1 **완료 선언**(회장 확정, 260729 06:09 ICT). C1은 SUCCESS, ERR-084는 RESOLVED.
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-084 신규) / `docs/VALIDATION_STATUS.md`(`facebook_exact_post_canary_c1_260728_260729`) / `docs/CURRENT_RUNTIME_CONTEXT.md`(260728 21:39·260729 06:00 ICT 섹션) / `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§10-12~10-14, §9 P1-1 행) / 이 항목.
+
+**변경 파일**: `modules/sns/facebook_crawler.py`(코드), `tests/test_package_s3_facebook_exact_runner.py`(테스트), 위 문서 5개.
+
+commit: 회장 지시로 미실행 — 별도 승인 대상
+push: 미실행 — 별도 승인 대상
+
+---

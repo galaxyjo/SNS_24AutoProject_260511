@@ -1491,3 +1491,28 @@ GET /webhook/ai-strategist?hub.mode=subscribe&hub.challenge=...&hub.verify_token
 **Status:** **OPEN — 기록만 완료, 조사·수정 착수 안 함**(회장 지시: "기록만해놔, 나중에 다 종합 점검할 때 다시 확인하고 수정"). 다음 종합 점검 세션에서 Gate 1~3(Outcome/Success Criteria/Runtime Evidence)부터 재시작.
 
 **관련:** ERR-082(같은 Webhook 엔드포인트에서 파생 발견), [[feedback_md_docs_autoupdate]]
+
+## ERR-084 | Facebook Exact-Post Canary Selector가 "게시물 숨기기" 등 UI 액션 anchor의 placeholder href를 실제 게시물 링크로 오인 (RESOLVED, 260729)
+
+**Type:** Code Defect — Selector 판정 로직이 비-콘텐츠 UI 액션 링크를 콘텐츠 식별 근거로 오인 (Gap Classification: Code Defect)
+
+**Raw:** 8단계 P1-1 C1 Facebook Exact-Post Canary 실행 과정에서, 승인된 permalink(`https://www.facebook.com/groups/1827528710833477/posts/4051001165152876`)에 실제 브라우저로 재접속할 때마다 `_find_exact_permalink_article()`이 매번 다른, 완전히 무관한 게시물(예: "Cielo Anne Areno"의 필리핀 화장품 판매글, "China Sixsix"의 중국 화장품 제조업체 광고)을 목표 Post ID와 일치한다고 판정하는 현상을 반복 관측. 260729 05:24 ICT 실제 DOM 전수조사로 원인을 특정: 무관 게시물("China Sixsix") article 안에서
+```
+aria-label='China Sixsix님의 게시물 숨기기'
+href='https://www.facebook.com/groups/1827528710833477/posts/4051001165152876#'
+```
+형태의 anchor를 발견 — "게시물 숨기기" 버튼은 실제 이동 목적지가 없는 JS 전용 UI 액션인데, href 값으로 현재 보고 있는 페이지(목표 permalink) 자체를 빈 `#` fragment와 함께 재사용하고 있었다.
+
+**Root Cause:** **CONFIRMED** — `extract_facebook_post_id()`는 `urlparse()`로 URL을 분해한 뒤 `.path`만으로 Post ID를 추출하므로 `#` 뒤의 fragment는 자동으로 제거된다. 이 때문에 "숨기기" 같은 UI 액션 anchor의 placeholder href(`.../posts/<현재글ID>#`)도 실제 목적지가 있는 콘텐츠 링크와 동일하게 파싱돼 목표 Post ID와 일치 판정을 받았다. 이 placeholder href는 화면에 렌더링된 **모든** 게시물의 UI 액션 버튼에 동일하게 붙으므로, `_find_exact_permalink_article()`의 "article 안에 expected_post_id와 일치하는 anchor가 있는가" 판정은 실질적으로 거의 항상 참이 되어 Fail-closed 보장이 무력화돼 있었다.
+
+**Fix(260729, 회장 승인 범위: 코드 1파일+테스트 1파일)**: `modules/sns/facebook_crawler.py::_find_exact_permalink_article()` 최소 수정 — anchor 판정 전에 (1) href가 공백 제거 후 빈 `#`로 끝나면 제외, (2) aria-label에 "숨기기"가 포함되면 제외. 두 조건 모두 실제 콘텐츠 목적지가 없는 UI 액션 anchor를 걸러내기 위함이며, 정규식·Post ID 추출 로직 자체는 무변경.
+
+**Test Evidence**: `tests/test_package_s3_facebook_exact_runner.py`에 실측 재현 케이스 3건 신규 추가(단일 "숨기기" placeholder만 있으면 거부 / 진짜 링크와 공존 시 진짜 링크 선택 / aria-label 없이 href의 빈 `#`만으로도 거부). 대상 파일 31/31 PASS(기존 28+신규 3, 0 failed). 관련 전체 Suite(ProgramData ACL로 collection이 막히는 8개 파일 제외) 626 passed(기존 실패 9건과 동일, 신규 실패 0건). `git diff --check` 0건.
+
+**Runtime 재확인(260729 05:58~05:59 ICT, 실제 브라우저 2회 연속)**: 수정된 함수를 동일 permalink에 직접 호출한 결과 2회 모두 더 이상 무관 게시물("China Sixsix" 등)을 선택하지 않았다(2회 모두 `found=0`으로 Fail-closed — 이 시간대에 진짜 대상 게시물 콘텐츠가 대기시간 안에 렌더링되지 않은 것으로 추정되며, 이는 기존에 별도 문서화된 DOM 로딩 비결정성 문제와 동일 계열로 이번 수정과 무관). 핵심 성공기준인 "무관 게시물 오매칭 재현 안 됨"은 2회 모두 충족했다.
+
+**Prevention:** 이 오매칭은 애초에 실제 저장 함수(`run_exact_permalink_canary()`)의 payload 생성에 영향을 준 적이 없다 — Adversarial 단위테스트(가짜 DOM에 무관한 텍스트·이미지를 심어 검증)로 `caption`/`image_url`은 오직 `approved_caption`/`approved_image_url` 파라미터만 사용하며 DOM에서 읽은 값이 섞일 코드 경로 자체가 없음을 별도 증명(260728). 260728에 저장된 실제 draft(`recFHv9AvW891KaHW`)는 이 버그와 무관하게 안전했다. 향후 유사 Selector 로직을 재사용할 경우, DOM anchor 매칭만으로 "올바른 게시물"을 판정하지 말고 사람의 직접 확인(또는 승인된 값의 수동 입력)을 병행해야 한다.
+
+**Status:** **RESOLVED(260729)** — Root Cause Confirmed·코드 수정·회귀테스트·실측 재확인 전부 완료. 8단계 P1-1 완료 선언의 마지막 보류 사유였다.
+
+**관련:** `docs/CURRENT_RUNTIME_CONTEXT.md` 260729 06:00 ICT 섹션, `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-12~10-14

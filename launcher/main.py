@@ -42,6 +42,10 @@ from core.log_initializer import init_logging
 from core.error_handler import handle_errors
 from modules.common.logger import get_logger
 from modules.common.retry_queue import get_retry_queue
+from modules.common.canary_safe_mode import (
+    get_canary_safe_mode_state,
+    mask_canary_run_id,
+)
 from modules.common.health_monitor import get_health, print_health
 from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 from modules.infra.airtable_usage_logger import log_api_call
@@ -54,6 +58,8 @@ logger = get_logger(__name__)
 CRAWL_INTERVAL_MIN = int(os.getenv("CRAWL_INTERVAL_MINUTES", "30"))
 UPLOAD_POLL_MIN    = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
 WEBHOOK_PORT       = int(os.getenv("WEBHOOK_PORT", "5000"))
+PRODUCT_PUBLISH_ACCOUNT_CODE = "IDN-000041"
+PRODUCT_DATA_CLASSIFICATION = "production"
 
 # Slack 알림 (SLACK_WEBHOOK_URL 미설정 시 None → 알림 생략)
 try:
@@ -135,9 +141,18 @@ def _preprocess_image(image_url: str) -> str:
 # ── 잡 함수 ───────────────────────────────────────────────────────────────────
 
 @handle_errors(task="fb_crawl", notify_fn=_slack)
-def _job_fb_crawl():
+def _job_fb_crawl(
+    *,
+    target_publish_account_code_ref: str,
+    data_classification: str,
+    canary_run_id: str = "",
+):
     from modules.sns.facebook_crawler import run_all_accounts
-    summary = run_all_accounts()
+    summary = run_all_accounts(
+        target_publish_account_code_ref=target_publish_account_code_ref,
+        data_classification=data_classification,
+        canary_run_id=canary_run_id,
+    )
     logger.info(f"[Main] fb_crawl 완료 | {summary}")
 
 
@@ -227,12 +242,24 @@ def _job_dome_crawl():
 
 
 @handle_errors(task="dome_export", notify_fn=_slack)
-def _job_dome_export():
+def _job_dome_export(
+    *,
+    target_publish_account_code_ref: str,
+    data_classification: str,
+    canary_run_id: str = "",
+):
     if os.getenv('DOME_EXPORT_ENABLED', 'true').lower() == 'false':
         logger.info('[dome_export] DISABLED by feature flag')
         return
     from modules.crawlers.source_exporter import export_to_instagram_posts
-    result = export_to_instagram_posts(target_id=None, batch_size=5, dry_run=False)
+    result = export_to_instagram_posts(
+        target_id=None,
+        batch_size=5,
+        dry_run=False,
+        target_publish_account_code_ref=target_publish_account_code_ref,
+        data_classification=data_classification,
+        canary_run_id=canary_run_id,
+    )
     logger.info(f"[dome_export] {result}")
 
 
@@ -365,6 +392,10 @@ def _job_insta_upload():
     from modules.infra.airtable_repository import AirtableRepository
     from modules.infra.repository_interface import PostPublishResult
     from modules.common.credential_resolver import CredentialResolutionError, resolve_credential
+    from modules.common.canary_classification import (
+        CanaryClassificationError,
+        validate_publication_candidate,
+    )
 
     routing_enabled = os.getenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "false").strip().lower() == "true"
 
@@ -381,6 +412,21 @@ def _job_insta_upload():
         caption           = f"{post.get('caption','')}\n{post.get('hashtag','')}".strip()
         account_code_ref  = post.get("account_code_ref", "")
 
+        # S2: Query 필터가 잘못되거나 Record 상태가 외부에서 바뀌어도 claim 전에 재차 차단.
+        try:
+            validate_publication_candidate(
+                post.get("data_classification", ""),
+                post.get("canary_run_id", ""),
+                post.get("post_status", ""),
+            )
+        except CanaryClassificationError as exc:
+            logger.warning(
+                "[CanaryPublishBlock] 공개 게시 차단 | rid=%s | reason=%s",
+                post_id,
+                exc,
+            )
+            continue
+
         # ig_media_id 있으면 이미 업로드된 레코드 — 재업로드 차단
         if post.get("ig_media_id"):
             logger.warning("[Main] unverified ig_media_id detected — skip | post_id=%s", post_id)
@@ -395,13 +441,11 @@ def _job_insta_upload():
                 continue
 
         if not account_code_ref:
-            # ── 기존 경로(무변경): 전역 계정 ──────────────────────────────
-            token      = os.getenv("INSTA_ACCESS_TOKEN")
-            ig_user_id = os.getenv("INSTA_IG_USER_ID", "").strip()
-            if not token or not ig_user_id:
-                logger.warning("[Main] INSTA 환경변수 미설정 — upload 생략 | rid=%s", post_id)
-                continue
-            api_host = "graph.facebook.com"
+            logger.warning(
+                "[Main] account_code_ref 공란 — Legacy 전역 계정 fallback 금지, 처리 보류 | rid=%s",
+                post_id,
+            )
+            continue
         else:
             # ── 신규 경로: 계정별 Provider 분기(260725 설계, 기본 비활성) ──
             if not routing_enabled:
@@ -478,11 +522,18 @@ def _job_insta_upload():
 
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
 
-def _build_scheduler() -> BackgroundScheduler:
+def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     now = datetime.now()
     sched = BackgroundScheduler(timezone="Asia/Seoul")
+    if canary_safe_mode:
+        logger.warning("[CanarySafeMode] 일반 Scheduler Job 등록 0건")
+        return sched
     sched.add_job(_job_fb_crawl,     "interval", minutes=CRAWL_INTERVAL_MIN,
-                  id="fb_crawl",     next_run_time=now + timedelta(seconds=60))
+                  id="fb_crawl",     next_run_time=now + timedelta(seconds=60),
+                  kwargs={
+                      "target_publish_account_code_ref": PRODUCT_PUBLISH_ACCOUNT_CODE,
+                      "data_classification": PRODUCT_DATA_CLASSIFICATION,
+                  })
     sched.add_job(_job_insta_upload, "interval", minutes=UPLOAD_POLL_MIN,
                   id="insta_upload", next_run_time=now + timedelta(seconds=120),
                   max_instances=1)
@@ -496,7 +547,11 @@ def _build_scheduler() -> BackgroundScheduler:
                   id="dome_crawl", next_run_time=now + timedelta(seconds=300))
     sched.add_job(_job_dome_export, "interval", minutes=10,
                   id="dome_export", next_run_time=now + timedelta(seconds=360),
-                  max_instances=1, coalesce=True)
+                  max_instances=1, coalesce=True,
+                  kwargs={
+                      "target_publish_account_code_ref": PRODUCT_PUBLISH_ACCOUNT_CODE,
+                      "data_classification": PRODUCT_DATA_CLASSIFICATION,
+                  })
     sched.add_job(_job_comment_dead_monitor, "interval", minutes=15,
                   id="comment_dead_monitor", next_run_time=now + timedelta(seconds=420),
                   max_instances=1, coalesce=True)
@@ -505,20 +560,28 @@ def _build_scheduler() -> BackgroundScheduler:
 
 # ── 시작 배너 ────────────────────────────────────────────────────────────────
 
-def _print_banner():
+def _print_banner(canary_safe_mode: bool = False):
     logger.info("=" * 60)
     logger.info("  SNS_24AutoProject — 통합 서버 시작")
     logger.info(f"  Flask Webhook   : http://localhost:{WEBHOOK_PORT}")
     logger.info(f"  FB 크롤링       : {CRAWL_INTERVAL_MIN}분 간격")
     logger.info(f"  Instagram 업로드: {UPLOAD_POLL_MIN}분 간격")
+    logger.info(f"  Canary Safe Mode: {canary_safe_mode}")
     logger.info(f"  Streamlit       : python -m streamlit run dashboard.py")
     logger.info("=" * 60)
 
 
 # ── 진입점 ────────────────────────────────────────────────────────────────────
 
-def main():
-    # 1. retry_queue 워커 시작
+def _start_background_services(canary_safe_mode: bool):
+    """Safe Mode에서는 모든 자동 Side Effect worker와 Job을 시작하지 않는다."""
+    if canary_safe_mode:
+        scheduler = _build_scheduler(canary_safe_mode=True)
+        logger.warning(
+            "[CanarySafeMode] RetryQueue·주 Scheduler·DM Scheduler 시작 0건"
+        )
+        return None, scheduler
+
     rq = get_retry_queue()
     # FP-047: comment_airtable_record 핸들러는 반드시 rq.start() 이전에 eager 등록해야
     # 함 — 기존 ig_auto_reply/ig_followup처럼 실패 시점에 지연등록하면 재시작 후 pending
@@ -532,11 +595,33 @@ def main():
     scheduler.start()
     logger.info("[Main] 스케줄러 시작")
 
-    # 3. Flask + 팔로업·댓글·리포트 스케줄러 (dm_receiver 내부에서 start_scheduler 호출)
-    from modules.dm.dm_receiver import app, start_scheduler
+    # Flask 내부 팔로업·댓글·리포트 스케줄러
+    from modules.dm.dm_receiver import start_scheduler
     start_scheduler()
+    return rq, scheduler
 
-    _print_banner()
+
+def main():
+    # W1: 모든 실제 Runtime은 영속 Boot Policy 없이는 Production으로
+    # fallback하지 않는다. Safe Policy의 armed→active 전환도 worker 전이다.
+    safe_mode_state = get_canary_safe_mode_state(
+        require_boot_policy=True,
+        activate_boot_policy=True,
+    )
+    logger.info(
+        "[RuntimeBootPolicy] "
+        f"source={safe_mode_state.source} "
+        f"mode={'safe' if safe_mode_state.enabled else 'production'} "
+        f"state={safe_mode_state.policy_state} "
+        f"purpose={safe_mode_state.purpose} "
+        f"run_id={mask_canary_run_id(safe_mode_state.run_id)}"
+    )
+    rq, scheduler = _start_background_services(safe_mode_state.enabled)
+
+    # Safe Mode에서도 health endpoint를 제공하기 위해 Flask는 유지한다.
+    from modules.dm.dm_receiver import app
+
+    _print_banner(safe_mode_state.enabled)
 
     # 4. 시작 시 헬스체크
     try:
@@ -551,8 +636,10 @@ def main():
     except (KeyboardInterrupt, SystemExit):
         logger.info("[Main] 종료 신호 수신")
     finally:
-        scheduler.shutdown(wait=False)
-        rq.stop()
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+        if rq is not None:
+            rq.stop()
         logger.info("[Main] 종료 완료")
 
 

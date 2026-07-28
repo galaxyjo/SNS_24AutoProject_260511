@@ -45,7 +45,16 @@ def test_save_instagram_post_defaults_to_ready_when_approval_disabled(monkeypatc
     )
 
     repo = AirtableRepository()
-    repo.save_instagram_post({"image_url": "http://img"})
+    monkeypatch.setattr(
+        repo,
+        "validate_instagram_post_context",
+        lambda *a, **k: {"account_code": "IDN-000041"},
+    )
+    repo.save_instagram_post({
+        "image_url": "http://img",
+        "account_code_ref": "IDN-000041",
+        "data_classification": "production",
+    })
 
     assert captured["payload"]["post_status"] == "ready"
 
@@ -73,7 +82,16 @@ def test_save_instagram_post_defaults_to_draft_when_approval_enabled(monkeypatch
     )
 
     repo = AirtableRepository()
-    repo.save_instagram_post({"image_url": "http://img"})
+    monkeypatch.setattr(
+        repo,
+        "validate_instagram_post_context",
+        lambda *a, **k: {"account_code": "IDN-000041"},
+    )
+    repo.save_instagram_post({
+        "image_url": "http://img",
+        "account_code_ref": "IDN-000041",
+        "data_classification": "production",
+    })
 
     assert captured["payload"]["post_status"] == "draft"
 
@@ -137,6 +155,9 @@ def test_text_gate_disabled_by_default_preserves_existing_behavior(monkeypatch):
     monkeypatch.delenv("PUBLISH_TEXT_GATE_ENABLED", raising=False)
     monkeypatch.setenv("INSTA_ACCESS_TOKEN", "fake-token")
     monkeypatch.setenv("INSTA_IG_USER_ID", "fake-iguser")
+    monkeypatch.setenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("YUNA_INSTA_IG_USER_ID", "fake-iguser")
+    monkeypatch.setenv("YUNA_INSTA_ACCESS_TOKEN", "fake-token")
 
     from launcher import main as launcher_main
 
@@ -144,7 +165,18 @@ def test_text_gate_disabled_by_default_preserves_existing_behavior(monkeypatch):
 
     class _FakeRepo:
         def fetch_pending_posts(self, limit=50):
-            return [{"post_id": "rec2", "image_url": "http://img", "caption": "any text", "hashtag": ""}]
+            return [{
+                "post_id": "rec2", "image_url": "http://img", "caption": "any text",
+                "hashtag": "", "account_code_ref": "IDN-000041",
+            }]
+
+        def get_publish_account(self, account_code):
+            return {
+                "account_code": account_code,
+                "api_provider": "facebook_login",
+                "ig_user_id": "fake-iguser",
+                "credential_key": "YUNA",
+            }
 
         def claim_post_for_upload(self, post_id):
             calls["claim"] += 1
@@ -175,6 +207,9 @@ def test_text_gate_passes_through_when_filter_returns_true(monkeypatch):
     monkeypatch.setenv("PUBLISH_TEXT_GATE_ENABLED", "true")
     monkeypatch.setenv("INSTA_ACCESS_TOKEN", "fake-token")
     monkeypatch.setenv("INSTA_IG_USER_ID", "fake-iguser")
+    monkeypatch.setenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("YUNA_INSTA_IG_USER_ID", "fake-iguser")
+    monkeypatch.setenv("YUNA_INSTA_ACCESS_TOKEN", "fake-token")
 
     from launcher import main as launcher_main
 
@@ -182,7 +217,18 @@ def test_text_gate_passes_through_when_filter_returns_true(monkeypatch):
 
     class _FakeRepo:
         def fetch_pending_posts(self, limit=50):
-            return [{"post_id": "rec3", "image_url": "http://img", "caption": "good text", "hashtag": ""}]
+            return [{
+                "post_id": "rec3", "image_url": "http://img", "caption": "good text",
+                "hashtag": "", "account_code_ref": "IDN-000041",
+            }]
+
+        def get_publish_account(self, account_code):
+            return {
+                "account_code": account_code,
+                "api_provider": "facebook_login",
+                "ig_user_id": "fake-iguser",
+                "credential_key": "YUNA",
+            }
 
         def claim_post_for_upload(self, post_id):
             return True

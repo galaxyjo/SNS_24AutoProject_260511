@@ -22,8 +22,13 @@ from modules.infra.repository_interface import (
 )
 
 from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry, _mask_igsid, _telegram_preview
+from modules.common.canary_safe_mode import (
+    CanarySafeModeState,
+    get_canary_safe_mode_state,
+    safe_mode_health_fields,
+)
 from modules.common.webhook_signature import verify_meta_signature
-from modules.dm.dm_followup_scheduler import start_scheduler
+from modules.dm.dm_followup_scheduler import start_scheduler as _start_followup_scheduler
 from modules.crm.lead_scorer import is_repeat_inquiry, calc_score, update_lead_score
 from modules.crm.order_detector import detect_order, handle_order_conversion
 from modules.comment.comment_auto_reply import process_comment_event, CommentProcessResult
@@ -44,6 +49,8 @@ AI_WEBHOOK_APP_SECRET   = os.getenv("AI_WEBHOOK_APP_SECRET", "")
 # Bundle B(260726) 킬스위치 — false(기본값)면 아래 계정 역조회·account_code_ref 기록을
 # 전혀 수행하지 않고 기존 DM 경로와 완전히 동일하게 동작한다(Codex/GPT 승인 조건).
 DM_ACCOUNT_ROUTING_ENABLED = os.getenv("DM_ACCOUNT_ROUTING_ENABLED", "false").lower() == "true"
+CANARY_SAFE_MODE_STATE = get_canary_safe_mode_state()
+CANARY_SAFE_MODE_ENABLED = CANARY_SAFE_MODE_STATE.enabled
 
 _repo = AirtableRepository()
 
@@ -63,6 +70,38 @@ app.register_blueprint(domeggook_ingest_bp)
 
 
 # ── 헬퍼 ─────────────────────────────────────────────────────────────────────
+
+@app.before_request
+def _block_mutating_requests_in_canary_safe_mode():
+    """Safe Mode에서는 health·Meta GET 검증만 유지하고 Side Effect 진입을 차단."""
+    if CANARY_SAFE_MODE_ENABLED and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        logger.warning(
+            "[CanarySafeMode] mutating HTTP 요청 차단 | "
+            f"method={request.method} path={request.path}"
+        )
+        return jsonify({"status": "canary_safe_mode_blocked"}), 503
+    return None
+
+
+def start_scheduler():
+    """Safe Mode에서 DM·댓글·팔로업 Scheduler 등록을 막는 단일 경계."""
+    if CANARY_SAFE_MODE_ENABLED:
+        logger.warning("[CanarySafeMode] DM Scheduler Job 등록 0건")
+        return None
+    return _start_followup_scheduler()
+
+
+def _activate_direct_runtime_boot_policy() -> CanarySafeModeState:
+    """독립 dm_receiver 실행도 공통 Boot Policy를 원자적으로 활성화한다."""
+
+    global CANARY_SAFE_MODE_STATE, CANARY_SAFE_MODE_ENABLED
+    CANARY_SAFE_MODE_STATE = get_canary_safe_mode_state(
+        require_boot_policy=True,
+        activate_boot_policy=True,
+    )
+    CANARY_SAFE_MODE_ENABLED = CANARY_SAFE_MODE_STATE.enabled
+    return CANARY_SAFE_MODE_STATE
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -305,12 +344,24 @@ def _process_webhook_event(data: dict):
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok", "ig_user_id": IG_USER_ID}), 200
+    # 실행 중 만료돼도 Production으로 전환하지 않고 상태만 명시한다.
+    state = CANARY_SAFE_MODE_STATE
+    if CANARY_SAFE_MODE_ENABLED != state.enabled:
+        # 기존 테스트·격리 호출의 boolean override와 호환.
+        state = CanarySafeModeState(enabled=CANARY_SAFE_MODE_ENABLED)
+    payload = {
+        "status": "ok",
+        "ig_user_id": IG_USER_ID,
+    }
+    payload.update(safe_mode_health_fields(state))
+    return jsonify(payload), 200
 
 
 # ── 진입점 ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # 직접 실행 경로도 Launcher/Core와 동일한 영속 Boot Policy를 강제한다.
+    _activate_direct_runtime_boot_policy()
     logger.info(f"[Webhook] 서버 시작 | port={WEBHOOK_PORT}")
     logger.info("[Webhook] ngrok: https://danuta-overdramatic-whirly.ngrok-free.dev/webhook")
     start_scheduler()

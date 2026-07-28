@@ -1,3 +1,93 @@
+# 2026-07-29 06:09 ICT — 8단계 P1-1 완료 선언 (C1 Facebook Exact-Post Canary + anchor-scan Gate 해소)
+
+_기록 시각: 2026-07-29 06:09 ICT · 상태: **8단계 완료(회장 확정)** — C1 Runtime SUCCESS(260728 21:37 ICT)에 이어 260728 21:39 ICT UNKNOWN으로 보류했던 anchor-scan 오매칭 근본원인을 실제 DOM으로 재현·규명·코드로 차단했다. 회장이 8단계 완료를 선언했으며, Commit·Push는 회장 지시로 별도 보류한다._
+
+## Root Cause(Confirmed) 및 수정
+
+- **원인**: Facebook의 "게시물 숨기기" 등 JS 전용 UI 액션 anchor가 실제 목적지 없이 현재 보고 있는 permalink 자체를 href로 재사용하며(`.../posts/<현재글ID>#`처럼 빈 `#`로 끝남), `extract_facebook_post_id()`가 `urlparse()`로 `#` 뒷부분을 제거하고 파싱하기 때문에 이 placeholder href도 "진짜 그 게시물 링크"로 오인됐다. 화면에 뜬 무관한 다른 게시물(오늘 "Cielo Anne Areno", "China Sixsix" 등 매번 다르게 재현)이 이 때문에 반복적으로 오매칭됐다.
+- **재현 Evidence**: `aria-label='China Sixsix님의 게시물 숨기기'`, `href='https://www.facebook.com/groups/1827528710833477/posts/4051001165152876#'`인 anchor가 무관한 "China Sixsix" article 안에서 발견되어 실제 오매칭을 코드 레벨로 확정했다(260729 05:24 ICT).
+- **수정**(`modules/sns/facebook_crawler.py::_find_exact_permalink_article()`): href가 빈 `#`로 끝나는 anchor(실제 목적지 없는 UI 액션 placeholder)와, aria-label에 "숨기기"가 포함된 anchor를 게시물 식별 근거에서 제외하도록 최소 수정. 이 필터 없이는 화면에 게시물이 하나라도 뜨면 사실상 항상 매칭되는 상태였다.
+- **회귀 테스트**: `tests/test_package_s3_facebook_exact_runner.py`에 오늘 실측 재현 케이스 3건 추가(단일 숨기기 anchor 거부/실제 링크와 공존 시 실제 링크 선택/aria-label 없이 href만으로도 거부) — 대상 파일 31/31 PASS(기존 28 + 신규 3), 관련 전체 Suite 626 passed(기존 실패 9건과 동일, 신규 실패 0건).
+- **수정 후 실측 재확인(260729 05:58~05:59 ICT, 2회)**: 같은 permalink에 실제 브라우저로 재접속해 수정된 함수를 직접 호출한 결과, 더 이상 "China Sixsix" 같은 무관 게시물을 선택하지 않는다(2회 모두 `found=0`으로 Fail-closed — 페이지 로딩 타이밍상 진짜 대상 게시물이 이 대기시간 안에 렌더링되지 않은 것으로 추정되며, 이는 오늘 이전에도 별도로 문서화된 DOM 로딩 비결정성 문제이지 이번 수정의 부작용이 아니다). **핵심 성공 기준인 "무관 게시물 오매칭 재현 안 됨"은 2회 모두 확인됐다.**
+- **C1 Draft 오염 여부**: 이 오매칭은 애초에 실제 저장 함수(`run_exact_permalink_canary`)의 payload에 영향을 준 적이 없음(260728 Adversarial 단위테스트로 별도 증명 완료, DOM 텍스트·이미지가 payload에 섞일 코드 경로 자체가 없음) — 오늘 저장된 draft(`recFHv9AvW891KaHW`)는 계속 안전하다.
+
+## 판정
+
+8단계 완료 선언 보류 사유였던 "자동 anchor-scan 오매칭 근본원인 UNKNOWN"이 Confirmed로 규명되고 코드로 차단됐다. 남은 것은 페이지 로딩 타이밍에 따른 DOM 콘텐츠 비결정성(이미 별도 문서화된 기존 이슈, 이번 수정과 무관)뿐이며, 이는 Fail-closed로 안전하게 처리된다. **회장이 8단계 완료를 선언했다(260729 06:09 ICT). Commit·Push는 회장 지시로 별도 보류.**
+
+---
+
+# 2026-07-28 21:39 ICT — 8단계 P1-1 C1 Facebook Exact-Post Canary Runtime SUCCESS (완료 선언 보류)
+
+_기록 시각: 2026-07-28 21:39 ICT · 상태: **PARTIAL(Runtime SUCCESS, 8단계 완료 선언은 보류)** — C1 draft 1건이 정확한 계약대로 Airtable에 저장됐고 Production으로 안전 복귀했으나, 조사 중 발견된 "자동 anchor-scan 오매칭" 근본원인이 UNKNOWN으로 남아 회장이 8단계 완료 선언을 별도 Gate 이후로 보류시켰다._
+
+## C1 최종 결과
+
+**입력 Lock**: `permalink=https://www.facebook.com/groups/1827528710833477/posts/4051001165152876`, `expected_post_id=4051001165152876`, `source_account=account1(Cho Eunha)`, `target_publish_account_code_ref=IDN-000041`, `approved_caption="[C1 CONTROLLED CANARY] Facebook exact-post account attribution validation"`(고정 테스트 caption), `approved_image_url=https://i.ibb.co/k2D2nkhZ/image.jpg`(승인된 ImgBB Upload 1건 결과, 원본 fbcdn 이미지와 Content-Length 37,799 bytes 동일 확인됨).
+
+**Runtime Evidence(Read-only 직접 확인)**:
+```text
+db/canary_runs.db: canary_run_id=c1fb-260728-2111, status=COMPLETED, terminal_code=SUCCESS
+write_counts: instagram_post_create=1, 나머지 전부 0
+Airtable Instagram_Posts(recFHv9AvW891KaHW): account_code_ref=IDN-000041, data_classification=test,
+  post_status=draft, insta_post_code=CANARY-FB-4051001165152876, caption·image_url 승인값 그대로
+```
+
+**Safe Context(W2) → Watchdog 재기동(R2) → C1 → Production 복귀 전체 체인**: 이 세션(Claude Code) 계정은 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` 읽기·`SNS_Watchdog` 서비스 제어 권한이 없음을 반복 확인(`PermissionError`) — Boot Policy 생성·활성화·C1 CLI 실행·Production 복귀까지 전부 **회장이 직접 관리자 권한 PowerShell에서 수행**했고, Claude Code는 JSON 사전 dry-run 검증 + 사후 Read-only 대조(`/health`, `watchdog.log`, `canary_runs.db`, Airtable GET)만 담당했다. `/health`로 Safe Mode 진입(`canary_safe_mode=true`, Webhook 503)과 Production 복귀(`canary_safe_mode=false`, Webhook 403 정상)를 각각 실측 확인했다.
+
+## 미해결 Gate — 8단계 완료 선언 보류 사유
+
+조사 과정에서 Claude Code 자체 진단 스크립트(레포 밖 scratchpad, Production 코드 아님)가 동일 Permalink를 스캔하다가 1회, `expected_post_id`와 일치하는 article 안에서 실제로는 무관한 다른 위젯 텍스트("Cielo Anne Areno")를 읽어온 사례가 있었다. 회장이 직접 같은 URL로 2회 재접속해 확인한 결과("김정현/TIELA" 게시물)와 불일치했었다.
+
+- **Production 함수 자체는 안전함을 별도 증명 완료**: `run_exact_permalink_canary()`에 Adversarial 단위테스트(가짜 DOM에 "틀린 상품" 텍스트·이미지를 심어 검증)를 실행한 결과, payload의 `caption`/`image_url`은 오직 `approved_caption`/`approved_image_url` 파라미터만 사용하며 DOM에서 읽은 텍스트·이미지가 섞일 코드 경로 자체가 없음을 확인했다(`_find_exact_permalink_article()`의 반환값이 애초에 사용되지 않음). 오늘 저장된 실제 draft 레코드는 오염되지 않았다.
+- **그러나 왜 진단 스캔이 중첩/추천 위젯을 오매칭했는지의 정확한 DOM 원인은 UNKNOWN으로 남아 있다.** 회장이 이를 8단계 완료 선언 전 별도 Gate로 다루기로 결정했다(260728 21:39 ICT).
+- Blast Radius는 현재 "진단 스크립트의 신뢰도" 문제로 한정되나(Production 경로 무관), 향후 유사 진단·자동화 로직을 재사용할 경우 반드시 선결돼야 한다.
+
+## Next Gate
+- 8단계 완료 선언: 위 anchor-scan 오매칭 Root Cause Gate 해소 후 진행
+- `docs/ERROR_DATABASE.md`: 이 이슈에 정확히 대응하는 기존 항목 없음 — 다음 사용 가능 ID `ERR-084`로 확인만 됨, 회장 별도 승인 전 미생성
+- Commit·Push: 미실행, 별도 승인 대상
+
+---
+
+# 2026-07-28 16:49 ICT — 8단계 P1-1 C1 Facebook 중복 Article Selector 수정 (PARTIAL)
+
+_기록 시각: 2026-07-28 16:49 ICT · 상태: **PARTIAL** — Codex가 토큰 소진으로 중단한 지점부터 Claude Code가 이어받아 중복 article Selector 코드·테스트만 수정했다. Runtime Restart·C1 Canary 재실행·Airtable Write·Commit·Push는 전부 미실행이다._
+
+## 인계 시점 FACT (Codex 중단, 사용자 전달 요약 — 이번 세션에서 Runtime으로 재검증하지 않음)
+
+- 선택 Facebook 게시물 Post ID(마스킹) 및 Expected Post ID 일치: Codex 보고
+- `account1 = Cho Eunha`: Codex 보고
+- 동일 논리 게시물이 DOM `div[role='article']` 요소 2개로 렌더링됨: Codex 보고
+- Airtable Create·Update 0건, Run ID 소비 0회, Safe Mode 유지, 코드·Commit·Push 없음: Codex 보고
+- 위 항목들은 이번 세션에서 Claude Code가 Runtime으로 직접 재확인하지 않았다 — Evidence Priority상 8순위(대화·요약)이며, 아래 "이번 세션 FACT"만 이번 세션의 직접 증거다.
+
+## 이번 세션 FACT (Claude Code, Read-only + 코드수정 + 로컬 테스트만)
+
+- 대상 파일: `modules/sns/facebook_crawler.py`의 `_find_exact_permalink_article()` — Runtime Caller: `run_exact_permalink_canary()` → `tools/run_facebook_canary.py::execute_facebook_canary()`(둘 다 현재 미커밋 신규 코드, `git log -S` 이력 없음 — Package S3 자체가 아직 Runtime에 배포되지 않은 신규 기능).
+- Root Cause 확정(코드 직접 확인): 수정 전 로직이 `len(matches) != 1`이면 무조건 실패 처리해 **DOM 요소 개수**를 논리 게시물 개수로 오판했다. `matches`는 이미 `expected_post_id`와 정확히 일치하는 anchor를 가진 article만 포함하므로, 그 개수가 1보다 크다는 것은 "다른 게시물"이 아니라 "같은 Post ID의 중복 렌더링"을 의미한다.
+- 수정: `if len(matches) != 1` → `if not matches`로 변경(1줄) — Post ID가 이미 `expected_post_id`로 확정된 후보가 1개 이상이면 모두 동일 논리 게시물로 간주해 첫 후보를 반환하고, 후보가 0개일 때만 fail-closed 유지.
+- 기존 테스트 `test_exact_selector_rejects_zero_or_multiple_matches`의 파라미터 중 "동일 Post ID article 2개(다른 URL 형식)" 케이스가 수정 전 로직(구 버그)을 PASS로 검증하고 있었음을 확인 — 이 케이스를 신규 "dedup PASS" 테스트로 이전하고, 해당 파라미터 테스트는 "found=0" fail-closed 케이스만 남도록 재구성.
+- 신규/변경 테스트: `tests/test_package_s3_facebook_exact_runner.py`에 dedup PASS 테스트(동일 Post ID article 2개/3개), selector-level 0-match 테스트(서로 다른 ID 2개/추출불가 2개 포함), canary-level 중복 DOM PASS 테스트(ImgBB 0회 확인), canary-level selector 실패 시 Run ID·Write 0건 확인 테스트 추가 — 파일 자체는 Codex가 이미 만든 미커밋 신규 파일이라 git상 여전히 `??`(untracked)로 표시된다.
+- Pre-change Baseline(수정 전, Codex 산출물 그대로 실행): `test_package_s3_facebook_exact_runner.py` 23 passed / 0 failed. 전체 Suite(collection이 아래 RISK로 막히는 3개 파일 및 동일 원인으로 실패하는 5개 Package 파일 제외) 618 passed / 10 failed / 3 xfailed — 10개 실패는 전부 이미 미커밋 상태였던 다른 파일(`test_provider_routing.py`/`test_publish_gate_and_approval.py`/`test_publish_outcome_unknown.py`/`test_meta_graph_version.py`/`test_review_grid_ui.py`)의 기존 실패로, 이번 대상 파일과 무관.
+- Post-change 결과(동일 제외 목록): `test_package_s3_facebook_exact_runner.py` 28 passed / 0 failed(신규 5테스트 포함). 동일 전체 Suite 624 passed / 9 failed / 3 xfailed — 신규 실패 0건, 기존 실패 목록과 정확히 동일(단 `test_review_grid_ui.py` 1건은 Streamlit AppTest 3초 타임아웃성 flaky로 이번 실행에서 우연히 PASS, 코드변경과 무관).
+- `git diff --check` 0건. 변경 파일은 `modules/sns/facebook_crawler.py`(기존 M) + `tests/test_package_s3_facebook_exact_runner.py`(기존 untracked, 그 안에서만 수정) 2개뿐 — 승인 Scope 내부. AST 파싱 PASS 양쪽 파일.
+
+## RISK / UNKNOWN (이번 세션)
+
+- `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json`에 대해 이번 세션 환경에서 `PermissionError: [WinError 5] 액세스가 거부되었습니다`가 발생 — `canary_safe_mode.py::get_canary_safe_mode_state()`(Runtime 진입점이 `require_boot_policy=True`로 호출하는 경로)가 이 파일 존재 여부를 확인하는 지점에서 막힌다. 이 때문에 `test_package_s1/s2/c0/b/s5`와 `test_dm_*` 3개 파일은 이번 세션에서 실행 자체가 불가능했고(수정 전·후 동일 증상, 코드변경과 무관), **현재 Runtime의 실제 Safe Mode 상태(정상/Canary)는 이번 세션에서 직접 확인 불가 — UNKNOWN**이다. 이 ACL 문제 자체는 이번 승인 Scope 밖이므로 조사·수정하지 않았다.
+- "Frozen Inventory 상태"는 이번 세션에서 별도로 재확인할 대상을 특정하지 못해 UNKNOWN으로 남긴다 — 인계 요약의 표현을 그대로 재인용하지 않는다.
+
+## 다음 Gate
+
+- C1 Runtime 재실행: 별도 승인 필요
+- Runtime Restart: 금지(이번 승인 범위 밖)
+- Package C2 Dome Canary: 금지
+- Commit / Push: 금지 — 전부 미실행
+- 다음 담당자: GPT 감사 → 회장 별도 승인 후 C1 재실행
+
+---
+
 # 2026-07-28 ERR-082 / Bundle B Runtime Closure Snapshot
 
 _기록 시각: 2026-07-28 07:30 ICT · 상태: **7단계 SUCCESS / ERR-082 RESOLVED** — 정의된 Runtime 종료조건을 모두 충족했다. 8단계는 시작하지 않았다._

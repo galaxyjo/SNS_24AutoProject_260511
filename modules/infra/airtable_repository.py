@@ -19,10 +19,15 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+from modules.common.canary_classification import (
+    CanaryClassificationError,
+    validate_post_classification,
+)
 from modules.infra.airtable_usage_logger import log_api_call
 from modules.infra.repository_interface import (
     CrawlTarget,
     InstagramPost,
+    InstagramPostCreate,
     InstagramPostStatus,
     LeadBridgeStatus,
     LeadInteraction,
@@ -152,15 +157,61 @@ class AirtableRepository(RepositoryInterface):
 
     # ── 3. Instagram 게시물 저장 ──────────────────────────────────────────────
 
-    def save_instagram_post(self, post: SourceItem) -> str:
+    def validate_instagram_post_context(
+        self,
+        account_code_ref: str,
+        data_classification: str,
+        canary_run_id: str = "",
+        post_status: str = "",
+    ) -> PublishAccount:
+        account_code_ref = (account_code_ref or "").strip()
+        data_classification = (data_classification or "").strip()
+        canary_run_id = (canary_run_id or "").strip()
+        post_status = (post_status or "").strip()
+
+        if not account_code_ref:
+            raise RepositoryValidationError("account_code_ref 필수")
+
+        account = self.get_publish_account(account_code_ref)
+        if account is None or account.get("account_code") != account_code_ref:
+            raise RepositoryValidationError(
+                "account_code_ref가 Account_Registry의 단일 계정과 연결되지 않음"
+            )
+
+        try:
+            validate_post_classification(
+                data_classification,
+                canary_run_id,
+                post_status,
+            )
+        except CanaryClassificationError as exc:
+            raise RepositoryValidationError(str(exc)) from exc
+
+        return account
+
+    def save_instagram_post(self, post: InstagramPostCreate) -> str:
         if not post.get("image_url"):
             raise RepositoryValidationError("image_url 필수")
         payload = {k: v for k, v in post.items() if v is not None}
+        _explicit_status = (post.get("post_status") or "").strip()
         _require_approval = os.getenv("REQUIRE_APPROVAL_BEFORE_PUBLISH", "false").lower() == "true"
         _default_status = (
             InstagramPostStatus.DRAFT.value if _require_approval else InstagramPostStatus.READY.value
         )
         payload.setdefault("post_status", _default_status)
+        _classification_status = (
+            _explicit_status
+            if payload.get("data_classification") == "test"
+            else payload.get("post_status", "")
+        )
+        self.validate_instagram_post_context(
+            payload.get("account_code_ref", ""),
+            payload.get("data_classification", ""),
+            payload.get("canary_run_id", ""),
+            _classification_status,
+        )
+        if not payload.get("canary_run_id"):
+            payload.pop("canary_run_id", None)
         try:
             r = requests.post(
                 _url("Instagram_Posts"),
@@ -350,7 +401,12 @@ class AirtableRepository(RepositoryInterface):
                 _url("Instagram_Posts"),
                 headers=_headers(),
                 params={
-                    "filterByFormula": f"{{post_status}}='{InstagramPostStatus.READY.value}'",
+                    "filterByFormula": (
+                        f"AND({{post_status}}='{InstagramPostStatus.READY.value}',"
+                        "OR({data_classification}=BLANK(),"
+                        "{data_classification}='production'),"
+                        "{canary_run_id}=BLANK())"
+                    ),
                     "maxRecords": limit,
                 },
                 timeout=_TIMEOUT,
@@ -374,6 +430,8 @@ class AirtableRepository(RepositoryInterface):
                     post_status=f.get("post_status", ""),
                     ig_media_id=f.get("ig_media_id", ""),
                     account_code_ref=f.get("account_code_ref", ""),
+                    data_classification=f.get("data_classification", ""),
+                    canary_run_id=f.get("canary_run_id", ""),
                 )
             )
         return result
@@ -984,8 +1042,40 @@ class AirtableRepository(RepositoryInterface):
                 source_url=f.get("source_url", ""),
                 target_id=f.get("target_id", ""),
                 export_retry_count=int(f.get("export_retry_count", 0)),
+                account_code_ref=f.get("account_code_ref", ""),
             ))
         return result
+
+    def get_source_item_by_record_id(self, record_id: str) -> SourceItem:
+        if not re.fullmatch(r"rec[A-Za-z0-9]+", (record_id or "").strip()):
+            raise RepositoryValidationError("유효한 Source_Items Record ID 필수")
+        try:
+            r = requests.get(
+                _url("Source_Items", record_id),
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Source_Items", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Source_Items")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        rec = r.json()
+        fields = rec.get("fields", {})
+        return SourceItem(
+            record_id=rec.get("id", ""),
+            source_item_id=fields.get("source_item_id", ""),
+            title=fields.get("title", ""),
+            image_url=fields.get("image_url", ""),
+            source_url=fields.get("source_url", ""),
+            target_id=fields.get("target_id", ""),
+            quality_status=fields.get("quality_status", ""),
+            pipeline_status=fields.get("pipeline_status", ""),
+            export_retry_count=int(fields.get("export_retry_count", 0)),
+            account_code_ref=fields.get("account_code_ref", ""),
+        )
 
     # ── 24. STALE QUEUED → NEW 복구 ───────────────────────────────────────────
 
@@ -1027,12 +1117,23 @@ class AirtableRepository(RepositoryInterface):
 
     # ── 25. export 선점 (NEW → QUEUED) ────────────────────────────────────────
 
-    def claim_source_item_for_export(self, record_id: str, started_at_iso: str) -> None:
+    def claim_source_item_for_export(
+        self,
+        record_id: str,
+        started_at_iso: str,
+        account_code_ref: str,
+    ) -> None:
+        if not (account_code_ref or "").strip():
+            raise RepositoryValidationError("Source_Items.account_code_ref 필수")
         try:
             r = requests.patch(
                 _url("Source_Items", record_id),
                 headers=_headers(json_body=True),
-                json={"fields": {"pipeline_status": "QUEUED", "export_started_at": started_at_iso}},
+                json={"fields": {
+                    "pipeline_status": "QUEUED",
+                    "export_started_at": started_at_iso,
+                    "account_code_ref": account_code_ref,
+                }},
                 timeout=_TIMEOUT,
             )
             r.raise_for_status()

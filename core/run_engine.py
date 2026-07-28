@@ -24,6 +24,7 @@ from core.task_router import TaskRouter
 from core.error_handler import handle_errors
 from modules.common.logger import get_logger
 from modules.common.retry_queue import get_retry_queue
+from modules.common.canary_safe_mode import get_canary_safe_mode_state
 from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 
 init_logging()
@@ -32,6 +33,8 @@ logger = get_logger(__name__)
 CRAWL_INTERVAL_MIN  = int(os.getenv("CRAWL_INTERVAL_MINUTES", "30"))
 UPLOAD_POLL_MIN     = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
 FOLLOWUP_POLL_MIN   = 5
+PRODUCT_PUBLISH_ACCOUNT_CODE = "IDN-000041"
+PRODUCT_DATA_CLASSIFICATION = "production"
 
 # Slack 알림 (SLACK_WEBHOOK_URL 미설정 시 None → 알림 생략)
 try:
@@ -44,78 +47,26 @@ except Exception:
 # ── 잡 함수 ──────────────────────────────────────────────────────────────────
 
 @handle_errors(task="fb_crawl", reraise=False, notify_fn=_slack)
-def _job_fb_crawl():
+def _job_fb_crawl(
+    *,
+    target_publish_account_code_ref: str,
+    data_classification: str,
+    canary_run_id: str = "",
+):
     from modules.sns.facebook_crawler import run_all_accounts
-    summary = run_all_accounts()
+    summary = run_all_accounts(
+        target_publish_account_code_ref=target_publish_account_code_ref,
+        data_classification=data_classification,
+        canary_run_id=canary_run_id,
+    )
     logger.info(f"[RunEngine] fb_crawl 완료 | {summary}")
 
 
 @handle_errors(task="insta_upload", reraise=False, notify_fn=_slack)
 def _job_insta_upload():
-    import time, requests
-    from modules.common.airtable_bridge import get_table
-
-    page_token = os.getenv("INSTA_ACCESS_TOKEN")
-    ig_user_id = os.getenv("INSTA_IG_USER_ID", "").strip()
-    if not page_token or not ig_user_id:
-        logger.warning("[RunEngine] INSTA 환경변수 미설정 — upload 생략")
-        return
-
-    table   = get_table("Instagram_Posts")
-    records = table.all(formula="{post_status}='ready'")
-
-    if not records:
-        logger.info("[RunEngine] insta_upload | ready 레코드 없음")
-        return
-
-    logger.info(f"[RunEngine] insta_upload | {len(records)}건 처리 시작")
-    for rec in records:
-        rid       = rec["id"]
-        fields    = rec["fields"]
-        image_url = fields.get("image_url") or fields.get("source_url", "")
-        caption   = f"{fields.get('caption','')}\n{fields.get('hashtag','')}".strip()
-
-        if not image_url:
-            table.update(rid, {"post_status": "failed", "last_error_msg": "image_url 없음"})
-            continue
-
-        success, last_err = False, None
-        for attempt in range(1, 4):
-            try:
-                r1 = requests.post(
-                    f"https://graph.facebook.com/v21.0/{ig_user_id}/media",
-                    params={"image_url": image_url, "caption": caption, "access_token": page_token},
-                    timeout=30,
-                )
-                c1 = r1.json()
-                if "id" not in c1:
-                    raise RuntimeError(f"미디어 생성 실패: {c1}")
-                r2 = requests.post(
-                    f"https://graph.facebook.com/v21.0/{ig_user_id}/media_publish",
-                    params={"creation_id": c1["id"], "access_token": page_token},
-                    timeout=30,
-                )
-                c2 = r2.json()
-                if "id" not in c2:
-                    raise RuntimeError(f"게시 실패: {c2}")
-                table.update(rid, {
-                    "post_status":   "posted",
-                    "ig_media_id":   c2["id"],
-                    "retry_count":   attempt - 1,
-                    "last_error_msg": "",
-                })
-                logger.info(f"[RunEngine] 업로드 성공 | {rid} | post_id={c2['id']}")
-                success = True
-                break
-            except Exception as exc:
-                last_err = exc
-                logger.warning(f"[RunEngine] 업로드 시도 {attempt}/3 실패 | {rid} | {exc}")
-                if attempt < 3:
-                    time.sleep(10)
-
-        if not success:
-            table.update(rid, {"post_status": "failed", "retry_count": 3, "last_error_msg": str(last_err)[:500]})
-            logger.error(f"[RunEngine] 업로드 최종 실패 | {rid}")
+    # 독립 실행 경로도 Active launcher의 계정별 Provider 검증을 그대로 사용한다.
+    from launcher.main import _job_insta_upload as _active_upload_job
+    return _active_upload_job()
 
 
 @handle_errors(task="followup_poll", reraise=False, notify_fn=_slack)
@@ -192,8 +143,21 @@ def _job_comment_dead_monitor():
 
 class RunEngine:
     def __init__(self):
+        # W1: 영속 Boot Policy 누락·손상·만료는 Runtime 객체 생성 전에 차단한다.
+        self._safe_mode_state = get_canary_safe_mode_state(
+            require_boot_policy=True,
+            activate_boot_policy=True,
+        )
         self.router    = TaskRouter()
         self.scheduler = BlockingScheduler(timezone="Asia/Seoul")
+        self._rq       = None
+
+        if self._safe_mode_state.enabled:
+            logger.warning(
+                "[CanarySafeMode] core.run_engine RetryQueue·Task·Scheduler Job 0건"
+            )
+            return
+
         self._rq       = get_retry_queue()
         # FP-047: comment_airtable_record 핸들러는 rq.start() 이전에 eager 등록해야 함
         # (설계문서 §6 — 지연등록 시 재시작 후 pending task가 dead 처리될 위험)
@@ -202,7 +166,13 @@ class RunEngine:
         self._register_jobs()
 
     def _register_tasks(self):
-        self.router.register("fb_crawl",      _job_fb_crawl)
+        self.router.register(
+            "fb_crawl",
+            lambda: _job_fb_crawl(
+                target_publish_account_code_ref=PRODUCT_PUBLISH_ACCOUNT_CODE,
+                data_classification=PRODUCT_DATA_CLASSIFICATION,
+            ),
+        )
         self.router.register("insta_upload",  _job_insta_upload)
         self.router.register("followup_poll", _job_followup_poll)
         self.router.register("comment_poll",  _job_comment_poll)
@@ -220,6 +190,10 @@ class RunEngine:
         self.scheduler.add_job(
             _job_fb_crawl, "interval", minutes=CRAWL_INTERVAL_MIN,
             id="fb_crawl", next_run_time=now,
+            kwargs={
+                "target_publish_account_code_ref": PRODUCT_PUBLISH_ACCOUNT_CODE,
+                "data_classification": PRODUCT_DATA_CLASSIFICATION,
+            },
         )
         self.scheduler.add_job(
             _job_insta_upload, "interval", minutes=UPLOAD_POLL_MIN,
@@ -268,6 +242,12 @@ class RunEngine:
         )
 
     def start(self):
+        if self._safe_mode_state.enabled:
+            logger.warning(
+                "[CanarySafeMode] core.run_engine 자동 Side Effect 시작 차단"
+            )
+            return
+
         self._rq.start()
         logger.info(
             f"[RunEngine] 시작 | 크롤링={CRAWL_INTERVAL_MIN}분 | "

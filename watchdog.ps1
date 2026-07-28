@@ -36,6 +36,7 @@ $python      = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $streamlit   = Join-Path $PSScriptRoot ".venv\Scripts\streamlit.exe"
 $logDir      = Join-Path $PSScriptRoot "logs"
 $watchdogLog = Join-Path $logDir "watchdog.log"
+$bootPolicyPath = "C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json"
 
 $POLL_SEC       = 30   # 감시 주기 (초)
 $RESTART_WAIT   = 5    # 재시작 후 대기 (초)
@@ -145,18 +146,52 @@ function Start-Ngrok {
 
 function Test-Launcher {
     $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue
-    return ($procs | Where-Object { $_.CommandLine -like "*launcher*main.py*" -or $_.CommandLine -like "*launcher\main*" }) -ne $null
+    # 외부에서 직접 실행한 Launcher가 Watchdog 자식으로 오인되는 것을 막는다.
+    return ($procs | Where-Object {
+        $_.ParentProcessId -eq $PID -and (
+            $_.CommandLine -like "*launcher*main.py*" -or
+            $_.CommandLine -like "*launcher\main*"
+        )
+    }) -ne $null
+}
+
+function Test-RuntimeBootPolicy {
+    # W1: Watchdog와 Python Runtime이 같은 영속 Policy를 각각 검증한다.
+    # 파일 누락·손상·만료 시 Launcher를 시작하지 않으며 Production fallback도 없다.
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        Write-Log "[BLOCKED] Runtime Python 없음 — Launcher 시작 0건"
+        return $false
+    }
+    try {
+        $policyOutput = & $python -B -m modules.common.canary_safe_mode `
+            --validate-boot-policy --policy-path $bootPolicyPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "[BLOCKED] Runtime Boot Policy 검증 실패 — Launcher 시작 0건"
+            return $false
+        }
+        $summary = ($policyOutput | Select-Object -Last 1)
+        Write-Log "[BOOT] $summary"
+        return $true
+    } catch {
+        Write-Log "[BLOCKED] Runtime Boot Policy 검사 예외 — Launcher 시작 0건"
+        return $false
+    }
 }
 
 function Start-Launcher {
+    if (-not (Test-RuntimeBootPolicy)) {
+        return $false
+    }
     try {
         Start-Process -FilePath $python -ArgumentList "launcher\main.py" `
             -RedirectStandardOutput "$logDir\scheduler.log" `
             -RedirectStandardError  "$logDir\scheduler_err.log" `
             -WindowStyle Hidden
         Start-Sleep -Seconds $RESTART_WAIT
+        return $true
     } catch {
         Write-Log "[FATAL] Start-Launcher 실패: $($_.Exception.Message)"
+        return $false
     }
 }
 
@@ -237,8 +272,11 @@ try {
             if (-not (Test-Launcher)) {
                 Write-Log "[WARN] launcher/main.py 프로세스 없음 — 재시작 시도"
                 Send-SlackAlert "launcher/main.py 프로세스 없음 — 재시작 시도" "warning"
-                Start-Launcher
-                if (Test-Launcher) {
+                $launcherStarted = Start-Launcher
+                if (-not $launcherStarted) {
+                    Write-Log "[BLOCKED] Launcher 사전조건 실패 — 자동 Production 기동 금지"
+                    Register-Failure "Launcher"
+                } elseif (Test-Launcher) {
                     Write-Log "[OK]   launcher/main.py 재시작 성공"
                     Send-SlackAlert "launcher/main.py 재시작 성공" "success"
                     Register-Success "Launcher"

@@ -80,6 +80,7 @@ class SourceItem(TypedDict, total=False):
     export_started_at:    str
     export_last_error:    str
     export_next_retry_at: str
+    account_code_ref:     str
 
 
 class InstagramPost(TypedDict, total=False):
@@ -89,7 +90,30 @@ class InstagramPost(TypedDict, total=False):
     hashtag:          str
     post_status:      str
     ig_media_id:      str
-    account_code_ref: str  # 공란=기존 전역 계정 경로, 값 있음=Account_Registry.account_code 참조
+    account_code_ref: str
+    data_classification: str
+    canary_run_id:    str
+
+
+class _InstagramPostCreateRequired(TypedDict):
+    image_url:            str
+    account_code_ref:     str
+    data_classification:  str
+
+
+class InstagramPostCreate(_InstagramPostCreateRequired, total=False):
+    source_item_id:       str
+    original_image_url:   str
+    image_url_hash:       str
+    source_url:           str
+    post_status:          str
+    caption:              str
+    hashtag:              str
+    original_text:        str
+    converted_text:       str
+    media_type:           str
+    insta_post_code:      str
+    canary_run_id:        str
 
 
 class PublishAccount(TypedDict):
@@ -215,7 +239,17 @@ class RepositoryInterface(ABC):
         """동일 이미지 URL(해시 기반)의 게시물이 이미 존재하는지 확인."""
 
     @abstractmethod
-    def save_instagram_post(self, post: SourceItem) -> str:
+    def validate_instagram_post_context(
+        self,
+        account_code_ref: str,
+        data_classification: str,
+        canary_run_id: str = "",
+        post_status: str = "",
+    ) -> PublishAccount:
+        """신규 Post의 계정·분류 계약을 검증한다. 실패 시 Write 전에 예외."""
+
+    @abstractmethod
+    def save_instagram_post(self, post: InstagramPostCreate) -> str:
         """Instagram_Posts 테이블에 신규 레코드 저장. 생성된 record_id 반환."""
 
     @abstractmethod
@@ -373,12 +407,21 @@ class RepositoryInterface(ABC):
         """NEW + READY + retry_at <= now 인 Source_Items batch 반환. record_id 포함."""
 
     @abstractmethod
+    def get_source_item_by_record_id(self, record_id: str) -> SourceItem:
+        """Airtable Record ID로 Source Item 정확히 1건 조회. 없으면 예외."""
+
+    @abstractmethod
     def recover_stale_queued_source_items(self, threshold_iso: str) -> int:
         """QUEUED + export_started_at < threshold → NEW 복구. 처리 건수 반환."""
 
     @abstractmethod
-    def claim_source_item_for_export(self, record_id: str, started_at_iso: str) -> None:
-        """pipeline_status → QUEUED, export_started_at 설정."""
+    def claim_source_item_for_export(
+        self,
+        record_id: str,
+        started_at_iso: str,
+        account_code_ref: str,
+    ) -> None:
+        """pipeline_status → QUEUED와 Target Publish Account를 함께 설정."""
 
     @abstractmethod
     def update_source_item_retry(
