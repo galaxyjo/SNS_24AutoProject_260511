@@ -1,7 +1,15 @@
 """tests/test_dm_account_routing.py — Bundle B(260726) 웹훅 레벨 통합검증.
 Codex 요구사항: 킬스위치 기본 OFF, recipient.id 혼합배치 무누출, 역조회 실패시
 fail-open(DM 처리는 계속), is_echo에서 역조회 안 함, 댓글 Caller payload 무변경.
-실제 Airtable/네트워크 호출 없이 dm_receiver 모듈 함수를 monkeypatch."""
+실제 Airtable/네트워크 호출 없이 dm_receiver 모듈 함수를 monkeypatch.
+
+ERR-082(260727): Signature 검증 삽입 이후 모든 POST는 Route 전용 App Secret으로
+서명해야 한다(_signed_post 헬퍼) — 이 파일은 계정 Routing 행위 자체의 회귀만
+검증하고, Signature 보안 매트릭스 자체는 tests/test_dm_receiver_webhook.py가 담당."""
+
+import hashlib
+import hmac
+import json
 
 import pytest
 
@@ -11,11 +19,21 @@ from modules.infra.repository_interface import (
     RepositoryValidationError,
 )
 
+GALAXY_SECRET = "test-galaxy-secret"
+
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     dm_receiver.app.config["TESTING"] = True
+    monkeypatch.setattr(dm_receiver, "WEBHOOK_APP_SECRET", GALAXY_SECRET)
     return dm_receiver.app.test_client()
+
+
+def _signed_post(client, path, payload, secret=GALAXY_SECRET):
+    body = json.dumps(payload).encode("utf-8")
+    sig = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return client.post(path, data=body, content_type="application/json",
+                        headers={"X-Hub-Signature-256": sig})
 
 
 def _dm_payload(sender="sender1", recipient="17841476202821375", text="안녕하세요"):
@@ -43,7 +61,7 @@ class TestKillSwitchDefaultOff:
         dm_calls = []
         _stub_common(monkeypatch, dm_calls)
 
-        resp = client.post("/webhook", json=_dm_payload())
+        resp = _signed_post(client, "/webhook", _dm_payload())
         assert resp.status_code == 200
         assert lookup_calls == [], "킬스위치 꺼짐 상태에서는 역조회 자체를 시도하면 안 됨"
         assert len(dm_calls) == 1
@@ -62,7 +80,7 @@ class TestAccountResolution:
         dm_calls = []
         _stub_common(monkeypatch, dm_calls)
 
-        resp = client.post("/webhook", json=_dm_payload(recipient="17841476202821375"))
+        resp = _signed_post(client, "/webhook", _dm_payload(recipient="17841476202821375"))
         assert resp.status_code == 200
         assert dm_calls[0][1]["account_code_ref"] == "IDN-000041"
 
@@ -95,7 +113,7 @@ class TestAccountResolution:
                 ],
             }],
         }
-        resp = client.post("/webhook", json=payload)
+        resp = _signed_post(client, "/webhook", payload)
         assert resp.status_code == 200
         assert len(dm_calls) == 2
         codes = [k["account_code_ref"] for _, k in dm_calls]
@@ -124,7 +142,7 @@ class TestAccountResolution:
                 ],
             }],
         }
-        resp = client.post("/webhook", json=payload)
+        resp = _signed_post(client, "/webhook", payload)
         assert resp.status_code == 200
         assert lookup_calls == ["17841476202821375"], "동일 recipient는 요청당 1회만 조회해야 함"
         assert len(dm_calls) == 2
@@ -139,7 +157,7 @@ class TestFailOpen:
         dm_calls = []
         _stub_common(monkeypatch, dm_calls)
 
-        resp = client.post("/webhook", json=_dm_payload(recipient=None))
+        resp = _signed_post(client, "/webhook", _dm_payload(recipient=None))
         assert resp.status_code == 200
         assert lookup_calls == [], "recipient 자체가 없으면 조회 시도 안 함"
         assert dm_calls[0][1]["account_code_ref"] == ""
@@ -154,7 +172,7 @@ class TestFailOpen:
         dm_calls = []
         _stub_common(monkeypatch, dm_calls)
 
-        resp = client.post("/webhook", json=_dm_payload())
+        resp = _signed_post(client, "/webhook", _dm_payload())
         assert resp.status_code == 200, "계정 조회 모호성 오류가 DM 처리 자체를 막으면 안 됨"
         assert dm_calls[0][1]["account_code_ref"] == ""
 
@@ -168,7 +186,7 @@ class TestFailOpen:
         dm_calls = []
         _stub_common(monkeypatch, dm_calls)
 
-        resp = client.post("/webhook", json=_dm_payload())
+        resp = _signed_post(client, "/webhook", _dm_payload())
         assert resp.status_code == 200, "계정 조회 네트워크 오류가 DM 처리 자체를 막으면 안 됨"
         assert dm_calls[0][1]["account_code_ref"] == ""
 
@@ -178,7 +196,7 @@ class TestFailOpen:
         dm_calls = []
         _stub_common(monkeypatch, dm_calls)
 
-        resp = client.post("/webhook", json=_dm_payload())
+        resp = _signed_post(client, "/webhook", _dm_payload())
         assert resp.status_code == 200
         assert dm_calls[0][1]["account_code_ref"] == ""
 
@@ -201,7 +219,7 @@ class TestIsEchoSkipsLookup:
                 }],
             }],
         }
-        resp = client.post("/webhook", json=payload)
+        resp = _signed_post(client, "/webhook", payload)
         assert resp.status_code == 200
         assert lookup_calls == [], "is_echo 이벤트는 계정 역조회 자체를 시도하면 안 됨"
         assert dm_calls == []
@@ -230,7 +248,7 @@ class TestCommentCallerUnaffected:
                 }}],
             }],
         }
-        resp = client.post("/webhook", json=payload)
+        resp = _signed_post(client, "/webhook", payload)
         assert resp.status_code == 200
         assert len(calls) == 1
         args, kwargs = calls[0]

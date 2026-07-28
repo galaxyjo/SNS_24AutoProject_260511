@@ -1,12 +1,106 @@
+# 2026-07-28 ERR-082 / Bundle B Runtime Closure Snapshot
+
+_기록 시각: 2026-07-28 07:30 ICT · 상태: **7단계 SUCCESS / ERR-082 RESOLVED** — 정의된 Runtime 종료조건을 모두 충족했다. 8단계는 시작하지 않았다._
+
+## 상태
+
+- **Active Runtime:** `C:\SNS_24AutoProject_260511`
+- **Git 기준선:** branch `master` / HEAD `8c19808ccff14848083bccf2843407d1a28a00a0`
+- `.env`의 `DM_ACCOUNT_ROUTING_ENABLED=true` 적용 후 `SNS_Watchdog`를 재시작했고, 새 launcher Runtime에서 두 Webhook Route가 HTTP 200으로 생존했다.
+
+## Runtime Closure FACT
+
+- AI Strategist 실제 Meta DM: `POST /webhook/ai-strategist → 200`, Route 전용 Signature 검증 통과.
+- 기존 yuna 실제 Meta DM: `POST /webhook → 200`, AI Route 오라우팅 0건.
+- Cross-secret Runtime 검증: `/webhook` + AI Secret → 403, `/webhook/ai-strategist` + Galaxy Secret → 403, Business Logic 진입 0건.
+- yuna 수신 매핑은 `account_code_ref=IDN-000041`로 저장됐고 잘못된 계정 저장은 0건이었다.
+- 가격 문의별 기존 자동응답이 각각 1건씩 도착했으며, Runtime 발송 로그와 사용자 화면 Evidence가 일치했다.
+- 실제 Secret·Token·Signature·DM Raw Body 노출은 0건이며, 이번 Runtime Canary의 신규 코드 변경·Commit·Push는 0건이다.
+
+## RISK / HOLD
+
+- Canary 구간에서 Signature 실패 경고 8건이 관측됐으나 발생 주체는 **UNKNOWN**이다. 해당 요청의 Business Logic 진입·Lead 생성·계정 오염 Evidence는 없으며, ERR-082 종료와 분리해 후속 조사 HOLD로 유지한다.
+- `docs/INSTAGRAM_ACCOUNT_WEBHOOK_ONBOARDING_RUNBOOK.md`의 과거 미검증 표시는 이번 7-CLOSE 문서 반영에서 Runtime FACT로 갱신한다.
+
+## CODEX Temporary Execution Exception
+
+- 임시 실행 기간: `2026-07-28 04:48~16:48 ICT`
+- 승인자: 회장
+- Claude Code 실행 역할의 12시간 한정 임시 대행이며 영구 역할 변경이나 향후 선례가 아니다.
+- `2026-07-28 16:48 ICT` 도달 즉시 CODEX는 기존 Read-only 감사 역할로 복귀한다.
+
+## Next Gate
+
+- 7단계 종료 문서 반영만 수행하며, 8단계 실행·Commit·Push는 각각 별도 승인 전 시작하지 않는다.
+
+---
+
+# 2026-07-28 ERR-082 Runtime Partial-Success Snapshot
+
+_기록 시각: 2026-07-28 05:47 ICT · 상태: **PARTIAL / IN_PROGRESS** — AI Strategist 경로만 실제 Canary SUCCESS이며, ERR-082 전체는 RESOLVED가 아님._
+
+## 상태
+
+- **Active Runtime:** `C:\SNS_24AutoProject_260511`
+- **Git 기준선:** branch `master` / HEAD `8c19808ccff14848083bccf2843407d1a28a00a0`
+- **단계 1 기준선:** Active Runtime 기준선 확인 **9/9 SUCCESS**
+
+## 완료된 FACT
+
+- AI Strategist 계정의 실제 Meta DM이 도착했고, `POST /webhook/ai-strategist → 200` 및 Signature 검증 통과를 확인했다. **AI Strategist 경로만 실제 Canary SUCCESS**로 판정한다.
+- Signature Root Cause는 **상위 Meta App Secret: NO MATCH / Instagram App Secret: MATCH**로 확정했다. 실제 Secret 값은 이 문서에 기록하지 않는다.
+- 표준 절차 문서 `docs/INSTAGRAM_ACCOUNT_WEBHOOK_ONBOARDING_RUNBOOK.md`가 존재하며 작성 완료 상태다.
+- 단계 1 자동 Transcript `logs/AI_chat/session_20260728_0503.txt`는 Git ignored PowerShell 운영 로그로 확인됐고, 회장이 운영 예외로 승인했다. Source·설정·문서 변경 계산에서 제외하며 민감정보 노출은 0건이다.
+
+## 남은 UNKNOWN
+
+- 기존 yuna 계정의 실제 Meta DM 회귀 성공 여부
+- Route별 잘못된 Signature/Secret 차단 Runtime 재확인
+- Account_Registry에 잘못된 계정으로 저장된 레코드가 0건인지 여부
+
+## HOLD
+
+- Runbook 내부의 Cross-secret Runtime 확인 표현과 재검증 체크리스트 사이 충돌은 이번 단계에서 수정하지 않고 HOLD한다.
+- 위 UNKNOWN 3건이 확인되기 전까지 ERR-082 전체 SUCCESS·RESOLVED 선언을 금지한다.
+
+## Backup Evidence
+
+- 파일: `C:\backup_(17)_260728_0439_SNS_24AutoProject_260511.zip`
+- 크기: `241,965,060 bytes`
+- SHA-256: `1CD43E6D1B23F28A6A590E32B8E8000C212D5E28AB3A009629A14E7E7975A713`
+- 전체 `28,882`개 항목 읽기 검사 PASS, `.env` 및 `.git/HEAD` 포함 확인, 프로그램 중단 없음
+
+## CODEX Temporary Execution Exception
+
+- 임시 실행 시작: `2026-07-28 04:48 ICT`
+- 임시 실행 종료 예정: `2026-07-28 16:48 ICT`
+- 승인자: 회장
+- Claude Code 실행 역할을 12시간 한정으로 임시 대행하며, 영구 역할 변경이나 향후 선례가 아니다.
+- `2026-07-28 16:48 ICT` 도달 즉시 CODEX는 기존 Read-only 감사 역할로 복귀한다.
+
+## Next Gate
+
+- 다음 Runtime Canary·문서 수정·Git 작업은 각각 별도 승인 전 실행하지 않는다.
+
+---
+
 # CURRENT_RUNTIME_CONTEXT.md
-_마지막 업데이트: 260726_ERR-082(Webhook서명검증부재)_FAILED확정+CLAUDE.md↔SVES_중복정리(D2)+Meta_App_Topology_B_확정_(⚠️ 260706~260709 구간 여전히 별도 미반영, 아래 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
+_마지막 업데이트: 260727_ERR-082_2-App_Webhook_Signature_Validation_로컬_구현_SUCCESS(배포_미완료)_(⚠️ 260706~260709 구간 여전히 별도 미반영, 아래 [260710] 섹션 Backlog #5 참조 — 이번 갱신 범위 밖, 그대로 승계)
 
 ## 현재 단계
-**260726: CLAUDE.md 거버넌스 대량 확장 + Bundle B(DM 계정 태깅) 구현·테스트 완료(킬스위치 OFF, 미배포) + ERR-082(Webhook 서명검증 부재) FAILED 확정 + CLAUDE.md↔SVES 문서 중복 정리(D2) + Meta App Topology B 확정. 세션 종료, 다음 세션으로 인계.**
+**260727 14:32pm: ERR-082(Webhook 서명검증 부재) 2-App(Galaxy/yuna·AI Strategist) Route 분리 서명검증 로컬 구현·테스트 SUCCESS. 실제 `.env` Secret 입력·Meta Dashboard 등록·Runtime Restart·실제 Canary는 전부 미완료(회장 별도 승인 대상). 세션 계속 중.**
+
+- **ERR-082 로컬 구현(260727)**: GPT가 결정한 Target Architecture(기존 `POST /webhook` 보존 + 신규 `POST /webhook/ai-strategist` additive 추가 + Route별 고정 App Secret + 공통 Fail-closed Validator)를 회장 승인 범위(코드·테스트 5파일+`.env.example` 1파일)대로 구현. 신규 `modules/common/webhook_signature.py`(순수함수) + `modules/dm/dm_receiver.py`(+51/-3, Business Logic `_process_webhook_event()` 바이트 단위 무변경) + `.env.example`(`WEBHOOK_APP_SECRET`/`AI_WEBHOOK_APP_SECRET`/`AI_WEBHOOK_VERIFY_TOKEN` placeholder).
+- **검증**: 신규 `tests/test_webhook_signature.py`(10) + 기존 2파일 Signed Request 전환(8→23/10→10) 전부 PASS. 전체 Suite Before(원복) 606 passed/3 xfailed/0 failed → After 631 passed/3 xfailed/0 failed(재현 3회 일치, 신규 실패 0건). `git diff --check` 0건, 허용 6파일 외 Diff 0건, Secret 로그노출 0건, 환경변수 이름 코드·`.env.example` 100% 일치. 상세: `docs/ERROR_DATABASE.md` ERR-082 / `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-9~10-10.
+- **미완료(회장만 수행 가능한 항목 포함)**: 실제 `.env` Secret 값 입력(Claude Code 절대 금지 영역) / Meta Dashboard AI Callback·Verify Token 등록(Claude Code 접근권한 없음) / Runtime Restart(재시작 직전 별도 확인 필요) / 실제 Meta 서명 Payload Runtime Canary. 4개 전부 완료돼야 ERR-082 RESOLVED.
+- **상태변경 범위**: 이번 세션 코드·테스트·`.env.example`은 전부 uncommitted 유지(HEAD `8c19808` 무변경). 문서 갱신(이 파일 포함)은 회장 명시 승인("7단계 진행 승인" → "문서화+안내자료" 선택) 하에 진행, Commit·Push는 별도 승인 대상으로 보류 중.
+
+## 260726 마일스톤(이전 기록, 그대로 유효)
+**260726: CLAUDE.md 거버넌스 대량 확장 + Bundle B(DM 계정 태깅) 구현·테스트 완료(킬스위치 OFF, 미배포) + ERR-082(Webhook 서명검증 부재) FAILED 확정 + CLAUDE.md↔SVES 문서 중복 정리(D2) + Meta App Topology B 확정.**
 
 - **CLAUDE.md 거버넌스 추가(전부 uncommitted)**: "수정 승인 5요소 원칙"(회장 확정) + Codex 작성 26개 섹션 "SILICON VALLEY ENGINEERING OPERATING MANUAL" 원문 그대로 append(603줄) + "완료된 단계" 표(라인110 하단) 오독방지 각주 1줄(B안, 표 문구는 무변경).
 - **Bundle B(DM `account_code_ref` 태깅, 260726)**: `modules/dm/dm_receiver.py`+`modules/infra/airtable_repository.py`+`modules/infra/repository_interface.py` 수정 + 신규 테스트 3파일(23 tests). `DM_ACCOUNT_ROUTING_ENABLED`(기본 false) 킬스위치로 기존 동작 무변화, fail-open 설계. 댓글·크롤러 경로는 이번 Bundle에서 제외(Codex 승인 조건). **미배포 상태로 uncommitted 유지** — ERR-082(아래) 해결 전까지 프로덕션 전환 HOLD.
-- **ERR-082(Webhook `X-Hub-Signature-256` 서명검증 부재) — FAILED 확정**: `/webhook` POST(DM·댓글 공용, `receive_webhook()`)에 서명검증 코드·App Secret 저장소·HMAC 계산 로직이 전부 없음을 코드 전수확인(Grep 2회, 백그라운드 전체탐색 포함)으로 확정. 위조 Payload가 Airtable Write·자동응답·댓글처리까지 무방비 도달 가능(Blast Radius 확인) — **이 노출은 Bundle B 이전부터 있던 기존 운영 DM 경로의 위험**. Build·Buy·Reuse 비교 결과 Python 표준 `hmac`/`hashlib`로 Meta 공식 스펙 충족 가능(신규 OSS/SaaS 불필요, 유력후보). **구현 자체는 미착수, 회장 승인 대기.** `docs/ERROR_DATABASE.md` ERR-082 / `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-9 참조.
+- **ERR-082(Webhook `X-Hub-Signature-256` 서명검증 부재) — FAILED 확정**: `/webhook` POST(DM·댓글 공용, `receive_webhook()`)에 서명검증 코드·App Secret 저장소·HMAC 계산 로직이 전부 없음을 코드 전수확인(Grep 2회, 백그라운드 전체탐색 포함)으로 확정. 위조 Payload가 Airtable Write·자동응답·댓글처리까지 무방비 도달 가능(Blast Radius 확인) — **이 노출은 Bundle B 이전부터 있던 기존 운영 DM 경로의 위험**. Build·Buy·Reuse 비교 결과 Python 표준 `hmac`/`hashlib`로 Meta 공식 스펙 충족 가능(신규 OSS/SaaS 불필요, 유력후보). **구현 자체는 미착수, 회장 승인 대기.** (260727 로컬 구현으로 진행됨, 위 참조)
 - **Meta App Topology 조사 — Topology B 확정**: Account_Registry 실측(`yuna18253`=IDN-000041/`facebook_login`/App ID `860604299884476`"Galaxy International", `aijomoojin`=IDN-000036/`instagram_login`/App ID `4522543077982497`"AI Strategist") — 회장이 Meta Dashboard 스크린샷으로 두 계정이 **서로 다른 Meta App**임을 직접 확인. 이어서 Callback→Runtime→Route 매핑 조사: **yuna18253은 이 260511 Runtime과의 연결이 Runtime Evidence로 CONFIRMED**(과거 `recipient.id` 실측 수신 기록), **aijomoojin은 이 Runtime 연결 여부 UNKNOWN**(인바운드 웹훅 수신 증거 0건, 발신 `publish_single()` 증거만 존재). `credential_resolver.py`에 App Secret 개념 자체가 코드에 없음도 확인. 복수 App Secret Keyring 설계는 aijomoojin 쪽 Mapping 미확정이라 **HOLD**(추측으로 만들지 않음).
 - **CLAUDE.md↔`docs/SILICON_VALLEY_EXECUTION_STANDARD.md` 문서 중복 정리(D2 완료)**: CLAUDE.md 신규 매뉴얼과 SVES.md가 Evidence 우선순위·보고형식·Stage/Gate 절차를 서로 다르게 중복 규정하고 있던 것을 Claude Code가 Read-only로 전수조사 → GPT [260726_D2_EXECUTION] 지시서에 따라 **SVES.md 1개 파일만** 편집: §1에 7-Stage×12-Gate 매핑 신설, §3 Canonical Reporting Format, §5 Canonical Evidence Priority(9단계 단일화), §10~12 승인순서/Atomic Commit/Read-only Batch 규칙 신설, 구 원문 512줄은 §13으로 이동(비규범 표시, 내용 무손상). 15/15 성공기준 충족, 다른 파일 무변경.
 

@@ -1594,3 +1594,43 @@ commit: 이 기록과 함께 커밋 예정(Atomic 분리 — CLAUDE.md / SVES.md
 push: 세션 종료 시 일괄([[feedback_push_cadence]] 방식) — 이번 세션 종료로 즉시 push
 
 ---
+
+## [260727_ERR-082_2App_Webhook_Signature_로컬구현] — GPT Target Architecture 결정 → Claude Code 로컬 구현·검증
+
+**배경**: 260726에 FAILED 확정된 ERR-082(Webhook 서명검증 부재)에 대해, 260727 세션에서 GPT가 Target Architecture를 결정(기존 yuna Route 보존+AI Strategist 전용 신규 Route+Route별 App Secret 분리+공통 Fail-closed Validator) → Claude Code가 Read-only로 Caller/Import Chain 근거를 확보해 동일 설계를 제출(HANDOFF SNAPSHOT) → 회장이 "5단계"로 명명해 직접 구현을 지시하며 허용 수정 범위를 코드·테스트 5파일+`.env.example` 1파일로 명시.
+
+**구현(5-1~5-6)**: 신규 `modules/common/webhook_signature.py`(Meta 공식 규격 `sha256=<hex>` HMAC-SHA256 순수함수 검증기) + `modules/dm/dm_receiver.py` 수정(신규 import 1줄, 환경변수 3개 선언, `_handle_signed_webhook()`/`_process_webhook_event()` 함수 분리, 신규 `GET·POST /webhook/ai-strategist` Route 추가 — 기존 `_process_webhook_event` 본문은 바이트 단위 무변경) + `.env.example`(`WEBHOOK_APP_SECRET`/`AI_WEBHOOK_APP_SECRET`/`AI_WEBHOOK_VERIFY_TOKEN` placeholder 3줄, CRLF·BOM 보존) + 테스트 3파일(신규 `test_webhook_signature.py` 10건, 기존 `test_dm_receiver_webhook.py` 8→23건/`test_dm_account_routing.py` 10건을 Signed Request로 전환).
+
+**검증(5-6, Before/After 대조)**: 타겟 테스트 43/43 PASS. `git stash`로 신규 2파일을 임시 격리한 뒤 순수 원복 상태 전체 Suite를 재현해 진짜 Before 베이스라인(606 passed/3 xfailed/0 failed) 확보 → 복원 후 After(631 passed/3 xfailed/0 failed) 재현 3회 일치 확인, 신규 실패 0건(차이 +25 = 신규 테스트 수와 정확히 일치). `git diff --check` 0건, 허용 6파일 외 Diff 0건, Secret·Raw Body·Signature 로그 출력 0건(코드 직접 확인).
+
+**5-8 최종 증거감사(자기 정정 포함)**: `git diff --numstat` 실측 결과 `dm_receiver.py`가 직전 5-7 Snapshot에서 "+54/-0"로 잘못 보고됐던 것을 "+51/-3"으로 정정(51+3=54였던 `--stat` 막대 표기를 오독한 것— 삭제된 3줄은 기존 `receive_webhook()` 데코레이터·시그니처·docstring이 처리위임 구조로 재작성되며 발생, 라우트 자체·Business Logic은 무변경). 환경변수 4개(`WEBHOOK_APP_SECRET`/`AI_WEBHOOK_APP_SECRET`/`WEBHOOK_VERIFY_TOKEN`/`AI_WEBHOOK_VERIFY_TOKEN`) 코드·`.env.example` 100% 일치 확인. Working Tree가 `core.autocrlf=true` 정책으로 CRLF 표시되나 Git Blob은 LF 유지·Diff는 정규화 후 비교되어 실질적 Line Ending 결함 아님을 `git show HEAD:<path>` 대조로 실증.
+
+**미완료(회장 별도 승인 필요, 일부는 Claude Code가 구조적으로 수행 불가)**: 실제 `.env` Secret 값 입력(Claude Code 절대 금지 — API 키/Secret 직접 입력 불가) / Meta Dashboard AI Callback URL·Verify Token 등록(Claude Code 접근 권한 없음) / Runtime Restart(재시작 직전 별도 확인 필요) / 실제 Meta 서명 Payload Runtime Canary. 이 4개가 전부 완료돼야 ERR-082가 RESOLVED로 종결된다.
+
+**승인 경과**: "승인!"(포괄) 발화 이후 회장께 승인 범위를 재확인 요청 → "지금은 SUCCESS 확인만, 상태변경은 전부 보류"로 확정 → 이후 "6단계 진행 승인"(이미 5단계 안에서 충족된 로컬 Canary 기준의 재확인, 신규 상태변경 없음) → "7단계 진행 승인"에 대해서도 범위 재확인 → "문서화+안내자료 준비"로 확정, 그 결과가 이 커밋 전 기록임. Commit·Push는 이번에도 별도 승인 대상으로 보류.
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-082 Status "OPEN — 로컬 구현 SUCCESS(260727), Runtime/배포 미완료"로 갱신) / `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§9 P0-SEC 행 갱신, §10-10 신설) / `docs/CURRENT_RUNTIME_CONTEXT.md`(260727 섹션 신설, 260726 내용은 마일스톤으로 이동) / 이 항목.
+
+commit: 아직 미실행 — 별도 승인 대상(회장 "전부 보류" 확인 유지 중)
+push: 아직 미실행 — 별도 승인 대상
+
+---
+
+## [260728_ERR-082_Runtime_ADOPT_BundleB_DM_Canary_종료] — 7단계 SUCCESS
+
+**배경**: 260727 로컬 구현 완료 후 남아 있던 실제 Secret 매핑·Runtime 재시작·실제 Meta DM·Cross-secret·계정 라우팅·자동응답 회귀 Gate를 260728 회장 승인 아래 순차 검증했다. Active Runtime은 `C:\SNS_24AutoProject_260511`이며 `C:\SNS_24AutoProject_250723`는 archive/reference 전용으로 유지했다.
+
+**ERR-082 Runtime Evidence**: AI Strategist 실제 Meta DM `POST /webhook/ai-strategist → 200`, 기존 yuna 실제 Meta DM `POST /webhook → 200`. `/webhook` + AI Secret 및 `/webhook/ai-strategist` + Galaxy Secret의 Cross-secret 합성 요청은 모두 403으로 차단됐고 Business Logic 진입은 0건이었다.
+
+**Bundle B Runtime Evidence**: yuna Account_Registry 매핑은 `account_code=IDN-000041` / `credential_key=YUNA` / `api_provider=facebook_login` / 지정 `ig_user_id` 조합으로 1건만 존재함을 Read-only 확인했다. `.env`에 `DM_ACCOUNT_ROUTING_ENABLED=true`만 추가하고 `SNS_Watchdog`를 재시작한 뒤 두 Webhook Route가 HTTP 200으로 복구됐다. 신규 yuna Lead의 `account_code_ref=IDN-000041`, 오계정 저장 0건, 가격 문의별 자동응답 1건을 Runtime 로그·Airtable Read·사용자 화면으로 교차확인했다.
+
+**판정**: ERR-082 **RESOLVED — Runtime ADOPT**, Bundle B DM 계정 태깅 Canary **7단계 SUCCESS**. 실제 Secret·Token·Signature·DM Raw Body는 출력·문서화하지 않았다.
+
+**RISK/HOLD**: Canary 구간 Signature 실패 경고 8건의 발생 주체는 UNKNOWN이다. 해당 요청의 Business Logic 진입·Lead 생성·계정 오염 Evidence는 없으며 ERR-082 종료와 분리해 후속 조사 대상으로 유지한다.
+
+**CODEX 임시 실행 기록**: 회장 승인으로 2026-07-28 04:48~16:48 ICT 동안 Claude Code 실행 역할을 12시간 한정 임시 대행했다. 영구 역할 변경이나 향후 선례가 아니며 16:48 ICT 즉시 기존 Read-only 감사 역할로 복귀한다.
+
+commit: 미실행 — 별도 승인 대상
+push: 미실행 — 별도 승인 대상
+
+---

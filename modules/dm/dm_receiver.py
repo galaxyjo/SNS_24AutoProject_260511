@@ -22,6 +22,7 @@ from modules.infra.repository_interface import (
 )
 
 from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry, _mask_igsid, _telegram_preview
+from modules.common.webhook_signature import verify_meta_signature
 from modules.dm.dm_followup_scheduler import start_scheduler
 from modules.crm.lead_scorer import is_repeat_inquiry, calc_score, update_lead_score
 from modules.crm.order_detector import detect_order, handle_order_conversion
@@ -31,6 +32,14 @@ PAGE_TOKEN        = os.getenv("INSTA_ACCESS_TOKEN")
 IG_USER_ID        = os.getenv("INSTA_IG_USER_ID")
 VERIFY_TOKEN      = os.getenv("WEBHOOK_VERIFY_TOKEN", "snssecret2024")
 WEBHOOK_PORT      = int(os.getenv("WEBHOOK_PORT", "5000"))
+
+# ERR-082(260727) — Route별로 고정된 App Secret/Verify Token. Payload 내용(recipient.id 등)
+# 으로 Secret을 선택하지 않는다 — 어느 Route로 들어왔는지 자체가 곧 Secret 선택이다.
+# 미설정(빈 문자열)이어도 os.getenv 기본값이라 Startup Crash는 없고, 해당 Route만
+# 모든 요청에서 서명/토큰 불일치로 거부된다(Fail-closed, 다른 Route에 영향 없음).
+WEBHOOK_APP_SECRET      = os.getenv("WEBHOOK_APP_SECRET", "")
+AI_WEBHOOK_VERIFY_TOKEN = os.getenv("AI_WEBHOOK_VERIFY_TOKEN", "")
+AI_WEBHOOK_APP_SECRET   = os.getenv("AI_WEBHOOK_APP_SECRET", "")
 
 # Bundle B(260726) 킬스위치 — false(기본값)면 아래 계정 역조회·account_code_ref 기록을
 # 전혀 수행하지 않고 기존 DM 경로와 완전히 동일하게 동작한다(Codex/GPT 승인 조건).
@@ -139,13 +148,52 @@ def verify_webhook():
     abort(403)
 
 
-@app.post("/webhook")
-def receive_webhook():
-    """Instagram DM 수신 → 기록 → 단가 문의 감지 → 자동 응답."""
+def _handle_signed_webhook(app_secret: str):
+    """ERR-082(260727) — Route 전용 app_secret으로 Raw Body 서명을 검증한 뒤에만
+    JSON을 파싱한다. request.get_json()을 서명 검증보다 먼저 호출하지 않는다.
+    검증 실패는 즉시 403(Business Logic 진입 0건), 서명은 유효하나 JSON이 아니면 400."""
+    raw_body = request.get_data(cache=True)
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not verify_meta_signature(raw_body, signature, app_secret):
+        logger.warning("[Webhook] Signature 검증 실패 — 요청 거부")
+        abort(403)
+
     data = request.get_json(silent=True)
     if not data:
         abort(400)
 
+    return _process_webhook_event(data)
+
+
+@app.post("/webhook")
+def receive_webhook():
+    """Instagram DM 수신(Galaxy/yuna Route) → 기록 → 단가 문의 감지 → 자동 응답."""
+    return _handle_signed_webhook(WEBHOOK_APP_SECRET)
+
+
+@app.get("/webhook/ai-strategist")
+def verify_webhook_ai_strategist():
+    """AI Strategist 전용 Callback 검증 핸들러 — Galaxy와 별도 Verify Token 사용."""
+    mode      = request.args.get("hub.mode")
+    token     = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == AI_WEBHOOK_VERIFY_TOKEN:
+        logger.info("[Webhook/AI] 검증 성공 → challenge 반환")
+        return challenge, 200
+
+    logger.warning(f"[Webhook/AI] 검증 실패 | mode={mode}")
+    abort(403)
+
+
+@app.post("/webhook/ai-strategist")
+def receive_webhook_ai_strategist():
+    """AI Strategist 전용 Route — Galaxy와 별도 App Secret만 사용(교차 대입 없음)."""
+    return _handle_signed_webhook(AI_WEBHOOK_APP_SECRET)
+
+
+def _process_webhook_event(data: dict):
+    """기존 DM·댓글 Business Logic 본문(ERR-082 이전과 완전히 동일, 무변경)."""
     if data.get("object") != "instagram":
         return jsonify({"status": "ignored"}), 200
 

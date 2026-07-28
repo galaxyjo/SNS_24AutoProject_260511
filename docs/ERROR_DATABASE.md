@@ -1439,7 +1439,7 @@ ModuleNotFoundError: No module named 'tests.test_X' (39개 파일 전부)
 
 ---
 
-## ERR-082 | Webhook(`/webhook`) 엔드포인트에 `X-Hub-Signature-256` 서명 검증 코드가 존재하지 않음 — Meta 공식 요구 보안 통제 부재 확정 (OPEN — FAILED, 260726)
+## ERR-082 | Webhook(`/webhook`) 엔드포인트에 `X-Hub-Signature-256` 서명 검증 코드가 존재하지 않음 — Meta 공식 요구 보안 통제 부재 확정 (RESOLVED — Runtime ADOPT·7단계 SUCCESS, 260728)
 
 **Type:** Security — 미검증 외부 Payload를 무조건 신뢰하는 구조 (Gap Classification: Security)
 
@@ -1456,12 +1456,38 @@ def receive_webhook():
 
 **Root Cause:** **CONFIRMED**(더 이상 UNKNOWN 아님) — `launcher/main.py:536,550`이 `modules.dm.dm_receiver.app`을 직접 `app.run()`으로 구동하며, WSGI 미들웨어·리버스프록시 계층이 Python 코드상 존재하지 않음. `POST /webhook`(DM·댓글 이벤트 공용 라우트, `receive_webhook()`)이 `request.get_json(silent=True)`로 Payload를 곧바로 파싱해 Business Logic(Airtable Lead 생성·자동응답·Telegram 알림·댓글 처리)을 실행 — 서명 검증 코드, App Secret 저장소, HMAC 계산 로직이 셋 다 코드베이스 어디에도 없음이 Runtime Caller/Import Chain 전수확인으로 확정됨.
 
-**Fix:** 미착수(승인 대기) — 제안안: (1) 신규 env `META_APP_SECRET`(가칭) 도입 (2) `receive_webhook()` 최상단에서 `request.get_data()`(Raw Body) 확보 후 `hmac.new(app_secret, raw_body, hashlib.sha256)` 계산 → `X-Hub-Signature-256` 헤더의 `sha256=` 이후 값과 `hmac.compare_digest()` 비교 (3) 불일치·헤더누락·Secret미설정 시 401 반환·Business Logic 진입 차단(Fail-closed). Build·Buy·Reuse 비교 결과 Python 표준 `hmac`/`hashlib`만으로 Meta 공식 스펙 충족 가능(신규 OSS/SaaS 불필요) — 상세 비교는 `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-9 참조.
+**Fix — 260727 로컬 구현 완료(GPT Target Architecture 결정 → Claude Code 구현, 회장 승인 범위: 코드·테스트 5파일+`.env.example` 1파일)**: `modules/common/webhook_signature.py`(신규) — `verify_meta_signature(raw_body, signature_header, app_secret)` 순수함수, Meta 공식 규격(`sha256=<hex>`, `hmac.compare_digest`) 그대로 구현. `modules/dm/dm_receiver.py` — 기존 `POST /webhook`(Galaxy/yuna, `WEBHOOK_APP_SECRET`)은 보존하고, 신규 `POST /webhook/ai-strategist`(AI Strategist, `AI_WEBHOOK_APP_SECRET`)를 additive로 추가. 두 Route 모두 `request.get_data(cache=True)` → 서명검증 → 실패 시 즉시 `abort(403)`(Business Logic 진입 0건) → 성공 시에만 `request.get_json()` → 기존 `_process_webhook_event()`(바이트 단위 무변경) 순서로 동작. GET 핸드셰이크도 `AI_WEBHOOK_VERIFY_TOKEN`으로 Galaxy와 분리, 두 App의 Secret/Token 교차 사용은 코드·테스트 양쪽에서 거부 확인. Build·Buy·Reuse 비교(기존 기록)대로 Python 표준 `hmac`/`hashlib`만 사용, 신규 의존성 0건.
 
-**Prevention:** 서명 검증이 ADOPT로 종결되기 전까지 `DM_ACCOUNT_ROUTING_ENABLED`를 포함한 모든 웹훅 기반 신규 자동화의 Production 활성화(Canary 확대)를 HOLD한다.
+**Test Evidence(260727)**: 신규 `tests/test_webhook_signature.py`(Validator 단위 10종) + 기존 `tests/test_dm_receiver_webhook.py`(8→23, Signed Request 전환+Route 보안회귀 15종 추가)/`tests/test_dm_account_routing.py`(10건 Signed Request 전환, 로직 무변경) 전부 PASS. 전체 Suite Before(순수 원복 상태) 606 passed/3 xfailed/0 failed → After 631 passed/3 xfailed/0 failed(재현 3회 일치, 신규 실패 0건, 차이 +25는 신규 테스트 수와 정확히 일치). `git diff --check` 오류 0건, 허용 6파일 외 Diff 0건, Encoding/BOM 무결(CRLF/LF는 `core.autocrlf=true` 표준 동작, 실질적 결함 아님).
 
-**Risk:** `HIGH`(확인됨, 더 이상 잠재적 아님) — 위조된 Payload가 서명검증 없이 그대로 Business Logic에 진입해 가짜 Lead 생성(Airtable Write)·가짜 DM 자동응답 발신·가짜 댓글 Private Reply 트리거·Telegram 스팸 알림을 유발할 수 있음이 코드 추적으로 확인됨. **이 노출은 Bundle B가 만든 새 위험이 아니라 Bundle B 이전부터 있던 기존 운영 경로의 위험**(DM 자동응답은 이미 라이브 운영 중). 단, 현재까지 실제 악용 정황(Incident)은 미확인 — Runtime Evidence는 "구조적 노출 확정"까지이며 "실제 공격 발생"은 별개.
+**Runtime Closure Evidence(260728)**: AI Strategist 실제 Meta DM이 `POST /webhook/ai-strategist → 200`, 기존 yuna 실제 Meta DM이 `POST /webhook → 200`으로 처리됐다. Cross-secret 합성 요청은 `/webhook` + AI Secret 및 `/webhook/ai-strategist` + Galaxy Secret 모두 403으로 차단됐고 Business Logic 진입은 0건이었다. `DM_ACCOUNT_ROUTING_ENABLED=true`를 적용하고 Runtime을 재시작한 뒤 yuna Lead가 `account_code_ref=IDN-000041`로 저장됐으며 잘못된 계정 저장은 0건이었다. 가격 문의별 자동응답도 각각 1건씩 확인됐다. 실제 Secret·Token·Signature·DM Raw Body 노출은 0건이다.
 
-**Status:** **OPEN — FAILED**(Gate 4 판정: 검증 코드 없음, 실패 시 Reject 경로 없음, 모든 운영 POST Webhook 무방비 — CLAUDE.md §신규매뉴얼 §14.2 "서명검증 부재 시 외부 Payload를 신뢰된 입력으로 간주하지 않는다" 위반 상태 확정). RESOLVED 아님, 구현 착수는 별도 승인 필요.
+**Prevention:** 두 Meta App은 Route별 고정 Secret과 공통 Raw Body HMAC-SHA256 Validator를 사용한다. 서명 누락·불일치·Cross-secret 요청은 403으로 Fail-closed 처리하고 Business Logic에 진입시키지 않는다. 신규 계정 추가 시 `docs/INSTAGRAM_ACCOUNT_WEBHOOK_ONBOARDING_RUNBOOK.md`의 Secret 매핑·실제 DM·Cross-secret·계정 라우팅 Canary를 반복한다.
 
-**관련:** Codex Bundle B 리뷰(대화 기록), `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-9(Gate 순서·Build·Buy·Reuse 상세), [[project_dm_relay_supplier_design_260713]] 계열 웹훅 설계 논의와 연관 가능성(재확인 필요)
+**Risk:** 기존 무검증 Payload 수용 위험은 Runtime 서명검증 ADOPT로 차단됐다. 단, 7단계 Canary 구간에서 Signature 실패 경고 8건이 관측됐고 발생 주체는 **UNKNOWN**이다. 해당 요청의 Business Logic 진입·Lead 생성·계정 오염 Evidence는 없어 ERR-082 종료조건과 분리한 RISK/HOLD로 유지한다.
+
+**Status:** **RESOLVED — Runtime ADOPT·7단계 SUCCESS(260728)**. AI/yuna 실제 Meta DM 200, 양 Route Cross-secret 403, yuna `IDN-000041` 저장, 오계정 0건, 자동응답 회귀 성공으로 정의된 종료조건을 모두 충족했다. Signature 실패 경고 8건의 출처 확인은 별도 HOLD이며 본 보안 통제의 우회 또는 Business Logic 진입 Evidence가 없어 ERR-082 재OPEN 조건으로 간주하지 않는다.
+
+**관련:** Codex Bundle B 리뷰(대화 기록), `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-9~10-11(Gate 순서·260727 로컬 구현·260728 Runtime 종료 Evidence), [[project_dm_relay_supplier_design_260713]] 계열 웹훅 설계 논의와 연관 가능성(재확인 필요)
+
+## ERR-083 | Webhook GET 인증(hub.verify_token) 값이 werkzeug 접속로그에 평문으로 기록됨 (OPEN — 기록만, 조사·수정 미착수, 260727)
+
+**Type:** Security/Observability — Secret이 애플리케이션 로그가 아닌 WSGI 접속로그에 노출 (Gap Classification: Security)
+
+**Raw:** 260727 ERR-082 AI Strategist Webhook Runtime Canary 확인 중 `logs/summary/app.log`을 직접 열람하다가 부수적으로 발견(의도적 조사 아님, 목표는 `[Webhook/AI] 검증 성공` 로그 확인이었음). Meta가 GET 핸드셰이크 시 `hub.verify_token`을 URL 쿼리 파라미터로 전송하는데, Flask 기본 WSGI 접속로그(`werkzeug` 로거)가 요청 URL 전체를 그대로 기록해 다음과 같은 줄이 `app.log`에 남음(실제 값은 이 문서에도 마스킹 없이 옮기지 않음):
+```
+GET /webhook/ai-strategist?hub.mode=subscribe&hub.challenge=...&hub.verify_token=<실제 토큰 평문> HTTP/1.1
+```
+`dm_receiver.py`의 자체 `logger.info`/`logger.warning` 호출(`verify_webhook()`/`verify_webhook_ai_strategist()`)은 토큰 값을 직접 출력하지 않지만, Flask가 자동으로 남기는 werkzeug 접속로그 라인까지는 애플리케이션 코드가 통제하지 못함.
+
+**Root Cause:** UNKNOWN(미조사) — werkzeug 기본 access log 포맷이 원인일 가능성이 높다는 것만 관찰됨(추정, 확정 아님). Galaxy 기존 `GET /webhook`(`WEBHOOK_VERIFY_TOKEN`)도 같은 구조라 이번 세션 이전부터 동일하게 노출됐을 가능성 있음 — 실제 과거 로그 확인은 안 함(범위 밖).
+
+**Fix:** 미착수(승인 대기, 이번 세션은 기록만) — 예상 후보(검증 안 됨): (1) werkzeug 로거 포맷에서 쿼리스트링 마스킹 (2) 커스텀 WSGI 미들웨어로 로그 남기기 전 `hub.verify_token=` 값 치환 (3) 별도 로그 레벨/필터 적용. 어느 쪽이 적절한지는 다음 종합 점검 때 Build·Buy·Reuse 비교 필요.
+
+**Prevention:** 없음(미착수)
+
+**Risk:** `MEDIUM`(추정) — Verify Token은 GET 핸드셰이크 1회성 검증용이라 DM 본문·Access Token보다는 민감도가 낮지만, 로그 파일(`logs/summary/app.log`)에 평문으로 남아있으면 그 로그에 접근 가능한 누구나 토큰을 알아내 임의 GET 요청으로 인증 재현이 가능해짐. 실제 악용 정황은 없음(단순 관찰 발견).
+
+**Status:** **OPEN — 기록만 완료, 조사·수정 착수 안 함**(회장 지시: "기록만해놔, 나중에 다 종합 점검할 때 다시 확인하고 수정"). 다음 종합 점검 세션에서 Gate 1~3(Outcome/Success Criteria/Runtime Evidence)부터 재시작.
+
+**관련:** ERR-082(같은 Webhook 엔드포인트에서 파생 발견), [[feedback_md_docs_autoupdate]]

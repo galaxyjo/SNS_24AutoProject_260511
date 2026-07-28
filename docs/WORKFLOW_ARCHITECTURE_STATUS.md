@@ -211,8 +211,8 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 |---|---|---|
 | P0-1 | pytest Collection Error 원인 확인 | 완료(RESOLVED, ERR-081) |
 | P0-2 | 단계 1~5 공식 Evidence 문서 복구 | 완료(A단계, B단계 test_dm_close.py 수정도 260725 완료·commit `0da83b1`) |
-| **P0-SEC** | **Webhook `X-Hub-Signature-256` 서명 검증 여부 확인·구현(ERR-082)** | **OPEN — FAILED 확정(260726 Phase 0~5 Read-only 조사 완료, §10-9). 검증 코드 0건 확인, 구현 착수는 승인 대기. DM Bundle B 프로덕션 Canary 전제조건** |
-| **P1-1** | **10-B Clean Measurement Baseline(테스트/실고객분리, 기준시점·계정키 확정)** | **진행중 — yuna18253 Account_Registry 등록 완료(P1-1B/C, §10-5~6), DM Bundle B 구현·테스트 완료(킬스위치 OFF, §10-8 Build·Buy·Reuse 소급기록), 다음은 §10-7(댓글·크롤러 경로) 또는 P0-SEC 우선 여부 결정** |
+| **P0-SEC** | **Webhook `X-Hub-Signature-256` 서명 검증 여부 확인·구현(ERR-082)** | **RESOLVED — Runtime ADOPT·7단계 SUCCESS(260728, §10-11). AI/yuna 실제 DM 200, 양 Route Cross-secret 403, Business Logic 우회 0건. Signature 실패 경고 8건의 출처는 별도 HOLD** |
+| **P1-1** | **10-B Clean Measurement Baseline(테스트/실고객분리, 기준시점·계정키 확정)** | **진행중 — DM Bundle B `DM_ACCOUNT_ROUTING_ENABLED=true` Runtime 활성화 및 yuna `IDN-000041` 태깅·오계정 0건·자동응답 회귀 Canary SUCCESS(§10-11). 7단계 종료, 다음 단계는 별도 승인 전 미착수** |
 | P1-2 | 데이터 유실 동일 패턴(예외삼킴) 표적 감사 | 미착수 — order_detector 외 경로 존재 여부 확인 필요 |
 | P1-3 | fetch_candidate_phashes() Pagination | 미착수 |
 | P1-4(격리MVP) | 단계 6 격리 MVP 완성(Persona·Sourcebook 최소연결+Gate·Approval 통합검증) | 미착수(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
@@ -325,5 +325,25 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 - **Gate 순서 잔여**: 최소 해결안 승인 → 코드수정(`dm_receiver.py` 1개 파일, 신규 함수1개+`receive_webhook()` 최상단 삽입) → 테스트(정상서명/서명없음/서명불일치/Secret미설정 4종) → Canary(로컬 test_client 우선) → Rollback(`git revert` 1건) → Production Gate
 - **DM Bundle B와의 관계**: `DM_ACCOUNT_ROUTING_ENABLED=true` 프로덕션 전환(실 Meta 웹훅 트래픽 대상)은 ERR-082가 ADOPT로 종결되기 전까지 **HOLD**. Bundle B 자체(킬스위치 OFF 상태의 코드·테스트)는 이미 완료된 상태로 유지.
 - **남은 승인 필요 항목**: (A) 이번 FAILED 확정을 문서에 반영(이번 갱신으로 완료) (B) §14 최소 해결안(서명검증 구현) 착수 여부 — 코드수정이므로 별도 승인 필수 (C) Defer(위험 명시적 수용) vs 구현 중 방향 결정
+
+### 10-10. ERR-082 로컬 구현 완료(260727) — GPT Target Architecture 결정 → CODEX 감사 대기 상태에서 회장 직접 구현 지시로 진행
+
+**배경**: (B) 방향으로 회장이 직접 구현을 지시(우선순위 고정표 5단계). GPT가 결정한 Target Architecture(기존 yuna Route 보존 + AI Strategist 전용 신규 Route + Route별 App Secret 분리 + 공통 Fail-closed Validator)를 Claude Code가 Read-only 설계 제출 → 회장 승인 범위(코드·테스트 5파일+`.env.example` 1파일) 확정 후 구현.
+
+**구현 결과**: `modules/common/webhook_signature.py`(신규, 순수함수) + `modules/dm/dm_receiver.py`(+51/-3, `_handle_signed_webhook()`/`_process_webhook_event()` 분리, 기존 Business Logic 바이트 단위 무변경) + `.env.example`(`WEBHOOK_APP_SECRET`/`AI_WEBHOOK_APP_SECRET`/`AI_WEBHOOK_VERIFY_TOKEN` placeholder 3줄 추가) + 테스트 3파일(신규 `test_webhook_signature.py` 10건, 기존 2파일 Signed Request 전환+보안회귀 추가로 8→23/10→10).
+
+**검증**: Target Test 43/43 PASS. 전체 Suite Before(원복 상태, `git stash`로 재구성) 606 passed/3 xfailed/0 failed → After 631 passed/3 xfailed/0 failed, 재현 3회 일치, 신규 실패 0건(차이 +25 = 신규 테스트 수와 정확히 일치). `git diff --check` 오류 0건, 허용 6파일(신규 2+기존 4) 외 Diff 0건, Secret/Token 로그 노출 0건(코드 직접 확인). 환경변수 이름은 코드·`.env.example` 100% 일치(4개 전부 grep 교차확인).
+
+**미완료(별도 승인 대상, 회장만 수행 가능한 항목 포함)**: (1) 실제 `.env`에 `WEBHOOK_APP_SECRET`/`AI_WEBHOOK_APP_SECRET`/`AI_WEBHOOK_VERIFY_TOKEN` 실값 입력 — Claude Code는 API 키·Secret류를 어떤 필드에도 대신 입력할 수 없음(정책상 절대 금지, 승인 무관) (2) Meta Dashboard에서 AI Strategist App의 Callback URL·Verify Token 등록 — Claude Code는 Meta 개발자 콘솔 접근 권한 자체가 없음 (3) Runtime Restart(watchdog/NSSM 경유 `launcher/main.py`) — 실행 가능하나 재시작 직전 별도 확인 필요 (4) 실제 Meta 서명 Payload로 Runtime Canary 요청 — (1)(2) 완료 전까지 무의미. 이 4개 전부 완료·확인돼야 ERR-082가 RESOLVED로 종결된다.
+
+**기록**: `docs/ERROR_DATABASE.md` ERR-082(Status: "OPEN — 로컬 구현 SUCCESS(260727), Runtime/배포 미완료"로 갱신) / 이 섹션.
+
+### 10-11. ERR-082 Runtime ADOPT · Bundle B DM 계정 태깅 Canary 종료(260728)
+
+**Runtime 결과**: AI Strategist 실제 Meta DM은 `POST /webhook/ai-strategist → 200`, 기존 yuna 실제 Meta DM은 `POST /webhook → 200`으로 처리됐다. 반대 App Secret으로 서명한 합성 요청 2건은 각 Route에서 모두 403으로 차단됐고 Business Logic 진입은 0건이었다.
+
+**Bundle B 결과**: `DM_ACCOUNT_ROUTING_ENABLED=true` 적용 후 `SNS_Watchdog`를 재시작했다. yuna Lead는 `account_code_ref=IDN-000041`로 저장됐고 잘못된 계정 저장은 0건이었다. 가격 문의별 기존 자동응답도 각각 1건씩 확인돼 7단계 종료조건을 충족했다.
+
+**판정**: ERR-082는 **RESOLVED — Runtime ADOPT**, Bundle B DM 계정 태깅 Canary는 **7단계 SUCCESS**다. Canary 구간의 Signature 실패 경고 8건은 발생 주체가 UNKNOWN이나 Business Logic 진입·Lead 생성·계정 오염 Evidence가 없어 별도 RISK/HOLD로 분리한다. 8단계는 시작하지 않았으며 별도 승인 전 미착수다.
 
 ---
