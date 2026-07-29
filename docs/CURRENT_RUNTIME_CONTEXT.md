@@ -11,7 +11,7 @@ _기록 시각: 2026-07-29 13:35 ICT · 상태: **9단계 완료(회장 확정)*
 
 ## HOLD(9단계 결론과 분리)
 
-- `WEBHOOK_APP_SECRET` 라이브 프로세스 값과 `.env` 파일 값의 불일치를 ERR-085 라이브 검증 중 발견(운영 트래픽 영향 여부 미확인) — 별도 세션(`task_b24dbf54`)에서 조사 진행 중.
+- `WEBHOOK_APP_SECRET` 라이브 프로세스 값과 `.env` 파일 값의 불일치를 ERR-085 라이브 검증 중 발견(운영 트래픽 영향 여부 미확인) — 별도 세션(`task_b24dbf54`)에서 조사 진행 중. **260729 22:32 ICT 추가 확인**: `/webhook`·`/webhook/ai-strategist` 양쪽 다 Boolean-only 서명 Canary(`object` 값을 `"instagram"`이 아니게 만들어 Business Logic 진입 원천 차단, Secret 원문 미출력)로 재검증한 결과 **현재 시점 기준 라이브 프로세스 값=`.env` 파일 값 일치(둘 다 200)** — 단, 이건 점검 시점의 스냅샷이며 원래 불일치가 언제·왜 있었는지와 `task_b24dbf54`의 조치 여부는 여전히 UNKNOWN. `.env` 수정 후 재시작 누락 시 재발 가능.
 - ERR-087은 Production Caller가 생기는 시점(`dm_followup_scheduler.py` 연동 등) 재감사 필요.
 - FP-063 예방책(3)(리뷰 체크리스트에 "fail-open이 맞는가, retry_queue가 필요한가" 항목화)은 미착수(DEFER).
 

@@ -548,7 +548,7 @@ Airtable 테스트 레코드 2건(`recEGPlnqiNAuqNWX`/`recoHWOFv9IkG0et3`) 전�
 | ① IG 발행 파이프라인 | 업로드+Idempotency+FinalQualityGate+Kill Switch | Kill Switch(작음, §6 항목5 설계 기완료) |
 | ② DM·댓글·팔로업 자동응답 파이프라인 | DM자동응답+DM팔로업+댓글폴링 | **계정별 라우팅(대형, 미착수)** — `send_ig_reply`/`_send_ig_dm`/댓글 자동응답 3곳 전부 단일 전역 `INSTA_ACCESS_TOKEN` 사용 확인(코드), Scope 확정 전엔 HOLD였으나 이제 P0 |
 | ③ Provider Routing/Credential Resolver | — | 없음(완료) |
-| ④ DM 수신(Webhook) | — | **`WEBHOOK_APP_SECRET` 라이브 프로세스/`.env` 불일치 HOLD 미해결**(별도 세션 `task_b24dbf54`, 이 저장소 안에서 해소 기록 0건, 회장도 현재 상태 모름 — 별도 확인 필요) |
+| ④ DM 수신(Webhook) | — | `WEBHOOK_APP_SECRET`/`AI_WEBHOOK_APP_SECRET` **260729 22:32 ICT Boolean-only Canary로 현재 시점 일치 확인**(두 Route 전부 200, Secret 미노출) — 원래 불일치의 원인·시점·`task_b24dbf54` 조치 여부는 여전히 UNKNOWN, 재발 방지책(재시작 누락 감지 등)은 미착수 |
 | ⑤ FB 크롤링 | — | 3계정이 서로 다른 콘텐츠를 받아야 하는지 미확인(재검토 표시만, 결론 아님) — Domeggook 크롤/Export도 `PRODUCT_PUBLISH_ACCOUNT_CODE` 단일 상수 하드코딩 확인(코드), 같은 재검토 대상 |
 
 (Retry Queue·Airtable Repository는 공용 인프라라 부모항목에서 제외 제안, PROVISIONAL 유지)
