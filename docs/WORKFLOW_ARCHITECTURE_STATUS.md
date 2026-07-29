@@ -162,7 +162,7 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | 1 | Persona Runtime 연결 | REUSE+BUILD(최소) | `ai_reply_generator.generate_reply()`에 계정/페르소나 파라미터 자체 없음(코드 확인), 전 계정 동일 톤 사용 중 | `Persona_Profile`(persona_role/mbti_type/tone_style/greeting_template/followup_template) | ①`account_code_ref`→`persona_code` lookup ②`generate_reply()`에 톤/템플릿 파라미터 추가(Import Chain: `dm_auto_reply.py`→`ai_reply_generator.py` 2파일만) | 페르소나 1개뿐이라 "다르게 응답"이 검증 안 됨 |
 | 2 | Sourcebook Runtime 연결 | BUILD(최소 구조화 권장) | (a)마크다운 원문 파싱: 문서 포맷 변경 시 파서 깨짐, 원 문서가 "Runtime Evidence Document: NO"로 설계돼 원 설계의도 위반. (b)핵심원칙 구조화 추출: 파서 불필요, 문서 변경에 안 깨짐 — **(b) 권장** | `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`(원문 유지) | 핵심 5~10줄만 추출해 상수/설정으로 캡션·DM 프롬프트에 포함 | 로드맵에서 완전히 빼려면 별도 Scope 변경 승인 필요, 임의 제외 금지 |
 | 3 | Final Quality Gate | REUSE(구현·테스트 완료, Runtime 비활성) | `PUBLISH_TEXT_GATE_ENABLED` 코드(`launcher/main.py:390`)+테스트(`test_publish_gate_and_approval.py` 7 passed) 존재, `.env` 미설정으로 꺼짐. 이미지 검수는 pytesseract 미설치로 범위 밖(260724 결정) | `content_filter.passes_keyword_filter()` | 텍스트 Gate 활성화 전 실게시 1건 검증(플래그 변경은 별도 승인) | 이미지 검수 부재를 "완료"로 착각 금지 |
-| 4 | Approval Action | REUSE+BUILD(최소) | `REQUIRE_APPROVAL_BEFORE_PUBLISH`(`airtable_repository.py:159`) 상태값 분기만 있고, DRAFT→READY로 바꾸는 승인 액션(버튼/트리거) 자체가 없음 | `Instagram_Posts.post_status`(DRAFT/READY) | 신규 SaaS 대신 Airtable UI 직접 사용(0개발) 또는 Streamlit 버튼 1개(최소 BUILD) 중 선택 | 승인 경로 없이 플래그만 켜면 게시가 DRAFT에서 영구 정지 |
+| 4 | Approval Action | **회장 결정(260729): 비활성 유지, 코드 보존** | `REQUIRE_APPROVAL_BEFORE_PUBLISH` 실측 결과 코드·Airtable Schema 전부 정상 작동 확인(§10-16) — 그러나 회장이 "완전자동화 우선, 게시 전 승인 불필요, 문제되는 것만 사후 조치" 방침을 명시적으로 확정해 다시 잠재움(`.env` 주석 처리, 값 보존) | `Instagram_Posts.post_status`(draft/ready, 이미 Schema 존재) | 재사용 원하면 `.env`의 `# REQUIRE_APPROVAL_BEFORE_PUBLISH=true` 주석만 해제 | 승인 경로 자체는 Airtable UI 직접 사용(0개발)으로 이미 검증 완료 — 재활성화 시 추가 개발 불필요 |
 | 5 | 계정별 Kill Switch | BUILD(후보, 착수 전 선행조사 필수) | `Account_Registry.automation_enabled` 필드 존재하나 코드 0참조(사문화). `account_manager.get_active_accounts()`(accounts.json 기반)는 크롤링 전용, `launcher/main.py` 미사용 확인 | 없음(사문화 필드만) | 착수 전 필요: ①DM·댓글·팔로업 웹훅 포함 전체 Entry Point 매핑 ②Import Chain ③Rollback 방법 ④Success Criteria | Blast Radius UNKNOWN — 매핑 전 착수 금지 |
 | 6 | Retry·Fail-closed | REUSE+BUILD(최소) | `retry_queue.py`는 `ig_auto_reply`/`ig_followup`/댓글payload에 연동 중(dead=20건 실측), `order_detector.handle_order_conversion()`은 미연동(ERR-080 원인의 일부) | `modules/common/retry_queue.py`(범용, 검증됨) | 예외를 삼키는 나머지 경로(order_detector 포함)에 동일 패턴 연결 — 표적 감사(P1-2) 먼저 필요 | 감사 없이 넓게 고치면 범위 폭주 위험 |
 | 7 | n8n ↔ Python Contract | DEFER | GPT 명시 결정. `sqlite3 .n8n/database.sqlite` 재확인: `[('My workflow', active=0)]`, 변화 없음 | 설계 문서(WF-01~05, `CURRENT_RUNTIME_CONTEXT.md`) | — | — |
@@ -215,7 +215,7 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | **P1-1** | **10-B Clean Measurement Baseline(테스트/실고객분리, 기준시점·계정키 확정)** | **8단계 완료(회장 확정, 260729 06:09 ICT)** — C1(Facebook Exact-Post Canary) Runtime SUCCESS(§10-13) + anchor-scan 오매칭 Gate RESOLVED(§10-14, ERR-084). Commit·Push는 회장 지시로 별도 보류 |
 | P1-2 | 데이터 유실 동일 패턴(예외삼킴) 표적 감사 | **RESOLVED — 9단계 감사로 흡수 완료(260729)**. ERR-085(dm_receiver)/086(lead_scorer)/087(lead_closer)/088(order_detector) 4개 경로 전부 확인·RESOLVED(§10-15) — order_detector 포함, 표에서 요구한 조사 범위 충족 |
 | P1-3 | fetch_candidate_phashes() Pagination | **RESOLVED — 4개 Canary 전부 완료(260729)**. 실제 전수 Inventory 결과 원문 대상 외 3개 추가 발견(`list_blocked_suppliers`/`fetch_active_crawl_targets`/`fetch_active_training_targets`) — ERR-078과 동일 결함 클래스(offset 미순회) 전부 재현 후 REUSE 패턴으로 수정. commit `598562d`(#1)/`e2cebac`(#2)/`4202d46`(#3)/`0c62f34`(#4, 원문 대상 — Caller 0건이나 일관성 위해 수정). mock reconciliation 4/4 250/250 전환, 신규 회귀 22/22 PASS. GPT 최종 감사 전, Push 미실행 |
-| P1-4(격리MVP) | 단계 6 격리 MVP 완성(Persona·Sourcebook 최소연결+Gate·Approval 통합검증) | 미착수(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
+| P1-4(격리MVP) | 단계 6 격리 MVP 완성(Persona·Sourcebook 최소연결+Gate·Approval 통합검증) | **부분진행(260729)** — 1순위 Approval Action 실측·검증 완료 후 회장 결정으로 비활성 유지(§6 항목4, §10-16). Persona·Sourcebook·Final Quality Gate는 착수 전(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
 | P2-1~3 | imgbb / ERR-076 자동복구 / account_email SSOT | 미착수(기존 Gate 그대로) |
 | P3 | Token 매뉴얼 갱신(장기교환 단계 추가) | 미착수 |
 
@@ -461,5 +461,29 @@ Airtable Instagram_Posts 실제 레코드(recFHv9AvW891KaHW) GET으로 직접 �
 
 commit: `09cae6f`~`9c2c99a`(코드·문서) + 이 Closure 문서 4개 신규 commit
 push: 이 Closure 직후 실행
+
+---
+
+### 10-16. P1-4 1순위 Approval Action 실측 완료 → 회장 결정으로 비활성 유지(260729)
+
+**배경**: 9단계 종료 직후 P1-2/P1-3 문서 동기화(§9)를 마치고 P1-4(격리MVP)에 착수 — 4개 하위항목(Persona/Sourcebook/Final Quality Gate/Approval Action) 중 가장 작고 즉시 검증 가능한 **Approval Action**(항목4)부터 시작했다.
+
+**Read-only 조사**: `REQUIRE_APPROVAL_BEFORE_PUBLISH` 코드(`airtable_repository.py:207-209`)는 이미 구현·테스트(`test_publish_gate_and_approval.py` 7개 중 4 PASS, 나머지 3은 기존 `runtime_boot_policy.json` PermissionError 환경제약과 무관 재확인)돼 있었고, Airtable `Instagram_Posts.post_status` Schema에도 `draft`/`ready`/`rejected` 선택지가 이미 존재해 Schema 변경도 불필요함을 확인했다. `fetch_pending_posts()`가 `post_status='ready'`만 픽업함도 코드로 확인 — REUSE(Airtable UI 직접 사용, 0개발)가 정확했다.
+
+**실행(회장 승인 후 순차 진행)**:
+1. `.env`에 `REQUIRE_APPROVAL_BEFORE_PUBLISH=true` 추가 → `SNS_Watchdog` 재시작(회장 관리자 PowerShell) → `/health` 정상(`canary_safe_mode:false, production`), 재시작 이후 신규 오류 0건 확인.
+2. **Facebook 실브라우저 Canary 3회 연속 실패**(`tools/run_facebook_canary.py`, C1 방식 재사용 시도) — 매번 AdsPower 브라우저 세션이 `driver.get()`~`time.sleep(12)` 구간에서 연결 끊김(`ConnectionResetError`/`WinError 10061`). 회장이 AdsPower "트래픽 패키지 만료" 배너를 확인해 결제까지 했으나 3번째 시도도 동일 증상 재현 — 근본원인 미확정. **3회 전부 Airtable Write 0건**(Read-only 재확인, `save_instagram_post()` 도달 전 중단), Production 복귀도 매번 정상 확인돼 데이터 안전은 유지됐다. 소진된 `canary_run_id` 3개(`approval-gate-260729-01/02/03`)는 `db/canary_runs.db`에 `RUNNING` 상태로 잔존(재사용 불가, 실질 영향 없음).
+3. **대안(Claude Code 판단 오류 인정 후 제안)**: 브라우저 없이 `AirtableRepository.save_instagram_post()`를 코드로 직접 호출해 `data_classification=test`/`canary_run_id` 부여 draft 레코드 1건(`recRsolx1cpPdbp4g`) 생성 — Safe Mode Boot Policy(4번째, `approval-gate-260729-04`)는 여전히 필요했으나 브라우저 의존성은 제거해 즉시 성공.
+4. 회장이 Airtable UI에서 직접 `draft→ready`로 변경(승인 액션 자체를 실제로 수행) — 그러나 `fetch_pending_posts()`의 필터(`data_classification`이 공란 또는 `production`, `canary_run_id` 공란만 픽업)에 의해 **이 테스트 레코드는 설계상 정상적으로 픽업 대상에서 제외**됨을 재확인(§9단계에서 만든 Canary Write Budget 격리 안전장치가 의도대로 작동 — 결함 아님). `production` 분류로 다시 만들면 실제 yuna18253 계정에 진짜 게시되는 수준까지 증명 가능하나, 그 결정 전 회장이 정책 방향을 확정했다(다음 항목).
+
+**회장 최종 결정(260729, 명시 확정)**: "완전자동화 우선, 게시 전 사람 승인 불필요 — 문제되는 것만 사후 조치로 삭제". Approval Action 기능 자체는 **코드 삭제 없이 비활성 유지**(`.env`의 `REQUIRE_APPROVAL_BEFORE_PUBLISH=true` 줄을 주석 처리로 보존, 즉시 재활성화 가능) 방침으로 확정.
+
+**원복 실행**: `.env` 주석 처리 → `SNS_Watchdog` 재시작(`18:53:29 FATAL → 18:53:58 launcher 재시작 성공`, `/health` 정상, 재시작 이후 신규 오류 0건) → 테스트 레코드 `recRsolx1cpPdbp4g` Airtable에서 삭제(Read-only 재조회로 삭제 확인) — 전부 Runtime Evidence로 확인 완료.
+
+**판정**: Approval Action은 **REUSE로 실측 검증 완료**(승인→게시 연결고리 자체는 정상 작동 확인, 단지 test 격리 안전장치에 막힌 것) — 그러나 **회장 방침에 따라 비활성으로 최종 확정**. Persona(항목1)/Sourcebook(항목2)/Final Quality Gate(항목3)는 이번 세션에서 착수하지 않았다.
+
+**변경 파일(코드 추적 대상)**: 없음(`.env` 변경만, git 미추적) — 문서 갱신만 커밋 대상.
+
+**기록**: `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§6 항목4, §9 P1-4행, 이 섹션) — 이 항목.
 
 ---
