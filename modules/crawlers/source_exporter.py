@@ -201,15 +201,31 @@ def export_to_instagram_posts(
             continue
 
         # 1. 상태 선점 NEW → QUEUED
-        repo.claim_source_item_for_export(
-            record_id,
-            now_iso,
-            target_publish_account_code_ref,
-        )
+        try:
+            repo.claim_source_item_for_export(
+                record_id,
+                now_iso,
+                target_publish_account_code_ref,
+            )
+        except Exception as exc:
+            logger.error(f"[exporter] 상태 선점 실패 — skip: {sid} | {exc}")
+            result["failed"] += 1
+            continue
 
         # 2. Instagram_Posts 중복 확인 (image_url_hash 기준)
-        if repo.exists_post_by_image_url(item.get("image_url", "")):
-            repo.update_source_item_status(record_id, SourceItemStatus.EXPORTED)
+        try:
+            is_duplicate = repo.exists_post_by_image_url(item.get("image_url", ""))
+        except Exception as exc:
+            logger.error(f"[exporter] 중복 확인 실패 — skip: {sid} | {exc}")
+            result["failed"] += 1
+            continue
+        if is_duplicate:
+            try:
+                repo.update_source_item_status(record_id, SourceItemStatus.EXPORTED)
+            except Exception as exc:
+                logger.error(f"[exporter] 중복 skip 상태갱신 실패 — skip: {sid} | {exc}")
+                result["failed"] += 1
+                continue
             logger.info(f"[exporter] 중복 skip EXPORTED: {sid}")
             result["skipped"] += 1
             continue
@@ -264,8 +280,17 @@ def export_to_instagram_posts(
             result["failed"] += 1
             continue
 
-        # 6. Source_Items EXPORTED
-        repo.update_source_item_status(record_id, SourceItemStatus.EXPORTED)
+        # 6. Source_Items EXPORTED — 반환 계약(exported/skipped/failed)은 그대로 유지하고,
+        # IG 저장(5번)은 이미 성공했다는 사실은 구조화 로그로만 구분한다.
+        try:
+            repo.update_source_item_status(record_id, SourceItemStatus.EXPORTED)
+        except Exception as exc:
+            logger.error(
+                f"[exporter] IG 저장은 성공했으나 Source_Items 상태갱신 실패 — 수동 확인 필요: "
+                f"{sid} | {exc}"
+            )
+            result["failed"] += 1
+            continue
         logger.info(f"[exporter] EXPORTED: {sid}")
         result["exported"] += 1
 
