@@ -232,7 +232,7 @@ class RepositoryInterface(ABC):
 
     @abstractmethod
     def list_blocked_suppliers(self) -> list[SupplierBlockEntry]:
-        """공급업체 차단 목록 전체 반환."""
+        """공급업체 차단 목록 전체 반환(전체 페이지 순회)."""
 
     @abstractmethod
     def exists_post_by_image_url(self, image_url: str) -> bool:

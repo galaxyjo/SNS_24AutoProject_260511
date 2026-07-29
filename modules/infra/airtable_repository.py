@@ -109,30 +109,40 @@ class AirtableRepository(RepositoryInterface):
     # ── 1. 차단 공급업체 목록 ──────────────────────────────────────────────────
 
     def list_blocked_suppliers(self) -> list[SupplierBlockEntry]:
-        try:
-            r = requests.get(
-                _url("Supplier_Blocklist"),
-                headers=_headers(),
-                params={"pageSize": 100},
-                timeout=_TIMEOUT,
-            )
-            r.raise_for_status()
-            log_api_call("Supplier_Blocklist", "GET")
-        except requests.HTTPError as e:
-            _raise(e, "Supplier_Blocklist")
-        except requests.RequestException as e:
-            raise RepositoryUnavailableError(str(e)) from e
-
+        """Supplier_Blocklist 전체 레코드 반환(전체 페이지 순회, P1-3/ERR-078과 동일 클래스)."""
         result: list[SupplierBlockEntry] = []
-        for rec in r.json().get("records", []):
-            f = rec.get("fields", {})
-            result.append(
-                SupplierBlockEntry(
-                    author_name=f.get("author_name", ""),
-                    page_name=f.get("page_name", ""),
-                    reason_code=f.get("reason_code", ""),
+        offset = None
+        while True:
+            params = {"pageSize": 100}
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(
+                    _url("Supplier_Blocklist"),
+                    headers=_headers(),
+                    params=params,
+                    timeout=_TIMEOUT,
                 )
-            )
+                r.raise_for_status()
+                log_api_call("Supplier_Blocklist", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Supplier_Blocklist")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+
+            data = r.json()
+            for rec in data.get("records", []):
+                f = rec.get("fields", {})
+                result.append(
+                    SupplierBlockEntry(
+                        author_name=f.get("author_name", ""),
+                        page_name=f.get("page_name", ""),
+                        reason_code=f.get("reason_code", ""),
+                    )
+                )
+            offset = data.get("offset")
+            if not offset:
+                break
         return result
 
     # ── 2. 이미지 URL 중복 확인 ───────────────────────────────────────────────
