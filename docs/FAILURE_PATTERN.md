@@ -811,12 +811,26 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 
 ## FP-063 | 쓰기 실패 상태전환 함수가 broad except로 예외를 삼키고 retry_queue 위임 없이 로그만 남기는 패턴이 CRM 모듈 전반에 반복된다
 
-**설명:** Lead/주문 상태를 Airtable에 기록하는 함수(최초 Lead 생성, 스코어 갱신, CLOSE 처리, 주문 전환 처리)가 공통적으로 `try: _repo.쓰기함수() / except Exception: logger만` 구조를 갖는다. `retry_queue`(`modules/common/retry_queue.py`) 인프라가 이미 존재하고 다른 경로(`dm_followup_scheduler.py`/`comment_*`/`kpi_collector.py`/`health_monitor.py`)에는 이미 연동돼 있음에도, CRM 쓰기 경로 4곳(`dm_receiver.py::record_interaction()` 호출부, `lead_scorer.py::update_lead_score()`, `lead_closer.py::mark_lead_closed()`, `order_detector.py::handle_order_conversion()`)은 전혀 연동되지 않았다. 일부(`lead_closer.py`/`order_detector.py`)는 한 걸음 더 나아가, 상태 갱신 실패 여부와 무관하게 Telegram "완료" 알림을 `try` 블록 밖에서 무조건 발송해 상태-알림 불일치까지 발생한다.
+**설명:** Lead/주문 상태를 Airtable에 기록하는 함수(최초 Lead 생성, 스코어 갱신, CLOSE 처리, 주문 전환 처리)가 공통적으로 `try: _repo.쓰기함수() / except Exception: logger만` 구조를 갖는다. `retry_queue`(`modules/common/retry_queue.py`) 인프라가 이미 존재하고 다른 경로(`dm_followup_scheduler.py`/`comment_*`/`kpi_collector.py`/`health_monitor.py`)에는 이미 연동돼 있음에도, CRM 쓰기 경로 중 현재 Live인 3곳(`dm_receiver.py::record_interaction()` 호출부, `lead_scorer.py::update_lead_score()`, `order_detector.py::handle_order_conversion()`)은 전혀 연동되지 않았다. `order_detector.py`는 한 걸음 더 나아가, 상태 갱신 실패 여부와 무관하게 Telegram "완료" 알림을 `try` 블록 밖에서 무조건 발송해 상태-알림 불일치까지 발생한다. `lead_closer.py::mark_lead_closed()`는 동일한 코드 패턴을 갖지만 260729 재검증 결과 Production Caller가 0건(NOT_ACTIVE/LATENT_RISK, ERR-087)으로 확인돼, 현재는 이 패턴의 활성 사례가 아니라 향후 Scheduler 연결 시 활성화될 잠재 사례로 분류한다.
 
 **근본 원인:** ERR-080(order_detector) 최초 발견 시 Airtable 필드 스키마 불일치라는 "증상"만 고치고, 그 증상을 감싸고 있던 예외삼킴 코드 구조 자체는 동일 클래스로 재사용 가능한 패턴임에도 다른 파일로 전파 여부를 스윕하지 않았다. CRM 모듈(`modules/crm/`, `modules/dm/dm_receiver.py`)을 작성할 때 "쓰기 실패 시 로그만 남기고 파이프라인은 계속 진행"이라는 방어적 스타일이 반복 채택됐으나, 이게 fail-open이 적절한 지점(예: 계정 태깅처럼 부가 정보)과 fail-closed·durable-retry가 필요한 지점(Lead 원본 데이터 생성, 상태 전환)을 구분하지 않고 동일하게 적용됐다.
 
-**증상:** Airtable 쓰기가 어떤 이유로든 실패해도 error.log에 한 줄 남을 뿐 파이프라인은 "정상 진행"한 것처럼 계속되고, 해당 Lead/주문 상태는 영구히 갱신되지 않는다. 실패해도 재시도되지 않으므로 다음 성공 시점까지 아무 신호 없이 방치된다(ERR-080/085/086/087/088).
+**증상:** Airtable 쓰기가 어떤 이유로든 실패해도 error.log에 한 줄 남을 뿐 파이프라인은 "정상 진행"한 것처럼 계속되고(호출자에게 HTTP 200이 그대로 반환됨), durable retry·dead letter·failure state 경로가 없어 실패가 방치된다. ERR-088(order_detector)에서 이 구조가 Live 상태로 Confirmed됐다 — 260729 재검증에서 실제 실패 로그 9건과 Airtable 미반영 상태(조회 시점 기준)까지 실측 확인했으나, 그 9건 전부가 테스트용 식별자였으므로 실제 고객 데이터 손실 여부는 별도로 UNKNOWN이다. ERR-085/086은 Live Caller Chain은 Confirmed이나 조사 범위 내 실제 발생 로그는 0건, ERR-087은 Production Caller 자체가 없어 현재는 발현되지 않는다.
 
-**예방:** (1) Lead 최초 생성처럼 "실패=이벤트 자체 소멸"인 지점부터 우선순위를 두어 `retry_queue` 연동을 순차 적용한다(이미 다른 모듈에 검증된 인프라를 재사용 — BUILD보다 REUSE). (2) 상태 갱신과 알림 발송을 같은 `try` 블록으로 묶어, 실패 시 알림도 함께 억제하거나 "실패" 알림으로 전환한다. (3) 새로운 쓰기 함수를 CRM 모듈에 추가할 때 이 패턴(broad except + log-only)을 기본값으로 복붙하지 않도록, 리뷰 체크리스트에 "이 실패는 fail-open이 맞는가, retry_queue가 필요한가"를 명시적으로 묻는 항목을 추가한다.
+**예방:** (1) Lead 최초 생성처럼 "실패=이벤트 자체 소멸"인 지점부터 우선순위를 두어 `retry_queue` 연동을 순차 적용한다(이미 다른 모듈에 검증된 인프라를 재사용 — BUILD보다 REUSE). (2) 상태 갱신과 알림 발송을 같은 `try` 블록으로 묶어, 실패 시 알림도 함께 억제하거나 "실패" 알림으로 전환한다. (3) 새로운 쓰기 함수를 CRM 모듈에 추가할 때 이 패턴(broad except + log-only)을 기본값으로 복붙하지 않도록, 리뷰 체크리스트에 "이 실패는 fail-open이 맞는가, retry_queue가 필요한가"를 명시적으로 묻는 항목을 추가한다. (4) 코드 패턴만으로 Risk를 매기지 말고, 이번처럼 Runtime Caller·Import Chain·실제 로그까지 재검증해야 활성/잠재 사례를 구분할 수 있다는 점을 감사 절차에 포함한다.
 
-**관련:** ERR-080, ERR-085, ERR-086, ERR-087, ERR-088, FP-057
+**관련:** ERR-080, ERR-085, ERR-086, ERR-087, ERR-088, FP-057, FP-064
+
+---
+
+## FP-064 | 테스트 실행이 운영 error.log·app.log에 그대로 기록되어 Test Artifact와 Production Incident를 로그만으로 구분하기 어렵다
+
+**설명:** pytest 테스트 실행 중 발생시킨 mock 예외(예: `ConnectionError("timeout")`)가 실제 운영 로그 파일(`logs/error/error.log`, `logs/summary/app.log`)에 그대로 기록된다. 로거가 테스트 환경과 운영 환경을 구분하지 않고 동일한 파일 핸들러를 사용하기 때문이며, 인접 로그 줄에 `pytest-of-admin\pytest-176\...` 같은 pytest 임시 디렉터리 경로가 함께 남는 경우에만 Test Artifact임을 구분할 수 있다(그 흔적이 없으면 구분이 불가능하다).
+
+**근본 원인:** `modules/common/logger.py`(중앙 로거)가 테스트 실행 시에도 동일한 파일 핸들러를 그대로 사용하도록 설정돼 있어, 테스트 스위트가 실제로 파일에 쓰기 작업을 수행한다. 테스트/운영 로그 분리나 실행 출처 표시(예: `PYTEST_CURRENT_TEST` 환경변수 감지 후 태깅) 장치가 없다.
+
+**증상:** 운영 로그에서 특정 에러 문자열이 반복 발견되면 실제 Production Incident로 오판하기 쉽다 — 이번 ERR-087 최초 등록(260729)이 실제 사례로, `[Closer] CLOSE 처리 실패 | timeout` 16건을 실제 Runtime 결함으로 판단했으나 재검증 결과 pytest 실행의 부산물(Test Artifact)로 확인돼 False Positive였음이 드러났다.
+
+**예방:** (1) 테스트 실행 시 운영 로그 파일과 분리된 별도 로그 대상을 쓰도록 로거를 환경 감지형으로 개선한다(예: `PYTEST_CURRENT_TEST` 존재 시 다른 핸들러 사용). (2) 최소한 과도기적으로는, 로그 메시지에 실행 출처(pytest vs 실제 프로세스)를 태깅한다. (3) 운영 로그 기반 장애 감사 시, 에러 문자열만으로 결론 내리지 말고 인접 로그의 pytest 경로 흔적·Caller/Import Chain 재확인을 거치는 절차를 감사 표준에 포함한다.
+
+**관련:** ERR-087, FP-063
