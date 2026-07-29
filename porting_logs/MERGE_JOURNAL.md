@@ -1682,3 +1682,28 @@ commit: `09cae6f`~`9c2c99a`(코드·개별 문서) + 이 Closure 문서 4개 신
 push: 이 Closure 직후 실행(회장 승인)
 
 ---
+
+## [260729_저녁세션] 11단계 선행 Gate 4개 처리 → GPT Master Execution Directive → 10.5단계 착수
+
+**11단계 착수 전 선행 Gate 4개(회장 순서 지정, 전부 종료)**:
+1. **Persona Runtime 최소연결(PARTIAL)** — `dm_receiver.py`/`dm_auto_reply.py`/`ai_reply_generator.py` 3파일 optional 파라미터 배선(기본값 빈문자열, 기존동작 무변화). Airtable 조회·콘텐츠는 범위 밖. commit `c3e711d`/`e093d2d`.
+2. **account_email SSOT(RESOLVED)** — Runtime 편입 계정 2/2 회장 직접 확인, 코드 참조 0건으로 Blast Radius 0. commit `aad08e0`.
+3. **ERR-076 관측성(PARTIAL)** — http_4xx 실패 분기에 `creation_id`+Slack 알림 추가(기존 outcome_unknown 패턴 REUSE, Airtable Schema 미변경 — ERR-075/041 재발방지 원칙 준수). commit `987eec7`/`a6fcf4c`.
+4. **계정별 Kill Switch(설계 확정, 코드 미착수)** — Entry Point 8곳 매핑, `PublishAccount` TypedDict 직접확장(23파일 High Risk) 대신 옵션필드 서브타입 설계로 축소. DM·댓글·팔로업 라우팅은 HOLD 분리. commit `3b79e43`.
+
+**GPT Master Execution Directive 수용**: 11단계(다계정 확장) 실행 HOLD 유지, "10.5단계(필수 부품 조립·통합)"를 공식 우선순위로 신설. Assembly Inventory(15열, 31개 기능) 1차 작성 — GPT 감사가 P0 개수 오기(6개→실제 9개)를 지적해 번호나열+합계로 재확인(feedback_count_verification 재적용).
+
+**11단계 Scope 확정(회장 직접결정)**: IG 발행뿐 아니라 DM·댓글·팔로업까지 포함. 재집계 결과 P0 9개→13개(번호나열+합계 Confirmed). 핵심 신규 발견: **DM·댓글·팔로업 3곳 전부 단일 전역 `INSTA_ACCESS_TOKEN`만 사용**(코드 확인) — Kill Switch보다 훨씬 큰 신규 작업. 부모그룹 5개 재구성은 PROVISIONAL(GPT/회장 최종 확정 대기). commit `8a4ba60`.
+
+**WEBHOOK_APP_SECRET 안전검증**: `object="probe"` 최소 바디로 Business Logic 진입을 원천 차단하는 Boolean-only Canary를 `/webhook`·`/webhook/ai-strategist`에 실행 — 둘 다 200(현재 시점 라이브=`.env` 일치), Secret 원문 미출력. 원 불일치의 근본원인·`task_b24dbf54` 결론은 여전히 UNKNOWN. commit `f9c91cf`.
+
+**판정**: IN_PROGRESS — 선행 Gate 4개 종료, 10.5단계 착수했으나 Critical Path 최종 확정(§5 체크리스트 2단계)은 미완료. 11단계 실행은 여전히 미착수.
+
+**기록**: `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 신규 섹션, 상세 FACT/UNKNOWN/RISK 전부 기록) / `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§10-18/19 신설, §1/§6/§9 개별 항목 갱신) / `docs/ERROR_DATABASE.md`(ERR-076 PARTIAL 갱신) / 이 항목.
+
+**변경 파일**: `modules/dm/dm_receiver.py` / `modules/dm/dm_auto_reply.py` / `modules/dm/ai_reply_generator.py` / `launcher/main.py` / `tests/test_publish_outcome_unknown.py` + 문서 4개. Airtable Write 0건, Runtime Restart 0건.
+
+commit: `c3e711d`~`f9c91cf`(9개, 개별 목적 분리) + 이 인계 문서 갱신 신규 commit(다음)
+push: 세션 종료 처리 시점에 확인 필요
+
+---

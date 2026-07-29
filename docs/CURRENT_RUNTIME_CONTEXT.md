@@ -1,3 +1,43 @@
+# 2026-07-29 22:35 ICT — 세션 종료 인계: 10.5단계(필수 부품 조립·통합) 착수, 11단계 여전히 HOLD
+
+_기록 시각: 2026-07-29 22:35 ICT · 상태: **PARTIAL/IN_PROGRESS** — 10단계 Closed Gate 이후 11단계 착수 전 선행 Gate 4개를 오늘 전부 처리했고, 이어서 GPT Master Execution Directive로 "10.5단계(필수 부품 조립·통합)"가 공식 우선순위로 고정됐다. 11단계(다계정 확장) 실행은 계속 HOLD. 이 항목이 최신 상태이며, 아래 9단계 항목은 그 이전 기록으로 그대로 보존한다._
+
+## 판정
+IN_PROGRESS — 오늘 처리한 5개 작업(Persona/account_email/ERR-076/Kill Switch/WEBHOOK_APP_SECRET) 전부 종료됐으나, 10.5단계 자체는 아직 Close Gate(§5 체크리스트 11번) 도달 전이다.
+
+## 완료된 FACT(오늘, 260729 저녁 세션)
+- **Persona Runtime 최소연결(PARTIAL)**: `dm_receiver.py`→`dm_auto_reply.py`→`ai_reply_generator.py` 3파일에 `account_code_ref`/`tone_style`/`greeting_template`/`followup_template` optional 파라미터 배선(기본값 전부 빈 문자열, 기존 동작 100% 동일). Airtable Persona_Profile 조회 로직·콘텐츠 입력은 범위 밖. commit `c3e711d`/`e093d2d`.
+- **account_email SSOT(RESOLVED)**: Runtime 편입 계정 2/2(yuna18253/aijomoojin) 전부 회장 직접 확인, `modules/` 코드 참조 0건으로 Blast Radius 0 확정. commit `aad08e0`.
+- **ERR-076 관측성(PARTIAL)**: `publish_single()` http_4xx "명확한 실패" 분기에 `creation_id` 전파 + Slack 알림 확장(기존 outcome_unknown 패턴 재사용, Airtable Schema 변경 없음 — ERR-075/041 재발 방지). 근본 분류로직(폴링/error_subcode)은 Raw Evidence 부족으로 미착수. commit `987eec7`/`a6fcf4c`.
+- **계정별 Kill Switch(설계 확정, 코드 미착수)**: Entry Point 8곳 전수 매핑 — 계정별 라우팅이 실제로 살아있는 곳은 IG 발행(`_job_insta_upload`) 1곳뿐임을 확인. `PublishAccount` TypedDict 직접 확장(23개 참조파일 High Risk) 대신 옵션 필드 서브타입 설계(Blast Radius 0)로 축소. DM·댓글·팔로업 계정별 라우팅은 별도 HOLD로 분리. commit `3b79e43`.
+- **GPT Master Execution Directive 수용**: 11단계 실행 HOLD 유지, "10.5단계(필수 부품 조립·통합)"를 공식 우선순위로 고정. Assembly Inventory(15열 통합표, 31개 기능) 1차 작성 — 원본 P0 표기 오류(6개→실제 9개)를 GPT 감사가 지적, 번호나열+합계로 재확인. commit `8a4ba60`.
+- **11단계 Scope 확정(회장 직접결정, FACT)**: 3계정 Canary는 **IG 발행뿐 아니라 DM·댓글·팔로업까지 포함**한다. 이 결정으로 Critical Path(P0)가 9개→13개로 재집계됨(번호나열+합계로 Confirmed) — 핵심 신규 발견: **DM·댓글·팔로업이 전역 토큰(`INSTA_ACCESS_TOKEN`) 1개로만 도는 문제**가 Kill Switch보다 큰 신규 작업으로 드러남. 부모그룹 5개 재구성은 여전히 PROVISIONAL(Architecture 해석, GPT/회장 최종 확정 대기). commit `8a4ba60`(§10-19).
+- **WEBHOOK_APP_SECRET 안전검증(현재 시점 확인)**: `object="probe"` 최소 바디로 Business Logic 진입을 원천 차단하는 Boolean-only Canary를 살아있는 `/webhook`·`/webhook/ai-strategist`에 실행 — 둘 다 200(라이브 프로세스 값=현재 `.env` 값 일치), Secret 원문·서명값 미출력. 원래 불일치의 근본원인·시점·`task_b24dbf54` 조치 여부는 여전히 UNKNOWN. commit `f9c91cf`.
+
+## 남은 UNKNOWN
+- Critical Path 부모그룹 5개·"신규작업 2개(Kill Switch+DM/댓글/팔로업 라우팅)" 결론은 PROVISIONAL — GPT/회장의 §5 체크리스트 2단계(Critical Path 확정) 승인 전까지 SSOT로 취급하지 않는다.
+- `WEBHOOK_APP_SECRET` 원래 불일치의 근본원인·`task_b24dbf54` 세션 결론 — 이 저장소 안에서 확인 불가, 재발 방지책(재시작 누락 감지 등) 미착수.
+- Persona_Profile 실제 콘텐츠(tone/greeting/followup) 입력 담당·시점 미정.
+- FB 크롤링·Domeggook이 3계정별로 다른 콘텐츠를 받아야 하는지 — Scope 확정에서 명시적으로 다루지 않음, 재검토 표시만 해둔 상태.
+
+## RISK
+- DM·댓글·팔로업 계정별 라우팅(전역 토큰 → 계정별 분리) 미착수 상태로 11단계에 진입하면 다계정 DM 오응답·계정 혼선 위험이 실제로 발생한다 — Scope Gate 확정 후 확인된 가장 중요한 RISK.
+- WEBHOOK_APP_SECRET 일치 확인은 "지금 이 순간"의 스냅샷이며, `.env` 수정 후 재시작 누락 시 재발 가능(모니터링 메커니즘 없음).
+
+## 변경 파일(오늘 세션 전체)
+`modules/dm/dm_receiver.py` / `modules/dm/dm_auto_reply.py` / `modules/dm/ai_reply_generator.py` / `launcher/main.py` / `tests/test_publish_outcome_unknown.py` / `docs/WORKFLOW_ARCHITECTURE_STATUS.md` / `docs/ERROR_DATABASE.md` / `docs/CURRENT_RUNTIME_CONTEXT.md`(이 파일) — Airtable Write **0건**, Runtime Restart **0건**(WEBHOOK_APP_SECRET 검증은 기존 살아있는 프로세스에 읽기성 Canary 요청만 전송).
+
+## Commit·Push 상태
+오늘 세션 commit 9개: `c3e711d`/`e093d2d`/`aad08e0`/`987eec7`/`a6fcf4c`/`3b79e43`/`8a4ba60`(→ 여기까지 push 완료, `git push origin master` 실행됨) / `f9c91cf`(WEBHOOK_APP_SECRET) + 이 인계 문서 commit(다음) — **최신 2개는 세션 종료 처리 시점에 push 여부 확인 필요**.
+
+## 다음 정확한 단계
+10.5-2 **Critical Path 최종 확정** — PROVISIONAL 상태인 5개 부모그룹·신규작업 2개(Kill Switch/DM·댓글·팔로업 라우팅) 결론을 GPT가 감사하고 P0/P1/HOLD/DEFER를 승인 확정한 뒤에만 §5 체크리스트 3단계(Reuse·Buy·Build 결정)로 진행한다. **11단계 다계정 확장 실행은 여전히 착수하지 않는다.**
+
+## 다음 단계 승인 필요 여부
+필요 — Critical Path 확정은 GPT 감사 + 회장 승인 대상(이번 세션에서 반복된 패턴 그대로).
+
+---
+
 # 2026-07-29 13:35 ICT — 9단계(예외삼킴·데이터손실 감사) 완료 선언
 
 _기록 시각: 2026-07-29 13:35 ICT · 상태: **9단계 완료(회장 확정)** — 8단계 완료 직후 착수한 예외삼킴·데이터손실 감사 트랙을 종료한다. 이 "9단계"는 아래 §Source of Truth/§Runtime 상태와 무관하게 `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §1의 0~11단계 로드맵과는 별개 트랙이다(번호가 우연히 같을 뿐)._
