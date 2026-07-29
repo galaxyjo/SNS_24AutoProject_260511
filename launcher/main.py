@@ -174,6 +174,11 @@ def _job_auto_like():
     run_auto_like()
 
 
+class DomeCrawlAllTargetsFailedError(RuntimeError):
+    """이번 사이클의 도매꾹 타겟 전체가 실패했을 때 @handle_errors/Slack로 전달하기 위한
+    예외. 개별 타겟·아이템 실패는 재발생시키지 않는다(격리 목적) — 전체가 공쳤을 때만 사용."""
+
+
 @handle_errors(task="dome_crawl", notify_fn=_slack)
 def _job_dome_crawl():
     import os as _os
@@ -193,52 +198,67 @@ def _job_dome_crawl():
         return
 
     conn = DomeggookApiConnector()
+    failed_targets: list[str] = []
     for rec in targets:
         f = rec
-        target = {
-            "target_id":     f.get("target_id", ""),
-            "kw":            f.get("keyword", ""),
-            "category_code": f.get("category_code", ""),
-            "max_posts":     min(int(f.get("max_posts", 10)), 10),
-        }
-        items = conn.fetch(target)
-        gated = run_gate(items)
-        ready = [i for i in gated if i["quality_status"] == "READY"]
-        logger.info(f"[dome_crawl] {target['target_id']} fetch={len(items)} ready={len(ready)}")
+        target_id = f.get("target_id", "")
+        try:
+            target = {
+                "target_id":     target_id,
+                "kw":            f.get("keyword", ""),
+                "category_code": f.get("category_code", ""),
+                "max_posts":     min(int(f.get("max_posts", 10)), 10),
+            }
+            items = conn.fetch(target)
+            gated = run_gate(items)
+            ready = [i for i in gated if i["quality_status"] == "READY"]
+            logger.info(f"[dome_crawl] {target['target_id']} fetch={len(items)} ready={len(ready)}")
 
-        for item in ready:
-            payload = {k: v for k, v in {
-                "source_item_id":  item["source_item_id"],
-                "target_id":       target["target_id"],
-                "source_platform": item["source_platform"],
-                "source_url":      item.get("source_url") or None,
-                "title":           item["title"],
-                "unit_price":      item.get("unit_price"),
-                "currency":        item["currency"],
-                "min_order_qty":   item.get("min_order_qty"),
-                "image_url":       item.get("image_url") or None,
-                "seller_id":       item.get("seller_id") or None,
-                "category_code":   item.get("category_code") or None,
-                "keyword":         item.get("keyword") or None,
-                "content_hash":    item["content_hash"],
-                "quality_status":  item["quality_status"],
-                "filter_reason":   item.get("filter_reason", ""),
-                "collected_at":    item["collected_at"],
-                "pipeline_status": "NEW",
-            }.items() if v is not None}
+            for item in ready:
+                try:
+                    payload = {k: v for k, v in {
+                        "source_item_id":  item["source_item_id"],
+                        "target_id":       target["target_id"],
+                        "source_platform": item["source_platform"],
+                        "source_url":      item.get("source_url") or None,
+                        "title":           item["title"],
+                        "unit_price":      item.get("unit_price"),
+                        "currency":        item["currency"],
+                        "min_order_qty":   item.get("min_order_qty"),
+                        "image_url":       item.get("image_url") or None,
+                        "seller_id":       item.get("seller_id") or None,
+                        "category_code":   item.get("category_code") or None,
+                        "keyword":         item.get("keyword") or None,
+                        "content_hash":    item["content_hash"],
+                        "quality_status":  item["quality_status"],
+                        "filter_reason":   item.get("filter_reason", ""),
+                        "collected_at":    item["collected_at"],
+                        "pipeline_status": "NEW",
+                    }.items() if v is not None}
 
-            # Upsert: content_hash 기준 중복 확인 → 신규/변경 분기
-            existing_ref = repo.find_source_item_by_hash(item["content_hash"])
-            if existing_ref:
-                continue  # 동일 hash 존재 → SKIP
+                    # Upsert: content_hash 기준 중복 확인 → 신규/변경 분기
+                    existing_ref = repo.find_source_item_by_hash(item["content_hash"])
+                    if existing_ref:
+                        continue  # 동일 hash 존재 → SKIP
 
-            source_item = SourceItem(**{k: v for k, v in payload.items() if v is not None})
-            saved_id = repo.save_source_item(source_item)
-            if saved_id:
-                repo.update_source_item_status(
-                    saved_id,
-                    SourceItemStatus.NEW,
-                )
+                    source_item = SourceItem(**{k: v for k, v in payload.items() if v is not None})
+                    saved_id = repo.save_source_item(source_item)
+                    if saved_id:
+                        repo.update_source_item_status(
+                            saved_id,
+                            SourceItemStatus.NEW,
+                        )
+                except Exception as exc:
+                    logger.error(
+                        f"[dome_crawl] 아이템 저장 실패 | target={target_id} | "
+                        f"item={item.get('source_item_id', '')} | {exc}"
+                    )
+        except Exception as exc:
+            logger.error(f"[dome_crawl] 타겟 처리 실패 | target_id={target_id} | {exc}")
+            failed_targets.append(target_id)
+
+    if failed_targets and len(failed_targets) == len(targets):
+        raise DomeCrawlAllTargetsFailedError(f"전체 타겟 실패: {failed_targets}")
 
 
 @handle_errors(task="dome_export", notify_fn=_slack)
