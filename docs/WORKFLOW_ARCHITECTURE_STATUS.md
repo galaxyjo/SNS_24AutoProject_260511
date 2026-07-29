@@ -213,7 +213,7 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | P0-2 | 단계 1~5 공식 Evidence 문서 복구 | 완료(A단계, B단계 test_dm_close.py 수정도 260725 완료·commit `0da83b1`) |
 | **P0-SEC** | **Webhook `X-Hub-Signature-256` 서명 검증 여부 확인·구현(ERR-082)** | **RESOLVED — Runtime ADOPT·7단계 SUCCESS(260728, §10-11). AI/yuna 실제 DM 200, 양 Route Cross-secret 403, Business Logic 우회 0건. Signature 실패 경고 8건의 출처는 별도 HOLD** |
 | **P1-1** | **10-B Clean Measurement Baseline(테스트/실고객분리, 기준시점·계정키 확정)** | **8단계 완료(회장 확정, 260729 06:09 ICT)** — C1(Facebook Exact-Post Canary) Runtime SUCCESS(§10-13) + anchor-scan 오매칭 Gate RESOLVED(§10-14, ERR-084). Commit·Push는 회장 지시로 별도 보류 |
-| P1-2 | 데이터 유실 동일 패턴(예외삼킴) 표적 감사 | 미착수 — order_detector 외 경로 존재 여부 확인 필요 |
+| P1-2 | 데이터 유실 동일 패턴(예외삼킴) 표적 감사 | **RESOLVED — 9단계 감사로 흡수 완료(260729)**. ERR-085(dm_receiver)/086(lead_scorer)/087(lead_closer)/088(order_detector) 4개 경로 전부 확인·RESOLVED(§10-15) — order_detector 포함, 표에서 요구한 조사 범위 충족 |
 | P1-3 | fetch_candidate_phashes() Pagination | 미착수 |
 | P1-4(격리MVP) | 단계 6 격리 MVP 완성(Persona·Sourcebook 최소연결+Gate·Approval 통합검증) | 미착수(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
 | P2-1~3 | imgbb / ERR-076 자동복구 / account_email SSOT | 미착수(기존 Gate 그대로) |
