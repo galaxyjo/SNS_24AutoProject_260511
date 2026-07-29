@@ -315,3 +315,129 @@ def test_launcher_scheduler_passes_explicit_production_context():
         "target_publish_account_code_ref": "IDN-000041",
         "data_classification": "production",
     }
+
+
+class _FakeAccount:
+    """run_all_accounts() 테스트용 최소 Account 대역 — Selenium/AdsPower 무관."""
+
+    def __init__(self, name, crawl_urls):
+        self.name = name
+        self.crawl_urls = crawl_urls
+        self.adspower_user_id = "test_user"
+
+    def selenium_proxy_options(self):
+        return {}
+
+
+class TestRunAllAccountsFailureVisibility:
+    """9-10-3-A Defect A — URL 단위 실패가 계정 완료로 오인되지 않는지 검증.
+    (facebook_crawler.py::run_all_accounts()만 대상, run()/get_driver()/canary 경로는
+    monkeypatch로 완전히 격리해 건드리지 않는다.)"""
+
+    def test_all_urls_succeed_returns_success_status(self, monkeypatch, caplog):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        monkeypatch.setattr(
+            "modules.common.account_manager.get_active_accounts",
+            lambda: [_FakeAccount("acct1", ["url1", "url2"])],
+        )
+        monkeypatch.setattr(facebook_crawler, "run", lambda *a, **k: [{"x": 1}])
+        monkeypatch.setattr(facebook_crawler, "_validate_publish_context", lambda *a, **k: None)
+
+        with caplog.at_level("INFO"):
+            summary = facebook_crawler.run_all_accounts(
+                target_publish_account_code_ref="IDN-000041",
+                data_classification="production",
+            )
+
+        assert summary == {"acct1": 2}
+        assert any("status=SUCCESS" in r.message for r in caplog.records)
+
+    def test_partial_url_failure_keeps_successful_results_and_logs_partial(self, monkeypatch, caplog):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        monkeypatch.setattr(
+            "modules.common.account_manager.get_active_accounts",
+            lambda: [_FakeAccount("acct1", ["good", "bad"])],
+        )
+
+        def _fake_run(url, *a, **k):
+            if url == "bad":
+                raise RuntimeError("boom")
+            return [{"x": 1}]
+
+        monkeypatch.setattr(facebook_crawler, "run", _fake_run)
+        monkeypatch.setattr(facebook_crawler, "_validate_publish_context", lambda *a, **k: None)
+
+        with caplog.at_level("INFO"):
+            summary = facebook_crawler.run_all_accounts(
+                target_publish_account_code_ref="IDN-000041",
+                data_classification="production",
+            )
+
+        assert summary == {"acct1": 1}
+        assert any("status=PARTIAL" in r.message for r in caplog.records)
+        assert any("크롤링 실패" in r.message and "url=bad" in r.message for r in caplog.records)
+
+    def test_all_urls_fail_raises_and_reports_no_success(self, monkeypatch, caplog):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        monkeypatch.setattr(
+            "modules.common.account_manager.get_active_accounts",
+            lambda: [_FakeAccount("acct1", ["bad1", "bad2"])],
+        )
+        monkeypatch.setattr(
+            facebook_crawler, "run",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        monkeypatch.setattr(facebook_crawler, "_validate_publish_context", lambda *a, **k: None)
+
+        with caplog.at_level("INFO"):
+            with pytest.raises(facebook_crawler.FacebookCrawlAllTargetsFailedError):
+                facebook_crawler.run_all_accounts(
+                    target_publish_account_code_ref="IDN-000041",
+                    data_classification="production",
+                )
+
+        assert any("status=FAILED" in r.message for r in caplog.records)
+        assert not any("status=SUCCESS" in r.message for r in caplog.records)
+
+    def test_no_crawl_urls_uses_existing_skip_contract(self, monkeypatch, caplog):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        monkeypatch.setattr(
+            "modules.common.account_manager.get_active_accounts",
+            lambda: [_FakeAccount("acct1", [])],
+        )
+        monkeypatch.setattr(facebook_crawler, "_validate_publish_context", lambda *a, **k: None)
+
+        with caplog.at_level("WARNING"):
+            summary = facebook_crawler.run_all_accounts(
+                target_publish_account_code_ref="IDN-000041",
+                data_classification="production",
+            )
+
+        assert summary == {}
+        assert any("crawl_urls 없음" in r.message for r in caplog.records)
+
+    def test_new_aggregate_logs_contain_no_credential_or_token_patterns(self, monkeypatch, caplog):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        monkeypatch.setattr(
+            "modules.common.account_manager.get_active_accounts",
+            lambda: [_FakeAccount("acct1", ["good", "bad"])],
+        )
+
+        def _fake_run(url, *a, **k):
+            if url == "bad":
+                raise RuntimeError("network error")
+            return [{"x": 1}]
+
+        monkeypatch.setattr(facebook_crawler, "run", _fake_run)
+        monkeypatch.setattr(facebook_crawler, "_validate_publish_context", lambda *a, **k: None)
+
+        with caplog.at_level("INFO"):
+            facebook_crawler.run_all_accounts(
+                target_publish_account_code_ref="IDN-000041",
+                data_classification="production",
+            )
+
+        partial_lines = [r.message for r in caplog.records if "status=PARTIAL" in r.message]
+        assert partial_lines
+        for line in partial_lines:
+            assert "EAA" not in line and "IGAA" not in line and "access_token" not in line.lower()

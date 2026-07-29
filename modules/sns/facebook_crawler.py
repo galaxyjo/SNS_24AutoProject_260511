@@ -730,6 +730,12 @@ def run(
             logger.warning(f"[CLEANUP] lock release 실패 | {exc}")
 
 
+class FacebookCrawlAllTargetsFailedError(RuntimeError):
+    """계정의 crawl_urls 전체가 이번 사이클에서 실패했을 때 Job 레벨(handle_errors/Slack)로
+    전달하기 위한 예외. 개별 URL 실패 자체는 재발생시키지 않는다(부분 실패는 다음 30분
+    사이클의 자연 재시도로 흡수) — 모든 URL이 실패해 계정이 완전히 공쳤을 때만 사용한다."""
+
+
 def run_all_accounts(
     max_posts=MAX_POSTS,
     *,
@@ -745,12 +751,15 @@ def run_all_accounts(
         canary_run_id,
     )
     summary = {}
+    fully_failed_accounts: list[str] = []
     for acct in get_active_accounts():
         if not acct.crawl_urls:
             logger.warning(f"[FB Crawler] crawl_urls 없음 — skip | account={acct.name}")
             continue
         acct_results = []
         proxy_opts = acct.selenium_proxy_options()
+        total_urls = len(acct.crawl_urls)
+        failed_urls: list[str] = []
         for url in acct.crawl_urls:
             try:
                 acct_results.extend(run(
@@ -764,6 +773,25 @@ def run_all_accounts(
                 ))
             except Exception as exc:
                 logger.error(f"[FB Crawler] 크롤링 실패 | account={acct.name} | url={url} | {exc}")
+                failed_urls.append(url)
         summary[acct.name] = len(acct_results)
-        logger.info(f"[FB Crawler] 계정 완료 | account={acct.name} | {len(acct_results)}개")
+
+        if not failed_urls:
+            logger.info(f"[FB Crawler] 계정 완료 | account={acct.name} | status=SUCCESS | {len(acct_results)}개")
+        elif len(failed_urls) < total_urls:
+            logger.warning(
+                f"[FB Crawler] 계정 부분완료 | account={acct.name} | status=PARTIAL | "
+                f"성공={total_urls - len(failed_urls)}/{total_urls} | 실패 URL={len(failed_urls)}건"
+            )
+        else:
+            logger.error(
+                f"[FB Crawler] 계정 전체실패 | account={acct.name} | status=FAILED | "
+                f"실패 URL={len(failed_urls)}/{total_urls}건"
+            )
+            fully_failed_accounts.append(acct.name)
+
+    if fully_failed_accounts:
+        raise FacebookCrawlAllTargetsFailedError(
+            f"전체 URL 실패 계정: {fully_failed_accounts}"
+        )
     return summary
