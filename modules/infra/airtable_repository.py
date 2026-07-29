@@ -241,43 +241,53 @@ class AirtableRepository(RepositoryInterface):
     # ── 4. 활성 크롤 대상 조회 ────────────────────────────────────────────────
 
     def fetch_active_crawl_targets(self) -> list[CrawlTarget]:
-        try:
-            r = requests.get(
-                _url("Crawl_Targets"),
-                headers=_headers(),
-                params={
-                    "filterByFormula": "AND({status}='Active', NOT({collection_purpose}='training'))",
-                    "fields[0]": "target_url",
-                    "fields[1]": "platform",
-                    "fields[2]": "target_id",
-                    "fields[3]": "keyword",
-                    "fields[4]": "category_code",
-                    "fields[5]": "max_posts",
-                    "pageSize": 100,
-                },
-                timeout=_TIMEOUT,
-            )
-            r.raise_for_status()
-            log_api_call("Crawl_Targets", "GET")
-        except requests.HTTPError as e:
-            _raise(e, "Crawl_Targets")
-        except requests.RequestException as e:
-            raise RepositoryUnavailableError(str(e)) from e
-
+        """Crawl_Targets 전체 레코드 반환(전체 페이지 순회, P1-3/ERR-078과 동일 클래스)."""
         result: list[CrawlTarget] = []
-        for rec in r.json().get("records", []):
-            f = rec.get("fields", {})
-            if f.get("target_url"):
-                result.append(
-                    CrawlTarget(
-                        target_url=f["target_url"],
-                        platform=f.get("platform", "facebook"),
-                        target_id=f.get("target_id", ""),
-                        keyword=f.get("keyword", ""),
-                        category_code=f.get("category_code", ""),
-                        max_posts=int(f.get("max_posts", 10)),
-                    )
+        offset = None
+        while True:
+            params = {
+                "filterByFormula": "AND({status}='Active', NOT({collection_purpose}='training'))",
+                "fields[0]": "target_url",
+                "fields[1]": "platform",
+                "fields[2]": "target_id",
+                "fields[3]": "keyword",
+                "fields[4]": "category_code",
+                "fields[5]": "max_posts",
+                "pageSize": 100,
+            }
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(
+                    _url("Crawl_Targets"),
+                    headers=_headers(),
+                    params=params,
+                    timeout=_TIMEOUT,
                 )
+                r.raise_for_status()
+                log_api_call("Crawl_Targets", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Crawl_Targets")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+
+            data = r.json()
+            for rec in data.get("records", []):
+                f = rec.get("fields", {})
+                if f.get("target_url"):
+                    result.append(
+                        CrawlTarget(
+                            target_url=f["target_url"],
+                            platform=f.get("platform", "facebook"),
+                            target_id=f.get("target_id", ""),
+                            keyword=f.get("keyword", ""),
+                            category_code=f.get("category_code", ""),
+                            max_posts=int(f.get("max_posts", 10)),
+                        )
+                    )
+            offset = data.get("offset")
+            if not offset:
+                break
         return result
 
     # ── 4-1. 학습용(training) 크롤 대상 조회 ─────────────────────────────────

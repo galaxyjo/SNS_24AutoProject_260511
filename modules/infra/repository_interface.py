@@ -254,7 +254,7 @@ class RepositoryInterface(ABC):
 
     @abstractmethod
     def fetch_active_crawl_targets(self) -> list[CrawlTarget]:
-        """활성 크롤 대상 URL 목록 반환 (collection_purpose='training'인 대상은 제외 — 운영 자동게시 파이프라인 전용)."""
+        """활성 크롤 대상 URL 목록 반환(전체 페이지 순회). collection_purpose='training'인 대상은 제외 — 운영 자동게시 파이프라인 전용."""
 
     @abstractmethod
     def fetch_active_training_targets(self, platform: str) -> list[CrawlTarget]:

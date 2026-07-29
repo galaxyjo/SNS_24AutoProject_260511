@@ -127,3 +127,55 @@ class TestListBlockedSuppliersPagination:
         with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2, page3]):
             result = AirtableRepository().list_blocked_suppliers()
             assert len(result) == 210
+
+
+class TestFetchActiveCrawlTargetsPagination:
+    def test_single_page_no_offset(self):
+        page = _page_response([{"id": "rec1", "fields": {"target_url": "u1", "platform": "facebook"}}])
+        with patch("modules.infra.airtable_repository.requests.get", return_value=page) as mock_get:
+            result = AirtableRepository().fetch_active_crawl_targets()
+            assert len(result) == 1
+            assert result[0]["target_url"] == "u1"
+            assert mock_get.call_count == 1
+
+    def test_two_pages_follows_offset_and_aggregates_all_records(self):
+        page1 = _page_response(
+            [{"id": "rec1", "fields": {"target_url": "u1", "platform": "facebook"}}], offset="pageCursor1"
+        )
+        page2 = _page_response([{"id": "rec2", "fields": {"target_url": "u2", "platform": "domeggook"}}])
+        with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2]) as mock_get:
+            result = AirtableRepository().fetch_active_crawl_targets()
+            assert [r["target_url"] for r in result] == ["u1", "u2"]
+            assert mock_get.call_count == 2
+            second_call_params = mock_get.call_args_list[1].kwargs["params"]
+            assert second_call_params["offset"] == "pageCursor1"
+
+    def test_filter_by_formula_preserved_across_all_pages(self):
+        page1 = _page_response(
+            [{"id": "rec1", "fields": {"target_url": "u1", "platform": "facebook"}}], offset="cursorA"
+        )
+        page2 = _page_response([{"id": "rec2", "fields": {"target_url": "u2", "platform": "facebook"}}])
+        with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2]) as mock_get:
+            AirtableRepository().fetch_active_crawl_targets()
+            for call in mock_get.call_args_list:
+                assert call.kwargs["params"]["filterByFormula"] == (
+                    "AND({status}='Active', NOT({collection_purpose}='training'))"
+                )
+
+    def test_three_pages_210_records_none_dropped(self):
+        page1 = _page_response(
+            [{"id": f"rec{i}", "fields": {"target_url": f"u{i}", "platform": "facebook"}} for i in range(100)],
+            offset="cursorA",
+        )
+        page2 = _page_response(
+            [{"id": f"rec{i}", "fields": {"target_url": f"u{i}", "platform": "facebook"}}
+             for i in range(100, 200)],
+            offset="cursorB",
+        )
+        page3 = _page_response(
+            [{"id": f"rec{i}", "fields": {"target_url": f"u{i}", "platform": "facebook"}}
+             for i in range(200, 210)]
+        )
+        with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2, page3]):
+            result = AirtableRepository().fetch_active_crawl_targets()
+            assert len(result) == 210
