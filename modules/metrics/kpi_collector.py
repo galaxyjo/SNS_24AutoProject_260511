@@ -54,6 +54,8 @@ def _utc_start(period: str) -> str | None:
 # ── Airtable 조회 ─────────────────────────────────────────────────────────────
 
 def _fetch_leads(start: str | None) -> list[dict]:
+    """하위호환 유지용(조회 실패 시 빈 리스트) — 신규 코드는 collect_kpi() 내부의
+    _fetch_leads_or_raise()를 통해 실패와 진짜 0건을 구분해서 처리한다."""
     try:
         repo = AirtableRepository()
         return repo.fetch_all_lead_interactions(since_utc=start)
@@ -63,12 +65,26 @@ def _fetch_leads(start: str | None) -> list[dict]:
 
 
 def _fetch_posts() -> list[dict]:
+    """하위호환 유지용(조회 실패 시 빈 리스트) — 신규 코드는 collect_kpi() 내부의
+    _fetch_posts_or_raise()를 통해 실패와 진짜 0건을 구분해서 처리한다."""
     try:
         repo = AirtableRepository()
         return repo.fetch_all_instagram_posts()
     except Exception as exc:
         logger.error(f"[KPI] Instagram_Posts 조회 실패 | {exc}")
         return []
+
+
+def _fetch_leads_or_raise(start: str | None) -> list[dict]:
+    """collect_kpi() 전용 — 조회 실패를 삼키지 않는다(진짜 0건과 구분하기 위함)."""
+    repo = AirtableRepository()
+    return repo.fetch_all_lead_interactions(since_utc=start)
+
+
+def _fetch_posts_or_raise() -> list[dict]:
+    """collect_kpi() 전용 — 조회 실패를 삼키지 않는다(진짜 0건과 구분하기 위함)."""
+    repo = AirtableRepository()
+    return repo.fetch_all_instagram_posts()
 
 
 # ── 개별 지표 계산 ────────────────────────────────────────────────────────────
@@ -142,8 +158,21 @@ def collect_kpi(period: str = "today") -> dict:
     반환: {period, collected_at, upload, lead, followup, comment, queue}
     """
     start = _utc_start(period)
-    posts = _fetch_posts()
-    leads = _fetch_leads(start)
+
+    fetch_errors: list[str] = []
+    try:
+        posts = _fetch_posts_or_raise()
+    except Exception as exc:
+        logger.error(f"[KPI] Instagram_Posts 조회 실패 | {exc}")
+        posts = []
+        fetch_errors.append("upload")
+
+    try:
+        leads = _fetch_leads_or_raise(start)
+    except Exception as exc:
+        logger.error(f"[KPI] Lead_Interactions 조회 실패 | {exc}")
+        leads = []
+        fetch_errors.append("lead")
 
     result = {
         "period":       period,
@@ -153,6 +182,10 @@ def collect_kpi(period: str = "today") -> dict:
         "followup":     _followup_stats(leads),
         "comment":      _comment_stats(leads),
         "queue":        _queue_stats(),
+        # 이 항목이 있으면 위 upload/lead/followup/comment 중 해당 조회가 실패해서
+        # "진짜 0건"이 아니라 "조회 실패로 인한 0건"일 수 있다는 신호 — 빈 리스트로
+        # 뭉뚱그려지던 걸 collect_kpi() 레벨에서 구분해 SQLite 스냅샷에도 남긴다.
+        "fetch_errors": fetch_errors,
     }
     logger.info(
         f"[KPI] 수집 완료 | period={period} | "
