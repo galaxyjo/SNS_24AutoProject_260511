@@ -237,6 +237,7 @@ def handle_price_inquiry(
     sender_igsid: str,
     inquiry_text: str,
     received_at: datetime,
+    account_code_ref: str = "",
 ) -> None:
     """단가 문의 감지 → 10% 마진 가격으로 자동 응답 → Lead 업데이트 → 팔로업 예약 → Telegram 알림."""
     if _has_recent_auto_replied(sender_igsid, minutes=3):
@@ -274,7 +275,7 @@ def handle_price_inquiry(
         try:
             from modules.dm.ai_reply_generator import generate_reply
             reply_msg = generate_reply(inquiry_text, base_price, MARGIN_RATE)
-            logger.info("[AutoReply] AI 응답 생성 사용")
+            logger.info(f"[AutoReply] AI 응답 생성 사용 | account_code_ref={account_code_ref or 'unknown'}")
         except Exception as exc:
             logger.warning(f"[AutoReply] AI 응답 실패 — 템플릿 폴백 | {exc}")
             reply_msg = REPLY_TEMPLATE.format(price=reply_price)

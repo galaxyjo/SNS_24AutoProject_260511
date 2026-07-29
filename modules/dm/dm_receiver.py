@@ -355,7 +355,7 @@ def _process_webhook_event(data: dict):
             elif detect_price_inquiry(text):
                 logger.info(f"[AutoReply] 단가 문의 감지 | from={sender_id}")
                 try:
-                    handle_price_inquiry(record_id, sender_id, text, received_at)
+                    handle_price_inquiry(record_id, sender_id, text, received_at, account_code_ref=account_code_ref)
                 except Exception as exc:
                     logger.error(f"[AutoReply] 처리 실패 | sender_id={sender_id} | {exc}")
 

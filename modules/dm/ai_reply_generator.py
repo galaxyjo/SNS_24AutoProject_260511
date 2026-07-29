@@ -57,8 +57,15 @@ def generate_reply(
     user_message: str,
     base_price: float,
     margin_rate: float = 0.10,
+    tone_style: str = "",
+    greeting_template: str = "",
+    followup_template: str = "",
 ) -> str:
-    """Gemini로 개인화된 DM 응답 생성. 실패 시 템플릿 폴백."""
+    """Gemini로 개인화된 DM 응답 생성. 실패 시 템플릿 폴백.
+
+    tone_style/greeting_template/followup_template은 Persona_Profile 연결 전까지
+    항상 빈 문자열로 호출되며, 그 경우 기존 프롬프트와 100% 동일하게 동작한다.
+    """
     reply_price = round(base_price * (1 + margin_rate))
 
     api_key = os.getenv("GEMINI_API_KEY", "")
@@ -70,6 +77,12 @@ def generate_reply(
         price=reply_price,
         margin_pct=int(margin_rate * 100),
     )
+    if tone_style:
+        system += f"\n\n말투: {tone_style}"
+    if greeting_template:
+        system += f"\n인사말 참고: {greeting_template}"
+    if followup_template:
+        system += f"\n팔로업 참고: {followup_template}"
     prompt = f"{system}\n\n고객 메시지:\n{user_message[:500]}\n\n응답:"
 
     global _client
