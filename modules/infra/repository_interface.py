@@ -258,7 +258,7 @@ class RepositoryInterface(ABC):
 
     @abstractmethod
     def fetch_active_training_targets(self, platform: str) -> list[CrawlTarget]:
-        """collection_purpose='training' 인 활성 크롤 대상만 반환 (사람 리뷰 큐 전용, Instagram_Posts로 가지 않음)."""
+        """collection_purpose='training' 인 활성 크롤 대상만 반환(전체 페이지 순회). 사람 리뷰 큐 전용, Instagram_Posts로 가지 않음."""
 
     @abstractmethod
     def find_source_item_by_hash(self, content_hash: str) -> SourceItemRef | None:
