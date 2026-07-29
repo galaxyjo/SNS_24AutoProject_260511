@@ -17,7 +17,7 @@
 | 3 | 실제 Gap 추출 | 완료(재구성) | 아래 §7 |
 | 4 | Build·Reuse·Buy 결정 | 완료 | 아래 §6, 12개 항목 전문(260725 GPT 정정 반영 최종판) |
 | 5 | 최소 Architecture 확정 | 부분완료 | 아래 §5-5 |
-| 6 | 격리 MVP 구현 | 부분완료 | Final Quality Gate·Approval Action: 구현·테스트 완료, Runtime 비활성. Persona·Sourcebook: 최소 Runtime 연결 필요(미완료), 전체 고도화만 DEFER — "완료"와 "DEFER"를 동일 항목에 중복 표기하지 않음 |
+| 6 | 격리 MVP 구현 | **완료(260729, §10-17)** | Final Quality Gate: 실게시 1건+차단 1건 Runtime Evidence로 활성 확정. Approval Action: 실측 검증 완료 후 회장 결정으로 비활성 유지(보존, §10-16). **Persona·Sourcebook 최소연결 둘 다 260729 재분류로 6단계 완료 요건에서 제외** — Persona는 11단계 착수 직전 선행과제(§6 항목1), Sourcebook은 11단계 이후 실제 콘텐츠 자동화 수요 발생 시 착수(§6 항목2, HOLD/DEFER) — 전체 고도화만 DEFER 원칙은 유지 |
 | 7 | Live E2E 사전 Gate | 완료 | Token 교체(ERR-077/079) 완료, 확장 전 Gate 3개(imgbb/ERR-076/account_email) 잔존 |
 | 8 | 1계정 E2E Canary | 완료 | yuna18253 실제 게시 성공 |
 | 9 | 2계정 재현 Test | 완료 | yuna18253+aijomoojin 독립 게시, 중복게시 0건 |
@@ -159,9 +159,9 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 
 | # | 기능 | 결정 | 근거 | 기존 자산 | 최소 추가 범위 | 위험 |
 |--:|---|---|---|---|---|---|
-| 1 | Persona Runtime 연결 | REUSE+BUILD(최소) | `ai_reply_generator.generate_reply()`에 계정/페르소나 파라미터 자체 없음(코드 확인), 전 계정 동일 톤 사용 중 | `Persona_Profile`(persona_role/mbti_type/tone_style/greeting_template/followup_template) | ①`account_code_ref`→`persona_code` lookup ②`generate_reply()`에 톤/템플릿 파라미터 추가(Import Chain: `dm_auto_reply.py`→`ai_reply_generator.py` 2파일만) | 페르소나 1개뿐이라 "다르게 응답"이 검증 안 됨 |
-| 2 | Sourcebook Runtime 연결 | BUILD(최소 구조화 권장) | (a)마크다운 원문 파싱: 문서 포맷 변경 시 파서 깨짐, 원 문서가 "Runtime Evidence Document: NO"로 설계돼 원 설계의도 위반. (b)핵심원칙 구조화 추출: 파서 불필요, 문서 변경에 안 깨짐 — **(b) 권장** | `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`(원문 유지) | 핵심 5~10줄만 추출해 상수/설정으로 캡션·DM 프롬프트에 포함 | 로드맵에서 완전히 빼려면 별도 Scope 변경 승인 필요, 임의 제외 금지 |
-| 3 | Final Quality Gate | REUSE(구현·테스트 완료, Runtime 비활성) | `PUBLISH_TEXT_GATE_ENABLED` 코드(`launcher/main.py:390`)+테스트(`test_publish_gate_and_approval.py` 7 passed) 존재, `.env` 미설정으로 꺼짐. 이미지 검수는 pytesseract 미설치로 범위 밖(260724 결정) | `content_filter.passes_keyword_filter()` | 텍스트 Gate 활성화 전 실게시 1건 검증(플래그 변경은 별도 승인) | 이미지 검수 부재를 "완료"로 착각 금지 |
+| 1 | Persona Runtime 연결 | **HOLD/DEFER — 11단계 착수 직전 선행과제(260729 재분류)** | `ai_reply_generator.generate_reply()`에 계정/페르소나 파라미터 자체 없음(코드 확인), `Account_Registry`↔`Persona_Profile` 연결 0건, `Persona_Profile` 유일 레코드도 tone/greeting/followup 공란(260729 Read-only 재확인). 필수 시점은 "3계정 Canary(11단계) 전"으로 이미 문서화(§2 정정표기)되어 있었으나 11단계 확장 Gate 목록(imgbb/ERR-076/account_email/계정별Kill Switch)엔 원래 없었음 — P1-4/6단계 완료 요건은 아님 | `Persona_Profile`(persona_role/mbti_type/tone_style/greeting_template/followup_template) | 지금은 착수하지 않음 — ①`account_code_ref`→`persona_code` lookup ②`generate_reply()`에 톤/템플릿 파라미터 추가(2파일) 최소범위는 11단계 착수 직전 재검토 | `PRICE_AUTO_REPLY_ENABLED=false`로 지금 만들어도 Runtime 효과 0(YAGNI) — 11단계 자체가 Persona와 무관한 다른 4개 Gate로 이미 보류 중이라 선행 개발 실익 없음 |
+| 2 | Sourcebook Runtime 연결 | **HOLD/DEFER — 11단계 이후 실제 콘텐츠 자동화 수요 발생 시(260729 재분류)** | 260729 Read-only 재확인: 이 문서(`Document Purpose: AI·창업자 대상 콘텐츠`, `Runtime Evidence Document: NO`)는 현재 유일한 자동 캡션 생성기(`caption_generator.py`, 한국 도매 쇼핑몰 상품 캡션용)와 콘텐츠 도메인이 완전히 다름 — 연결할 기존 자동화 대상 자체가 없어 REUSE 불가. `aijomoojin`(AI Strategist) 계정이 이 콘텐츠의 실제 대상이며 해당 소스코드 계획은 회장이 별도 보관 중, 착수 시점은 미정 | `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`(원문 유지, 삭제 아님) | 지금은 착수하지 않음 — `aijomoojin` 콘텐츠 자동화 착수 시점에 재검토 | 로드맵에서 완전히 빼는 것이 아니라 착수 시점만 뒤로 이동, 문서 원본은 그대로 보존 |
+| 3 | Final Quality Gate | **REUSE — 실측 완료, Runtime 활성 확정(260729, §10-17)** | `PUBLISH_TEXT_GATE_ENABLED=true` 실전환 후 정상 캡션 1건 실게시(`ig_media_id=17899894974532157`, 이후 회장 지시로 Graph API 직접 삭제)+오염 캡션(`coslife`) 1건 `rejected` 차단을 Runtime Evidence로 확인. 이미지 검수는 pytesseract 미설치로 범위 밖(260724 결정, 여전히 유효) | `content_filter.passes_keyword_filter()`(크롤 시점에도 이미 실사용 중인 동일 함수 재사용) | 완료 — 추가 조치 없음 | 이미지 검수 부재는 여전함("완료"로 착각 금지, 텍스트 Gate만 검증됨) |
 | 4 | Approval Action | **회장 결정(260729): 비활성 유지, 코드 보존** | `REQUIRE_APPROVAL_BEFORE_PUBLISH` 실측 결과 코드·Airtable Schema 전부 정상 작동 확인(§10-16) — 그러나 회장이 "완전자동화 우선, 게시 전 승인 불필요, 문제되는 것만 사후 조치" 방침을 명시적으로 확정해 다시 잠재움(`.env` 주석 처리, 값 보존) | `Instagram_Posts.post_status`(draft/ready, 이미 Schema 존재) | 재사용 원하면 `.env`의 `# REQUIRE_APPROVAL_BEFORE_PUBLISH=true` 주석만 해제 | 승인 경로 자체는 Airtable UI 직접 사용(0개발)으로 이미 검증 완료 — 재활성화 시 추가 개발 불필요 |
 | 5 | 계정별 Kill Switch | BUILD(후보, 착수 전 선행조사 필수) | `Account_Registry.automation_enabled` 필드 존재하나 코드 0참조(사문화). `account_manager.get_active_accounts()`(accounts.json 기반)는 크롤링 전용, `launcher/main.py` 미사용 확인 | 없음(사문화 필드만) | 착수 전 필요: ①DM·댓글·팔로업 웹훅 포함 전체 Entry Point 매핑 ②Import Chain ③Rollback 방법 ④Success Criteria | Blast Radius UNKNOWN — 매핑 전 착수 금지 |
 | 6 | Retry·Fail-closed | REUSE+BUILD(최소) | `retry_queue.py`는 `ig_auto_reply`/`ig_followup`/댓글payload에 연동 중(dead=20건 실측), `order_detector.handle_order_conversion()`은 미연동(ERR-080 원인의 일부) | `modules/common/retry_queue.py`(범용, 검증됨) | 예외를 삼키는 나머지 경로(order_detector 포함)에 동일 패턴 연결 — 표적 감사(P1-2) 먼저 필요 | 감사 없이 넓게 고치면 범위 폭주 위험 |
@@ -215,7 +215,7 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | **P1-1** | **10-B Clean Measurement Baseline(테스트/실고객분리, 기준시점·계정키 확정)** | **8단계 완료(회장 확정, 260729 06:09 ICT)** — C1(Facebook Exact-Post Canary) Runtime SUCCESS(§10-13) + anchor-scan 오매칭 Gate RESOLVED(§10-14, ERR-084). Commit·Push는 회장 지시로 별도 보류 |
 | P1-2 | 데이터 유실 동일 패턴(예외삼킴) 표적 감사 | **RESOLVED — 9단계 감사로 흡수 완료(260729)**. ERR-085(dm_receiver)/086(lead_scorer)/087(lead_closer)/088(order_detector) 4개 경로 전부 확인·RESOLVED(§10-15) — order_detector 포함, 표에서 요구한 조사 범위 충족 |
 | P1-3 | fetch_candidate_phashes() Pagination | **RESOLVED — 4개 Canary 전부 완료(260729)**. 실제 전수 Inventory 결과 원문 대상 외 3개 추가 발견(`list_blocked_suppliers`/`fetch_active_crawl_targets`/`fetch_active_training_targets`) — ERR-078과 동일 결함 클래스(offset 미순회) 전부 재현 후 REUSE 패턴으로 수정. commit `598562d`(#1)/`e2cebac`(#2)/`4202d46`(#3)/`0c62f34`(#4, 원문 대상 — Caller 0건이나 일관성 위해 수정). mock reconciliation 4/4 250/250 전환, 신규 회귀 22/22 PASS. GPT 최종 감사 전, Push 미실행 |
-| P1-4(격리MVP) | 단계 6 격리 MVP 완성(Persona·Sourcebook 최소연결+Gate·Approval 통합검증) | **부분진행(260729)** — 1순위 Approval Action 실측·검증 완료 후 회장 결정으로 비활성 유지(§6 항목4, §10-16). Persona·Sourcebook·Final Quality Gate는 착수 전(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
+| P1-4(격리MVP) | 단계 6 격리 MVP 완성(Approval Action + Final Quality Gate) | **완료(260729, §10-16·§10-17)** — Approval Action: 실측 검증 완료 후 회장 결정으로 비활성 유지(보존). Final Quality Gate: 실게시 1건+차단 1건 Runtime Evidence로 활성 확정. **Persona·Sourcebook은 260729 Scope 변경으로 P1-4 종료 범위에서 제외**(Persona: 11단계 착수 직전 선행과제, §6 항목1 / Sourcebook: 11단계 이후 콘텐츠 자동화 수요 발생 시, §6 항목2 — 둘 다 HOLD/DEFER, 삭제 아님)(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
 | P2-1~3 | imgbb / ERR-076 자동복구 / account_email SSOT | 미착수(기존 Gate 그대로) |
 | P3 | Token 매뉴얼 갱신(장기교환 단계 추가) | 미착수 |
 
@@ -485,5 +485,39 @@ push: 이 Closure 직후 실행
 **변경 파일(코드 추적 대상)**: 없음(`.env` 변경만, git 미추적) — 문서 갱신만 커밋 대상.
 
 **기록**: `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§6 항목4, §9 P1-4행, 이 섹션) — 이 항목.
+
+---
+
+### 10-17. P1-4 Persona·Sourcebook HOLD/DEFER 재분류 + Final Quality Gate 실측 완료(260729)
+
+**Persona·Sourcebook 재분류**: GPT 감사 결과에 따라 두 항목 모두 P1-4 종료 범위에서 제외했다. Persona는 Read-only 재확인 결과 코드 Caller 0건·`Account_Registry`↔`Persona_Profile` 연결 0건·유일 레코드(`PER-001`)도 tone/greeting/followup 공란임을 확인 — 필수 시점이 "11단계 착수 직전"으로 이미 문서화(§2)돼 있었을 뿐 P1-4 자체의 요건은 아니었다. Sourcebook은 원문 자체가 `Runtime Evidence Document: NO`로 설계된 **사람이 직접 쓰는 콘텐츠 제작 참고자료**(창업문화 교육 콘텐츠, `aijomoojin` 계정용)이며, 현재 유일한 자동 캡션 생성기(`caption_generator.py`, 도매 화장품 상품용)와 콘텐츠 도메인이 완전히 달라 연결할 자동화 대상 자체가 없음을 확인 — 회장이 `aijomoojin` 콘텐츠 자동화 소스코드는 별도 보관 중이며 착수 시점 미정이라 확인, 11단계 이후 실제 수요 발생 시로 DEFER 확정. 둘 다 코드/문서 삭제 없이 보존, §1 6단계행·§6 항목1·2·§9 P1-4행 갱신 완료.
+
+**Final Quality Gate 실측(SUCCESS)**: `PUBLISH_TEXT_GATE_ENABLED` 코드 Caller/Import Chain 확인(`launcher/main.py:53,455-461` → `_job_insta_upload()`, 5분 간격 스케줄 잡) — `passes_keyword_filter()`는 신규 로직이 아니라 `facebook_crawler.py:686`에서 크롤 시점에 이미 실사용 중인 함수의 재사용(defense-in-depth). 로컬 테스트 4/7 PASS, 나머지 3개는 기존 `runtime_boot_policy.json` PermissionError 환경제약(이번 세션 반복 확인된 것과 동일 클래스, Gate 로직과 무관)으로 로컬 실행만 불가.
+
+**실측 절차**: `.env`에 `PUBLISH_TEXT_GATE_ENABLED=true` 추가 → `SNS_Watchdog` 재시작(`19:41:16 FATAL → 19:41:47 launcher 재시작 성공`, `/health` 정상, 신규 오류 0건) → `data_classification=production`(Safe Mode 불필요 — production 분류는 오히려 Safe Mode 활성 시 저장 자체가 막힘) 레코드 2건을 `save_instagram_post()` 직접 호출로 생성:
+```
+QGATE-TEST-PASS-260729  (rec EGPlnqiNAuqNWX) — "도매 화장품 재고 문의 환영" (정상 캡션)
+QGATE-TEST-BLOCK-260729 (rec oHWOFv9IkG0et3) — "coslife 테스트 문구" (CAPTION_BLOCKLIST 매칭 의도)
+```
+
+**Runtime Evidence(19:48:47~19:49:02 업로드 사이클)**:
+```
+app.log 19:48:47 [Main] insta_upload | 2건 처리 시작
+app.log 19:49:01 [PublishGate] 텍스트 차단 | rid=recoHWOFv9IkG0et3
+```
+Airtable 재조회: `QGATE-TEST-BLOCK-260729` → `post_status=rejected`, `ig_media_id` 공란(발행 API 진입 0건). `QGATE-TEST-PASS-260729` → `post_status=posted`, **`ig_media_id=17899894974532157`**(yuna18253 계정에 실제 게시 성공, mock 아님).
+
+**정리(회장 지시)**: Gate는 `PUBLISH_TEXT_GATE_ENABLED=true`로 **계속 활성 유지** 확정. 실게시된 미디어는 Meta Graph API로 직접 삭제:
+```
+DELETE https://graph.facebook.com/v21.0/17899894974532157 → {"success": true, "deleted_id": "17899894974532157"}
+사후 GET 재조회 → "Object with ID ... does not exist"(삭제 확인)
+```
+Airtable 테스트 레코드 2건(`recEGPlnqiNAuqNWX`/`recoHWOFv9IkG0et3`) 전부 삭제 완료(재조회 0건 확인) — Production SSOT에 테스트 잔재 없음, 이 섹션이 유일한 Audit Trail(레코드 ID·`ig_media_id`·시각·API 응답 전부 원문 보존).
+
+**판정**: P1-4(격리MVP) 남은 범위였던 Final Quality Gate가 **실게시 Evidence로 SUCCESS 확정**. Persona·Sourcebook은 HOLD/DEFER로 범위 밖 처리 — **P1-4는 이로써 종료 가능 상태**(Approval Action: 비활성 확정 / Final Quality Gate: 활성 확정 / Persona·Sourcebook: DEFER).
+
+**변경 파일**: 없음(`.env` 변경만, git 미추적) — 문서 갱신·Airtable Write/Delete·Instagram Delete만 발생, 코드 변경 0건.
+
+**기록**: `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§1 6단계행, §6 항목1·2·3, §9 P1-4행, 이 섹션) — 이 항목.
 
 ---
