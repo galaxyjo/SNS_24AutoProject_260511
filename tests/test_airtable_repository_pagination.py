@@ -231,3 +231,54 @@ class TestFetchActiveTrainingTargetsPagination:
         with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2, page3]):
             result = AirtableRepository().fetch_active_training_targets(platform="facebook")
             assert len(result) == 210
+
+
+class TestFetchCandidatePhashesPagination:
+    def test_single_page_no_offset(self):
+        page = _page_response([{"id": "rec1", "fields": {"phash": "h1"}}])
+        with patch("modules.infra.airtable_repository.requests.get", return_value=page) as mock_get:
+            result = AirtableRepository().fetch_candidate_phashes(limit=2000)
+            assert result == ["h1"]
+            assert mock_get.call_count == 1
+            assert mock_get.call_args.kwargs["params"]["pageSize"] == 100
+
+    def test_two_pages_follows_offset_and_aggregates_all_records(self):
+        page1 = _page_response([{"id": "rec1", "fields": {"phash": "h1"}}], offset="pageCursor1")
+        page2 = _page_response([{"id": "rec2", "fields": {"phash": "h2"}}])
+        with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2]) as mock_get:
+            result = AirtableRepository().fetch_candidate_phashes(limit=2000)
+            assert result == ["h1", "h2"]
+            assert mock_get.call_count == 2
+            second_call_params = mock_get.call_args_list[1].kwargs["params"]
+            assert second_call_params["offset"] == "pageCursor1"
+
+    def test_empty_phash_excluded(self):
+        page = _page_response([{"id": "rec1", "fields": {"phash": ""}}, {"id": "rec2", "fields": {"phash": "h2"}}])
+        with patch("modules.infra.airtable_repository.requests.get", return_value=page):
+            result = AirtableRepository().fetch_candidate_phashes(limit=2000)
+            assert result == ["h2"]
+
+    def test_three_pages_210_records_none_dropped(self):
+        page1 = _page_response(
+            [{"id": f"rec{i}", "fields": {"phash": f"h{i}"}} for i in range(100)], offset="cursorA"
+        )
+        page2 = _page_response(
+            [{"id": f"rec{i}", "fields": {"phash": f"h{i}"}} for i in range(100, 200)], offset="cursorB"
+        )
+        page3 = _page_response([{"id": f"rec{i}", "fields": {"phash": f"h{i}"}} for i in range(200, 210)])
+        with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2, page3]):
+            result = AirtableRepository().fetch_candidate_phashes(limit=2000)
+            assert len(result) == 210
+
+    def test_limit_still_caps_total_across_pages(self):
+        """limit=150일 때 100건짜리 1페이지 이후 두번째 요청은 나머지 50건만 요청해야 한다."""
+        page1 = _page_response(
+            [{"id": f"rec{i}", "fields": {"phash": f"h{i}"}} for i in range(100)], offset="cursorA"
+        )
+        page2 = _page_response([{"id": f"rec{i}", "fields": {"phash": f"h{i}"}} for i in range(100, 150)])
+        with patch("modules.infra.airtable_repository.requests.get", side_effect=[page1, page2]) as mock_get:
+            result = AirtableRepository().fetch_candidate_phashes(limit=150)
+            assert len(result) == 150
+            assert mock_get.call_count == 2
+            assert mock_get.call_args_list[0].kwargs["params"]["pageSize"] == 100
+            assert mock_get.call_args_list[1].kwargs["params"]["pageSize"] == 50

@@ -445,7 +445,7 @@ class RepositoryInterface(ABC):
 
     @abstractmethod
     def fetch_candidate_phashes(self, limit: int = 2000) -> list[str]:
-        """근사중복(phash) 비교용 — 기존 후보의 phash 값 목록 반환 (빈 값 제외)."""
+        """근사중복(phash) 비교용 — 기존 후보의 phash 값 목록 반환(전체 페이지 순회, limit건까지, 빈 값 제외)."""
 
     @abstractmethod
     def fetch_next_pending_candidate(self) -> TrainingCandidate | None:

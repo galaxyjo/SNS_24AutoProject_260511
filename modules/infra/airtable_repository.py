@@ -1251,31 +1251,41 @@ class AirtableRepository(RepositoryInterface):
     # ── 29. 근사중복(phash) 비교용 목록 조회 ──────────────────────────────────
 
     def fetch_candidate_phashes(self, limit: int = 2000) -> list[str]:
-        # NOTE: offset 페이지네이션 미구현(기존 코드베이스 공통 한계, kpi_collector.py 등과 동일) —
-        # 단일 요청 기준 최대 100건(Airtable pageSize 상한)만 반환됨.
-        try:
-            r = requests.get(
-                _url("Training_Review_Queue"),
-                headers=_headers(),
-                params={
-                    "filterByFormula": "NOT({phash}='')",
-                    "pageSize": min(limit, 100),
-                    "fields[0]": "phash",
-                },
-                timeout=_TIMEOUT,
-            )
-            r.raise_for_status()
-            log_api_call("Training_Review_Queue", "GET")
-        except requests.HTTPError as e:
-            _raise(e, "Training_Review_Queue")
-        except requests.RequestException as e:
-            raise RepositoryUnavailableError(str(e)) from e
+        """근사중복(phash) 비교용 phash 목록 반환(전체 페이지 순회, limit건까지 — P1-3/ERR-078과 동일 클래스였던 결함 해소)."""
+        result: list[str] = []
+        offset = None
+        while len(result) < limit:
+            params = {
+                "filterByFormula": "NOT({phash}='')",
+                "pageSize": min(limit - len(result), 100),
+                "fields[0]": "phash",
+            }
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(
+                    _url("Training_Review_Queue"),
+                    headers=_headers(),
+                    params=params,
+                    timeout=_TIMEOUT,
+                )
+                r.raise_for_status()
+                log_api_call("Training_Review_Queue", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Training_Review_Queue")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
 
-        return [
-            rec["fields"]["phash"]
-            for rec in r.json().get("records", [])
-            if rec.get("fields", {}).get("phash")
-        ]
+            data = r.json()
+            result.extend(
+                rec["fields"]["phash"]
+                for rec in data.get("records", [])
+                if rec.get("fields", {}).get("phash")
+            )
+            offset = data.get("offset")
+            if not offset:
+                break
+        return result
 
     # ── 30. 리뷰 대기 후보 1건 조회 ───────────────────────────────────────────
 
