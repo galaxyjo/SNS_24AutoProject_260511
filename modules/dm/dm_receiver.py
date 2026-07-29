@@ -301,12 +301,32 @@ def _process_webhook_event(data: dict):
                 if recipient_id:
                     _account_code_cache[recipient_id] = account_code_ref
 
+            # ERR-085: 웹훅 처리는 재실행 주기가 없으므로(크롤 배치와 달리) 여기서 실패를
+            # 삼키면 그 DM 자체가 영구 유실된다 — retry_queue에 위임한다. record_interaction()
+            # 실패와 send_telegram() 실패를 분리해, Telegram 실패로 레코드 재생성이 되지
+            # 않게 한다(재시도는 최초 레코드 생성 실패에만 걸린다). 단, 재시도가 나중에
+            # 성공해도 이 요청 안에서의 스코어링·주문감지·자동응답은 이미 지나가 실행되지
+            # 않는다(레코드 생성 자체를 보존하는 것이 이번 최소수정의 목적).
             try:
                 record_id = record_interaction(sender_id, text, account_code_ref=account_code_ref)
-                send_telegram(sender_id, text)
             except Exception as exc:
-                logger.error(f"[Airtable] 기록 실패 | sender_id={sender_id} | {exc}")
+                logger.error(f"[Airtable] 기록 실패 — retry queue 등록 | sender_id={sender_id} | {exc}")
+                from modules.common.retry_queue import get_retry_queue
+
+                def _retry_record_interaction(payload: dict) -> None:
+                    record_interaction(
+                        payload["sender_id"], payload["text"],
+                        account_code_ref=payload.get("account_code_ref", ""),
+                    )
+
+                rq = get_retry_queue()
+                rq.register("dm_record_interaction", _retry_record_interaction)
+                rq.start()
+                rq.enqueue("dm_record_interaction", {
+                    "sender_id": sender_id, "text": text, "account_code_ref": account_code_ref,
+                })
                 continue
+            send_telegram(sender_id, text)
 
             # Lead 스코어링
             try:

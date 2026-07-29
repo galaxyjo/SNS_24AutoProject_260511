@@ -13,7 +13,11 @@ _repo = AirtableRepository()
 
 
 def mark_lead_closed(record_id: str) -> None:
-    """CLOSE 상태 전환 — bridge_status=closed, lead_status=converted, closed_at 기록."""
+    """CLOSE 상태 전환 — bridge_status=closed, lead_status=converted, closed_at 기록.
+
+    ERR-087: 현재 Production Caller는 없으나(dm_followup_scheduler.py 미연동), 향후
+    연동 시 재실행 주기가 없는 호출부라면 실패가 영구 유실되므로 retry_queue에
+    위임한다. 실패 시 "CLOSE 완료" 알림도 보내지 않는다(상태-알림 불일치 방지)."""
     if not record_id:
         logger.warning("[Closer] record_id 없음 — skip")
         return
@@ -21,7 +25,17 @@ def mark_lead_closed(record_id: str) -> None:
         _repo.mark_lead_closed(record_id)
         logger.info(f"[Closer] CLOSE 처리 완료 | record={record_id}")
     except Exception as exc:
-        logger.error(f"[Closer] CLOSE 처리 실패 | {exc}")
+        logger.error(f"[Closer] CLOSE 처리 실패 — retry queue 등록 | record={record_id} | {exc}")
+        from modules.common.retry_queue import get_retry_queue
+
+        def _retry_mark_closed(payload: dict) -> None:
+            _repo.mark_lead_closed(payload["record_id"])
+
+        rq = get_retry_queue()
+        rq.register("lead_mark_closed", _retry_mark_closed)
+        rq.start()
+        rq.enqueue("lead_mark_closed", {"record_id": record_id})
+        return
     _send_telegram_closed(record_id)
 
 

@@ -26,12 +26,25 @@ def detect_order(text: str) -> bool:
 
 
 def handle_order_conversion(record_id: str, sender_igsid: str, text: str) -> None:
-    """주문 의사 감지 → lead_status/bridge_status=converted 업데이트 + Telegram 알림."""
+    """주문 의사 감지 → lead_status/bridge_status=converted 업데이트 + Telegram 알림.
+
+    ERR-088: DM 웹훅은 재실행 주기가 없어(크롤 배치와 달리) 실패를 로그만 남기고
+    넘어가면 전환 데이터가 영구 유실된다 — retry_queue에 위임해 최소한 재시도
+    기회를 남긴다."""
     try:
         _repo.mark_lead_converted(record_id)
         logger.info(f"[Order] 전환 처리 완료 | record={record_id} from={sender_igsid}")
     except Exception as exc:
-        logger.error(f"[Order] 전환 처리 실패 | {exc}")
+        logger.error(f"[Order] 전환 처리 실패 — retry queue 등록 | record={record_id} | {exc}")
+        from modules.common.retry_queue import get_retry_queue
+
+        def _retry_mark_converted(payload: dict) -> None:
+            _repo.mark_lead_converted(payload["record_id"])
+
+        rq = get_retry_queue()
+        rq.register("order_mark_converted", _retry_mark_converted)
+        rq.start()
+        rq.enqueue("order_mark_converted", {"record_id": record_id})
     _send_telegram_conversion(sender_igsid, text)
 
 

@@ -56,9 +56,21 @@ def is_repeat_inquiry(sender_igsid: str) -> bool:
 
 
 def update_lead_score(record_id: str, score: int, grade: str) -> None:
-    """Lead_Interactions에 lead_score, lead_grade 업데이트."""
+    """Lead_Interactions에 lead_score, lead_grade 업데이트.
+
+    ERR-086: DM 웹훅은 재실행 주기가 없어 실패를 로그만 남기고 넘어가면 그 스코어는
+    영구 유실된다 — retry_queue에 위임해 재시도 기회를 남긴다."""
     try:
         _repo.update_lead_score(record_id, score, grade)
         logger.info(f"[Scorer] 스코어 저장 | record={record_id} score={score} grade={grade}")
     except Exception as exc:
-        logger.warning(f"[Scorer] 업데이트 예외 | {exc}")
+        logger.warning(f"[Scorer] 업데이트 예외 — retry queue 등록 | record={record_id} | {exc}")
+        from modules.common.retry_queue import get_retry_queue
+
+        def _retry_update_lead_score(payload: dict) -> None:
+            _repo.update_lead_score(payload["record_id"], payload["score"], payload["grade"])
+
+        rq = get_retry_queue()
+        rq.register("lead_update_score", _retry_update_lead_score)
+        rq.start()
+        rq.enqueue("lead_update_score", {"record_id": record_id, "score": score, "grade": grade})
