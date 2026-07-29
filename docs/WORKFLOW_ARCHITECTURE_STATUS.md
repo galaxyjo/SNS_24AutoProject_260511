@@ -22,7 +22,7 @@
 | 8 | 1계정 E2E Canary | 완료 | yuna18253 실제 게시 성공 |
 | 9 | 2계정 재현 Test | 완료 | yuna18253+aijomoojin 독립 게시, 중복게시 0건 |
 | 10 | Metric·수익 검증 | 진행중 | KPI 집계 오류(ERR-078) 해소, 리드전환 유실(ERR-080) 해소. **공식 작업 큐: `P1-1 Clean Measurement Baseline`**(진행중). `yuna18253` Account_Registry 신규 등록 완료(`IDN-000041`, §10-6) — Provider Routing SSOT 정합성 확보. `P1-4`~`P1-6A`/`P1-1B`/`P1-1C` 명칭은 별도 우선순위가 아니라 P1-1 하위조사로 재분류(§10 참조). Clean Baseline·테스트/실고객 분리·매출 원본·ROI 경로는 미완료 |
-| 11 | 확장 | 보류 | 확장 전 필수 Gate(imgbb/계정별Kill Switch) 미통과, account_email SSOT는 260729 RESOLVED·ERR-076은 관측성만 PARTIAL(근본 분류로직 잔존)로 제외 |
+| 11 | 확장 | 보류(계속 HOLD, GPT Directive) | 11단계 실행 자체는 착수하지 않음. 계정별 Kill Switch는 260730 코드 구현 완료(Runtime Canary 대기, §10-20), account_email SSOT는 260729 RESOLVED, ERR-076은 관측성만 PARTIAL(근본 분류로직 잔존) — 남은 imgbb + DM·댓글·팔로업 계정별 Routing(§10-19 Table B)이 10.5단계 잔여 Work Item |
 
 ---
 
@@ -148,7 +148,7 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | Telemetry | 부분 | 계정별/기능별 세분화 안 됨 |
 | Execution Owner | 완료 | 이중 스케줄러 구조(§5-1) 전체 확인 완료 |
 | Fail-closed | 부분 | 경로별 편차(ERR-080이 실측 반증) |
-| 계정별 Kill Switch | 미구현 | §6 항목5 참조 |
+| 계정별 Kill Switch | 구현 완료(260730), Runtime Canary 대기 | §6 항목5 / §10-20 참조 |
 | Approval | 부분 | §6 항목4 참조 |
 | 중복방지 | 완료 | Phase A/B 분리+outcome_unknown 격리, 9단계 실증 |
 | 데이터 측정 기준 | 미구현 | 테스트/실고객 분리 필드 없음 |
@@ -163,7 +163,7 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | 2 | Sourcebook Runtime 연결 | **HOLD/DEFER — 11단계 이후 실제 콘텐츠 자동화 수요 발생 시(260729 재분류)** | 260729 Read-only 재확인: 이 문서(`Document Purpose: AI·창업자 대상 콘텐츠`, `Runtime Evidence Document: NO`)는 현재 유일한 자동 캡션 생성기(`caption_generator.py`, 한국 도매 쇼핑몰 상품 캡션용)와 콘텐츠 도메인이 완전히 다름 — 연결할 기존 자동화 대상 자체가 없어 REUSE 불가. `aijomoojin`(AI Strategist) 계정이 이 콘텐츠의 실제 대상이며 해당 소스코드 계획은 회장이 별도 보관 중, 착수 시점은 미정 | `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`(원문 유지, 삭제 아님) | 지금은 착수하지 않음 — `aijomoojin` 콘텐츠 자동화 착수 시점에 재검토 | 로드맵에서 완전히 빼는 것이 아니라 착수 시점만 뒤로 이동, 문서 원본은 그대로 보존 |
 | 3 | Final Quality Gate | **REUSE — 실측 완료, Runtime 활성 확정(260729, §10-17)** | `PUBLISH_TEXT_GATE_ENABLED=true` 실전환 후 정상 캡션 1건 실게시(`ig_media_id=17899894974532157`, 이후 회장 지시로 Graph API 직접 삭제)+오염 캡션(`coslife`) 1건 `rejected` 차단을 Runtime Evidence로 확인. 이미지 검수는 pytesseract 미설치로 범위 밖(260724 결정, 여전히 유효) | `content_filter.passes_keyword_filter()`(크롤 시점에도 이미 실사용 중인 동일 함수 재사용) | 완료 — 추가 조치 없음 | 이미지 검수 부재는 여전함("완료"로 착각 금지, 텍스트 Gate만 검증됨) |
 | 4 | Approval Action | **회장 결정(260729): 비활성 유지, 코드 보존** | `REQUIRE_APPROVAL_BEFORE_PUBLISH` 실측 결과 코드·Airtable Schema 전부 정상 작동 확인(§10-16) — 그러나 회장이 "완전자동화 우선, 게시 전 승인 불필요, 문제되는 것만 사후 조치" 방침을 명시적으로 확정해 다시 잠재움(`.env` 주석 처리, 값 보존) | `Instagram_Posts.post_status`(draft/ready, 이미 Schema 존재) | 재사용 원하면 `.env`의 `# REQUIRE_APPROVAL_BEFORE_PUBLISH=true` 주석만 해제 | 승인 경로 자체는 Airtable UI 직접 사용(0개발)으로 이미 검증 완료 — 재활성화 시 추가 개발 불필요 |
-| 5 | 계정별 Kill Switch | **BUILD 설계 확정(260729), 코드 미착수 — 범위는 IG 발행 1곳으로 축소** | Entry Point 8곳 전수 매핑 완료(코드 확인): 계정별 라우팅이 실제로 살아있는 곳은 `_job_insta_upload` 1곳뿐(`INSTAGRAM_PROVIDER_ROUTING_ENABLED=true`, 라이브). 나머지 7곳(FB크롤/Dome크롤·Export는 하드코딩 단일계정, DM·댓글·팔로업은 전역 `INSTA_ACCESS_TOKEN`, KPI·Engagement·댓글DeadMonitor는 계정필터 없음)은 애초에 계정별 라우팅이 없어 끌 대상 자체가 없음. `get_publish_account`/`PublishAccount` 참조 23개 파일 확인 — `PublishAccount` TypedDict(4필드 전부 필수)에 새 **필수** 필드 추가는 High Risk(8.2)이나, Fake Repo 전부가 `RepositoryInterface(ABC)` 미상속 duck-typing이라 **옵션 필드로만 추가하면 Blast Radius 0** | `Account_Registry.automation_enabled`(이미 존재, Schema 변경 불필요), `get_publish_account()`가 이미 레코드 전체 GET 중(추가 API 호출 불필요) | `PublishAccount(total=False)` 서브타입 1개 신설 + `get_publish_account()` 1줄(`automation_enabled=f.get(...,True)`, fail-open) + `launcher/main.py` 호출부 2줄(`False`면 `continue`, `ready` 상태 유지·`failed` 아님) — 3파일, Airtable Write/Schema 변경 0 | 회장 지시로 코드 미착수, 설계만 승인 대기 |
+| 5 | 계정별 Kill Switch | **구현 완료(260730), Runtime Canary는 회장 Restart 대기** | Entry Point 8곳 전수 매핑(260729): 계정별 라우팅이 실제로 살아있는 곳은 `_job_insta_upload` 1곳뿐(`INSTAGRAM_PROVIDER_ROUTING_ENABLED=true`, 라이브). GPT 감사로 **Fail-closed**(미설정→OFF) 채택 확정 — Airtable checkbox는 unchecked를 키 생략으로 표현해 missing/false가 구분 안 됨을 실측 확인(`yuna18253`은 필드 자체가 없었음). 배포 전 선결조건으로 두 라이브 계정(`yuna18253`/`aijomoojin`) `automation_enabled=true` 명시 설정 완료(Airtable Write, 260730). `PublishAccountV2(PublishAccount, total=False)` 옵션 서브타입으로 Blast Radius 0 유지 | `Account_Registry.automation_enabled`(이미 존재), `get_publish_account()`가 이미 레코드 전체 GET 중 | 구현됨: `repository_interface.py`(`PublishAccountV2` 신설)/`airtable_repository.py`(`automation_enabled=f.get(...,False)`)/`launcher/main.py`(`claim_post_for_upload()` 이전 지점에서 `False`면 `continue`, `ready` 상태 유지). 신규 테스트 2건 추가, 기존 테스트 1건 기대값 갱신, standalone Runtime 시뮬레이션으로 ON/OFF 양방향 확인(회귀 0건, 상세 §10-20) | 코드 uncommitted, 실제 Runtime Canary(3번째 테스트 계정 OFF 설정 후 실제 Restart)는 회장만 가능 |
 | 5-HOLD | DM·댓글·팔로업 계정별 라우팅 | **HOLD(260729)** — 이번 Kill Switch Gate와 별개, 훨씬 큰 별도 프로젝트로 분리 | `send_ig_reply`(DM)/댓글 자동응답/`_send_ig_dm`(팔로업) 전부 단일 전역 `INSTA_ACCESS_TOKEN` 사용 확인(코드) — 계정별 분기 자체가 없어 Kill Switch를 걸 지점이 없음 | 없음 | 착수 전 필요: 이 3곳에 계정별 Credential 라우팅(`resolve_credential` 패턴)을 먼저 새로 설계 | 지금 착수하면 Kill Switch보다 훨씬 큰 범위(DM/댓글 Runtime 전체 재설계)로 확대됨 — 별도 Gate로 분리 유지 |
 | 6 | Retry·Fail-closed | REUSE+BUILD(최소) | `retry_queue.py`는 `ig_auto_reply`/`ig_followup`/댓글payload에 연동 중(dead=20건 실측), `order_detector.handle_order_conversion()`은 미연동(ERR-080 원인의 일부) | `modules/common/retry_queue.py`(범용, 검증됨) | 예외를 삼키는 나머지 경로(order_detector 포함)에 동일 패턴 연결 — 표적 감사(P1-2) 먼저 필요 | 감사 없이 넓게 고치면 범위 폭주 위험 |
 | 7 | n8n ↔ Python Contract | DEFER | GPT 명시 결정. `sqlite3 .n8n/database.sqlite` 재확인: `[('My workflow', active=0)]`, 변화 없음 | 설계 문서(WF-01~05, `CURRENT_RUNTIME_CONTEXT.md`) | — | — |
@@ -185,7 +185,8 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 |---|---|
 | 완료 | IG업로드, Provider Routing, Credential Resolver, DM수신, Lead Scoring, 댓글폴링/자동응답/Idempotency/안전장치/DeadMonitor, Retry Queue, Airtable Repository, 중복게시방지 |
 | 부분완료 | DM자동응답/DM팔로업스케줄러/DM Close/Order Detection/댓글캠페인/Engagement Tracker/Domeggook/Final Quality Gate/Approval Action/학습리뷰(1건 flaky)/계정별KPI |
-| 미구현 | Persona Runtime 최소연결, Sourcebook 최소구조화, 계정별 Kill Switch, 테스트·실고객분리, 매출원본, ROI계산 |
+| 미구현 | Persona Runtime 최소연결, Sourcebook 최소구조화, 테스트·실고객분리, 매출원본, ROI계산 |
+| 구현완료(Runtime Canary 대기) | 계정별 Kill Switch(260730, §10-20) |
 | 비활성 | Auto Liker(DISABLED), Final Quality Gate·Approval Action(플래그 꺼짐 — 부분완료와 중복분류 아님, "구현됐지만 꺼짐" 의미) |
 | UNKNOWN(완전 미해소) | Reach·Impressions(설계/데이터/자동화 전부) |
 | UNKNOWN(부분 잔존) | Daily Report(설계·데이터), 학습리뷰(자동화 세부) |
@@ -560,5 +561,28 @@ Airtable 테스트 레코드 2건(`recEGPlnqiNAuqNWX`/`recoHWOFv9IkG0et3`) 전�
 **미해결**: `WEBHOOK_APP_SECRET` 불일치 검증 방법(Boolean-only, 값 비노출)을 다음에 진행할지는 별도 승인 대기.
 
 **변경 파일**: 코드 0건, Airtable 0건 — 이 문서(§10-18/19 신설)만 갱신.
+
+---
+
+### 10-20. 계정별 Kill Switch(IG 발행) 구현 완료 — WEBHOOK_APP_SECRET 안전검증 포함(260730)
+
+**WEBHOOK_APP_SECRET 안전검증(260729 22:32 ICT)**: `object="probe"` 최소 바디로 Business Logic 진입을 원천 차단하는 Boolean-only Canary를 살아있는 `/webhook`(Galaxy/yuna)·`/webhook/ai-strategist`(AI Strategist)에 실행 — 둘 다 200(현재 시점 라이브 프로세스 값=`.env` 파일 값 일치), Secret 원문·서명값 미출력. 원 불일치의 근본원인·시점·`task_b24dbf54` 조치 여부는 여전히 UNKNOWN(별도 재발방지 Work Item으로 §10-19 Table B에 잔존).
+
+**Reuse·Buy·Build 비교(Gate 6, WebSearch 포함)**: Kill Switch/계정별 Routing/Secret 감시 3개 Work Item 전부 외부 Feature-Flag 플랫폼(GO Feature Flag/Flipper/Flagsmith)·Secret 관리 SaaS(Doppler 등) 후보를 검토 후 기각 — Airtable SSOT 이중화(Split-brain) 및 "현재 사용량 대비 과잉" 사유로 REUSE(기존 Account_Registry·`resolve_credential()`·`/health`+watchdog)+연결부만 최소 Build로 확정. GPT 감사에서 Routing·Secret 항목은 PROVISIONAL/PARTIAL로 재평가(단순 REUSE만으론 부족 — 계정식별/Queue/Log 격리/Fail-closed 5요소 필요, Root Cause는 여전히 UNKNOWN이라 "해결"로 표현 금지) 확정.
+
+**IG Kill Switch 변경 전 Gate(10.5-4, Read-only)**: `automation_enabled` 실측 재확인 — `aijomoojin`은 명시적 `true`, **`yuna18253`은 필드 자체가 응답에 없음**(Airtable checkbox unchecked=키 생략, missing과 false가 구분 안 되는 데이터모델 확인). `get_publish_account()` 호출부가 `@handle_errors(reraise=False)`로 배치 단위 흡수됨을 확인(기존 동작, 신규 API 호출 추가 아님 — 새 실패지점 없음). `claim_post_for_upload()`(비원자적) 호출 이전 지점에 Kill Switch를 넣으면 OFF 레코드가 claim·Retry Queue 어디에도 진입하지 않음을 코드로 확인.
+
+**Fail-open vs Fail-closed 트레이드오프 제출 → 회장 결정**: **Fail-closed(미설정→OFF) 채택**(우회 방지 우선). 선결조건: 코드 배포 전 라이브 계정 2개를 Airtable에서 명시적으로 `true` 설정.
+
+**실행(회장 승인)**:
+1. Airtable Write — `yuna18253`(`rec0m7KxyGBhkhqHK`)·`aijomoojin`(`rec3IgRHXKmXW28u3`) `automation_enabled=true` 명시 설정, 응답으로 반영 확인(다른 필드 무변경).
+2. 코드 구현(3파일) — `repository_interface.py`(`PublishAccountV2(PublishAccount, total=False)` 신설, `get_publish_account()` 반환타입 갱신) / `airtable_repository.py`(`automation_enabled=f.get("automation_enabled", False)`, Fail-closed) / `launcher/main.py`(`get_publish_account()` 성공 직후·`claim_post_for_upload()` 이전에 `if not account.get("automation_enabled", False): continue`).
+3. 검증 — `tests/test_provider_routing.py` 기존 1건 기대값 갱신(신규 필드 반영) + 신규 2건(`automation_enabled` true/missing 케이스) 추가, 21 passed(신규 3건 포함)/2 failed(기존 `runtime_boot_policy.json` PermissionError, `git stash` 대조로 baseline과 100% 동일 확인 — 회귀 아님). Job 레벨은 로컬 pytest 실행 불가해 `get_canary_safe_mode_state()` monkeypatch standalone 스크립트로 대체검증: OFF 계정 2레코드 전부 claim/publish/mark_post_result 0건 확인 + ON 계정은 기존과 동일하게 정상 게시(claim/publish/mark 전부 정상 호출) 확인 — 양방향 모두 PASS.
+
+**판정**: 코드 구현 SUCCESS, Airtable 선결조건 SUCCESS. 실제 라이브 Restart+3번째 테스트 계정 OFF Runtime Canary는 회장만 가능(관리자 권한) — 미실행.
+
+**변경 파일**: `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / `launcher/main.py` / `tests/test_provider_routing.py`. Airtable Write 2건(automation_enabled=true, 위 기록). Runtime Restart 0건.
+
+**기록**: `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§1 11단계행, §2 30번, §6 항목5, §7, 이 섹션) — 이 항목.
 
 ---
