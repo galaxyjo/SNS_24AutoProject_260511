@@ -524,3 +524,41 @@ Airtable 테스트 레코드 2건(`recEGPlnqiNAuqNWX`/`recoHWOFv9IkG0et3`) 전�
 **기록**: `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§1 6단계행, §6 항목1·2·3, §9 P1-4행, 이 섹션) — 이 항목.
 
 ---
+
+### 10-18. 10.5단계(필수 부품 조립·통합) 착수 — GPT Master Execution Directive, Assembly Inventory(260729)
+
+**배경**: 10단계 Closed Gate 이후 11단계(다계정 확장) 착수 직전, 회장이 GPT의 Master Execution Directive를 승인 — 11단계 실행은 계속 HOLD하고 신설된 "10.5단계(필수 부품 조립·통합)"를 공식 우선순위로 고정했다. 12단계 체크리스트(§5) 중 1단계 "Assembly Inventory"만 Read-only로 수행하라는 지시.
+
+**Assembly Inventory(15열 통합표) 1차 결과 — 오늘 4개 선행 Gate(§10 상단, 아래 §10-19 참조)+기존 §2/§6/§7 재구성**: 신규 조사 없이 기존 Evidence만으로 31개 기능을 EXISTS/CONNECTED·UNCONNECTED·MISSING·NOT_REQUIRED로 재분류. 원본 Critical Path(P0) 표기 오류(최초 "6개"로 오기, 실제 9개)를 GPT 감사가 지적해 재집계 — 번호나열+합계로 9개 Confirmed. 4개 부모그룹 묶기·"신규작업 Kill Switch 1개뿐" 결론은 GPT 감사에서 **PARTIAL 판정**(9개 재집계는 승인, 그룹핑·결론은 11단계 Scope 미확정 상태에서 나온 것이라 PROVISIONAL 보류) — 문서 미기록 상태로 대기시킴.
+
+**판정**: Assembly Inventory 1차 SUCCESS(15열 표 작성 완료), 단 Critical Path 확정은 다음 §10-19(Scope 확정 이후)로 승계.
+
+---
+
+### 10-19. 11단계 Scope 확정(회장 직접결정) → Critical Path 재분류 PROVISIONAL(260729)
+
+**Scope 확정(FACT, 회장 직접 답변, Read-only 조사로는 확정 불가한 사업결정이었음)**: 11단계(3계정 Canary)는 **IG 발행뿐 아니라 DM·댓글·팔로업까지 포함**한다.
+
+**Critical Path 재집계(번호나열+합계)**: 기존 P0 9개(FB크롤링/IG업로드/ProviderRouting·CredentialResolver/DM수신Webhook/RetryQueue/AirtableRepository/Idempotency/FinalQualityGate/계정별KillSwitch) + Scope 확정으로 신규 P0 승격 4개(DM자동응답/DM팔로업스케줄러/댓글폴링·자동응답·DeadMonitor/**DM·댓글·팔로업 계정별 라우팅**) = **13개**(1+1+1+1+1+1+1+1+1+1+1+1+1=13).
+
+**부모그룹 재구성 제안(PROVISIONAL — 그룹핑 자체는 여전히 Architecture 해석이며 Runtime Fact 아님)**:
+
+| 부모(5개) | 하위항목 | 실제 신규 작업 |
+|---|---|---|
+| ① IG 발행 파이프라인 | 업로드+Idempotency+FinalQualityGate+Kill Switch | Kill Switch(작음, §6 항목5 설계 기완료) |
+| ② DM·댓글·팔로업 자동응답 파이프라인 | DM자동응답+DM팔로업+댓글폴링 | **계정별 라우팅(대형, 미착수)** — `send_ig_reply`/`_send_ig_dm`/댓글 자동응답 3곳 전부 단일 전역 `INSTA_ACCESS_TOKEN` 사용 확인(코드), Scope 확정 전엔 HOLD였으나 이제 P0 |
+| ③ Provider Routing/Credential Resolver | — | 없음(완료) |
+| ④ DM 수신(Webhook) | — | **`WEBHOOK_APP_SECRET` 라이브 프로세스/`.env` 불일치 HOLD 미해결**(별도 세션 `task_b24dbf54`, 이 저장소 안에서 해소 기록 0건, 회장도 현재 상태 모름 — 별도 확인 필요) |
+| ⑤ FB 크롤링 | — | 3계정이 서로 다른 콘텐츠를 받아야 하는지 미확인(재검토 표시만, 결론 아님) — Domeggook 크롤/Export도 `PRODUCT_PUBLISH_ACCOUNT_CODE` 단일 상수 하드코딩 확인(코드), 같은 재검토 대상 |
+
+(Retry Queue·Airtable Repository는 공용 인프라라 부모항목에서 제외 제안, PROVISIONAL 유지)
+
+**핵심 발견**: Scope 확정 전엔 "신규 작업은 Kill Switch 1개뿐"이었으나, Scope에 DM·댓글·팔로업이 들어오면서 **"DM·댓글·팔로업이 전역 토큰 1개로만 도는 문제"**가 훨씬 큰 신규 작업으로 새로 드러났다 — 이게 이번 §10-19의 핵심 결론.
+
+**판정**: PROVISIONAL — Scope는 FACT로 확정됐으나, 부모그룹 5개·"신규작업 2개(Kill Switch+계정별 라우팅)" 결론은 여전히 Architecture 해석이며 §5 체크리스트상 다음 단계(Critical Path 최종 확정, P0/P1/HOLD/DEFER 승인)에서 GPT/회장 재검토 대상. 11단계 실행은 계속 HOLD.
+
+**미해결**: `WEBHOOK_APP_SECRET` 불일치 검증 방법(Boolean-only, 값 비노출)을 다음에 진행할지는 별도 승인 대기.
+
+**변경 파일**: 코드 0건, Airtable 0건 — 이 문서(§10-18/19 신설)만 갱신.
+
+---
