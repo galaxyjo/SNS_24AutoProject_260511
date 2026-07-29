@@ -386,7 +386,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
         if r2.status_code >= 400:
             # 서버가 명확히 거부 — 게시 안 됐음이 확실하므로 재시도 없이 실패 확정
             logger.error(f"[publish_single] media_publish 명확한 실패(HTTP {r2.status_code}) | rid={rid} | creation_id={creation_id}")
-            return {"ok": False, "error": f"http_{r2.status_code}"}
+            return {"ok": False, "error": f"http_{r2.status_code}", "creation_id": creation_id}
 
         try:
             ig_media_id = r2.json()["id"]
@@ -539,6 +539,16 @@ def _job_insta_upload():
         )
         try:
             repo.mark_post_result(post_id, pub_result)
+            if not raw.get("ok") and _slack:
+                # ERR-076: HTTP 4xx "명확한 실패"도 실제로는 컨테이너 처리 지연이었던
+                # 사례가 실측됨(aijomoojin, 260725) — Airtable에는 error_code를 넣지
+                # 않으므로(ERR-075/041 재발 방지, mark_post_result 참조) creation_id를
+                # 복구 가능하게 Slack으로만 알린다. 분류·재시도 로직은 변경 없음.
+                _slack(
+                    f"[알림] Instagram 게시 실패 확정 — 필요 시 creation_id로 수동 재시도 확인\n"
+                    f"rid={post_id} | error={raw.get('error','')} | "
+                    f"creation_id={raw.get('creation_id','')} | account_ref={account_code_ref or 'legacy'}"
+                )
         except Exception as exc:
             # claim_post_for_upload()가 이미 UPLOADING으로 바꿔둔 상태라, 여기서 실패하면
             # 그 레코드는 다음 사이클의 fetch_pending_posts()(post_status=READY만 조회)

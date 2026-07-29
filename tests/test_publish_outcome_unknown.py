@@ -272,3 +272,49 @@ def test_job_mixed_batch_outcome_unknown_does_not_block_next_record(monkeypatch)
     ]
     assert len(calls["slack"]) == 1
     assert "recFirst" in calls["slack"][0]
+
+
+def test_job_definitive_failure_marks_failed_and_alerts_with_creation_id(monkeypatch):
+    """ERR-076 — HTTP 4xx '명확한 실패'도 mark_post_result는 그대로 호출하되(회귀 유지),
+    creation_id를 담은 Slack 알림이 함께 발생해야 한다(기존엔 outcome_unknown만 알림)."""
+    monkeypatch.setenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("YUNA_INSTA_IG_USER_ID", "yuna-ig-user")
+    monkeypatch.setenv("YUNA_INSTA_ACCESS_TOKEN", "yuna-token")
+
+    calls = {"claim": [], "mark_post_result": [], "slack": []}
+
+    class _FakeRepo:
+        def fetch_pending_posts(self, limit=50):
+            return [{"post_id": "recFail", "image_url": "http://img", "caption": "c", "hashtag": "", "account_code_ref": "IDN-000041"}]
+
+        def get_publish_account(self, account_code):
+            return {
+                "account_code": account_code,
+                "api_provider": "facebook_login",
+                "ig_user_id": "yuna-ig-user",
+                "credential_key": "YUNA",
+            }
+
+        def claim_post_for_upload(self, post_id):
+            calls["claim"].append(post_id)
+            return True
+
+        def mark_post_result(self, post_id, result):
+            calls["mark_post_result"].append((post_id, dict(result)))
+
+    monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: _FakeRepo())
+
+    def _fake_publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="graph.facebook.com"):
+        return {"ok": False, "error": "http_400", "creation_id": "creationFail"}
+
+    monkeypatch.setattr(launcher_main, "publish_single", _fake_publish_single)
+    monkeypatch.setattr(launcher_main, "_slack", lambda msg: calls["slack"].append(msg))
+
+    launcher_main._job_insta_upload()
+
+    assert calls["mark_post_result"] == [
+        ("recFail", {"status": "failed", "platform_post_id": "", "error_code": "http_400"}),
+    ]
+    assert len(calls["slack"]) == 1
+    assert "recFail" in calls["slack"][0]
+    assert "creationFail" in calls["slack"][0]
