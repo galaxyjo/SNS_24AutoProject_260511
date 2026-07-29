@@ -102,17 +102,15 @@ class Account:
 # ── Airtable Crawl_Targets 로더 ───────────────────────────────────────────────
 
 def _load_crawl_urls_from_airtable() -> list[str]:
-    """Airtable Crawl_Targets에서 active facebook URL 목록 반환."""
+    """Airtable Crawl_Targets에서 active facebook URL 목록 반환.
+    조회 자체가 실패하면 예외를 그대로 전파한다 — 정상 0건과 조회 실패를 동일한 빈
+    리스트로 뭉뚱그리지 않기 위함(호출자가 실패/캐시 고정 여부를 각자 판단)."""
     from modules.infra.airtable_repository import AirtableRepository
-    try:
-        repo = AirtableRepository()
-        targets = repo.fetch_active_crawl_targets()
-        urls = [t['target_url'] for t in targets if t.get('platform') == 'facebook' and t.get('target_url')]
-        logger.info(f'[AccountManager] Airtable crawl_urls 로드 | {len(urls)}건')
-        return urls
-    except Exception as exc:
-        logger.error(f'[AccountManager] Airtable crawl_urls 로드 실패 | {exc}')
-        return []
+    repo = AirtableRepository()
+    targets = repo.fetch_active_crawl_targets()
+    urls = [t['target_url'] for t in targets if t.get('platform') == 'facebook' and t.get('target_url')]
+    logger.info(f'[AccountManager] Airtable crawl_urls 로드 | {len(urls)}건')
+    return urls
 
 
 def _shadow_compare(json_urls: list[str], airtable_urls: list[str]) -> None:
@@ -189,13 +187,25 @@ def _get_all() -> list[Account]:
             logger.warning("[AccountManager] 계정 설정 없음 — accounts.json 또는 .env 확인 필요")
         # Feature Flag: CRAWL_TARGET_SOURCE
         source = os.getenv("CRAWL_TARGET_SOURCE", "accounts_json").strip()
-        if source in ("shadow", "airtable") and _cache:
-            at_urls = _load_crawl_urls_from_airtable()
-            if source == "shadow":
+        if source == "shadow" and _cache:
+            try:
+                at_urls = _load_crawl_urls_from_airtable()
+            except Exception as exc:
+                logger.warning(f"[AccountManager] Shadow 비교용 Airtable 조회 실패 — 비교만 생략 | {exc}")
+            else:
                 _shadow_compare(_cache[0].crawl_urls, at_urls)
-            elif source == "airtable":
-                _cache[0].crawl_urls = at_urls
-                logger.info(f"[AccountManager] crawl_urls → Airtable 방식 적용 | {len(at_urls)}건")
+        elif source == "airtable" and _cache:
+            try:
+                at_urls = _load_crawl_urls_from_airtable()
+            except Exception as exc:
+                # 실패를 빈 리스트로 캐시에 고정하지 않는다 — _cache를 None으로 되돌려
+                # 다음 호출(다음 Job 사이클)에서 다시 시도하게 하고, 이 실패는 그대로
+                # 상위(Job-level handle_errors/Slack)로 전달한다.
+                _cache = None
+                logger.error(f"[AccountManager] Airtable crawl_urls 로드 실패 — 계정 목록 사용 불가 | {exc}")
+                raise
+            _cache[0].crawl_urls = at_urls
+            logger.info(f"[AccountManager] crawl_urls → Airtable 방식 적용 | {len(at_urls)}건")
     return _cache
 
 
