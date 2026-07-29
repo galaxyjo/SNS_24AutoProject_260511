@@ -821,6 +821,8 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 
 **관련:** ERR-080, ERR-085, ERR-086, ERR-087, ERR-088, FP-057, FP-064
 
+**260729 후속(commit `75c60d2`):** 이 패턴의 4개 구체 사례(ERR-085~088)를 모두 retry_queue 연동으로 수정 완료(RESOLVED). 단, 예방책 (2)(상태-알림 게이팅)는 ERR-087에만 적용했고 ERR-088(order_detector)은 회장/GPT 지시로 기존 계약 보존을 우선해 알림 게이팅을 의도적으로 적용하지 않았다 — 이 패턴 자체(broad except + 무조건 알림)의 재발 방지책 (3)(리뷰 체크리스트 항목화)은 아직 미착수.
+
 ---
 
 ## FP-064 | 테스트 실행이 운영 error.log·app.log에 그대로 기록되어 Test Artifact와 Production Incident를 로그만으로 구분하기 어렵다

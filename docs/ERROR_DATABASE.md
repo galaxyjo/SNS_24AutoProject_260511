@@ -1519,7 +1519,7 @@ href='https://www.facebook.com/groups/1827528710833477/posts/4051001165152876#'
 
 ---
 
-## ERR-085 | dm_receiver.py 웹훅 핸들러가 Lead_Interactions 최초 생성(record_interaction) 실패를 삼키고 해당 DM 전체를 건너뜀 — retry_queue 위임 없음 (OPEN, 260729)
+## ERR-085 | dm_receiver.py 웹훅 핸들러가 Lead_Interactions 최초 생성(record_interaction) 실패를 삼키고 해당 DM 전체를 건너뜀 — retry_queue 위임 없음 (RESOLVED, 260729)
 
 **분류:** `LIVE_PATH / OBSERVED_INCIDENT_NONE_IN_SEARCHED_EVIDENCE`(260729 재검증) — Runtime Caller·Import Chain은 Confirmed(`dm_receiver.py:305`에서 직접 호출, `launcher/main.py:622,635`가 `from modules.dm.dm_receiver import app` → `app.run(...)`으로 실제 구동). 다만 조사한 로그 범위(`logs/error/error.log`, `logs/summary/app.log*`)에서 `[Airtable] 기록 실패` 문자열의 실제 발생은 0건 — 이는 "장애가 없었다"는 증명이 아니라 "이번 검색 범위에서 발견되지 않았다"는 뜻이며, 실제 Incident 발생 여부는 **UNKNOWN**이다.
 
@@ -1537,19 +1537,21 @@ except Exception as exc:
 
 **Root Cause:** `record_interaction()`(`modules/dm/dm_receiver.py:133-147`)이 `_repo.create_lead_interaction()`으로 `Lead_Interactions`에 DM 최초 레코드를 생성하는데, 이 호출을 감싸는 웹훅 루프가 실패 시 `logger.error` 후 `continue`로 다음 이벤트로 넘어간다. retry_queue(`modules/common/retry_queue.py`) 위임이나 재시도 로직이 전혀 없어, 이 지점이 실패하면 해당 DM은 Lead 레코드 자체가 생성되지 않고 영구 유실된다. 이는 웹훅 파이프라인의 가장 상류(최초 진입점)이므로, 실패 시 하위의 Lead 스코어링·주문감지·자동응답 로직이 전부 실행되지 않는다 — ERR-080(order_detector, 파이프라인 중간 지점)보다 넓은 blast radius.
 
-**Fix:** 미착수(제안만) — `record_interaction()` 실패를 retry_queue에 위임하거나, 최소한 실패한 원본 payload(sender_id/text/account_code_ref)를 별도로 보존해 재처리 가능하게 해야 함.
+**Fix:** 완료(commit `75c60d2`, 260729) — `record_interaction()` 실패 시 로그만 남기고 `continue`하던 것을, `modules/common/retry_queue.py::get_retry_queue()`에 task_type `dm_record_interaction`(payload: sender_id/text/account_code_ref)으로 위임하도록 변경. 실패 시 `send_telegram()`도 호출하지 않음(레코드 미생성 상태에서 알림만 나가는 불일치 방지). 성공 경로는 기존과 동일.
 
-**Prevention:** (제안) Lead 최초 생성처럼 "실패하면 그 이벤트 자체가 사라지는" 지점은 fail-closed 원칙(CLAUDE.md §9.3에 준하는 성격)으로 재분류하고, retry_queue 연동을 필수화한다.
+**Prevention:** 적용됨 — Lead 최초 생성 실패를 retry_queue로 위임해 재처리 기회를 남김.
 
-**Risk:** `HIGH`(수정 전, 코드 패턴 기준) — 이 지점이 실패하면 DM 자체가 통째로 무기록 유실되는 구조적 위험은 Confirmed. 단, 260729 재검증에서 조사 범위 내 실제 발생 로그는 0건이므로 "실제로 몇 번 발생했는지"는 UNKNOWN이다.
+**Risk:** 수정 전 `HIGH` → 수정 후 재시도 경로 확보로 완화. 실제 과거 발생 건수는 여전히 UNKNOWN(조사 범위 내 로그 0건).
 
-**Status:** **OPEN — 코드 패턴 발견·기록만 완료, 수정 착수 안 함**(P1-2 표적 감사 결과, 회장 지시로 문서 등록만 우선 진행).
+**Verification:** 신규 테스트 `tests/test_dm_receiver_record_interaction_retry.py`(성공경로 유지 + 실패 시 retry_queue 등록·send_telegram 미호출 확인) — 이 환경의 로컬 pytest는 `runtime_boot_policy.json` PermissionError로 dm_receiver import 자체가 collection 단계에서 막혀 실행 불가(기존 `tests/test_dm_receiver_webhook.py`도 동일하게 겪는 pre-existing 환경 제약, baseline 대조로 회귀 아님을 확인). 대신 코드 리뷰(diff 범위 확인) + 260729 11:43:51 Runtime 재시작으로 신규 코드가 반영된 프로세스 기동을 `logs/watchdog.log`(`[OK] launcher/main.py 재시작 성공`)로 확인. 회장 승인(B안)에 따라 라이브 웹훅 호출 검증은 별도 발견 사안(WEBHOOK_APP_SECRET 라이브/파일 불일치, task_b24dbf54로 분리 조사 예정)으로 이번 범위에서 제외.
+
+**Status:** **RESOLVED — commit `75c60d2`, 260729. Runtime 재시작 반영 확인.**
 
 **관련:** ERR-080, ERR-086, ERR-087, ERR-088, FP-063
 
 ---
 
-## ERR-086 | lead_scorer.update_lead_score() 저장 실패 시 로그만 남기고 재시도·알림 없이 종료 (OPEN, 260729)
+## ERR-086 | lead_scorer.update_lead_score() 저장 실패 시 로그만 남기고 재시도·알림 없이 종료 (RESOLVED, 260729)
 
 **분류:** `LIVE_PATH / OBSERVED_INCIDENT_NONE_IN_SEARCHED_EVIDENCE`(260729 재검증) — Runtime Caller·Import Chain은 Confirmed(`dm_receiver.py:321`에서 직접 호출, 같은 Live Chain). 조사한 로그 범위에서 `[Scorer] 업데이트 예외` 문자열의 실제 발생은 0건 — 미발견은 미발생의 증명이 아니며, 실제 Incident 여부는 **UNKNOWN**이다.
 
@@ -1568,19 +1570,21 @@ def update_lead_score(record_id: str, score: int, grade: str) -> None:
 
 **Root Cause:** `_repo.update_lead_score()` 호출 실패가 `warning` 레벨 로그만 남기고 그대로 함수가 종료된다. retry_queue 위임 없음. 실패해도 호출자(`dm_receiver.py`)는 이를 알지 못하고 정상 진행한다 — 해당 Lead의 `lead_score`/`lead_grade`는 영구히 기록되지 않는다.
 
-**Fix:** 미착수(제안만).
+**Fix:** 완료(commit `75c60d2`, 260729) — 실패 시 task_type `lead_update_score`(payload: record_id/score/grade)로 retry_queue 위임. 성공 경로는 기존과 동일.
 
-**Prevention:** (제안) ERR-085와 동일 — retry_queue 연동 필수화.
+**Prevention:** 적용됨 — retry_queue 연동.
 
-**Risk:** `MEDIUM`(수정 전, 코드 패턴 기준) — 유실 대상이 등급·점수 메타데이터로, DM 원본 데이터 자체(ERR-085)보다는 영향이 좁지만, 등급 기반 후속 로직(Hot/Warm 우선 대응 등)이 있다면 그 판단이 왜곡될 수 있음. 실제 발생 여부·영향 범위는 UNKNOWN(260729 재검증 결과, 조사 범위 내 실제 로그 0건).
+**Risk:** 수정 전 `MEDIUM` → 수정 후 재시도 경로 확보로 완화. 실제 과거 발생 건수는 UNKNOWN(조사 범위 내 로그 0건).
 
-**Status:** **OPEN — 코드 패턴 발견·기록만 완료, 수정 착수 안 함.**
+**Verification:** `tests/test_crm_write_retry_queue.py::TestErr086UpdateLeadScoreRetry` 2/2 통과(성공경로 유지 + 실패 시 retry_queue 등록 확인) + 260729 11:43:51 Runtime 재시작 반영 확인(`logs/watchdog.log`).
+
+**Status:** **RESOLVED — commit `75c60d2`, 260729.**
 
 **관련:** ERR-080, ERR-085, ERR-087, ERR-088, FP-063
 
 ---
 
-## ERR-087 | lead_closer.mark_lead_closed() — 코드 패턴은 존재하나 Production Caller 0건, 현재 Runtime 영향 없음(잠재 위험으로 재분류, 260729 재검증) (OPEN, 260729)
+## ERR-087 | lead_closer.mark_lead_closed() — 코드 패턴은 존재하나 Production Caller 0건, 현재 Runtime 영향 없음(잠재 위험으로 재분류, 260729 재검증) (RESOLVED, 260729)
 
 **분류:** `NOT_ACTIVE / LATENT_RISK` — **현재 Runtime 영향: 없음.**
 
@@ -1607,19 +1611,21 @@ def mark_lead_closed(record_id: str) -> None:
 
 **Root Cause:** `_repo.mark_lead_closed()` 실패가 `error` 로그만 남기고 예외가 함수 밖으로 전파되지 않는다. 더구나 `_send_telegram_closed(record_id)` 호출이 `try/except` 블록 **밖**에 있어, Airtable 쓰기가 실패했어도 무조건 실행된다 — 즉 실제로는 `bridge_status`/`lead_status`/`closed_at`이 전혀 갱신되지 않았는데 운영자에게는 "CLOSE 처리 완료" Telegram 알림이 그대로 간다. retry_queue 위임 없음.
 
-**Fix:** 미착수(제안만).
+**Fix:** 완료(commit `75c60d2`, 260729) — 현재 Production Caller가 없어 시급성은 낮지만, 향후 `dm_followup_scheduler.py` 연결 시 즉시 활성화될 잠재 위험이므로 선제 수정: (1) 실패 시 task_type `lead_mark_closed`(payload: record_id)로 retry_queue 위임. (2) `_send_telegram_closed(record_id)` 호출을 `try` 블록의 성공 경로로 이동 — 실패 시 `return`으로 함수를 끝내 "CLOSE 완료" 알림이 나가지 않도록 상태-알림 불일치를 해소.
 
-**Prevention:** (제안) (1) retry_queue 연동. (2) 상태 갱신 성공 여부로 알림 발송을 게이팅 — 실패 시엔 알림도 "CLOSE 실패"로 바꾸거나 생략해야 상태·알림 불일치를 막을 수 있음.
+**Prevention:** 적용됨 — retry_queue 연동 + 알림 게이팅.
 
-**Risk:** **현재 `NONE`(Production Caller 0건 — 도달 불가능한 코드 경로).** 코드 패턴 자체(broad except + 알림 무조건 발송)는 ERR-080과 동일 클래스이므로, **향후 `dm_followup_scheduler.py` 또는 다른 Scheduler/Production Caller가 이 함수에 연결되는 순간 잠재 위험이 그대로 활성화된다** — 그 시점에 재감사가 필요하다.
+**Risk:** 여전히 `NONE`(Production Caller 0건, 도달 불가능한 코드 경로) — 이번 수정은 실제 Runtime 영향 해소가 아니라, Caller 연결 시점에 잠재 위험이 이미 해소된 상태로 활성화되도록 선제 조치한 것.
 
-**Status:** **OPEN — `NOT_ACTIVE / LATENT_RISK`로 재분류(260729). Production Incident 또는 현재 데이터 유실 사례가 아님. Caller 연결 전까지 수정 착수 안 함(연결 시점에 우선 재검토).**
+**Verification:** `tests/test_crm_write_retry_queue.py::TestErr087MarkLeadClosedRetry` 2/2 통과(성공 시 알림 전송 유지 + 실패 시 retry_queue 등록·알림 미전송 확인) + 회귀 확인 `tests/test_dm_close.py` 12 passed·3 xfailed(`mark_lead_closed()`가 여전히 외부로 예외를 전파하지 않음을 재확인) + 260729 11:43:51 Runtime 재시작 반영 확인.
+
+**Status:** **RESOLVED — commit `75c60d2`, 260729. `NOT_ACTIVE` 분류(Caller 0건)는 유지, Caller 연결 시점 재감사 필요성도 유지.**
 
 **관련:** ERR-080, ERR-085, ERR-086, ERR-088, FP-063, FP-064
 
 ---
 
-## ERR-088 | order_detector.handle_order_conversion() — 처리 실패 후 durable retry·dead letter·failure state가 없는 구조. ERR-080 RESOLVED는 Airtable 필드만 보강, 실패-은폐 구조는 잔존 (OPEN, 260729)
+## ERR-088 | order_detector.handle_order_conversion() — 처리 실패 후 durable retry·dead letter·failure state가 없는 구조. ERR-080 RESOLVED는 Airtable 필드만 보강, 실패-은폐 구조는 잔존 (RESOLVED, 260729)
 
 **분류:** `CONFIRMED_RUNTIME_FAILURE`(Live Caller 확인 + 운영 로그 실제 발생 확인, 260729 재검증) — 단 "영구 데이터 유실"·"실제 고객 매출 손실"은 확정하지 않는다(아래 UNKNOWN 참조).
 
@@ -1665,12 +1671,14 @@ def handle_order_conversion(record_id: str, sender_igsid: str, text: str) -> Non
 - 검색 범위(logs/error/error.log 보존 기간) 밖의 과거 Incident 존재 여부
 ```
 
-**Fix:** 미착수(제안만) — retry_queue 연동 + `_send_telegram_conversion()`을 성공 조건부로 게이팅.
+**Fix:** 완료(commit `75c60d2`, 260729) — 실패 시 task_type `order_mark_converted`(payload: record_id)로 retry_queue 위임. 기존 계약 보존: `_send_telegram_conversion()`은 성공/실패 무관하게 그대로 호출(이번 수정 범위 밖 — 알림 게이팅은 별도 결정 필요 사안으로 남김, ERR-087과 달리 여기서는 상태-알림 불일치를 해소하지 않았음에 주의).
 
-**Prevention:** (제안) 근본 원인(durable retry·dead letter·failure state 부재)을 안 고치고 증상(필드 불일치)만 고치면 같은 클래스가 다른 트리거로 재발할 수 있다는 사례 — ERR-041→ERR-075(FP-057, 필드명 재발)와 유사하게 이번엔 "필드는 고쳤지만 실패-은폐 구조는 안 고친" 재발 경로.
+**Prevention:** 적용됨(부분) — durable retry 경로는 확보. dead letter/failure state 자체는 retry_queue의 기존 `status='dead'`(최대 3회 실패 후 영구 보존, 삭제 없음) 메커니즘을 그대로 재사용.
 
-**Risk:** `HIGH`(수정 전) — 실패 시 durable retry·dead letter·failure state가 전혀 없어 실패가 관측·복구되지 않는 구조는 Confirmed. 다만 이번에 실측된 9건 전부가 테스트용 식별자(`TEST_PRICE_001`)였으므로, "매출 직결 지표가 실제로 유실됐다"는 표현은 쓰지 않는다 — 실제 고객 영향 여부는 UNKNOWN. ERR-080이 "RESOLVED"로 종결된 뒤에도 근본 구조가 남아있었다는 점에서 완료 판정의 신뢰도 문제이기도 함.
+**Risk:** 수정 전 `HIGH` → 수정 후 재시도 경로 확보로 완화. 단, 알림 게이팅 미적용은 유지되므로 "실패했는데 전환 완료 알림이 감"이라는 상태-알림 불일치 위험 자체는 ERR-088 범위에서 의도적으로 잔존(기존 계약 보존 우선, Codex/GPT 리뷰 지시에 따름). 실제 고객 영향 여부는 여전히 UNKNOWN.
 
-**Status:** **OPEN — 실패-은폐 구조는 Confirmed, 수정 착수 안 함. 실제 고객 영향은 UNKNOWN으로 유지.**
+**Verification:** `tests/test_crm_write_retry_queue.py::TestErr088HandleOrderConversionRetry` 2/2 통과(성공 경로 유지 + 실패 시 retry_queue 등록·알림은 그대로 전송됨을 확인) + 260729 11:43:51 Runtime 재시작 반영 확인.
+
+**Status:** **RESOLVED(durable retry 확보) — commit `75c60d2`, 260729. 알림 게이팅 미적용은 알려진 잔존 사항으로 별도 판단 필요.**
 
 **관련:** ERR-080, ERR-085, ERR-086, ERR-087, FP-057, FP-063, FP-064
