@@ -806,3 +806,17 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** (1) 토큰을 새로 발급받을 때마다 "발급 → 즉시 검증"만으로 끝내지 않고 "발급 → 장기 교환 → 그 결과로 검증"까지를 한 세트로 취급한다. (2) Access Token Debugger로 "만료일" 필드를 직접 확인해 무기한/장기인지 재확인한다(이번 사례에서 처음 발급받은 토큰의 디버거 출력에 "만료일: 약 1시간 이내"라고 명시돼 있었음에도 이 단계를 건너뛰고 바로 저장했던 게 재발 원인). (3) 재발급 절차 문서(`docs/Instagram_토큰발급_매뉴얼.md`)에 장기 교환을 필수 단계로 명시한다.
 
 **관련:** ERR-079
+
+---
+
+## FP-063 | 쓰기 실패 상태전환 함수가 broad except로 예외를 삼키고 retry_queue 위임 없이 로그만 남기는 패턴이 CRM 모듈 전반에 반복된다
+
+**설명:** Lead/주문 상태를 Airtable에 기록하는 함수(최초 Lead 생성, 스코어 갱신, CLOSE 처리, 주문 전환 처리)가 공통적으로 `try: _repo.쓰기함수() / except Exception: logger만` 구조를 갖는다. `retry_queue`(`modules/common/retry_queue.py`) 인프라가 이미 존재하고 다른 경로(`dm_followup_scheduler.py`/`comment_*`/`kpi_collector.py`/`health_monitor.py`)에는 이미 연동돼 있음에도, CRM 쓰기 경로 4곳(`dm_receiver.py::record_interaction()` 호출부, `lead_scorer.py::update_lead_score()`, `lead_closer.py::mark_lead_closed()`, `order_detector.py::handle_order_conversion()`)은 전혀 연동되지 않았다. 일부(`lead_closer.py`/`order_detector.py`)는 한 걸음 더 나아가, 상태 갱신 실패 여부와 무관하게 Telegram "완료" 알림을 `try` 블록 밖에서 무조건 발송해 상태-알림 불일치까지 발생한다.
+
+**근본 원인:** ERR-080(order_detector) 최초 발견 시 Airtable 필드 스키마 불일치라는 "증상"만 고치고, 그 증상을 감싸고 있던 예외삼킴 코드 구조 자체는 동일 클래스로 재사용 가능한 패턴임에도 다른 파일로 전파 여부를 스윕하지 않았다. CRM 모듈(`modules/crm/`, `modules/dm/dm_receiver.py`)을 작성할 때 "쓰기 실패 시 로그만 남기고 파이프라인은 계속 진행"이라는 방어적 스타일이 반복 채택됐으나, 이게 fail-open이 적절한 지점(예: 계정 태깅처럼 부가 정보)과 fail-closed·durable-retry가 필요한 지점(Lead 원본 데이터 생성, 상태 전환)을 구분하지 않고 동일하게 적용됐다.
+
+**증상:** Airtable 쓰기가 어떤 이유로든 실패해도 error.log에 한 줄 남을 뿐 파이프라인은 "정상 진행"한 것처럼 계속되고, 해당 Lead/주문 상태는 영구히 갱신되지 않는다. 실패해도 재시도되지 않으므로 다음 성공 시점까지 아무 신호 없이 방치된다(ERR-080/085/086/087/088).
+
+**예방:** (1) Lead 최초 생성처럼 "실패=이벤트 자체 소멸"인 지점부터 우선순위를 두어 `retry_queue` 연동을 순차 적용한다(이미 다른 모듈에 검증된 인프라를 재사용 — BUILD보다 REUSE). (2) 상태 갱신과 알림 발송을 같은 `try` 블록으로 묶어, 실패 시 알림도 함께 억제하거나 "실패" 알림으로 전환한다. (3) 새로운 쓰기 함수를 CRM 모듈에 추가할 때 이 패턴(broad except + log-only)을 기본값으로 복붙하지 않도록, 리뷰 체크리스트에 "이 실패는 fail-open이 맞는가, retry_queue가 필요한가"를 명시적으로 묻는 항목을 추가한다.
+
+**관련:** ERR-080, ERR-085, ERR-086, ERR-087, ERR-088, FP-057

@@ -1516,3 +1516,123 @@ href='https://www.facebook.com/groups/1827528710833477/posts/4051001165152876#'
 **Status:** **RESOLVED(260729)** — Root Cause Confirmed·코드 수정·회귀테스트·실측 재확인 전부 완료. 8단계 P1-1 완료 선언의 마지막 보류 사유였다.
 
 **관련:** `docs/CURRENT_RUNTIME_CONTEXT.md` 260729 06:00 ICT 섹션, `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-12~10-14
+
+---
+
+## ERR-085 | dm_receiver.py 웹훅 핸들러가 Lead_Interactions 최초 생성(record_interaction) 실패를 삼키고 해당 DM 전체를 건너뜀 — retry_queue 위임 없음 (OPEN, 260729)
+
+**Type:** 예외삼킴(Exception Swallow) — 쓰기 실패가 재시도·알림 없이 조용히 무기록으로 종료되는 패턴, ERR-080과 동일 클래스(Gap Classification: Reliability)
+
+**Raw:** P1-2(데이터 유실 예외삼킴 표적 감사, 260729) 중 코드 read-only 조사로 발견. `modules/dm/dm_receiver.py:304-309`:
+```python
+try:
+    record_id = record_interaction(sender_id, text, account_code_ref=account_code_ref)
+    send_telegram(sender_id, text)
+except Exception as exc:
+    logger.error(f"[Airtable] 기록 실패 | sender_id={sender_id} | {exc}")
+    continue
+```
+
+**Root Cause:** `record_interaction()`(`modules/dm/dm_receiver.py:133-147`)이 `_repo.create_lead_interaction()`으로 `Lead_Interactions`에 DM 최초 레코드를 생성하는데, 이 호출을 감싸는 웹훅 루프가 실패 시 `logger.error` 후 `continue`로 다음 이벤트로 넘어간다. retry_queue(`modules/common/retry_queue.py`) 위임이나 재시도 로직이 전혀 없어, 이 지점이 실패하면 해당 DM은 Lead 레코드 자체가 생성되지 않고 영구 유실된다. 이는 웹훅 파이프라인의 가장 상류(최초 진입점)이므로, 실패 시 하위의 Lead 스코어링·주문감지·자동응답 로직이 전부 실행되지 않는다 — ERR-080(order_detector, 파이프라인 중간 지점)보다 넓은 blast radius.
+
+**Fix:** 미착수(제안만) — `record_interaction()` 실패를 retry_queue에 위임하거나, 최소한 실패한 원본 payload(sender_id/text/account_code_ref)를 별도로 보존해 재처리 가능하게 해야 함.
+
+**Prevention:** (제안) Lead 최초 생성처럼 "실패하면 그 이벤트 자체가 사라지는" 지점은 fail-closed 원칙(CLAUDE.md §9.3에 준하는 성격)으로 재분류하고, retry_queue 연동을 필수화한다.
+
+**Risk:** `HIGH`(수정 전) — DM 자체가 통째로 무기록 유실되며, 발생 빈도·과거 발생 이력 모두 UNKNOWN(이번 조사는 코드 패턴 존재 확인까지, error.log 실측 빈도 조사는 범위 밖).
+
+**Status:** **OPEN — 코드 패턴 발견·기록만 완료, 수정 착수 안 함**(P1-2 표적 감사 결과, 회장 지시로 문서 등록만 우선 진행).
+
+**관련:** ERR-080, ERR-086, ERR-087, ERR-088, FP-063
+
+---
+
+## ERR-086 | lead_scorer.update_lead_score() 저장 실패 시 로그만 남기고 재시도·알림 없이 종료 (OPEN, 260729)
+
+**Type:** 예외삼킴(Exception Swallow) — ERR-080과 동일 클래스(Gap Classification: Reliability)
+
+**Raw:** P1-2 표적 감사 중 발견. `modules/crm/lead_scorer.py:58-64`:
+```python
+def update_lead_score(record_id: str, score: int, grade: str) -> None:
+    """Lead_Interactions에 lead_score, lead_grade 업데이트."""
+    try:
+        _repo.update_lead_score(record_id, score, grade)
+        logger.info(f"[Scorer] 스코어 저장 | record={record_id} score={score} grade={grade}")
+    except Exception as exc:
+        logger.warning(f"[Scorer] 업데이트 예외 | {exc}")
+```
+
+**Root Cause:** `_repo.update_lead_score()` 호출 실패가 `warning` 레벨 로그만 남기고 그대로 함수가 종료된다. retry_queue 위임 없음. 실패해도 호출자(`dm_receiver.py`)는 이를 알지 못하고 정상 진행한다 — 해당 Lead의 `lead_score`/`lead_grade`는 영구히 기록되지 않는다.
+
+**Fix:** 미착수(제안만).
+
+**Prevention:** (제안) ERR-085와 동일 — retry_queue 연동 필수화.
+
+**Risk:** `MEDIUM`(수정 전) — 유실 대상이 등급·점수 메타데이터로, DM 원본 데이터 자체(ERR-085)보다는 영향이 좁지만, 등급 기반 후속 로직(Hot/Warm 우선 대응 등)이 있다면 그 판단이 왜곡될 수 있음. 실제 영향 범위는 UNKNOWN.
+
+**Status:** **OPEN — 코드 패턴 발견·기록만 완료, 수정 착수 안 함.**
+
+**관련:** ERR-080, ERR-085, ERR-087, ERR-088, FP-063
+
+---
+
+## ERR-087 | lead_closer.mark_lead_closed() 저장 실패해도 Telegram "CLOSE 완료" 알림은 그대로 발송됨 — 상태·알림 불일치 위험 (OPEN, 260729)
+
+**Type:** 예외삼킴(Exception Swallow) + 상태-알림 불일치 — ERR-080과 동일 클래스에 알림 오정합 위험 추가(Gap Classification: Reliability)
+
+**Raw:** P1-2 표적 감사 중 발견. `modules/crm/lead_closer.py:15-25`:
+```python
+def mark_lead_closed(record_id: str) -> None:
+    """CLOSE 상태 전환 — bridge_status=closed, lead_status=converted, closed_at 기록."""
+    if not record_id:
+        logger.warning("[Closer] record_id 없음 — skip")
+        return
+    try:
+        _repo.mark_lead_closed(record_id)
+        logger.info(f"[Closer] CLOSE 처리 완료 | record={record_id}")
+    except Exception as exc:
+        logger.error(f"[Closer] CLOSE 처리 실패 | {exc}")
+    _send_telegram_closed(record_id)
+```
+
+**Root Cause:** `_repo.mark_lead_closed()` 실패가 `error` 로그만 남기고 예외가 함수 밖으로 전파되지 않는다. 더구나 `_send_telegram_closed(record_id)` 호출이 `try/except` 블록 **밖**에 있어, Airtable 쓰기가 실패했어도 무조건 실행된다 — 즉 실제로는 `bridge_status`/`lead_status`/`closed_at`이 전혀 갱신되지 않았는데 운영자에게는 "CLOSE 처리 완료" Telegram 알림이 그대로 간다. retry_queue 위임 없음.
+
+**Fix:** 미착수(제안만).
+
+**Prevention:** (제안) (1) retry_queue 연동. (2) 상태 갱신 성공 여부로 알림 발송을 게이팅 — 실패 시엔 알림도 "CLOSE 실패"로 바꾸거나 생략해야 상태·알림 불일치를 막을 수 있음.
+
+**Risk:** `MEDIUM~HIGH`(수정 전) — 데이터 유실 자체(ERR-080/085/086과 동일 클래스)에 더해, 운영자가 실제로는 안 닫힌 Lead를 "닫혔다"고 오인할 수 있어 후속 팔로업이 계속 발송되거나(팔로업 스케줄러가 `bridge_status`를 참조한다면) 반대로 놓칠 위험. 팔로업 스케줄러와의 실제 상호작용은 이번 조사 범위 밖(UNKNOWN).
+
+**Status:** **OPEN — 코드 패턴 발견·기록만 완료, 수정 착수 안 함.**
+
+**관련:** ERR-080, ERR-085, ERR-086, ERR-088, FP-063
+
+---
+
+## ERR-088 | order_detector.handle_order_conversion() — ERR-080 RESOLVED는 Airtable 필드만 보강, 예외삼킴 코드 패턴 자체는 잔존 (OPEN, 260729)
+
+**Type:** 예외삼킴(Exception Swallow) — ERR-080 재발 위험(Gap Classification: Reliability)
+
+**Raw:** P1-2 표적 감사 중, ERR-080의 실제 수정 내역을 재확인해 발견. `modules/crm/order_detector.py:28-35`:
+```python
+def handle_order_conversion(record_id: str, sender_igsid: str, text: str) -> None:
+    """주문 의사 감지 → lead_status/bridge_status=converted 업데이트 + Telegram 알림."""
+    try:
+        _repo.mark_lead_converted(record_id)
+        logger.info(f"[Order] 전환 처리 완료 | record={record_id} from={sender_igsid}")
+    except Exception as exc:
+        logger.error(f"[Order] 전환 처리 실패 | {exc}")
+    _send_telegram_conversion(sender_igsid, text)
+```
+
+**Root Cause:** ERR-080(RESOLVED, 260725)은 `converted_at` 필드를 Airtable Schema에 추가해 그 필드 불일치로 인한 실패는 막았지만("코드 변경 없음(필드만 보강)", ERR-080 본문에 명시), `handle_order_conversion()`의 broad `except Exception` + 로그만 남기고 삼키는 코드 구조 자체는 전혀 수정되지 않았다. 게다가 `_send_telegram_conversion()`도 `try` 블록 밖에서 무조건 실행돼 ERR-087과 동일한 상태-알림 불일치 위험을 공유한다. 즉 필드 불일치가 아닌 다른 원인(네트워크 오류/권한 변경/Rate limit/다른 필드 재불일치 등)으로 다시 실패하면, 전환 감지는 됐는데 `lead_status`가 `converted`로 전환되지 않는 현상이 동일한 방식으로 재발할 수 있다.
+
+**Fix:** 미착수(제안만) — retry_queue 연동 + `_send_telegram_conversion()`을 성공 조건부로 게이팅.
+
+**Prevention:** (제안) 근본 원인(예외삼킴 코드 패턴)을 안 고치고 증상(필드 불일치)만 고치면 같은 클래스가 다른 트리거로 재발할 수 있다는 사례 — ERR-041→ERR-075(FP-057, 필드명 재발)와 유사하게 이번엔 "필드는 고쳤지만 코드 패턴은 안 고친" 재발 경로.
+
+**Risk:** `HIGH`(수정 전) — 주문 전환이라는 매출 직결 지표가 조용히 유실될 수 있는 지점이며, ERR-080이 "RESOLVED"로 종결된 뒤에도 근본 취약점이 남아있었다는 점에서 완료 판정의 신뢰도 문제이기도 함.
+
+**Status:** **OPEN — 코드 패턴 발견·기록만 완료, 수정 착수 안 함.**
+
+**관련:** ERR-080, ERR-085, ERR-086, ERR-087, FP-057, FP-063
