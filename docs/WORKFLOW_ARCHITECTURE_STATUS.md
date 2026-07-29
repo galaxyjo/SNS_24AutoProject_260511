@@ -18,11 +18,11 @@
 | 4 | Build·Reuse·Buy 결정 | 완료 | 아래 §6, 12개 항목 전문(260725 GPT 정정 반영 최종판) |
 | 5 | 최소 Architecture 확정 | 부분완료 | 아래 §5-5 |
 | 6 | 격리 MVP 구현 | **완료(260729, §10-17)** | Final Quality Gate: 실게시 1건+차단 1건 Runtime Evidence로 활성 확정. Approval Action: 실측 검증 완료 후 회장 결정으로 비활성 유지(보존, §10-16). **Persona·Sourcebook 최소연결 둘 다 260729 재분류로 6단계 완료 요건에서 제외** — Persona는 11단계 착수 직전 선행과제(§6 항목1), Sourcebook은 11단계 이후 실제 콘텐츠 자동화 수요 발생 시 착수(§6 항목2, HOLD/DEFER) — 전체 고도화만 DEFER 원칙은 유지 |
-| 7 | Live E2E 사전 Gate | 완료 | Token 교체(ERR-077/079) 완료, account_email SSOT RESOLVED(260729), 확장 전 Gate 2개(imgbb/ERR-076) 잔존 |
+| 7 | Live E2E 사전 Gate | 완료 | Token 교체(ERR-077/079) 완료, account_email SSOT RESOLVED(260729), ERR-076 관측성 PARTIAL(260729, 근본 분류로직은 잔존), 확장 전 Gate 1개(imgbb) 잔존 |
 | 8 | 1계정 E2E Canary | 완료 | yuna18253 실제 게시 성공 |
 | 9 | 2계정 재현 Test | 완료 | yuna18253+aijomoojin 독립 게시, 중복게시 0건 |
 | 10 | Metric·수익 검증 | 진행중 | KPI 집계 오류(ERR-078) 해소, 리드전환 유실(ERR-080) 해소. **공식 작업 큐: `P1-1 Clean Measurement Baseline`**(진행중). `yuna18253` Account_Registry 신규 등록 완료(`IDN-000041`, §10-6) — Provider Routing SSOT 정합성 확보. `P1-4`~`P1-6A`/`P1-1B`/`P1-1C` 명칭은 별도 우선순위가 아니라 P1-1 하위조사로 재분류(§10 참조). Clean Baseline·테스트/실고객 분리·매출 원본·ROI 경로는 미완료 |
-| 11 | 확장 | 보류 | 확장 전 필수 Gate(imgbb/ERR-076/계정별Kill Switch) 미통과, account_email SSOT는 260729 RESOLVED로 제외 |
+| 11 | 확장 | 보류 | 확장 전 필수 Gate(imgbb/계정별Kill Switch) 미통과, account_email SSOT는 260729 RESOLVED·ERR-076은 관측성만 PARTIAL(근본 분류로직 잔존)로 제외 |
 
 ---
 
@@ -216,7 +216,8 @@ dm_receiver.py Flask 웹훅(이벤트 트리거, 스케줄 아님) →
 | P1-2 | 데이터 유실 동일 패턴(예외삼킴) 표적 감사 | **RESOLVED — 9단계 감사로 흡수 완료(260729)**. ERR-085(dm_receiver)/086(lead_scorer)/087(lead_closer)/088(order_detector) 4개 경로 전부 확인·RESOLVED(§10-15) — order_detector 포함, 표에서 요구한 조사 범위 충족 |
 | P1-3 | fetch_candidate_phashes() Pagination | **RESOLVED — 4개 Canary 전부 완료(260729)**. 실제 전수 Inventory 결과 원문 대상 외 3개 추가 발견(`list_blocked_suppliers`/`fetch_active_crawl_targets`/`fetch_active_training_targets`) — ERR-078과 동일 결함 클래스(offset 미순회) 전부 재현 후 REUSE 패턴으로 수정. commit `598562d`(#1)/`e2cebac`(#2)/`4202d46`(#3)/`0c62f34`(#4, 원문 대상 — Caller 0건이나 일관성 위해 수정). mock reconciliation 4/4 250/250 전환, 신규 회귀 22/22 PASS. GPT 최종 감사 전, Push 미실행 |
 | P1-4(격리MVP) | 단계 6 격리 MVP 완성(Approval Action + Final Quality Gate) | **완료(260729, §10-16·§10-17)** — Approval Action: 실측 검증 완료 후 회장 결정으로 비활성 유지(보존). Final Quality Gate: 실게시 1건+차단 1건 Runtime Evidence로 활성 확정. **Persona·Sourcebook은 260729 Scope 변경으로 P1-4 종료 범위에서 제외**(Persona: 11단계 착수 직전 선행과제, §6 항목1 / Sourcebook: 11단계 이후 콘텐츠 자동화 수요 발생 시, §6 항목2 — 둘 다 HOLD/DEFER, 삭제 아님)(**주의**: 이 "P1-4"는 §10의 "P1-4"(DM 계정식별 관측 실행)와 다른 항목 — 260725 세션 중 동일 명칭이 두 용도로 쓰인 명명 충돌 발생, §10 하단 정정문 참조) |
-| P2-1~2 | imgbb / ERR-076 자동복구 | 미착수(기존 Gate 그대로) |
+| P2-1 | imgbb | 미착수(기존 Gate 그대로) |
+| P2-2 | ERR-076 자동복구 | **PARTIAL(260729)** — Slack 알림+creation_id 전파로 관측성만 해소, 폴링/error_subcode 기반 근본 분류로직은 미착수(Raw Evidence 부족, 추측 구현 금지) |
 | P2-3 | account_email SSOT | **RESOLVED(260729)** — Runtime 편입 계정 2/2(yuna18253/aijomoojin) 전부 회장 직접 확인, Blast Radius 0 확정(§10-1) |
 | P3 | Token 매뉴얼 갱신(장기교환 단계 추가) | 미착수 |
 

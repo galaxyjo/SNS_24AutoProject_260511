@@ -1300,13 +1300,11 @@ permalink: https://www.instagram.com/p/DbMth5Skgy_/, username: aijomoojin
 
 **Root Cause (Confirmed):** `launcher/main.py` `publish_single()` Phase B는 `r2.status_code >= 400`을 "서버가 명확히 거부, 게시 안 됐음이 확실"로 분류해 재시도 없이 `failed` 확정한다(260725 Codex 리뷰 STOP ITEM 대응으로 확정한 규칙, `test_publish_outcome_unknown.py`로 회귀 고정됨). 그러나 Meta 컨테이너가 이미지 다운로드/처리를 아직 끝내지 못한 상태에서 `/media_publish`를 호출하면 HTTP 400을 반환하고, 몇 초~수십 초 뒤 같은 `creation_id`로 재시도하면 정상 발행(HTTP 200)되는 사례가 `aijomoojin` 실게시 중 실측 확인됨 — 이 케이스의 400은 "영구 거부"가 아니라 "아직 준비 안 됨"이었다.
 
-**Fix:** 미적용 — 실제 발생 시 사람이 로그의 `creation_id`로 수동 재시도해 복구(운영 영향 없이 해소, Airtable도 수동으로 `posted`+`ig_media_id` 정정 완료). 코드 수정은 별도 승인 필요.
+**Fix (260729, PARTIAL):** Prevention(3)을 원안(Airtable Schema에 creation_id 추가) 대신 **기존 outcome_unknown용 Slack 알림 패턴을 http_4xx 분기까지 확장**하는 방식으로 구현 — Instagram_Posts에 `error_code`/`creation_id` 필드 자체가 없어 payload에 넣으면 422 UNKNOWN_FIELD_NAME으로 PATCH 전체가 거부되는 ERR-075/041 재발 위험을 피하기 위함(Airtable Schema 변경 없음). `launcher/main.py` `publish_single()` http_4xx 분기 반환값에 `creation_id` 추가(다른 실패분기와 동일하게) + `_job_insta_upload()`가 `mark_post_result()` 성공 직후 `raw.get("ok") is False`면 `creation_id` 포함 Slack 알림 발송. 분류·재시도 로직(fail-closed, Codex STOP ITEM 계약)은 완전히 무변경. 신규 테스트 `test_job_definitive_failure_marks_failed_and_alerts_with_creation_id` 추가, 기존 `test_media_publish_http_400_is_clear_failure_no_retry` 등 회귀 0건(코드리뷰+standalone 실행으로 검증 — `runtime_boot_policy.json` PermissionError로 `_job_insta_upload()` 관련 job-레벨 pytest 3건은 baseline과 동일하게 이 세션에서 실행 불가, `get_canary_safe_mode_state()`만 monkeypatch로 우회한 standalone 스크립트로 대체검증). 미적용 남은 Prevention: (1) `/{creation_id}?fields=status_code` 폴링 후 발행(Meta 권장 패턴), (2) `error_subcode` 기반 제한적 재시도 — 둘 다 이번 세션 Raw Evidence에 `error_subcode` 값 자체가 없어 추측 구현 금지 원칙상 보류.
 
-**Prevention (제안, 미구현):** (1) `/media_publish` 전에 `/{creation_id}?fields=status_code`로 컨테이너가 `FINISHED` 상태인지 폴링 후 발행하는 Meta 권장 패턴 도입 검토, (2) 최초 400 응답의 `error_subcode`로 "처리중" 케이스만 선별해 제한적 재시도 허용, (3) `mark_post_result()`가 실패 시 `creation_id`를 Airtable에도 남기도록 확장(현재는 로그에만 남음 — Airtable만 보고는 수동 재시도 자체가 불가능).
+**Risk:** `MEDIUM→LOW`(관측성 확보 후) — 중복게시로 이어지지 않음(fail-closed 그대로 유지). 이번 수정으로 재현 시 Slack 알림이 즉시 발생해 사람 개입 자체는 여전히 필요하나 "발생 사실을 모르고 지나침" 위험은 제거됨.
 
-**Risk:** `MEDIUM` — 중복게시로 이어지지 않음(fail-closed 유지, 코드 설계 의도대로 안전하게 작동), 하지만 자동화 목적에 반하게 사람 개입이 필요해짐. `INSTAGRAM_PROVIDER_ROUTING_ENABLED=true`로 라이브 운영 중이라 향후 계속 재현될 가능성 있음.
-
-**Status:** OPEN — 260725 `aijomoojin` 실게시 중 1회 실측 재현, 수동 재시도로 해소(레코드 `recHTfHrFPQh79XGy`, `ig_media_id=18110242561955523`로 Airtable 정정 완료). 코드 수정(Prevention 항목)은 미착수.
+**Status:** PARTIAL(RESOLVED 아님) — 관측성(Slack 알림+creation_id 전파)만 해소, 근본 분류 로직(폴링/error_subcode 기반 재시도)은 여전히 미구현.
 
 **관련:** FP-058, ERR-075(같은 세션에서 별도로 발견된, 무관한 필드 스키마 버그)
 
