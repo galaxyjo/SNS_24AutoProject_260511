@@ -124,6 +124,12 @@ class PublishAccount(TypedDict):
     credential_key: str
 
 
+class PublishAccountV2(PublishAccount, total=False):
+    """PublishAccount + automation_enabled(계정별 Kill Switch, 260730) — 옵션 필드,
+    기존 4개 필수 필드는 그대로라 기존 호출부·Fake/Mock과 100% 호환된다."""
+    automation_enabled: bool
+
+
 class CrawlTarget(TypedDict, total=False):
     target_url:    str
     platform:      str
@@ -282,7 +288,7 @@ class RepositoryInterface(ABC):
         """post_status='ready' 인 게시물 최대 limit 건 반환."""
 
     @abstractmethod
-    def get_publish_account(self, account_code: str) -> PublishAccount | None:
+    def get_publish_account(self, account_code: str) -> PublishAccountV2 | None:
         """account_code로 Account_Registry 조회. 없으면 None. access_token은 반환하지 않는다
         (실제 자격증명은 modules.common.credential_resolver.resolve_credential()로 별도 조회)."""
 

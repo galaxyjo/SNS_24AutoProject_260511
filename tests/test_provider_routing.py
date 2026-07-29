@@ -80,8 +80,50 @@ class TestGetPublishAccount:
             api_provider="instagram_login",
             ig_user_id="17841467725643424",
             credential_key="AI",
+            automation_enabled=False,  # 260730 Kill Switch: 필드 미설정(Airtable unchecked) → Fail-closed
         )
         assert "access_token" not in account
+
+    def test_automation_enabled_true_when_explicitly_checked(self):
+        """260730 계정별 Kill Switch — Airtable에서 명시적으로 체크된 계정만 True."""
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"records": [
+            {"fields": {
+                "account_code": "IDN-000036",
+                "api_provider": {"id": "seltCoLWojPqTByll", "name": "instagram_login"},
+                "ig_user_id": "17841467725643424",
+                "credential_key": "AI",
+                "automation_enabled": True,
+            }},
+        ]}
+        with patch("modules.infra.airtable_repository.requests.get", return_value=resp), \
+             patch("modules.infra.airtable_repository.log_api_call"):
+            repo = AirtableRepository()
+            account = repo.get_publish_account("IDN-000036")
+
+        assert account["automation_enabled"] is True
+
+    def test_automation_enabled_false_when_field_missing(self):
+        """260730 계정별 Kill Switch(Fail-closed) — 필드 자체가 없는 계정(Airtable unchecked와
+        동일 의미)은 automation_enabled=False로 취급해 우회를 막는다."""
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"records": [
+            {"fields": {
+                "account_code": "IDN-000041",
+                "api_provider": {"id": "selXXXX", "name": "facebook_login"},
+                "ig_user_id": "17841476202821375",
+                "credential_key": "YUNA",
+                # automation_enabled 키 자체가 없음 — Airtable checkbox unchecked와 동일
+            }},
+        ]}
+        with patch("modules.infra.airtable_repository.requests.get", return_value=resp), \
+             patch("modules.infra.airtable_repository.log_api_call"):
+            repo = AirtableRepository()
+            account = repo.get_publish_account("IDN-000041")
+
+        assert account["automation_enabled"] is False
         assert "token" not in str(account).lower()
 
 

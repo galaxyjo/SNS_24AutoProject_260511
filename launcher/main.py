@@ -483,6 +483,16 @@ def _job_insta_upload():
                 )
                 continue
 
+            # 260730 계정별 Kill Switch(Fail-closed) — Airtable에서 명시적으로 체크
+            # 안 된 계정은 게시하지 않는다. claim_post_for_upload() 이전이라 uploading
+            # 마킹·Retry Queue 어디에도 진입하지 않고, post_status=ready 그대로 유지된다.
+            if not account.get("automation_enabled", False):
+                logger.info(
+                    "[Main] 계정별 Kill Switch OFF — 처리 보류 | rid=%s | account_code_ref=%s",
+                    post_id, account_code_ref,
+                )
+                continue
+
             provider_conf = PROVIDER_CONFIG.get(account["api_provider"])
             if provider_conf is None:
                 logger.warning(

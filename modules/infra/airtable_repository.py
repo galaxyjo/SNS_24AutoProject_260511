@@ -34,6 +34,7 @@ from modules.infra.repository_interface import (
     LeadInteractionCreate,
     PostPublishResult,
     PublishAccount,
+    PublishAccountV2,
     RepositoryError,
     RepositoryInterface,
     RepositoryNotFoundError,
@@ -470,7 +471,7 @@ class AirtableRepository(RepositoryInterface):
 
     _ACCOUNT_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
-    def get_publish_account(self, account_code: str) -> PublishAccount | None:
+    def get_publish_account(self, account_code: str) -> PublishAccountV2 | None:
         if not account_code or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code):
             # 형식이 이상하면(공백/쉼표 등 다중값처럼 보이는 값 포함) 추측하지 않고 차단
             return None
@@ -502,11 +503,16 @@ class AirtableRepository(RepositoryInterface):
         if isinstance(api_provider, dict):  # singleSelect는 {"name": ...} 형태로 올 수 있음
             api_provider = api_provider.get("name", "")
 
-        return PublishAccount(
+        # 260730 계정별 Kill Switch(Fail-closed): Airtable checkbox는 unchecked를 키
+        # 생략으로 표현해 missing과 false를 구분하지 않는다 — 명시적으로 체크(true)
+        # 안 된 계정은 전부 automation_enabled=False로 취급한다(회장 승인, 우회 방지
+        # 우선 — 배포 전 라이브 계정은 Airtable에서 true로 명시 설정 완료).
+        return PublishAccountV2(
             account_code=f.get("account_code", ""),
             api_provider=api_provider,
             ig_user_id=f.get("ig_user_id", ""),
             credential_key=f.get("credential_key", ""),
+            automation_enabled=f.get("automation_enabled", False),
         )
 
     _IG_USER_ID_PATTERN = re.compile(r"^[0-9]+$")
