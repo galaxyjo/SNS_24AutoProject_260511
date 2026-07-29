@@ -537,7 +537,29 @@ def _job_insta_upload():
             platform_post_id=raw.get("ig_media_id", ""),
             error_code=raw.get("error", ""),
         )
-        repo.mark_post_result(post_id, pub_result)
+        try:
+            repo.mark_post_result(post_id, pub_result)
+        except Exception as exc:
+            # claim_post_for_upload()가 이미 UPLOADING으로 바꿔둔 상태라, 여기서 실패하면
+            # 그 레코드는 다음 사이클의 fetch_pending_posts()(post_status=READY만 조회)
+            # 대상에서 빠져 영구 고착된다 — 나머지 후보 게시물 처리는 계속 진행한다.
+            if raw.get("ok"):
+                logger.error(
+                    "[Main] IG 게시는 성공했으나 Airtable 상태 기록 실패 — uploading에 고착, "
+                    "수동 확인 필요 | rid=%s | ig_media_id=%s | %s",
+                    post_id, raw.get("ig_media_id", ""), exc,
+                )
+                if _slack:
+                    _slack(
+                        f"[긴급] IG 게시 성공, Airtable 상태 기록 실패 — 수동 확인 필요\n"
+                        f"rid={post_id} | ig_media_id={raw.get('ig_media_id','')}"
+                    )
+            else:
+                logger.error(
+                    "[Main] 게시 실패 상태 기록도 실패 — uploading에 고착 | rid=%s | %s",
+                    post_id, exc,
+                )
+            continue
 
 
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
