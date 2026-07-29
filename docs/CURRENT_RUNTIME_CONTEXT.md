@@ -1,3 +1,26 @@
+# 2026-07-29 13:35 ICT — 9단계(예외삼킴·데이터손실 감사) 완료 선언
+
+_기록 시각: 2026-07-29 13:35 ICT · 상태: **9단계 완료(회장 확정)** — 8단계 완료 직후 착수한 예외삼킴·데이터손실 감사 트랙을 종료한다. 이 "9단계"는 아래 §Source of Truth/§Runtime 상태와 무관하게 `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §1의 0~11단계 로드맵과는 별개 트랙이다(번호가 우연히 같을 뿐)._
+
+## 완료 요약
+
+- **9-10-3 배치 감사 Defect A~F(전부 RESOLVED)**: `launcher/main.py` Active 스케줄 잡 8개 전수 감사 — Facebook Crawl(`09cae6f`)/Account Manager(`56b7497`)/Dome Crawl(`dd06816`)/Dome Export(`ba8b95c`)/KPI Snapshot(`4375642`)/Instagram Upload(`c857aef`) 6개 예외삼킴·배치격리 결함을 개별 최소수정 + mock 테스트 + Runtime 재시작 라이브 검증으로 확인 후 개별 commit.
+- **ERR-085~088(CRM/DM 쓰기 실패 예외삼킴, 전부 RESOLVED)**: `lead_closer`/`lead_scorer`/`order_detector`/`dm_receiver` 4곳에 `retry_queue` 위임 추가(`75c60d2`), 문서 갱신(`9c2c99a`). ERR-087은 Production Caller 0건으로 `NOT_ACTIVE` 유지, ERR-088은 기존 Telegram 알림 계약을 의도적으로 보존(회장/GPT 지시) — 둘 다 알려진 잔존사항.
+- **uploading 고착 11건 remediation(코드 변경 없음, Airtable 데이터만 수정)**: 9-12에서 발견. 로그로 11/11 전부 실제 게시 이력 0건(중복게시 위험 없음) 확정 → Canary 재시도 중 9단계 다계정 안전장치(`account_code_ref` 필수)에 걸리는 신규 현상 발견 → `account_code_ref=IDN-000041`+`post_status=ready`로 재설정 → 11/11 전부 실제 Instagram 게시 성공(`post_status=posted`, 고유 `ig_media_id` 확인).
+- **9-14 최종 Closure 감사(Read-only)**: git status clean, 관련 테스트 88 passed/6 failed(전부 pre-existing 환경제약, 회귀 아님)/3 xfailed, Runtime 재시작(11:43:51) 이후 실제 신규 ERROR 0건, Airtable 11/11 `posted` 확정, 문서 정합성 확인.
+
+## HOLD(9단계 결론과 분리)
+
+- `WEBHOOK_APP_SECRET` 라이브 프로세스 값과 `.env` 파일 값의 불일치를 ERR-085 라이브 검증 중 발견(운영 트래픽 영향 여부 미확인) — 별도 세션(`task_b24dbf54`)에서 조사 진행 중.
+- ERR-087은 Production Caller가 생기는 시점(`dm_followup_scheduler.py` 연동 등) 재감사 필요.
+- FP-063 예방책(3)(리뷰 체크리스트에 "fail-open이 맞는가, retry_queue가 필요한가" 항목화)은 미착수(DEFER).
+
+## 판정
+
+9단계(예외삼킴·데이터손실 감사) **완료 선언**(회장 확정, 260729 13:35 ICT). 상세 Evidence는 `porting_logs/MERGE_JOURNAL.md` [260729_9단계_예외삼킴_데이터손실_감사_완료] 항목 / `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §10-15 참조.
+
+---
+
 # 2026-07-29 06:09 ICT — 8단계 P1-1 완료 선언 (C1 Facebook Exact-Post Canary + anchor-scan Gate 해소)
 
 _기록 시각: 2026-07-29 06:09 ICT · 상태: **8단계 완료(회장 확정)** — C1 Runtime SUCCESS(260728 21:37 ICT)에 이어 260728 21:39 ICT UNKNOWN으로 보류했던 anchor-scan 오매칭 근본원인을 실제 DOM으로 재현·규명·코드로 차단했다. 회장이 8단계 완료를 선언했으며, Commit·Push는 회장 지시로 별도 보류한다._

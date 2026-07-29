@@ -432,3 +432,34 @@ Airtable Instagram_Posts 실제 레코드(recFHv9AvW891KaHW) GET으로 직접 �
 **기록**: `docs/CURRENT_RUNTIME_CONTEXT.md` 260729 06:00 ICT 섹션 / 이 섹션.
 
 ---
+
+### 10-15. 9단계(예외삼킴·데이터손실 감사) 완료(260729 13:35 ICT)
+
+**범위**: 이 "9단계"는 위 §1 표의 프로젝트 로드맵 0~11단계와는 별개로, CLAUDE.md 단계 위치 표기 헤더가 지칭하는 독립된 신뢰성 감사 트랙이다(우연히 같은 번호 9를 씀 — §1 표의 "9 | 2계정 재현 Test"와 혼동 금지). `launcher/main.py`의 Active 스케줄 잡 8개(Facebook Crawl/Account Manager/Dome Crawl/Dome Export/Comment Dead Monitor/KPI Snapshot/Engagement Update/Instagram Upload) 전수 감사 대상이었다.
+
+**9-10-3 배치 감사 — Defect A~F(전부 RESOLVED, 개별 commit)**:
+| Defect | 대상 | 증상 | 수정 | commit |
+|---|---|---|---|---|
+| A | facebook_crawler.py | URL 1건 실패가 계정 전체 SUCCESS로 위장 | 계정 단위 SUCCESS/PARTIAL/FAILED 판정 + 전량실패시 예외 | `09cae6f` |
+| B | account_manager.py | Airtable 캐시 로드 실패가 "타겟 0건"으로 위장 | source=airtable 경로 예외 재전파(캐시 무효화) | `56b7497` |
+| C | launcher/main.py(_job_dome_crawl) | 타겟/아이템 1건 실패가 배치 전체 중단 | 타겟·아이템별 try/except, 전량실패시만 예외 | `dd06816` |
+| D | source_exporter.py | claim/exists/상태갱신 실패가 배치 중단 | 항목별 try/except → failed 카운트 합산(기존 3키 계약 보존) | `ba8b95c` |
+| E | kpi_collector.py | Airtable 조회 실패가 0건 KPI로 오기록 | `_or_raise` 변형 신설 + `fetch_errors` 신규 키 | `4375642` |
+| F | launcher/main.py(_job_insta_upload) | mark_post_result 실패가 배치 중단(uploading 고착 유발) | try/except + Slack 알림, 실사용 Airtable 레코드로 라이브 검증 | `c857aef` |
+
+**9-11/9-12**: 결함 분류 확정 + 데이터 유실 영향 실측 — `post_status=uploading` 고착 11건 발견(원인: Defect F 수정 전 상태였던 시기의 casualty).
+
+**ERR-085~088(CRM/DM 쓰기 실패 예외삼킴, 전부 RESOLVED)**: `lead_closer.mark_lead_closed()`/`lead_scorer.update_lead_score()`/`order_detector.handle_order_conversion()`/`dm_receiver record_interaction()` 4곳에 `retry_queue` 위임 추가(`75c60d2`), `docs/ERROR_DATABASE.md` 갱신(`9c2c99a`). ERR-087은 Production Caller 0건 확인으로 `NOT_ACTIVE/LATENT_RISK` 유지, ERR-088은 회장/GPT 지시로 기존 Telegram 알림 계약을 의도적으로 보존(상태-알림 불일치 잔존, 별도 판단 대상으로 명시).
+
+**uploading 11건 remediation(Airtable 데이터 수정만, 코드 변경 0)**: 로그 전수조사로 11/11 전부 `[publish_single] 성공` 이력 0건(중복게시 위험 없음)을 먼저 확정 → Canary 1건 재시도 시 신규 발견: 9단계 다계정 안전장치(`account_code_ref` 없으면 Legacy 전역 계정 fallback 금지)에 걸려 처리 보류됨을 확인 → `account_code_ref=IDN-000041`(YUNA 실제 account_code) + `post_status=ready`로 재설정 → 11/11 전부 실제 Instagram 게시 성공(`post_status=posted`, 고유 `ig_media_id` 발급 확인).
+
+**9-14 최종 Closure 감사(Read-only)**: git status clean, 관련 테스트 88 passed/6 failed(전부 `runtime_boot_policy.json` PermissionError 기존 환경제약, 회귀 아님)/3 xfailed, Runtime 11:43:51 재시작 이후 실제 신규 ERROR 0건(pytest mock 산출물 제외), Airtable 11/11 `posted` 확정, 문서 정합성 확인.
+
+**HOLD(9단계 결론과 분리)**: `WEBHOOK_APP_SECRET` 라이브 프로세스/`.env` 파일 값 불일치 — 별도 세션(`task_b24dbf54`)에서 진행 중.
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-085~088 RESOLVED) / `docs/FAILURE_PATTERN.md`(FP-063 후속, FP-064 신규) / `docs/VALIDATION_STATUS.md` / `docs/CURRENT_RUNTIME_CONTEXT.md` / `porting_logs/MERGE_JOURNAL.md` / 이 섹션.
+
+commit: `09cae6f`~`9c2c99a`(코드·문서) + 이 Closure 문서 4개 신규 commit
+push: 이 Closure 직후 실행
+
+---

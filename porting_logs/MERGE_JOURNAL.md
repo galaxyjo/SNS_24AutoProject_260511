@@ -1655,3 +1655,30 @@ commit: 회장 지시로 미실행 — 별도 승인 대상
 push: 미실행 — 별도 승인 대상
 
 ---
+
+## [260729_9단계_예외삼킴_데이터손실_감사_완료] — Defect A~F + ERR-085~088 + uploading 11건 remediation, 9단계 종료
+
+**배경**: 8단계 완료 직후 GPT 지시로 "9단계(예외삼킴·데이터손실 감사)"를 시작 — `launcher/main.py`의 Active 스케줄 잡 8개(Facebook Crawl/Account Manager/Dome Crawl/Dome Export/Comment Dead Monitor/KPI Snapshot/Engagement Update/Instagram Upload)를 전수 감사하고, 이전 세션(P1-2)에서 문서로만 등록해뒀던 ERR-085~088(CRM/DM 쓰기 실패 예외삼킴)도 이번에 실제로 수정했다. 이 "9단계"는 `docs/WORKFLOW_ARCHITECTURE_STATUS.md` §1의 프로젝트 로드맵 0~11단계와는 별개 트랙이다(번호가 우연히 같을 뿐 — 로드맵 "9단계"는 "2계정 재현 Test"로 이미 완료된 항목).
+
+**9-10-3 배치 감사 — Defect A~F(전부 개별 최소수정·mock 테스트·Runtime 재시작 라이브 검증 후 개별 commit)**: Facebook Crawl(URL 1건 실패가 계정 SUCCESS로 위장 → 계정단위 판정 도입, `09cae6f`) / Account Manager(Airtable 캐시 로드 실패가 "타겟 0건"으로 위장 → 예외 재전파, `56b7497`) / Dome Crawl(타겟·아이템 1건 실패가 배치 전체 중단 → 단위별 격리, `dd06816`) / Dome Export(claim/exists/상태갱신 실패가 배치 중단 → 항목별 격리, 기존 3키 반환계약 보존, `ba8b95c`) / KPI Snapshot(Airtable 조회 실패가 0건 KPI로 오기록 → `_or_raise` 변형 신설, `4375642`) / Instagram Upload(`mark_post_result` 실패가 배치 중단·`uploading` 고착 유발 → try/except+Slack, 실제 Airtable 레코드 1건 생성→검증→삭제로 라이브 검증, `c857aef`).
+
+**9-11/9-12**: 결함 분류 확정 후 데이터 유실 영향을 실측 — `post_status=uploading` 고착 11건 발견(전부 Defect F 수정 이전 시기의 casualty).
+
+**ERR-085~088(CRM/DM 쓰기 실패 예외삼킴, commit `75c60d2`)**: `lead_closer.mark_lead_closed()`/`lead_scorer.update_lead_score()`/`order_detector.handle_order_conversion()`/`dm_receiver record_interaction()` 4곳에 `retry_queue` 위임을 추가했다. `lead_closer`는 추가로 상태-알림 불일치(쓰기 실패에도 "CLOSE 완료" 알림 발송)를 해소했다. `tests/test_crm_write_retry_queue.py` 6/6 PASS, 회귀 `test_smoke_crm.py` 20/20·`test_dm_close.py` 12 passed/3 xfailed 전부 PASS. ERR-085(dm_receiver)는 로컬 pytest가 `runtime_boot_policy.json` PermissionError로 collection 자체가 막혀(기존 `test_dm_receiver_webhook.py`도 동일 — pre-existing 환경제약, `git stash` baseline 대조로 회귀 아님 확인) 코드리뷰+Runtime 재시작(11:43:51) 반영 확인으로 대체 검증했다(회장 승인 B안). `docs/ERROR_DATABASE.md` ERR-085~088 전부 RESOLVED로 갱신했다(commit `9c2c99a`) — ERR-087은 Production Caller 0건으로 `NOT_ACTIVE/LATENT_RISK` 그대로 유지, ERR-088은 회장/GPT 지시로 기존 Telegram 알림 계약을 의도적으로 보존(상태-알림 불일치가 이 항목만 잔존, 별도 판단 대상으로 명시 기록).
+
+**uploading 11건 remediation(코드 변경 없음, Airtable 데이터만 수정)**: 로그 전수조사(`app.log`/`app.log.1`/`app.log.5`/`error.log`)로 11/11 전부 `[publish_single] 성공` 이력이 0건임을 먼저 확정해 재시도 시 중복게시 위험이 없음을 증명했다. Canary 1건(`recEl21XwVS1fQMLM`)을 `post_status=ready`로만 되돌렸더니 9단계 다계정 안전장치(`account_code_ref` 공란이면 Legacy 전역 계정 fallback 금지, `launcher/main.py:463-468`)에 걸려 처리가 보류되는 신규 현상을 발견 — `account_code_ref=IDN-000041`(YUNA 계정의 실제 `account_code`, 최초 오기입한 `YUNA`는 `credential_key`였음을 로그로 자체 정정)을 추가하자 실제 Instagram 게시 성공(`ig_media_id=18110568664782448`)을 확인했다. 동일 조치를 나머지 10건에 적용해 11/11 전부 `post_status=posted`+고유 `ig_media_id`(중복 없음)를 확인했다.
+
+**9-14 최종 Closure 감사(Read-only, 코드·문서 추가수정 없이 증거만 재확인)**: `git status` clean, 관련 테스트 88 passed/6 failed(전부 `runtime_boot_policy.json` PermissionError 기존 환경제약, baseline 대조로 회귀 아님)/3 xfailed, `11:43:51` Runtime 재시작 이후 실제(비-테스트) 신규 ERROR 0건(같은 시각대 error.log에 남은 항목은 이 감사 중 실행한 pytest의 mock 산출물로 식별 — FP-064 패턴 재확인), Airtable 11/11 `posted` 최종 확인, `docs/ERROR_DATABASE.md`/`docs/FAILURE_PATTERN.md` 정합성 확인.
+
+**HOLD(9단계 결론과 분리, 이번 종료 판정에 미포함)**: `WEBHOOK_APP_SECRET` 라이브 프로세스 값과 `.env` 파일 값의 불일치를 ERR-085 라이브 검증 중 발견했으나(운영 트래픽 영향 여부 미확인), 별도 세션(`task_b24dbf54`)으로 분리해 진행 중이다.
+
+**판정**: 9단계(예외삼킴·데이터손실 감사) **완료**(회장 확정, 260729). Defect A~F 전부 RESOLVED, ERR-085~088 전부 RESOLVED, uploading 고착 11건 전부 해소.
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-085~088 RESOLVED) / `docs/FAILURE_PATTERN.md`(FP-063 후속, FP-064 신규) / `docs/VALIDATION_STATUS.md`(신규 3행) / `docs/CURRENT_RUNTIME_CONTEXT.md`(9단계 종료 섹션 신설) / `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§10-15 신설) / 이 항목.
+
+**변경 파일(9단계 전체, 260729 세션)**: `modules/sns/facebook_crawler.py` / `modules/common/account_manager.py` / `launcher/main.py`(Dome Crawl·Instagram Upload) / `modules/crawlers/source_exporter.py` / `modules/metrics/kpi_collector.py` / `modules/crm/lead_closer.py` / `modules/crm/lead_scorer.py` / `modules/crm/order_detector.py` / `modules/dm/dm_receiver.py` + 신규 테스트 8파일 + `CLAUDE.md`(단계 위치 표기 헤더/압축 출력 형식/관리자 명령어 복붙 규칙) + 이 Closure 문서 4개.
+
+commit: `09cae6f`~`9c2c99a`(코드·개별 문서) + 이 Closure 문서 4개 신규 commit(아래)
+push: 이 Closure 직후 실행(회장 승인)
+
+---
