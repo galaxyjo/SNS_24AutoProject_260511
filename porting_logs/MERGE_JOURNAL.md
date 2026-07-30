@@ -1754,3 +1754,26 @@ DM 채널 SUCCESS 선언 직후 회장이 "yuna 1계정만 검증됐고 전역 f
 **기록**: `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 항목에 직접 반영, 우선순위·정책 갱신) / 이 항목.
 
 ---
+
+## [260730_신규세션] DM Routing Close Gate — fallback-gate 정책 구현·검증(ERR-091/FP-065) + 신규 백로그 기록
+
+이전 세션이 승인만 받고 미착수 상태로 넘긴 fallback-gate 정책(전역 fallback=yuna18253 고정, 다른 계정 해석 실패 시 오발송 위험)을 이번 세션에서 Read-only 재확인 후 구현·검증까지 완료.
+
+**구현**: `modules/dm/dm_auto_reply.py`에 `GLOBAL_FALLBACK_ACCOUNT_CODE_REF="IDN-000041"` 상수 신설 + `send_ig_reply()`에 조건분기 추가 — `account_code_ref`가 있고 그 값이 fallback 소유자(yuna18253) 자신이 아닌데 `_resolve_dm_send_target()`이 실패하면, 전역 발송을 시도하지 않고 즉시 `False` 반환(로그로 사유 명시, 호출자가 retry_queue로 위임). `account_code_ref` 공란(레거시/미해석) 또는 yuna18253 자신이면 기존 동작 100% 보존. `modules/dm/dm_followup_scheduler.py::_send_ig_dm()`에도 동일 로직 REUSE(중복 구현 대신 `dm_auto_reply.GLOBAL_FALLBACK_ACCOUNT_CODE_REF` import).
+
+**테스트**: `tests/test_dm_multi_account_send.py`에 신규 2개(fallback 소유자 자신은 유지/타 계정은 차단) + 신규 파일 `tests/test_dm_followup_fallback_gate.py` 3개(followup 경로 동일 계약 3종) 추가. 이 세션 자체는 `modules/dm/__init__.py`→`dm_receiver.py`의 `runtime_boot_policy.json` PermissionError(기존 반복 문서화된 환경제약)로 직접 실행 불가 — 회장 터미널(프로젝트 venv, ACL 제약 없음)에서 실행 위임, **Raw Output 13 passed / 0 failed** 확인(기존 7개 회귀 포함).
+
+**실제 Runtime Canary**: 회장이 aijomoojin 계정으로 실제 DM 2건 발송 — 1건("test", 4자)은 `PRICE_KEYWORDS` 미매칭이라 계정 태깅만 확인(`Lead_Interactions.account_code_ref=IDN-000036`, `recl3tNiryEk5qj2d`), 2건째("가격 얼마예요?")가 실제 fallback-gate 대상 경로를 exercise — `[AutoReply] 단가 문의 감지`→`[AutoReply] IG DM 발송 완료`(`recObauwGlbvU1Djs`) 확인, 이 구간 fallback 경고 로그 0건. 즉 `_resolve_dm_send_target()`이 aijomoojin 자신의 `instagram_login`(graph.instagram.com) 경로로 1차 시도에서 정상 성공 — 오늘 구현한 차단분기 자체는 이 실측에서 발동되지 않았음(정상 경로가 살아있다는 좋은 신호, 차단분기는 mock 테스트로만 검증된 상태로 남음, Accept 가능한 잔존사항으로 ERR-091에 명시).
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-091 신규, RESOLVED) / `docs/FAILURE_PATTERN.md`(FP-065 신규) / `docs/VALIDATION_STATUS.md`(`dm_fallback_gate_err091_260730` 행 추가) / `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 신규 섹션, 17:36 ICT) / 이 항목.
+
+**신규 백로그(DEFER, 이번 범위 아님)**: 회장 지시 — "가격만 답하지 말고 모든 의뢰(문의) 유형에 DM 자동응답이 되어야 한다", "우선 기록해놓고 챗봇설계는 갖고오자". 현재 `PRICE_KEYWORDS` 기반 좁은 매칭 설계를 확장해야 한다는 방향성만 기록, 코드 착수는 회장이 별도 챗봇 설계(안)를 가져온 뒤로 보류. `docs/CURRENT_RUNTIME_CONTEXT.md` 및 세션 간 메모리(`project_all_inquiry_chatbot_backlog_260730`)에 동일 기록.
+
+**변경 파일**: `modules/dm/dm_auto_reply.py` / `modules/dm/dm_followup_scheduler.py` / `tests/test_dm_multi_account_send.py` + 신규 `tests/test_dm_followup_fallback_gate.py`. Airtable Write 0건(이번 세션, DM은 회장이 직접 발송해 Runtime이 자동 기록), Runtime Restart 0건(기존 라이브 프로세스가 신규 코드를 이미 반영 중인 상태에서 실측 — 재시작 여부는 다음 세션에서 프로세스 시작시각 대조로 별도 확인 필요, 이번엔 미확인 UNKNOWN으로 남김).
+
+**판정**: DM Routing Close Gate의 fallback-gate 항목 **SUCCESS로 종결**(코드+mock 테스트+실제 Canary 전부 확인). 댓글·팔로업 세부 Routing(10.5-6단계)은 여전히 다음 착수 대상.
+
+commit: 이 세션 신규 변경분(코드 2 + 테스트 2) 단일 목적 commit 예정(다음 커맨드)
+push: 세션 종료 시점에 확인 필요
+
+---

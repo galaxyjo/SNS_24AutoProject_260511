@@ -148,3 +148,55 @@ def test_send_ig_reply_falls_back_to_global_when_target_unresolved(monkeypatch):
     assert sent is True
     assert captured["url"] == "https://graph.facebook.com/v25.0/111222333/messages"
     assert captured["headers"]["Authorization"] == "Bearer global-fallback-token"
+
+
+def test_send_ig_reply_still_falls_back_when_unresolved_account_is_the_fallback_owner(monkeypatch):
+    """260730 DM Routing Close Gate — account_code_ref가 전역 fallback 소유 계정
+    (yuna18253=GLOBAL_FALLBACK_ACCOUNT_CODE_REF) 자신이면, 해석에 실패해도 결과가
+    동일하므로 기존 전역 fallback을 그대로 유지해야 한다(회귀 방지)."""
+    dm_auto_reply._repo = _FakeRepo({})  # 조회 자체가 실패하는 상황을 재현
+    monkeypatch.setenv("FACEBOOK_PAGE_ID", "868456346356581")
+    monkeypatch.setattr(dm_auto_reply, "_get_page_token", lambda: "global-fallback-token")
+
+    captured = {}
+
+    class _FakeResp:
+        ok = True
+
+        def json(self):
+            return {"message_id": "mid_yuna"}
+
+    def _fake_post(url, headers=None, data=None, timeout=None):
+        captured["called"] = True
+        return _FakeResp()
+
+    monkeypatch.setattr(dm_auto_reply.requests, "post", _fake_post)
+
+    sent = dm_auto_reply.send_ig_reply(
+        "sender1", "hello",
+        account_code_ref=dm_auto_reply.GLOBAL_FALLBACK_ACCOUNT_CODE_REF,
+    )
+
+    assert sent is True
+    assert captured.get("called") is True
+
+
+def test_send_ig_reply_skips_fallback_for_other_account_when_unresolved(monkeypatch):
+    """260730 DM Routing Close Gate — account_code_ref가 있고(계정이 이미 식별됨) 그
+    계정이 aijomoojin 등 전역 fallback 소유자(yuna18253)가 아닌데 해석에 실패하면,
+    전역 fallback으로 실제 발송을 시도하지 않고 즉시 False를 반환해야 한다
+    (호출자가 retry_queue로 위임)."""
+    dm_auto_reply._repo = _FakeRepo({})  # 조회 실패 → target=None
+
+    called = {"post": False}
+
+    def _fake_post(*a, **k):
+        called["post"] = True
+        raise AssertionError("전역 fallback으로 실제 발송을 시도하면 안 된다")
+
+    monkeypatch.setattr(dm_auto_reply.requests, "post", _fake_post)
+
+    sent = dm_auto_reply.send_ig_reply("sender1", "hello", account_code_ref="IDN-000036")
+
+    assert sent is False
+    assert called["post"] is False

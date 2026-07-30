@@ -102,10 +102,17 @@ def _send_ig_dm(igsid: str, text: str, account_code_ref: str = "") -> bool:
     """260730 Multi-account DM Routing — account_code_ref 해석에 성공하면 계정별
     경로(facebook_login Page 교환 또는 instagram_login 직접호출)를 쓰고, 실패하면
     기존 전역 계정으로 fallback한다(동작 100% 보존, dm_auto_reply.py와 로직 REUSE)."""
-    from modules.dm.dm_auto_reply import _resolve_dm_send_target
+    from modules.dm.dm_auto_reply import _resolve_dm_send_target, GLOBAL_FALLBACK_ACCOUNT_CODE_REF
     target = _resolve_dm_send_target(account_code_ref)
     if target:
         url, page_token = target["url"], target["token"]
+    elif account_code_ref and account_code_ref != GLOBAL_FALLBACK_ACCOUNT_CODE_REF:
+        # 260730 DM Routing Close Gate — dm_auto_reply.py::send_ig_reply()와 동일 정책(REUSE).
+        logger.error(
+            f"[Followup] 계정별 발송 대상 해석 실패 — 전역 fallback은 다른 계정(yuna18253) "
+            f"소유라 발송 생략, retry_queue 위임 | account_code_ref={account_code_ref}"
+        )
+        return False
     else:
         page_id    = os.getenv("FACEBOOK_PAGE_ID", "")
         page_token = _get_page_token()

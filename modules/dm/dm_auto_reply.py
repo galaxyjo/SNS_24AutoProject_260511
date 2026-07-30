@@ -18,6 +18,11 @@ _repo = AirtableRepository()
 
 MARGIN_RATE = 0.10
 
+# 260730 DM Routing Close Gate — 전역 FACEBOOK_PAGE_ID/INSTA_ACCESS_TOKEN이 실제로
+# 가리키는 계정(회장 승인 정책). 계정 해석 실패 시 이 계정만 결과가 동일하므로
+# 전역 fallback을 유지하고, 그 외 계정은 fallback 시도 없이 retry_queue로 보낸다.
+GLOBAL_FALLBACK_ACCOUNT_CODE_REF = os.getenv("GLOBAL_FALLBACK_ACCOUNT_CODE_REF", "IDN-000041")
+
 # Gate C — Price Safety Interlock (docs/design/DM_RELAY_COMMERCE_RFC.md §17)
 # Post/Product 매핑(P1-B) 전까지는 상품을 특정할 수 없으므로 기본값 false.
 PRICE_AUTO_REPLY_ENABLED = os.getenv("PRICE_AUTO_REPLY_ENABLED", "false").lower() == "true"
@@ -193,6 +198,16 @@ def send_ig_reply(sender_igsid: str, message: str, account_code_ref: str = "") -
     target = _resolve_dm_send_target(account_code_ref)
     if target:
         url, page_token = target["url"], target["token"]
+    elif account_code_ref and account_code_ref != GLOBAL_FALLBACK_ACCOUNT_CODE_REF:
+        # 260730 DM Routing Close Gate: 계정이 이미 식별됐는데(account_code_ref 있음)
+        # 해석에 실패했고, 그 계정이 전역 fallback 목적지(yuna18253) 본인이 아니면
+        # 전역 발송을 시도하지 않는다 — 다른 계정 손님에게 yuna18253 Page Token으로
+        # 발송을 시도해 오계정 전달·무의미한 API 호출이 발생하는 것을 막는다.
+        logger.error(
+            f"[AutoReply] 계정별 발송 대상 해석 실패 — 전역 fallback은 다른 계정(yuna18253) "
+            f"소유라 발송 생략, retry_queue 위임 | account_code_ref={account_code_ref}"
+        )
+        return False
     else:
         page_id = os.getenv("FACEBOOK_PAGE_ID", "")
         page_token = _get_page_token()

@@ -1744,3 +1744,19 @@ watchdog.log(같은 구간):
 **Status:** OPEN — 회장이 Meta Developer Console에서 두 계정(yuna18253/aijomoojin) 토큰 재발급 후 `.env` 교체 대기.
 
 **관련:** ERR-077, FP-059(260725 동일 클래스 선례)
+
+## ERR-091 | DM 전역 fallback이 항상 yuna18253으로 고정 — 다른 계정 해석 실패 시 그 고정 계정 소유 경로로 오발송 시도 위험 (RESOLVED, 260730)
+
+**Type:** 잠재 위험(Latent Risk) — Multi-account DM Routing 설계 리뷰 중 발견, 실제 오발송 발생은 아님
+
+**경위:** ERR-090 직후 세션 종료 직전, 회장이 "yuna 1계정만 검증됐고 전역 fallback이 남아있어 다계정 완료 판정은 이르다"고 지적. Read-only 재조사 결과 `INSTA_IG_USER_ID`/`FACEBOOK_PAGE_ID`가 정확히 yuna18253 소유임을 실측 확인 — `_resolve_dm_send_target()`(`modules/dm/dm_auto_reply.py`)이 계정 해석에 실패하면(예: `Account_Registry` 조회 실패, credential 해석 예외, 미지원 provider 등) `send_ig_reply()`/`_send_ig_dm()` 양쪽 모두 조건 없이 이 전역(yuna18253) 경로로 실제 발송을 시도하는 구조였다. yuna18253 자신의 해석 실패는 결과가 같아 무해하지만, aijomoojin 등 다른 계정의 해석 실패는 다른 계정 소유 Page Token으로 발송을 시도하게 되는 잠재 위험이었다.
+
+**Fix:** `modules/dm/dm_auto_reply.py`에 `GLOBAL_FALLBACK_ACCOUNT_CODE_REF`(기본값 `IDN-000041`=yuna18253) 상수 추가 + `send_ig_reply()`에 조건분기 추가 — `account_code_ref`가 있고(계정이 이미 식별됨) 그 값이 `GLOBAL_FALLBACK_ACCOUNT_CODE_REF`가 아닌데 해석 실패 시, 전역 발송을 시도하지 않고 즉시 `False`를 반환해 호출자가 `retry_queue`로 위임하게 한다. `modules/dm/dm_followup_scheduler.py::_send_ig_dm()`에도 동일 로직 REUSE. `account_code_ref` 공란(레거시/미해석)이거나 yuna18253 자신인 경우는 기존 전역 fallback 동작을 100% 보존.
+
+**검증:** ① Mock 단위테스트 5개 신규(`tests/test_dm_multi_account_send.py` 2개 + `tests/test_dm_followup_fallback_gate.py` 신규 3개) — 회장 터미널(프로젝트 venv) Raw Output **13 passed, 0 failed**(기존 7개 회귀 포함). ② 실제 aijomoojin 가격문의 DM Runtime Canary — `Lead_Interactions`(`recObauwGlbvU1Djs`) `account_code_ref=IDN-000036` 정확히 태깅, `[AutoReply] IG DM 발송 완료` 확인, fallback 경고 로그 0건(1차 시도에서 aijomoojin 자신의 `instagram_login` 경로로 정상 성공 — 오늘 구현한 차단 분기 자체는 이 실측에서 발동되지 않았음, mock 테스트로만 검증된 상태).
+
+**Risk:** 발견 시점 `MEDIUM`(실제 오발송 발생 전 리뷰 단계에서 차단) — Fix 적용 후 `LOW`.
+
+**Status:** RESOLVED — 코드 구현·mock 테스트·실제 Canary(정상 경로) 전부 완료. 차단 분기 자체의 실제 Graph API 조건 재현(실패 케이스)은 자연 발생하지 않아 mock 검증에만 의존하는 잔존 사항으로 남음(Accept, 낮은 우선순위).
+
+**관련:** ERR-090, [260730_세션종료직전_추가발견] `porting_logs/MERGE_JOURNAL.md`

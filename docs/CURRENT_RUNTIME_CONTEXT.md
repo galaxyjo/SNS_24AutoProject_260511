@@ -1,3 +1,19 @@
+# 2026-07-30 17:36 ICT — DM Routing Close Gate: fallback 정책 구현+실측 Canary SUCCESS, 신규 백로그(전체 문의유형 자동응답 챗봇) 기록
+
+_기록 시각: 2026-07-30 17:36 ICT · 상태: **PARTIAL/IN_PROGRESS** — DM Routing Close Gate의 fallback 위험(아래 260730 16:46 FACT 참조)에 대한 승인된 정책을 구현·검증까지 완료. 댓글·팔로업 Routing(10.5-6)은 여전히 다음 단계. 이 항목이 최신 상태이며, 아래 260730 16:46 항목은 이 세션 시작 시점의 인계 기록으로 보존._
+
+## 완료된 FACT(이 세션, 260730 17:xx)
+- **fallback-gate 코드 구현**: `modules/dm/dm_auto_reply.py`(`GLOBAL_FALLBACK_ACCOUNT_CODE_REF="IDN-000041"` 상수 + `send_ig_reply()` 조건분기)와 `modules/dm/dm_followup_scheduler.py`(`_send_ig_dm()` 동일 조건분기, REUSE) — `account_code_ref`가 있고 해석 실패했는데 yuna18253(`IDN-000041`) 자신이 아니면 전역 fallback 시도 없이 즉시 `False`(retry_queue 위임), 공란/yuna18253은 기존 동작 100% 보존. 신규 테스트 5개(`tests/test_dm_multi_account_send.py` 2개 추가, `tests/test_dm_followup_fallback_gate.py` 신규 3개) 포함 회장 터미널에서 **13 passed, 0 failed**(Raw Output 확인).
+- **aijomoojin 실제 가격문의 DM Runtime Canary SUCCESS**: 실제 DM "가격 얼마예요?" → `Lead_Interactions`(`recObauwGlbvU1Djs`, Airtable 직접 조회) `account_code_ref=IDN-000036` 정확히 태깅 → `[AutoReply] 단가 문의 감지` → `[AutoReply] IG DM 발송 완료`(msg_id 확인) — 이 구간 로그에 fallback 경고 **0건**, 즉 `_resolve_dm_send_target()`이 aijomoojin 자신의 `instagram_login`(graph.instagram.com) 경로로 1차 시도에서 정상 성공. 오늘 구현한 fallback-차단 분기는 실제로는 발동되지 않았음(정상 경로 성공 = 안전장치가 필요조차 없었다는 뜻, 좋은 신호) — 그 분기 자체는 여전히 mock 테스트로만 검증된 상태.
+- **문서화·commit은 아직 미승인 — 회장 확인 대기 중**(이 세션에서 재확인 필요).
+
+## 신규 백로그(회장 지시, 260730 17:3x, DEFER — 이번 세션 범위 아님)
+- **"가격만 답하지 말고 모든 의뢰(문의) 유형에 DM 자동응답이 되어야 한다"** — 현재 `dm_auto_reply.py`는 `PRICE_KEYWORDS` 매칭(가격/단가/얼마/비용/견적 등)에 걸린 문의만 자동응답(그마저 `PRICE_AUTO_REPLY_ENABLED=false`라 상품확인 요청으로 대체)하고, 그 외 일반 문의는 자동응답 없이 Lead_Interactions 기록·스코어링만 된다. 회장은 이걸 "모든 의뢰도(문의 유형)"로 확장해야 한다고 판단.
+- **회장 지시**: "우선 기록해놓고 챗봇설계는 갖고오자" — 지금 구현하지 말고 기록만 해둔 뒤, 별도로 챗봇 설계(안)를 가져와서 검토하기로 함. 즉 이번 DM Routing Close Gate 범위 밖이며, 코드 착수 전 별도 설계 리뷰가 선행 조건.
+- **Scope 메모**: aijomoojin은 컨설팅 업종이라 "가격 얼마예요" 같은 문구가 실제로는 부자연스럽다는 점이 이 세션에서 확인됨(회장 발언) — 새 챗봇 설계는 업종별(제품판매 vs 컨설팅) 문의 패턴 차이를 반영해야 할 가능성이 있음(추정 표시, 확정 아님).
+
+---
+
 # 2026-07-30 16:46 ICT — 세션 종료 인계: DM Multi-account Routing Runtime SUCCESS, 댓글 Routing(10.5-6)은 다음 세션
 
 _기록 시각: 2026-07-30 16:46 ICT · 상태: **PARTIAL/IN_PROGRESS** — 마스터 12단계 기준 0~6번 완료, 7번(Multi-account Routing) 중 **DM 채널만 완료**(댓글·팔로업 세부는 다음 세션 10.5-6단계). 11단계(다계정 확장) 실행은 계속 HOLD. 이 항목이 최신 상태이며, 아래 260730 10:36 항목은 그 이전(오전) 기록으로 보존._
