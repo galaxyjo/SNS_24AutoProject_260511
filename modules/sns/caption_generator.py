@@ -57,13 +57,16 @@ def generate_caption(text: str) -> tuple[str, str]:
         if delay:
             print(f"[CAPTION] 429 재시도 {attempt}/{len(_RETRY_DELAYS)+1} | {delay}초 대기")
             time.sleep(delay)
+        _call_started = None
         try:
             _throttle()
             client = _get_client()
+            _call_started = time.time()
             response = client.models.generate_content(
                 model="gemini-2.5-flash-lite",
                 contents=prompt,
             )
+            print(f"[CAPTION] Gemini 호출 완료 | {time.time() - _call_started:.1f}초")
             raw = response.text.strip()
             caption, hashtags = "", ""
             for line in raw.splitlines():
@@ -74,6 +77,8 @@ def generate_caption(text: str) -> tuple[str, str]:
             return caption, hashtags
 
         except Exception as e:
+            if _call_started is not None:
+                print(f"[CAPTION] Gemini 호출 실패 | {time.time() - _call_started:.1f}초")
             err = str(e)
             if "429" in err and attempt <= len(_RETRY_DELAYS):
                 continue

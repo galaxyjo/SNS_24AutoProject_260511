@@ -94,17 +94,22 @@ def generate_reply(
         if delay:
             logger.info(f"[AIReply] 429 재시도 {attempt} | {delay}초 대기")
             time.sleep(delay)
+        _call_started = None
         try:
             _throttle()
+            _call_started = time.time()
             resp = _client.models.generate_content(
                 model="gemini-2.5-flash-lite",
                 contents=prompt,
             )
+            logger.info(f"[AIReply] Gemini 호출 완료 | {time.time() - _call_started:.1f}초")
             reply = resp.text.strip()
             if reply:
                 logger.info(f"[AIReply] 생성 완료 | length={len(reply)}")
                 return reply
         except Exception as exc:
+            if _call_started is not None:
+                logger.warning(f"[AIReply] Gemini 호출 실패 | {time.time() - _call_started:.1f}초")
             err = str(exc)
             if "429" in err and attempt <= len(_RETRY_DELAYS):
                 continue
