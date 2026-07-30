@@ -1,3 +1,29 @@
+# 2026-07-30 19:53 ICT — 10.5단계 Close Gate SUCCESS 선언(GPT 3차 재판정 최종 승인) — 세션 종료 인계
+
+_기록 시각: 2026-07-30 19:53 ICT · 상태: **10.5단계 SUCCESS(회장/GPT 확정)** — 마스터 우선순위 9개 중 0~6번 완료(2~6번은 이 세션에서 처리), 7번(ERR-090)은 회장 결정으로 Scope 제외, 8번(Close Gate)은 GPT가 260730 19:48 ICT SUCCESS로 최종 판정. 9번(11단계 검토)은 착수하지 않음(회장 별도 승인 대상). 이 항목이 최신 상태이며, 아래 260730 18:57 이전 항목들은 이 세션 진행 기록으로 보존._
+
+## 최종 완료 FACT(이 세션 전체 요약)
+- **DM Routing Close Gate SUCCESS**(commit `8e90402`, ERR-091/FP-065) — fallback-gate 구현+mock 13 passed+실제 aijomoojin 가격문의 DM Runtime Canary.
+- **댓글 Routing SUCCESS**(commit `0c085b9`, ERR-092/FP-066) — instagram_login Private Reply 구조적 불가 발견·차단, mock 53 passed.
+- **팔로업 Routing SUCCESS**(위 commit 포함 + 이번 세션 실측 Canary) — DM과 동일 Resolver REUSE, `PRICE_AUTO_REPLY_ENABLED=false`로 자연 발생 대상 없어 통제된 방식(`tools/run_followup_routing_canary.py`)으로 aijomoojin 실제 계정 발송 성공 확인(`sent=True`, fallback 0건).
+- **Persona 연결 코드 SUCCESS / 콘텐츠 PARTIAL**(commit `8d0ed91`, ERR-093) — Repository+wiring 완료, mock 15/15 passed. 회장 지시로 초안 콘텐츠 2건(PER-001/PER-002) 입력 완료. **30개 페르소나 아바타 일괄 등록은 회장이 별도로 진행 예정**(시점 미정).
+- **Integration Validation SUCCESS** — Lead_Interactions/retry_queue/Instagram_Posts 교차오염 0건, 전체 회귀 717 passed(11개 실패 파일 전부 기존 `runtime_boot_policy.json` PermissionError로 수렴, 신규 회귀 0건).
+- **신규 발견 ERR-094/FP-067**(OPEN, 비차단) — 시스템 `PYTHONPATH`가 250723(Reference Only)을 가리킴. 라이브 프로세스·pytest는 안전(실측 확인), `tools/`의 향후 일회성 스크립트만 위험. 회장이 별도 환경 무결성 Gate로 처리 예정.
+- **GPT 감사 이력(Multi-AI Review Policy)**: 1차 제출 PARTIAL(Persona 테스트 5건 미실행+ERR-090 OPEN) → 보완 후 2차 PARTIAL(팔로업 실측 Canary 누락) → 팔로업 Canary 완료 후 3차 **SUCCESS 최종 승인**.
+
+## Scope 제외/HOLD
+- **ERR-090**(YUNA/AI 토큰 노출) — 회장이 "아주 나중에 직접 처리"로 명시 — 10.5 Close Gate 판정에서 공식 제외. OPEN 유지, 재발급 절대 금지(회장 별도 승인 전).
+- **ERR-089**(Scheduler Stall 근본원인) — 신규 Evidence 없어 HOLD 유지.
+- **ERR-094**(PYTHONPATH→250723) — OPEN, 별도 환경 무결성 Gate 예정(Claude Code 권한 밖, Windows 시스템 설정).
+
+## 다음 세션 시작 시 확인할 것
+1. `docs/CURRENT_RUNTIME_CONTEXT.md`(이 문서, 최상단) — 10.5 SUCCESS 확정 상태
+2. `git log`— commit `8e90402`/`0c085b9`/`8d0ed91` push 여부 확인(이 세션 종료 시점까지는 미푸시 상태였을 수 있음, 세션 종료 처리에서 확인)
+3. **11단계(3계정 확장) 착수는 이 세션에서 결정되지 않았다** — 회장이 명시 승인하기 전까지 시작하지 않는다
+4. ERR-090/ERR-094는 각각 회장이 별도 시점에 처리하기로 한 상태 — 다음 세션에서 임의로 재소환하지 않는다(회장이 먼저 꺼내지 않는 한)
+
+---
+
 # 2026-07-30 18:57 ICT — 10.5-5단계(Persona 연결): ERR-093(콘텐츠 0건) 확인 후 Repository+wiring 선구현, 전체 회귀 재확인(11개 파일 모두 기존 원인)
 
 _기록 시각: 2026-07-30 18:57 ICT · 상태: **PARTIAL/IN_PROGRESS** — 댓글 Routing(아래 18:00 항목) SUCCESS 이후 10.5-5단계(Persona 연결) 착수. Persona_Profile 실제 콘텐츠가 없어 코드만 선구현(회장 결정), 콘텐츠 입력은 회장 담당으로 남음. 이 항목이 최신 상태이며, 아래 260730 18:00 항목은 그 이전 기록으로 보존._

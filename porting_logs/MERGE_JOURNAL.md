@@ -1827,3 +1827,24 @@ commit: 이 세션 신규 변경분(코드 3 + 테스트 2) 단일 목적 commit
 push: 세션 종료 시점에 확인 필요
 
 ---
+
+## [260730_같은세션_최종] 10.5 Close Gate SUCCESS 선언 — 팔로업 실측 Canary + PYTHONPATH 발견(ERR-094) + GPT 최종 승인
+
+Persona 연결(commit `8d0ed91`) 완료 직후 GPT에게 10.5 Close Gate 최종 판정을 요청 → **1차 PARTIAL**("Persona 테스트 5건 미실행, ERR-090 노출토큰 OPEN") → Persona 테스트 5건을 회장 터미널에서 실행(5 passed) + 실제 Repository로 계정별 Persona 선택 실측 + ERR-090 위치·유효성 기능확인(Secret 미노출) 제출 → **2차 PARTIAL**("Persona Gap은 Not Applicable이나 팔로업 aijomoojin 실제 Runtime Canary가 없다") → 팔로업 Canary 수행 후 **3차 SUCCESS 최종 승인**(260730 19:48 ICT).
+
+**팔로업 aijomoojin Runtime Canary**: `PRICE_AUTO_REPLY_ENABLED=false`(Gate C) 때문에 `handle_price_inquiry()`가 `set_followup_schedule()`을 호출하는 조건(`reply_price is not None`)이 정상 흐름에서 성립하지 않아, 팔로업 자체가 어느 계정에서도 예약되지 않는 구조임을 발견 — 자연발생적 실측 대상이 없었음. 회장 승인 하 통제된 방식 채택: 신규 `tools/run_followup_routing_canary.py`가 `dm_followup_scheduler._send_ig_dm()`을 CRM 상태(`bridge_status`) 변경 없이 `[CANARY TEST]` 라벨 붙은 메시지로 aijomoojin 실제 igsid(`1374716158108036`)에 직접 발송. **1차 실행은 ImportError로 실패** — 조사 결과 시스템 `PYTHONPATH`가 `C:\SNS_24AutoProject_250723`(Reference Only)을 가리켜, sys.path를 안 챙긴 스크립트가 구버전 `modules.dm`을 잘못 참조한 것으로 확인(ERR-094/FP-067 신규). `launcher/main.py`와 동일한 `sys.path.insert(0, 루트)` 패턴으로 스크립트 수정 후 재실행 — **Raw Output**: `sent=True`, `[Followup] IG DM 발송 완료 | msg_id=...`(19:43:34 ICT), 전후 로그 구간 fallback 경고 0건, 중복 0건.
+
+**ERR-094 Blast Radius 실측(비상 사안 아님으로 확정)**: `launcher/main.py`(자체 sys.path 처리 보유)와 `pytest`(rootdir 삽입 메커니즘) 둘 다 코드 확인으로 안전 — 오늘 세션의 모든 pytest·라이브 Canary 결과는 260511 코드 기준으로 유효함이 재확인됐다. 위험은 `tools/`의 향후 일회성 스크립트로 한정. Windows 시스템 환경변수라 Claude Code 권한 밖 — GPT 지시대로 "별도 환경 무결성 Gate"로 분리, 이번 Close Gate 판정 비차단으로 명시 확정.
+
+**최종 판정(GPT, 260730 19:48 ICT)**: "10.5단계 필수 부품 조립·통합 및 안정화 완료" — DM/댓글/팔로업/Persona(코드)/Integration Validation 5개 전부 SUCCESS, Critical UNKNOWN 0건. ERR-090은 회장 결정으로 Scope 제외(OPEN 유지, 재발급 금지), ERR-089는 신규 Evidence 없어 HOLD. **11단계(3계정 확장) 자동 착수 금지 — 회장 별도 승인 대상.**
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-094 신규) / `docs/FAILURE_PATTERN.md`(FP-067 신규) / `docs/VALIDATION_STATUS.md`(followup Canary + ERR-094 + 최종 Close Gate SUCCESS 행 추가) / `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§10-23 신설, §1 11단계 행 갱신) / `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 신규 섹션, 세션 종료 인계) / 이 항목.
+
+**변경 파일**: 신규 `tools/run_followup_routing_canary.py`. Airtable Write 0건(이 최종 단계에서는, Persona 콘텐츠 입력은 이전 단계에서 이미 완료). Runtime Restart 0건.
+
+**판정**: **10.5단계 전체 SUCCESS로 최종 종결**(회장/GPT 확정, 260730 19:48 ICT). 마스터 우선순위 9개 중 0~8번 완료, 9번(11단계 검토)은 별도 승인 후 착수.
+
+commit: 이 세션 최종 변경분(신규 스크립트 1 + 문서 5) 단일 목적 commit 예정(다음 커맨드)
+push: 세션 종료 시점에 확인 필요, 이번 세션 전체 commit(`8e90402`~이 커밋)을 한 번에 push 승인 대상
+
+---

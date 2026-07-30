@@ -22,7 +22,7 @@
 | 8 | 1계정 E2E Canary | 완료 | yuna18253 실제 게시 성공 |
 | 9 | 2계정 재현 Test | 완료 | yuna18253+aijomoojin 독립 게시, 중복게시 0건 |
 | 10 | Metric·수익 검증 | 진행중 | KPI 집계 오류(ERR-078) 해소, 리드전환 유실(ERR-080) 해소. **공식 작업 큐: `P1-1 Clean Measurement Baseline`**(진행중). `yuna18253` Account_Registry 신규 등록 완료(`IDN-000041`, §10-6) — Provider Routing SSOT 정합성 확보. `P1-4`~`P1-6A`/`P1-1B`/`P1-1C` 명칭은 별도 우선순위가 아니라 P1-1 하위조사로 재분류(§10 참조). Clean Baseline·테스트/실고객 분리·매출 원본·ROI 경로는 미완료 |
-| 11 | 확장 | 보류(계속 HOLD, GPT Directive) | 11단계 실행 자체는 착수하지 않음. 계정별 Kill Switch는 260730 코드 구현 완료(Runtime Canary 대기, §10-20), account_email SSOT는 260729 RESOLVED, ERR-076은 관측성만 PARTIAL(근본 분류로직 잔존) — 남은 imgbb + DM·댓글·팔로업 계정별 Routing(§10-19 Table B)이 10.5단계 잔여 Work Item |
+| 11 | 확장 | 보류(계속 HOLD, GPT Directive) | 11단계 실행 자체는 착수하지 않음. 계정별 Kill Switch(260730, §10-20/21)·DM·댓글·팔로업 계정별 Routing(260730, §10-22/23)·Persona 코드 연결(260730, §10-23)까지 10.5단계 Critical Path 전부 완료 — **10.5단계 Close Gate SUCCESS 선언(260730, §10-23, GPT 최종 판정)**. 잔존 imgbb(§10-19 Table B) + ERR-076 근본 분류로직은 여전히 3계정 확장 전 Gate로 남음. 11단계 착수는 10.5 SUCCESS와 별개로 회장 별도 승인 필요 |
 
 ---
 
@@ -622,5 +622,30 @@ Airtable 재조회: `post_status=ready` 그대로(오염·삭제·`failed` 오�
 **판정**: DM 채널(자동응답+팔로업) Routing 구현 완료(코드리뷰+Mock 검증, 실제 라이브 Runtime Canary는 미실행 — 별도 승인 대상). 댓글 채널은 여전히 미착수(§10-19 Table B, 폴링 구조 자체 변경 필요해 Blast Radius가 더 큼).
 
 **변경 파일**: `modules/dm/dm_auto_reply.py` / `modules/dm/dm_followup_scheduler.py` / `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / `modules/common/meta_graph.py` / `tests/test_provider_routing.py` / `tests/test_dm_multi_account_send.py`(신규). Airtable Write 1건(`fb_page_id`). Runtime Restart 0건.
+
+---
+
+### 10-23. 10.5단계 Close Gate SUCCESS 선언 — DM/댓글/팔로업/Persona/Integration Validation 전 Critical Path 완료(260730, GPT 최종 판정)
+
+**배경**: §10-22 이후 신규 세션에서 §10-19 Table B Work Item 2(DM·댓글·팔로업 계정별 Routing)를 마저 완료하고, Persona 연결(§5)·Integration Validation(§6)까지 이어서 처리. GPT가 Multi-AI Review Policy상 아키텍처/Scope 감사 역할로 3회 재판정(PARTIAL→PARTIAL→SUCCESS)을 거쳐 최종 승인.
+
+**① DM Routing Close Gate — SUCCESS(commit `8e90402`, ERR-091/FP-065)**: 전역 fallback이 yuna18253(`IDN-000041`)으로 고정된 구조에서 다른 계정 해석 실패 시 그 고정 계정 소유 경로로 오발송을 시도할 잠재 위험을 리뷰로 발견·차단. `GLOBAL_FALLBACK_ACCOUNT_CODE_REF` 상수+조건분기(`send_ig_reply()`/`_send_ig_dm()` 양쪽) — 계정이 식별됐는데 fallback 소유자 아닌데 해석 실패 시 전역발송 생략·retry_queue 위임. mock 13 passed + 실제 aijomoojin 가격문의 DM Runtime Canary(fallback 미발동, 정상 경로 성공, `Lead_Interactions.account_code_ref=IDN-000036` 정확 태깅).
+
+**② 댓글 Routing — SUCCESS(commit `0c085b9`, ERR-092/FP-066)**: 댓글 Private Reply가 Meta 공식문서상 Facebook Page 연동 필수임을 확인 — aijomoojin(instagram_login)은 Page가 없어 자격증명 라우팅과 무관하게 API 자체가 구조적으로 불가능(대안인 공개 답글은 260714 Gate G 이후 라이브 미사용). 회장 결정: 지금은 yuna18253만 범위, instagram_login 계정은 Private Reply 시도 자체 스킵. `get_account_code_ref_by_media_id()` 신규 + `_is_private_reply_supported()` 게이트. 현재 등록 캠페인 6개 전부 계정 미태깅(aijomoojin 소유 0건)이라 실측 Canary는 대상 부재로 Accept. mock 53 passed.
+
+**③ 팔로업 Routing — SUCCESS(②의 commit에 포함 + 이번 세션 실측 Canary)**: `dm_followup_scheduler._send_ig_dm()`이 DM과 동일한 `_resolve_dm_send_target()`/`GLOBAL_FALLBACK_ACCOUNT_CODE_REF`를 REUSE해 별도 구현 불필요했음. 다만 `PRICE_AUTO_REPLY_ENABLED=false`(Gate C) 때문에 정상 흐름으로는 팔로업이 전혀 예약되지 않아(`handle_price_inquiry()`가 `reply_price is not None`일 때만 `set_followup_schedule()` 호출) 자연발생적 실측 Canary 대상이 없었음 — 통제된 방식(`tools/run_followup_routing_canary.py`, CRM 상태 미변경, `[CANARY TEST]` 라벨)으로 `_send_ig_dm()`을 직접 호출해 aijomoojin 실제 계정으로 fallback 없이 1차 성공 발송 확인(`sent=True`, 19:43:34 ICT, fallback 경고 로그 0건).
+
+**④ Persona 연결 — 코드 SUCCESS / 콘텐츠 PARTIAL(commit `8d0ed91`, ERR-093)**: `Persona_Profile` 실제 콘텐츠 0건(레코드 1건뿐, 미연결·전부 공란) 확인 후 회장 결정으로 코드부터 구현. `get_persona_by_account_code()`(Account_Registry↔Persona_Profile Linked Record 역조회, 필드타입 실측 확인) + `_get_persona_kwargs()`로 `generate_reply()` 실제 배선. 이후 회장 지시로 Claude가 초안 콘텐츠 2건(PER-001→yuna18253, 신규 PER-002→aijomoojin) 작성해 Airtable Write. 회장이 "30개 페르소나 아바타는 별도로 한꺼번에 등록 예정"이라 명시 — 이번 2건은 임시. 실제 Repository 직접호출로 계정별 정확한 조회 실측(교차오염 0건) + 호출체인 kwargs 전달 테스트. mock 15/15 passed(10+5). `PRICE_AUTO_REPLY_ENABLED=false`로 인한 라이브 AI 생성 문구 미반영은 GPT 판정상 Not Applicable(Persona 결함 아닌 별개 안전장치).
+
+**⑤ Integration Validation — SUCCESS**: `Lead_Interactions` 실제 발신자 전수조회(교차오염 0건) / `retry_queue.db` 오늘자 misrouted/stuck 0건 / `Instagram_Posts` aijomoojin 소유 게시물 오염 없음 / 전체 회귀 717 passed, 실패 11개 파일 5개 표본 재현 전부 기존 `runtime_boot_policy.json` PermissionError로 수렴(신규 회귀 0건).
+
+**Scope 제외**: ERR-090(YUNA/AI 토큰 노출) — 회장이 "아주 나중에 직접 처리"로 이번 Close Gate 판정에서 명시 제외. OPEN 유지, 재발급/교체는 회장 별도 승인 전 금지.
+**HOLD**: ERR-089(Scheduler Stall 근본원인, 신규 Evidence 없음).
+
+**부수 발견(신규, ERR-094/FP-067) — PYTHONPATH가 250723(Reference Only)을 가리킴**: 팔로업 Canary 스크립트 작성 중 발견 — 시스템 `PYTHONPATH` 환경변수가 `C:\SNS_24AutoProject_250723`로 설정돼 있어, `sys.path`를 직접 챙기지 않는 일회성 스크립트(`python 파일.py` 직접 실행)는 `modules.*` import 시 250723(구버전, 일부 서브패키지는 아예 없음)을 잘못 참조할 수 있음을 확인. **라이브 프로세스(`launcher/main.py`, 자체 `sys.path.insert(0, 루트)` 보유)와 `pytest`(rootdir 삽입)는 안전함을 코드로 확인** — 이번 세션의 모든 pytest 결과·라이브 Canary 결과는 260511 기준으로 유효. 위험은 `tools/`의 향후 일회성 스크립트로 한정. Windows 시스템 환경변수라 Claude Code 권한 밖 — 별도 환경 무결성 Gate로 처리 예정(회장 지시).
+
+**최종 판정(GPT 3차 재판정, 260730 19:48 ICT)**: **10.5단계(필수 부품 조립·통합 및 안정화) SUCCESS로 종결.** Critical Path(DM/댓글/팔로업/Persona 코드/Integration) 전부 Runtime Evidence 확인, Critical UNKNOWN 0건. ERR-090/ERR-089는 각각 Scope 제외/HOLD로 명시 처리. **11단계(3계정 확장) 자동 착수는 금지 — 회장 별도 승인 대상.**
+
+**변경 파일(이번 세션 전체)**: `modules/dm/dm_auto_reply.py` / `modules/dm/dm_followup_scheduler.py` / `modules/comment/comment_auto_reply.py` / `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / 신규 테스트 5파일 / 신규 `tools/run_followup_routing_canary.py`. Airtable Write: Persona_Profile 2건(콘텐츠 입력). Runtime Restart 0건. commit 3개(`8e90402`/`0c085b9`/`8d0ed91`) + 이 문서화 커밋(다음).
 
 ---

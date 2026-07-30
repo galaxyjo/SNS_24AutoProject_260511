@@ -1794,3 +1794,24 @@ watchdog.log(같은 구간):
 **Status:** PARTIAL — 코드·mock 테스트·전체 회귀 확인 완료. **실제 콘텐츠 입력(tone_style 등)과 계정 연결은 회장 담당, 시점 미정** — 콘텐츠가 채워지기 전까지는 이 기능이 Runtime에서 실질적 효과를 내지 않는다(안전하게 no-op).
 
 **관련:** 260729 22:35 세션의 "Persona Runtime 최소연결(PARTIAL)" 항목 후속
+
+## ERR-094 | 시스템 PYTHONPATH 환경변수가 250723(Reference Only)을 가리켜, sys.path 미처리 일회성 스크립트가 구버전을 잘못 참조할 위험 (OPEN, 260730)
+
+**Type:** 환경 설정 오류(Windows System PYTHONPATH) — 코드 결함 아님
+
+**경위:** 10.5 Close Gate 보완용 팔로업 라우팅 Canary 스크립트(`tools/run_followup_routing_canary.py`)를 작성해 회장 터미널에서 실행했으나 `ImportError: cannot import name 'dm_followup_scheduler' from 'modules.dm' (C:\SNS_24AutoProject_250723\modules\dm\__init__.py)` 발생. Read-only 조사 결과 시스템 `PYTHONPATH` 환경변수가 `C:\SNS_24AutoProject_250723`(CLAUDE.md상 Reference Only, 실행 금지 저장소)로 설정돼 있음을 확인(`echo $PYTHONPATH` 직접 확인). `250723\modules\__init__.py`가 존재(정식 패키지)해, sys.path를 스크립트 자신이 명시적으로 챙기지 않으면(`python 파일.py` 방식으로 직접 실행 시 sys.path[0]이 스크립트 자신의 디렉터리가 됨) `modules.*` import가 250723으로 resolve된다. 250723은 `modules/infra/`(Repository 패턴, 260624 도입) 자체가 없는 등 260511과 구조가 크게 다른 구버전이라, 존재하지 않는 서브모듈에서 즉시 ImportError가 나거나(이번 사례), 최악의 경우 이름이 우연히 겹치는 구버전 코드가 조용히 실행될 잠재 위험이 있다.
+
+**Blast Radius(실측 확인, 축소됨)**:
+- **라이브 프로세스(`launcher/main.py`) 안전**: 파일 최상단에서 자체적으로 `sys.path.insert(0, 프로젝트루트)`를 실행해(코드 확인, `launcher/main.py:28-32`) PYTHONPATH보다 항상 260511을 먼저 찾음.
+- **`pytest` 안전**: `pytest.ini`(`testpaths = tests`) 기반 rootdir 삽입 메커니즘으로 260511을 우선 참조(오늘 세션의 모든 pytest 결과가 260511 코드 기준임을 재확인).
+- **위험 범위는 `tools/`의 일회성 스크립트로 한정** — 프로젝트 루트를 sys.path에 명시적으로 추가하지 않는 스크립트만 해당.
+
+**Fix:** 미적용 — Windows 시스템 환경변수 수정은 Claude Code 권한 밖(CLAUDE.md "시스템 설정 변경 금지"). 회장이 시스템 환경변수에서 `PYTHONPATH`를 제거하거나 260511로 정정해야 함. 임시 완화로 `tools/run_followup_routing_canary.py`에는 `launcher/main.py`와 동일한 `sys.path.insert(0, 프로젝트루트)` 패턴을 적용해 이 스크립트만 우회.
+
+**Prevention(향후 권장):** `tools/`에 신규 스크립트 작성 시 항상 파일 최상단에 프로젝트 루트 sys.path 삽입을 포함할 것(기존 `launcher/main.py` 패턴 재사용). 기존 `tools/*.py` 전수 감사는 이번 범위 밖(별도 Gate, GPT 지시).
+
+**Risk:** `MEDIUM` — 라이브 Runtime은 영향 없음(실측 확인)이나, 향후 진단·운영 스크립트가 이 문제를 모르고 작성되면 조용히 잘못된 코드베이스를 실행할 구조적 위험이 상존.
+
+**Status:** OPEN — 회장이 향후 별도 "환경 무결성 Gate"로 처리 예정(GPT 지시, 260730). 10.5 Close Gate 판정에는 비차단으로 처리됨(GPT 확정).
+
+**관련:** FP-067(신규)

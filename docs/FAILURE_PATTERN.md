@@ -860,3 +860,15 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** 기존 기능을 다른 계정 유형으로 확장하기 전에, 그 기능이 사용하는 정확한 API Product/엔드포인트가 대상 계정의 인증 유형에서도 공식적으로 지원되는지 먼저 확인한다(공식문서 확인 우선, 라우팅 코드부터 짜지 않는다). 지원되지 않는 계정 유형은 "다르게 라우팅"이 아니라 "그 기능 자체를 스킵(fail-closed, 로그만 남김)"으로 처리하고, 대안(예: 공개 답글로 전환)은 별도 사업적 결정으로 분리한다.
 
 **관련:** ERR-091, ERR-092
+
+## FP-067 | Active/Reference 저장소가 공존하는 환경에서, sys.path를 스크립트가 직접 챙기지 않으면 시스템 PYTHONPATH가 조용히 구버전(Reference) 코드로 우회시킬 수 있다
+
+**설명:** Active Runtime(260511)과 Reference Only(250723) 두 저장소가 같은 머신에 공존하는 상태에서, 시스템 `PYTHONPATH` 환경변수가 Reference 저장소를 가리키고 있으면, `python 파일.py` 형태로 직접 실행되는 스크립트(sys.path[0]이 스크립트 자신의 디렉터리가 되어 프로젝트 루트가 자동으로 포함되지 않는 경우)는 `import modules.xxx` 시 Active 저장소가 아니라 Reference 저장소를 잘못 찾을 수 있다.
+
+**근본 원인:** 정식 패키지(`__init__.py` 보유)로 한 번 resolve된 최상위 모듈(`modules`)은 이후 그 서브모듈 검색을 해당 디렉터리 안으로 한정한다(namespace package가 아닌 한 다른 sys.path 항목으로 넘어가지 않음) — 따라서 최상위 `modules` 패키지가 어느 저장소에서 먼저 발견되느냐가 그 프로세스 전체의 import 결과를 결정한다. 진입점 스크립트(`launcher/main.py`)나 테스트 러너(`pytest`)는 이를 피하기 위한 자체 sys.path 처리를 갖고 있지만, 새로 작성하는 일회성 스크립트는 이 처리가 없으면 취약하다.
+
+**증상:** 260730 ERR-094 — `tools/run_followup_routing_canary.py`를 sys.path 처리 없이 작성해 직접 실행했더니 `modules.dm`이 250723(Reference, 서브모듈 구조가 다름)에서 resolve돼 `ImportError`가 발생. 만약 우연히 같은 이름의 서브모듈이 양쪽에 존재했다면 에러 없이 조용히 구버전 코드가 실행됐을 것.
+
+**예방:** Active/Reference 저장소가 공존하는 프로젝트에서 신규 진입점·진단 스크립트를 작성할 때는 항상 파일 최상단에 `sys.path.insert(0, 프로젝트_루트)`를 포함한다(이미 확립된 `launcher/main.py` 패턴 재사용). 근본적으로는 시스템 `PYTHONPATH`가 Reference 저장소를 가리키지 않도록 정정하는 것이 맞다(환경 설정 문제, 코드로 매번 우회하는 것은 임시방편).
+
+**관련:** ERR-094
