@@ -303,6 +303,15 @@ class RepositoryInterface(ABC):
         RepositoryUnavailableError로 구분한다. access_token은 반환하지 않는다."""
 
     @abstractmethod
+    def get_account_code_ref_by_media_id(self, media_id: str) -> str:
+        """260730 10.5-6단계(댓글 Routing) — ig_media_id로 Instagram_Posts를 역조회해
+        account_code_ref를 반환한다. 레코드가 없거나 있어도 account_code_ref가 비어있으면
+        (레거시/다계정 이전 게시물) 빈 문자열을 반환한다 — 호출부는 이를 "계정 미해석"으로
+        취급해 기존 동작을 그대로 유지해야 한다. 2건 이상 매칭되면(모호함) 첫 레코드를 임의
+        선택하지 않고 RepositoryValidationError를 발생시킨다. 네트워크/HTTP 오류는 빈
+        문자열로 감추지 않고 RepositoryUnavailableError로 구분한다."""
+
+    @abstractmethod
     def claim_post_for_upload(self, post_id: str) -> bool:
         """post_status를 'uploading'으로 원자적 마킹. 선점 성공 시 True."""
 

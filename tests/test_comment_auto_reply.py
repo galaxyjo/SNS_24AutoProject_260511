@@ -12,6 +12,7 @@ from modules.comment import comment_auto_reply
 # 스텁하므로(아래), 실제 마스킹 동작 자체를 테스트하려면 스텁되기 전의 원본 함수 참조가
 # 필요하다 — 모듈 임포트 시점(픽스처 실행 전)에 미리 잡아둔다.
 _REAL_SEND_TELEGRAM_COMMENT = comment_auto_reply._send_telegram_comment
+_REAL_IS_PRIVATE_REPLY_SUPPORTED = comment_auto_reply._is_private_reply_supported
 
 
 class _FakeResponse:
@@ -30,6 +31,11 @@ def _enable_auto_reply(monkeypatch):
     monkeypatch.setattr(comment_auto_reply, "_AUTO_REPLY_ENABLED", True)
     monkeypatch.setattr(comment_auto_reply, "_send_telegram_comment", lambda *a: None)
     monkeypatch.setattr(comment_auto_reply, "_record_comment", lambda *a: None)
+    # 260730 10.5-6단계(댓글 Routing) — _try_private_reply()가 새로 추가된
+    # _is_private_reply_supported()를 거치면서 실제 Airtable 네트워크 호출을 하지
+    # 않도록 기본값을 True(기존 동작 유지)로 고정한다. 이 게이트 자체를 검증하는
+    # 테스트는 아래에서 개별적으로 override한다.
+    monkeypatch.setattr(comment_auto_reply, "_is_private_reply_supported", lambda media_id: True)
 
 
 # ── 문구 다양화 / 개인화 / 옵트아웃 안내 ─────────────────────────────────────
@@ -400,3 +406,91 @@ def test_send_telegram_comment_masks_pii_and_truncates(monkeypatch):
     assert "010-1234-5678" not in body, "전화번호가 마스킹 없이 그대로 노출되면 안 됨"
     assert long_text not in body, "원문 전체가 그대로 실리면 안 됨(20자 미리보기여야 함)"
     assert "@buyer1" in body, "username(공개 IG 핸들)은 마스킹 대상 아님"
+
+
+# ── 260730 10.5-6단계: 댓글 Routing — instagram_login 계정 Private Reply 스킵 게이트 ──
+
+def test_is_private_reply_supported_true_when_media_untagged(monkeypatch):
+    """account_code_ref 공란(레거시/다계정 이전 게시물) — 기존 동작 그대로 True."""
+    monkeypatch.setattr(comment_auto_reply._repo, "get_account_code_ref_by_media_id", lambda m: "")
+    assert _REAL_IS_PRIVATE_REPLY_SUPPORTED("media1") is True
+
+
+def test_is_private_reply_supported_true_for_facebook_login_account(monkeypatch):
+    monkeypatch.setattr(
+        comment_auto_reply._repo, "get_account_code_ref_by_media_id", lambda m: "IDN-000041"
+    )
+    monkeypatch.setattr(
+        comment_auto_reply._repo, "get_publish_account",
+        lambda code: {"api_provider": "facebook_login"},
+    )
+    assert _REAL_IS_PRIVATE_REPLY_SUPPORTED("media1") is True
+
+
+def test_is_private_reply_supported_false_for_instagram_login_account(monkeypatch):
+    """aijomoojin류(instagram_login) 계정 소유 게시물 — Facebook Page가 없어 Private
+    Reply가 구조적으로 불가(Meta 공식문서 확인) — 스킵되어야 한다."""
+    monkeypatch.setattr(
+        comment_auto_reply._repo, "get_account_code_ref_by_media_id", lambda m: "IDN-000036"
+    )
+    monkeypatch.setattr(
+        comment_auto_reply._repo, "get_publish_account",
+        lambda code: {"api_provider": "instagram_login"},
+    )
+    assert _REAL_IS_PRIVATE_REPLY_SUPPORTED("media1") is False
+
+
+def test_is_private_reply_supported_fails_open_on_media_lookup_error(monkeypatch):
+    def _raise(m):
+        raise Exception("Airtable unavailable")
+
+    monkeypatch.setattr(comment_auto_reply._repo, "get_account_code_ref_by_media_id", _raise)
+    assert _REAL_IS_PRIVATE_REPLY_SUPPORTED("media1") is True
+
+
+def test_is_private_reply_supported_fails_open_on_account_lookup_error(monkeypatch):
+    monkeypatch.setattr(
+        comment_auto_reply._repo, "get_account_code_ref_by_media_id", lambda m: "IDN-000036"
+    )
+
+    def _raise(code):
+        raise Exception("Airtable unavailable")
+
+    monkeypatch.setattr(comment_auto_reply._repo, "get_publish_account", _raise)
+    assert _REAL_IS_PRIVATE_REPLY_SUPPORTED("media1") is True
+
+
+def test_try_private_reply_skips_when_instagram_login_account(monkeypatch):
+    """_try_private_reply()가 실제로 이 게이트를 호출해 instagram_login 계정이면
+    reply_privately_to_comment() 자체를 시도하지 않아야 한다."""
+    monkeypatch.setattr(comment_auto_reply.guard, "is_campaign_post", lambda m: True)
+    monkeypatch.setattr(comment_auto_reply, "_is_private_reply_supported", lambda m: False)
+    called = {"sent": False}
+    monkeypatch.setattr(
+        comment_auto_reply, "reply_privately_to_comment",
+        lambda cid, msg: called.__setitem__("sent", True) or True,
+    )
+
+    comment_auto_reply._try_private_reply(None, "c1", "buyer1", "media-aijomoojin", "buyer1")
+
+    assert called["sent"] is False, "instagram_login 계정인데 Private Reply를 시도함"
+
+
+def test_try_private_reply_proceeds_when_facebook_login_or_untagged(monkeypatch):
+    """게이트가 True(레거시/yuna18253)면 기존 동작 그대로 발송을 시도해야 한다(회귀 방지)."""
+    monkeypatch.setattr(comment_auto_reply.guard, "is_campaign_post", lambda m: True)
+    monkeypatch.setattr(comment_auto_reply, "_is_private_reply_supported", lambda m: True)
+    monkeypatch.setattr(comment_auto_reply.guard, "circuit_is_open", lambda: False)
+    monkeypatch.setattr(comment_auto_reply.guard, "is_user_in_cooldown", lambda u: False)
+    monkeypatch.setattr(comment_auto_reply.guard, "consume_daily_budget", lambda: True)
+    monkeypatch.setattr(comment_auto_reply.guard, "mark_user_replied", lambda u: None)
+    monkeypatch.setattr(comment_auto_reply.guard, "record_circuit_success", lambda: None)
+    called = {"sent": False}
+    monkeypatch.setattr(
+        comment_auto_reply, "reply_privately_to_comment",
+        lambda cid, msg: called.__setitem__("sent", True) or True,
+    )
+
+    comment_auto_reply._try_private_reply(None, "c1", "buyer1", "media-yuna", "buyer1")
+
+    assert called["sent"] is True

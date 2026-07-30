@@ -1777,3 +1777,28 @@ commit: 이 세션 신규 변경분(코드 2 + 테스트 2) 단일 목적 commit
 push: 세션 종료 시점에 확인 필요
 
 ---
+
+## [260730_같은세션_이어서] 10.5-6단계 댓글 Routing — ERR-092/FP-066(Private Reply Facebook Page 필수) 발견·해결
+
+DM Routing Close Gate SUCCESS 직후 10.5-6단계(댓글 Routing) 착수. 지난 세션이 세워둔 "media_id→account_code_ref 역조회 1단계만 추가하면 DM의 `_resolve_dm_send_target()` 그대로 REUSE 가능"이라는 설계를 코드로 확인하는 과정에서 전제 자체가 성립하지 않음을 발견.
+
+**발견(ERR-092/FP-066)**: 라이브 댓글 자동응답이 유일하게 쓰는 `reply_privately_to_comment()`(Private Reply, `POST /{page-id}/messages`+`recipient.comment_id`)는 Meta 공식문서(WebFetch로 재확인) 상 Facebook Page 연동이 필수 — aijomoojin(instagram_login)은 Facebook Page 자체가 없어(DM 설계 때 이미 확인된 사실) 자격증명을 아무리 정확히 라우팅해도 이 API를 호출할 방법이 없다. 대안인 공개 답글(`reply_to_comment()`)은 Instagram API with Instagram Login에서 지원되지만 260714 Gate G 이후 "손님을 DM으로 유도(공개 노출 방지)" 목적으로 라이브 경로에서 이미 사용되지 않는 죽은 코드다.
+
+**회장 결정(AskUserQuestion 선택형)**: 지금은 yuna18253만 범위로 두고, instagram_login 계정은 Private Reply를 시도 자체 하지 않고 스킵(로그만 남김) — 공개 답글 전환 등 대안은 별도 논의 대상. 리뷰 수준도 DM 때와 동일하게 회장 직접승인으로 진행(Codex/GPT 정식 리뷰 생략, 선택형 질문으로 확인).
+
+**구현**: `modules/infra/repository_interface.py`+`modules/infra/airtable_repository.py`에 `get_account_code_ref_by_media_id(media_id)` 신규(기존 `get_publish_account_by_ig_user_id()`와 동일 스타일 — 0건/공란=""로 레거시 취급, 2건 이상=`RepositoryValidationError`, 네트워크 오류=`RepositoryUnavailableError`). `modules/comment/comment_auto_reply.py`에 `_is_private_reply_supported(media_id)` 헬퍼 신설 — media_id 소유 계정이 instagram_login이면 False, 레거시(공란)/facebook_login/조회실패는 True(Fail-open). `_try_private_reply()`의 `is_campaign_post` 체크 직후에 이 게이트 추가.
+
+**중요 발견(운영 영향 없음 확인)**: `configs/comment_campaign_posts.json`의 캠페인 게시물 6개를 Airtable로 직접 조회 — 전부 `account_code_ref` 공란(260714~15 생성, 다계정 이전 데이터). 즉 지금 이 순간 aijomoojin 소유로 등록된 댓글 캠페인은 0건이며, 이번 발견·수정은 실제 장애가 아니라 향후 aijomoojin 댓글 캠페인이 등록되는 순간 발생했을 잠재 위험을 사전 차단한 것.
+
+**테스트**: 신규 파일 `tests/test_get_account_code_ref_by_media_id.py`(8개, `test_get_publish_account_by_ig_user_id.py` 스타일 그대로 REUSE) + `tests/test_comment_auto_reply.py`에 8개 추가(autouse fixture로 게이트 기본값 True 고정해 기존 13개 테스트가 실제 네트워크 호출 없이 격리 유지, 게이트 자체를 검증하는 신규 테스트는 개별 override). 이 세션에서 직접 실행 — `pytest tests/test_comment_auto_reply.py tests/test_get_account_code_ref_by_media_id.py tests/test_get_publish_account_by_ig_user_id.py` **53 passed**(comment 모듈은 `modules.dm`과 달리 `runtime_boot_policy.json` PermissionError 제약이 없어 이 세션에서 직접 실행 가능했음). 전체 회귀 `pytest tests/ -q --continue-on-collection-errors` — **706 passed / 94 failed / 3 xfailed / 6 errors**. 실패 파일 4개(`test_package_s5_write_budget_idempotency.py`/`test_provider_routing.py`/`test_publish_gate_and_approval.py`/`test_publish_outcome_unknown.py`)와 에러 6개(전부 `modules.dm` PermissionError 계열, 그중 2개는 직전 commit에서 이미 추가된 DM 테스트 파일)는 기존 baseline과 정확히 동일 — **신규 회귀 0건**.
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-092 신규, RESOLVED) / `docs/FAILURE_PATTERN.md`(FP-066 신규) / `docs/VALIDATION_STATUS.md`(`comment_private_reply_provider_gate_err092_260730` 행 추가) / `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 신규 섹션, 18:00 ICT) / 이 항목.
+
+**변경 파일**: `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / `modules/comment/comment_auto_reply.py` / `tests/test_comment_auto_reply.py` + 신규 `tests/test_get_account_code_ref_by_media_id.py`. Airtable Write 0건(read-only 조회만), Runtime Restart 0건(캠페인 0건 상태라 즉시 반영 필요성 낮음, 다음 배포 시 자연 반영).
+
+**판정**: 10.5-6단계 댓글 Routing의 Private Reply 계정 게이트 항목 **SUCCESS로 종결**(코드+mock 테스트+전체 회귀 확인, 실측 Canary는 대상 부재로 Accept). 팔로업(followup) 계정별 Routing은 별도 트랙으로 이미 DM 커밋에 포함 완료(`_send_ig_dm`도 `_resolve_dm_send_target` REUSE) — 마스터 우선순위표상 다음은 Persona 연결(5번)/Integration Validation(6번).
+
+commit: 이 세션 신규 변경분(코드 3 + 테스트 2) 단일 목적 commit 예정(다음 커맨드)
+push: 세션 종료 시점에 확인 필요
+
+---

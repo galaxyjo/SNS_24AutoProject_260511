@@ -848,3 +848,15 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** 다계정 구조에서 "전역 fallback"을 유지하려면, fallback 목적지가 실제로 어느 계정 소유인지 상수/설정으로 명시하고, 계정이 이미 식별된 상태(예: `account_code_ref` 보유)에서 해석만 실패했다면 그 계정이 fallback 소유자 자신인 경우에만 fallback을 허용하고, 그 외에는 fallback을 생략하고 명확한 실패로 처리(retry_queue 등)한다. 계정 자체가 식별 안 된(레거시) 경우만 기존처럼 전역 fallback을 유지한다.
 
 **관련:** ERR-091, FP-046(다른 대상이 여러 개일 때 "최신값" fallback이 잘못 매칭되는 동일 계열의 상위 패턴)
+
+## FP-066 | 계정마다 지원 가능한 외부 API 기능(Product)이 다를 수 있다 — 자격증명 라우팅만으로는 API 자체가 지원 안 되는 계정을 구할 수 없다
+
+**설명:** 다계정 확장 설계 시 "계정별로 올바른 자격증명/엔드포인트로 라우팅하면 그 계정에서도 동일 기능이 동작할 것"이라는 암묵적 가정이 있었다. 하지만 Meta 같은 플랫폼은 계정이 어떤 인증 흐름(Facebook Login for Business vs Instagram API with Instagram Login 등)으로 연결됐는지에 따라 애초에 특정 기능(API Product) 자체를 제공하지 않는 경우가 있다 — 이 경우 라우팅을 아무리 정확히 해도 그 계정으로는 해당 기능을 쓸 방법이 없다.
+
+**근본 원인:** DM 라우팅(ERR-091)에서 검증된 "계정별 credential 분기" 패턴을 다른 기능(댓글 Private Reply)에도 그대로 REUSE 가능할 것이라 가정했으나, 검증 없이 재사용 범위를 확대하면 그 기능이 대상 계정 유형에서 API 차원에서 지원되는지를 놓칠 수 있다.
+
+**증상:** 260730 10.5-6단계 설계 중 발견 — 댓글 Private Reply(`recipient.comment_id`, `POST /{page-id}/messages`)는 Meta 공식문서상 Facebook Page 연동이 필수인데, aijomoojin(`instagram_login`)은 Facebook Page 자체가 없어 아무리 자격증명을 정확히 골라도 이 API를 호출할 방법이 없다(ERR-092).
+
+**예방:** 기존 기능을 다른 계정 유형으로 확장하기 전에, 그 기능이 사용하는 정확한 API Product/엔드포인트가 대상 계정의 인증 유형에서도 공식적으로 지원되는지 먼저 확인한다(공식문서 확인 우선, 라우팅 코드부터 짜지 않는다). 지원되지 않는 계정 유형은 "다르게 라우팅"이 아니라 "그 기능 자체를 스킵(fail-closed, 로그만 남김)"으로 처리하고, 대안(예: 공개 답글로 전환)은 별도 사업적 결정으로 분리한다.
+
+**관련:** ERR-091, ERR-092

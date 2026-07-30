@@ -564,6 +564,37 @@ class AirtableRepository(RepositoryInterface):
             credential_key=f.get("credential_key", ""),
         )
 
+    def get_account_code_ref_by_media_id(self, media_id: str) -> str:
+        """260730 10.5-6단계(댓글 Routing) — ig_media_id로 Instagram_Posts 역조회."""
+        if not media_id:
+            return ""
+
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": f"{{ig_media_id}}='{media_id}'",
+                    "maxRecords": 2,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if len(records) == 0:
+            return ""
+        if len(records) > 1:
+            raise RepositoryValidationError(
+                f"ig_media_id={media_id}에 대응하는 Instagram_Posts 레코드가 2건 이상(모호함)"
+            )
+        return records[0].get("fields", {}).get("account_code_ref", "")
+
     # ── 9. 업로드 선점 마킹 ───────────────────────────────────────────────────
 
     def claim_post_for_upload(self, post_id: str) -> bool:

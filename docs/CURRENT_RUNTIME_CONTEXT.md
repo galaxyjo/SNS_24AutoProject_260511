@@ -1,3 +1,26 @@
+# 2026-07-30 18:00 ICT — 10.5-6단계(댓글 Routing): ERR-092/FP-066 발견·해결, aijomoojin 댓글 캠페인 0건 확인
+
+_기록 시각: 2026-07-30 18:00 ICT · 상태: **PARTIAL/IN_PROGRESS** — DM Routing Close Gate(아래 17:36 항목) 완료 후 10.5-6단계(댓글 Routing) 착수, 설계 전제 재검토로 새 구조적 한계 발견·해결까지 완료. 이 항목이 최신 상태이며, 아래 260730 17:36 항목은 그 이전 기록으로 보존._
+
+## 완료된 FACT(이 세션, 260730 18:00)
+- **지난 세션 설계 전제 파기 확인**: "`media_id`→`account_code_ref` 역조회 1단계만 추가하면 DM의 `_resolve_dm_send_target()` 그대로 REUSE 가능"이라던 계획이 실제로는 성립하지 않음을 발견 — 라이브 댓글 자동응답이 유일하게 쓰는 `reply_privately_to_comment()`(Private Reply)는 Meta 공식문서상 **Facebook Page 연동이 필수**(WebFetch로 재확인)인데, aijomoojin(instagram_login)은 Facebook Page 자체가 없어 자격증명을 아무리 정확히 골라도 이 API 자체를 호출할 방법이 없음(ERR-092). 대안인 공개 답글(`reply_to_comment()`)은 Instagram API with Instagram Login에서 지원되지만, 260714 Gate G 이후 "손님을 DM으로 유도" 목적으로 라이브 경로에서 이미 미사용(죽은 코드).
+- **회장 결정(선택형 질문)**: 지금은 yuna18253만 범위, instagram_login 계정은 Private Reply를 시도 자체를 하지 않고 스킵(공개 답글 전환 등 대안은 별도 논의) — 리뷰는 DM 때와 동일하게 회장 직접승인으로 진행(Codex/GPT 정식 리뷰 생략).
+- **구현 완료**: 신규 Repository `get_account_code_ref_by_media_id()`(`repository_interface.py`+`airtable_repository.py`) + `comment_auto_reply.py::_is_private_reply_supported()` 헬퍼로 `_try_private_reply()`에 게이트 추가. 레거시(계정 미태깅)·facebook_login은 Fail-open으로 기존 동작 100% 유지.
+- **중요 발견**: `configs/comment_campaign_posts.json`의 등록 캠페인 게시물 6개를 Airtable 직접 조회 — **전부 `account_code_ref` 공란**(260714~15 생성, 다계정 이전 데이터). 즉 지금 이 순간 aijomoojin 소유 댓글 캠페인은 0건이라, 이번 발견은 실제 장애가 아니라 **향후 aijomoojin 댓글 캠페인이 등록되는 순간 발생했을 잠재 위험을 사전 차단**한 것.
+- **검증**: mock 단위테스트 신규 16개(`tests/test_get_account_code_ref_by_media_id.py` 8 + `tests/test_comment_auto_reply.py` 8) 포함 `pytest tests/test_comment_auto_reply.py tests/test_get_account_code_ref_by_media_id.py tests/test_get_publish_account_by_ig_user_id.py` **53 passed**. 전체 회귀 `706 passed/94 failed/3 xfailed/6 errors` — 실패·에러 파일 목록이 기존 baseline과 정확히 동일(신규 회귀 0건). **실측 Canary는 위 이유로 불가능(캠페인 0건) — Accept, aijomoojin 댓글 캠페인이 실제 등록되는 시점에 재검증 필요.**
+
+## 남은 UNKNOWN
+- aijomoojin 댓글 캠페인이 실제로 등록된 뒤의 실측 Runtime Canary는 미실행(현재 대상 자체가 없음).
+- 공개 답글(`reply_to_comment()`) 전환 여부는 회장이 "별도 논의 대상"으로 남김 — 이번 세션에서 결정 안 함.
+
+## 다음 정확한 단계
+문서화·commit 승인 대기 → 이후 팔로업(followup) 계정별 Routing(마스터 우선순위 4번) 착수.
+
+## 다음 단계 승인 필요 여부
+필요 — 문서화·commit은 코드 구현 승인과 별개 게이트.
+
+---
+
 # 2026-07-30 17:36 ICT — DM Routing Close Gate: fallback 정책 구현+실측 Canary SUCCESS, 신규 백로그(전체 문의유형 자동응답 챗봇) 기록
 
 _기록 시각: 2026-07-30 17:36 ICT · 상태: **PARTIAL/IN_PROGRESS** — DM Routing Close Gate의 fallback 위험(아래 260730 16:46 FACT 참조)에 대한 승인된 정책을 구현·검증까지 완료. 댓글·팔로업 Routing(10.5-6)은 여전히 다음 단계. 이 항목이 최신 상태이며, 아래 260730 16:46 항목은 이 세션 시작 시점의 인계 기록으로 보존._

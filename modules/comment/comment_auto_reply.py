@@ -415,6 +415,30 @@ def _send_telegram_comment(claim_token: str | None, comment_id: str, username: s
 
 # ── Private Reply 안전 게이트 ────────────────────────────────────────────────
 
+def _is_private_reply_supported(media_id: str) -> bool:
+    """260730 10.5-6단계(댓글 Routing) — Private Reply는 Facebook Page 연동 계정에서만
+    동작한다(Meta 공식문서 확인: Instagram API with Instagram Login은 Page가 없어 구조적으로
+    미지원). media_id 소유 계정이 instagram_login이면 False(스킵), 그 외(레거시/미태깅
+    포함, facebook_login)는 True(기존 동작 100% 유지) — 회장 승인 정책(260730), 지금은
+    yuna18253만 범위."""
+    try:
+        account_code_ref = _repo.get_account_code_ref_by_media_id(media_id)
+    except Exception as exc:
+        logger.warning(f"[Comment] media 계정 역조회 실패 — 기존 동작 유지 | media={media_id} | {exc}")
+        return True
+    if not account_code_ref:
+        return True  # 레거시/미태깅 게시물 — 기존 동작 100% 보존
+
+    try:
+        account = _repo.get_publish_account(account_code_ref)
+    except Exception as exc:
+        logger.warning(f"[Comment] 계정 조회 실패 — 기존 동작 유지 | account_code_ref={account_code_ref} | {exc}")
+        return True
+    if account is not None and account.get("api_provider") == "instagram_login":
+        return False
+    return True
+
+
 def _try_private_reply(claim_token: str | None, comment_id: str, username: str, media_id: str, cooldown_key: str) -> None:
     """캠페인 게시물·쿨다운·일일예산·circuit breaker를 모두 통과해야 Private Reply 발송.
     cooldown_key: 가능하면 IG scoped ID(from.id) — username은 사용자가 바꾸면 쿨다운이 우회됨.
@@ -427,6 +451,9 @@ def _try_private_reply(claim_token: str | None, comment_id: str, username: str, 
     with guard.REPLY_LOCK:
         if not guard.is_campaign_post(media_id):
             logger.info(f"[Comment] 캠페인 게시물 아님 — Private Reply 스킵 | media={media_id}")
+            return
+        if not _is_private_reply_supported(media_id):
+            logger.info(f"[Comment] instagram_login 계정 — Private Reply 미지원, 스킵 | media={media_id}")
             return
         if guard.circuit_is_open():
             logger.warning("[Comment] circuit breaker open — Private Reply 스킵")

@@ -1760,3 +1760,21 @@ watchdog.log(같은 구간):
 **Status:** RESOLVED — 코드 구현·mock 테스트·실제 Canary(정상 경로) 전부 완료. 차단 분기 자체의 실제 Graph API 조건 재현(실패 케이스)은 자연 발생하지 않아 mock 검증에만 의존하는 잔존 사항으로 남음(Accept, 낮은 우선순위).
 
 **관련:** ERR-090, [260730_세션종료직전_추가발견] `porting_logs/MERGE_JOURNAL.md`
+
+## ERR-092 | 댓글 Private Reply가 Facebook Page 미보유 계정(instagram_login, aijomoojin류)에서 구조적으로 불가능 — 시도 전 Provider 게이트 추가 (RESOLVED, 260730)
+
+**Type:** 잠재 위험(Latent Risk) — 10.5-6단계(댓글 Routing) 설계 검토 중 발견, 실제 API 실패 발생은 아님
+
+**경위:** ERR-091(DM fallback-gate) 종결 직후 10.5-6단계(댓글 계정별 Routing) 착수 — 지난 세션 설계("`media_id`→`account_code_ref` 역조회 1단계만 추가하면 DM의 `_resolve_dm_send_target()` 그대로 REUSE 가능")를 코드로 확인하는 과정에서 전제 자체가 깨짐을 발견. 현재 라이브 댓글 자동응답 경로는 `_try_private_reply()`→`reply_privately_to_comment()`(`modules/comment/comment_auto_reply.py`) 단 하나이며, 이 함수는 `POST /{page-id}/messages`+`recipient.comment_id`(Meta Private Replies 공식사양)만 사용한다. Meta 공식문서 fetch로 확인한 결과 이 기능은 **Facebook Page 연동 + Page Access Token이 반드시 필요**하며, `Account_Registry`상 aijomoojin(`IDN-000036`, `api_provider=instagram_login`)은 Facebook Page 개념 자체가 없다(DM 설계 때 이미 확인된 사실) — 즉 자격증명을 아무리 정확히 라우팅해도 이 API 자체를 aijomoojin 계정으로 호출할 방법이 없다. 대안인 공개 답글(`reply_to_comment()`, `POST /{comment-id}/replies`)은 Meta 공식문서상 Instagram API with Instagram Login에서 지원되지만, 260714 Gate G에서 "손님을 DM으로 유도(공개 노출 방지)"라는 이유로 의도적으로 Private Reply 전면 전환한 이후 현재 라이브 경로에서 호출되지 않는 죽은 코드(`tests/test_meta_graph_version.py`에서만 참조)다.
+
+**회장 결정(260730):** 지금은 yuna18253만 범위로 두고, instagram_login 계정은 Private Reply를 시도하지 않고 스킵(로그만 남김) — 공개 답글 전환 등 대안은 이번 범위 밖, 별도 논의 대상.
+
+**Fix:** 신규 Repository 메서드 `get_account_code_ref_by_media_id(media_id)`(`repository_interface.py`+`airtable_repository.py`, 기존 `get_publish_account_by_ig_user_id()`와 동일 스타일) + `comment_auto_reply.py`에 `_is_private_reply_supported(media_id)` 헬퍼 신설 — `media_id` 소유 계정의 `api_provider`가 `instagram_login`이면 `_try_private_reply()`가 발송 시도 자체를 하지 않고 즉시 반환(로그 남김). `account_code_ref` 공란(레거시/다계정 이전 게시물)이거나 조회 실패 시에는 Fail-open으로 기존 동작 100% 보존.
+
+**검증:** `configs/comment_campaign_posts.json`의 등록 캠페인 게시물 6개를 Airtable로 직접 조회 — **전부 `account_code_ref` 공란**(260714~15 생성, 다계정 이전 데이터), 즉 현재 aijomoojin 소유로 등록된 댓글 캠페인은 0건이라 실제 API 호출 실패나 실측 Canary 자체가 아직 재현 불가능(잠재 위험을 사전 차단). Mock 단위테스트 신규 16개(`tests/test_get_account_code_ref_by_media_id.py` 8개 + `tests/test_comment_auto_reply.py` 8개 추가) — `pytest tests/test_comment_auto_reply.py tests/test_get_account_code_ref_by_media_id.py tests/test_get_publish_account_by_ig_user_id.py` **53 passed**. 전체 회귀 스위트 706 passed/94 failed/3 xfailed/6 errors — 실패·에러 파일 목록이 기존 baseline(`test_package_s5_write_budget_idempotency.py`/`test_provider_routing.py`/`test_publish_gate_and_approval.py`/`test_publish_outcome_unknown.py` + `modules.dm` PermissionError 계열)과 정확히 동일, 신규 회귀 0건.
+
+**Risk:** 발견 시점 `MEDIUM`(실제 API 실패 발생 전 설계 리뷰 단계에서 차단) — Fix 적용 후 `LOW`. 현재 캠페인 0건이라 즉시 운영 영향 없음.
+
+**Status:** RESOLVED — 코드 구현·mock 테스트·전체 회귀 확인 완료. 실제 Graph API 조건(aijomoojin 게시물이 실제 캠페인에 등록된 상태)에서의 실측 Canary는 그런 게시물이 아직 없어 수행 불가(Accept, aijomoojin 댓글 캠페인이 실제 등록되는 시점에 재검증 필요).
+
+**관련:** ERR-091, FP-065, FP-066(신규)
