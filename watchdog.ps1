@@ -213,24 +213,19 @@ try {
     while ($true) {
         try {
 
-            # [260527] Flask 독립 감시 블록 주석 처리 — launcher\main.py가 Flask(:5000) 직접 관리
-            # --- Flask 감시 ---
-            # if (-not (Test-Http $FLASK_URL)) {
-            #     Write-Log "[WARN] Flask 응답 없음 — 재시작 시도"
-            #     Send-SlackAlert "Flask 응답 없음 — 재시작 시도" "warning"
-            #     Start-Flask
-            #     if (Test-Http $FLASK_URL) {
-            #         Write-Log "[OK]   Flask 재시작 성공"
-            #         Send-SlackAlert "Flask 재시작 성공" "success"
-            #         Register-Success "Flask"
-            #     } else {
-            #         Write-Log "[ERROR] Flask 재시작 후에도 응답 없음 — webhook_stderr.log 확인 필요"
-            #         Send-SlackAlert "Flask 재시작 실패 — webhook_stderr.log 확인 필요" "error"
-            #         Register-Failure "Flask"
-            #     }
-            # } else {
-            #     Register-Success "Flask"
-            # }
+            # [260730] ERR-089 관측 보강 — Alert-only. launcher\main.py가 Flask(:5000)를
+            # 직접 관리하므로 여기서 Start-Flask/Start-Launcher를 호출하면 이미 살아있는
+            # (내부만 멎었을 수 있는) 프로세스 옆에 새 프로세스가 추가로 뜨는 중복게시
+            # 위험이 있다(Start-Launcher는 기존 프로세스를 죽이지 않음, 260730 Gate 확인).
+            # 그래서 자동 재시작 없이 로그+Slack 알림만 남긴다.
+            # --- Flask 응답성 감시(Alert-only, 재시작 없음) ---
+            if (-not (Test-Http $FLASK_URL)) {
+                Write-Log "[WARN] Flask 응답 없음(launcher 내부 무응답 가능성) — 자동 재시작 없음, 수동 확인 필요"
+                Send-SlackAlert "[ERR-089] Flask 응답 없음 — 자동 재시작 안 함, 수동 확인 필요" "warning"
+                Register-Failure "Flask"
+            } else {
+                Register-Success "Flask"
+            }
 
             # --- Streamlit 감시 ---
             if (-not (Test-Http $STREAMLIT_URL)) {
