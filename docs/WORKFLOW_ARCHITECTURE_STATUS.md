@@ -606,3 +606,21 @@ Airtable 재조회: `post_status=ready` 그대로(오염·삭제·`failed` 오�
 **변경 파일**: 없음(Airtable Write/Delete만, 코드 변경 0건 — 이 문서만 갱신).
 
 ---
+
+### 10-22. 마스터 7단계 — Multi-account DM Routing(DM 채널) 구현 완료(260730)
+
+**배경**: §10-19 Table B Work Item 2(DM·댓글·팔로업 계정별 Routing) 중 DM 채널(자동응답+팔로업)만 먼저 착수(회장 지시, Single Canary — 댓글은 별도 Gate).
+
+**착수 전 블로커 발견·해소**: `resolve_credential()`은 `ig_user_id`+`access_token`만 반환, DM 발송(Page Messages API)에 필요한 `fb_page_id`는 Account_Registry에 라이브 계정 2개 전부 공란이었음(재확인). 실측(read-only Graph API 호출, 토큰 원문 미노출)으로 확정: yuna18253(`facebook_login`)의 실제 Page는 `868456346356581`(기존 전역 `FACEBOOK_PAGE_ID`와 정확히 일치) — Airtable에 저장 완료. aijomoojin(`instagram_login`)은 `graph.facebook.com` 자체가 IGAA 토큰을 파싱 못함(HTTP 400, ERR-077과 동일 유형) — Facebook Page 개념이 아예 없고 `graph.instagram.com/{ig_user_id}/messages`로 직접 발송해야 함을 실측 확인.
+
+**구현**: `_resolve_dm_send_target(account_code_ref)`(`dm_auto_reply.py` 신규) — Provider별 분기(facebook_login=Page Token 교환 후 발송/instagram_login=직접 발송), 실패 시 기존 전역 계정으로 fallback(회장 승인 정책, 동작 100% 보존). `send_ig_reply()`/`_send_ig_dm()`에 `account_code_ref` 파라미터 추가, `LeadInteraction`(`account_code_ref` 옵션)·`PublishAccountV2`(`fb_page_id` 옵션) 필드 확장. `meta_graph.py`에 `instagram_login_graph_url()` 신규.
+
+**검증**: 7개 시나리오 standalone Mock(빈값/계정없음/자격증명실패/instagram_login 성공/facebook_login fb_page_id없음/facebook_login 성공/미지원provider) 전부 PASS + `_send_ig_dm()` 실제 라우팅 경로 별도 검증 PASS. 신규 `tests/test_dm_multi_account_send.py`(7건) 추가. 회귀 baseline(`test_provider_routing.py`/`test_meta_graph_version.py`) `git stash` 대조 100% 동일, 신규 실패 0건. commit `ae2bec2`.
+
+**부수 사고(ERR-090)**: 이 조사 중 `.env` grep 패턴이 `ACCESS_TOKEN` 라인까지 매칭해 YUNA/AI 토큰 원문이 노출됨(대화 기록 내). ERR-090으로 별도 기록(commit `34c8901`), 토큰 재발급은 회장 지시로 보류.
+
+**판정**: DM 채널(자동응답+팔로업) Routing 구현 완료(코드리뷰+Mock 검증, 실제 라이브 Runtime Canary는 미실행 — 별도 승인 대상). 댓글 채널은 여전히 미착수(§10-19 Table B, 폴링 구조 자체 변경 필요해 Blast Radius가 더 큼).
+
+**변경 파일**: `modules/dm/dm_auto_reply.py` / `modules/dm/dm_followup_scheduler.py` / `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / `modules/common/meta_graph.py` / `tests/test_provider_routing.py` / `tests/test_dm_multi_account_send.py`(신규). Airtable Write 1건(`fb_page_id`). Runtime Restart 0건.
+
+---
