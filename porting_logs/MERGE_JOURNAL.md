@@ -1848,3 +1848,30 @@ commit: 이 세션 최종 변경분(신규 스크립트 1 + 문서 5) 단일 목
 push: 세션 종료 시점에 확인 필요, 이번 세션 전체 commit(`8e90402`~이 커밋)을 한 번에 push 승인 대상
 
 ---
+
+# 2026-07-30 15:40 ICT — 10.6-3R: 승인 없는 KPI 코드변경 원상복귀(ERR-095/FP-068), Track A/B Scope 재고정
+
+_기록 시각: 2026-07-30 15:40 ICT · 상태: **RESOLVED(원상복귀 완료, 회장 확정)** — 10.6단계(aijomoojin Publishing Soak) 진행 중 발생한 승인 범위 이탈을 발견 즉시 원상복귀. 10.6 Track A/B 재정의 이후의 최신 상태이며, 이 항목이 최신 상태다._
+
+## 경위
+10.6-3(Publishing Soak Canary) 실행 전 안전점검 중 "실게시 테스트 데이터가 운영 KPI에 섞이는" 위험을 발견 → 5요소 Decision Memo 제출 후 회장 승인("진행해")을 받아 `modules/metrics/kpi_collector.py::_upload_stats()`에 `insta_post_code` 접두어(`IP-CANARY-`) 기반 KPI 제외 로직 8줄 추가 + 신규 테스트 파일(`tests/test_kpi_collector_canary_exclusion.py`) 작성 → Codex 리뷰까지 완료(CONDITIONAL PASS, P1/P2 위험 지적)했으나, 회장이 이 변경이 **Track A(Publishing Soak) 성공의 필수 블로커였다는 증거 없이 Track B성 구조개선으로 Scope가 확장됐고, 사전 승인 없이 공용 Closed-Gate 파일을 수정한 것**이라고 판정.
+
+## 원상복귀 조치(전부 미커밋 상태에서 처리, Airtable Write·Runtime Restart·Commit·Push 0건)
+1. Read-only 사전확인: Branch `master` / HEAD `711ca34`(불변) / Working Tree에 이 사건 관련 변경 2건(`modules/metrics/kpi_collector.py` M, `tests/test_kpi_collector_canary_exclusion.py` ??) + 무관한 기존 변경 1건(`docs/실리콘밸리업무정석260722.md`, 이 사건 이전부터 존재) 확인. `git diff`로 kpi_collector.py 변경분이 정확히 10.6-3B에서 추가한 8줄뿐임을, `git log --follow`로 테스트 파일이 신규(이력 없음)임을 확인.
+2. `git checkout -- modules/metrics/kpi_collector.py`로 8줄 전량 원상복귀.
+3. `tests/test_kpi_collector_canary_exclusion.py` 삭제(신규 미커밋 파일이라 삭제로 완전 제거).
+4. 무관한 기존 diff(`docs/실리콘밸리업무정석260722.md`)는 손대지 않고 보존.
+5. 원복 후 검증: `git diff modules/metrics/kpi_collector.py` empty, `git diff --check` clean, 기존 `test_kpi_collector_fetch_failure.py`(6)+`test_smoke_metrics.py`(17)=23 passed(원본 코드 기준).
+6. `docs/ERROR_DATABASE.md`(ERR-095 신규)/`docs/FAILURE_PATTERN.md`(FP-068 신규) 기록.
+
+## Track 재고정
+- **Track A** = `aijomoojin Publishing Soak`(10.6단계 원래 정의)만 수행. `IP-CANARY-AI-260730-2` 실제 게시 실행은 아직 미승인 상태로 대기 중(이 사건과 별개로 계속 대기).
+- **Track B** = 콘텐츠 자동화(후킹카피/이미지 생성) + 이번에 원복한 KPI 구조개선 전부 계속 **HOLD**. `CANARY-FB-*` 일반 KPI 분리 문제도 별도 HOLD로만 기록, 조사하지 않음.
+
+## Commit·Push 상태
+Commit·Push **없음**(요청 범위에 포함되지 않음, 문서 변경만 미커밋 상태로 존재).
+
+## 다음 단계
+회장이 Track A(Publishing Canary 실행) 재개 여부를 별도로 결정.
+
+---

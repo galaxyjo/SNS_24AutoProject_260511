@@ -136,7 +136,7 @@ class TestAutoReplyHook:
 
         monkeypatch.setattr(dm_auto_reply, "PRICE_AUTO_REPLY_ENABLED", False)
         monkeypatch.setattr(dm_auto_reply, "get_base_price", lambda: called.append("price") or None)
-        monkeypatch.setattr(dm_auto_reply, "send_ig_reply", lambda sid, msg: sent_messages.append(msg) or True)
+        monkeypatch.setattr(dm_auto_reply, "send_ig_reply", lambda sid, msg, ref="": sent_messages.append(msg) or True)
         monkeypatch.setattr(dm_auto_reply, "update_lead_replied", lambda *a, **k: None)
         monkeypatch.setattr(dm_auto_reply, "send_telegram_price_pending", lambda *a, **k: None)
 
@@ -345,7 +345,7 @@ class TestAutoReplyHook:
 
         call_count = {"n": 0}
 
-        def _raise_then_succeed(sid, msg):
+        def _raise_then_succeed(sid, msg, ref=""):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise ConnectionError("simulated network failure")
@@ -380,7 +380,7 @@ class TestAutoReplyHook:
         send_calls = []
         send_lock = threading.Lock()
 
-        def _fake_send(sid, msg):
+        def _fake_send(sid, msg, ref=""):
             with send_lock:
                 send_calls.append(1)
             return True

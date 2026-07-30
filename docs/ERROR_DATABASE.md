@@ -1815,3 +1815,47 @@ watchdog.log(같은 구간):
 **Status:** OPEN — 회장이 향후 별도 "환경 무결성 Gate"로 처리 예정(GPT 지시, 260730). 10.5 Close Gate 판정에는 비차단으로 처리됨(GPT 확정).
 
 **관련:** FP-067(신규)
+
+---
+
+## ERR-095 | 10.6-3B에서 승인 범위를 벗어나 공용 Closed-Gate 파일(kpi_collector.py) 수정 — Track A(Publishing Soak) 범위가 Track B성 구조개선으로 확장됨 (RESOLVED — 원상복귀, 260730)
+
+**Type:** Scope/승인 절차 위반 — 코드 결함 아님
+
+**경위:** 10.6-3(aijomoojin Publishing Soak) Canary 실행 전, "실제 게시 시 테스트 데이터가 운영 KPI에 섞인다"는 위험을 발견하고 5요소 Decision Memo를 제출해 승인("진행해")을 받은 뒤 `modules/metrics/kpi_collector.py::_upload_stats()`에 `insta_post_code` 접두어(`IP-CANARY-`) 기반 제외 로직 8줄을 추가하고 신규 테스트 파일(`tests/test_kpi_collector_canary_exclusion.py`)을 작성, Codex 리뷰까지 받았다. 이후 회장이 이 변경 자체가 "Track A(Publishing Soak 검증)의 필수 블로커였다는 증거 없이, Track B 성격(KPI 구조개선)으로 Scope가 확장됐고 사전 승인 없이 공용 Closed-Gate 파일을 수정했다"고 판정 — 받았다고 판단한 승인이 실제로는 Scope 경계 밖 확장이었음이 뒤늦게 확인됨.
+
+**Root Cause(Confirmed):** "진행해"라는 승인을 해당 코드수정 자체의 승인으로 해석했으나, 이 수정이 10.6 Track A(Publishing Soak, aijomoojin 단일계정 발행 검증)의 성공에 실제로 필요한 것인지에 대한 별도 확인 없이 "이왕이면 안전하게"라는 판단만으로 공용 Closed-Gate 파일에 손을 댔다 — 상태변경 승인이 "이 문제를 지금 고쳐도 되는가"를 넘어 "이게 지금 이 Track의 Scope 안인가"까지 매번 재확인해야 함을 놓침.
+
+**Fix(원상복귀):** `git checkout -- modules/metrics/kpi_collector.py`로 8줄 변경 전량 원상복귀(원복 후 `git diff` 결과 empty로 확인), 신규 테스트 파일 `tests/test_kpi_collector_canary_exclusion.py` 삭제(미커밋 신규 파일이라 git 이력 없음, 삭제로 완전 제거). 무관한 기존 미커밋 변경(`docs/실리콘밸리업무정석260722.md`, 이번 사건 이전부터 존재)은 손대지 않고 그대로 보존.
+
+**검증:** 원복 후 `tests/test_kpi_collector_fetch_failure.py`(6건)+`tests/test_smoke_metrics.py`(17건) = 23 passed(원본 코드 기준 정상 동작 확인). `git status --short` 재확인 결과 이 사건과 관련된 변경 0건, 무관한 기존 diff 1건만 잔존.
+
+**Risk:** 발견 시점 `MEDIUM`(Closed-Gate 공용 파일 변경이 실제 Airtable Write/Runtime 반영 전 단계에서 회장이 잡아냄, 실제 운영 영향 0건) — 원상복귀 후 `LOW`. Airtable Write·Runtime Restart·Commit·Push는 이 사건 전체에서 **0건**.
+
+**Status:** RESOLVED — 원상복귀 Evidence 확인 완료. 10.6 Track A는 `aijomoojin Publishing Soak`으로 재고정, Track B(콘텐츠 자동화 포함 구조개선)는 계속 HOLD.
+
+**관련:** FP-068(신규)
+
+---
+
+## ERR-096 | `test_dm_rules.py` 회귀테스트 3건이 몇 시간째 Mock 시그니처 불일치로 조용히 실패 중이었음 — 10.6-4C에서 발견·복구 (RESOLVED, 260730)
+
+**Type:** 회귀테스트 무력화(Silent Test Breakage) — Production 코드 결함 아님
+
+**경위:** 10.6-4B(계정별 `reply_mode` 구현) 완료 후 전체 DM 테스트(64건)를 회장 터미널에서 실행한 결과 3건 FAIL 확인. `git show HEAD`/`git log -S`로 원인을 추적한 결과, 이 3건은 오늘의 `reply_mode` 작업과 무관하게 **같은 세션 앞부분 커밋 `ae2bec2`(7단계 Multi-account DM Routing, 260730)에서 `send_ig_reply()`가 `account_code_ref` 3번째 인자를 받도록 바뀐 이후, `test_dm_rules.py`의 3개 테스트만 2-인자 가짜(mock) 함수로 갱신되지 않은 채 남아** 그때부터 계속 실패 중이었음을 확인.
+
+**Raw:** `TypeError: <lambda/함수>() takes 2 positional arguments but 3 were given` — `modules/dm/dm_auto_reply.py:410`(`sent = send_ig_reply(sender_igsid, reply_msg, account_code_ref)`) 호출부에서 발생. 영향 테스트: `test_handle_price_inquiry_passes_allowed_price_disabled`, `test_awaiting_product_dedup_released_on_exception`, `test_awaiting_product_dedup_concurrent_requests_send_once`.
+
+**Root Cause(Confirmed):** `ae2bec2` 커밋이 `send_ig_reply()` 시그니처를 확장하면서, 같은 함수를 호출하는 `test_dm_rules.py`의 일부 mock까지 전수 갱신하지 않아 회귀 스위트가 조용히 깨졌다 — 이 파일이 그날 이후 지금까지 실행되지 않아(또는 실행됐어도 실패가 별도로 보고되지 않아) 몇 시간 동안 발견되지 않음.
+
+**영향 범위(중요, 실제 안전성과는 별개):** 이 3건이 검증하는 로직(Gate C 상품확인 요청 정상 응답 / 발송 예외 시 중복방지 잠금 정상 해제 / 동시요청 시 1회만 발송)은 테스트가 못 도는 동안 "실제로 잘 작동하는지 재확인이 안 되고 있었다"는 뜻 — Production 로직 자체가 고장났다는 증거는 없으나(코드 diff 없음), 회귀 안전망이 그만큼 무력화돼 있었음.
+
+**Fix:** `tests/test_dm_rules.py` 3곳의 가짜 `send_ig_reply` 함수/람다에 `ref=""` 3번째 인자 추가(시그니처만 일치, 로직 무변경). Production `.py` 코드 diff 0건.
+
+**검증:** 회장 터미널에서 대상 6개 파일 전체(신규 `test_dm_reply_mode.py` 포함) 재실행 — **64 passed, 0 failed**(Raw Output 확인, 260730 17:06경).
+
+**Prevention(향후 권장):** 함수 시그니처를 바꾸는 커밋에서는 그 함수를 호출/mock하는 모든 테스트 파일을 `grep`으로 전수 확인한 뒤 회귀 스위트 전체를 실행해 Baseline과 대조한다(이번 사례는 `test_dm_rules.py`만 놓친 부분 갱신).
+
+**Status:** RESOLVED — Mock 수정 + 전체 DM Suite 64 passed로 확인 완료.
+
+**관련:** FP-069(신규), ae2bec2(원인 커밋)
