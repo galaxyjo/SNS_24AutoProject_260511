@@ -586,3 +586,23 @@ Airtable 테스트 레코드 2건(`recEGPlnqiNAuqNWX`/`recoHWOFv9IkG0et3`) 전�
 **기록**: `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§1 11단계행, §2 30번, §6 항목5, §7, 이 섹션) — 이 항목.
 
 ---
+
+### 10-21. 계정별 Kill Switch 라이브 Runtime Canary SUCCESS(260730, ERR-089 관측 보강 이후 재개)
+
+**배경**: 위 §10-20 직후 시도한 최초 Canary가 예상 밖 Scheduler Stall(ERR-089)을 우연히 발견해 중단됐다. ERR-089 관측 보강 1~4단계(commit `d7d038a`/`c00a734`/`e4d324e`/`cee92ee`) 완료 후 재개.
+
+**테스트 계정**: `Account_Registry` 신규 `IDN-000042`(`automation_enabled` 미체크=false, 가짜 `credential_key`라 구조적으로 실제 게시 불가) + `Instagram_Posts` 신규 `KILLSWITCH-CANARY-260730`(`account_code_ref=IDN-000042`, `post_status=ready`).
+
+**Runtime Evidence(라이브, 260730 10:02:17 ICT)**:
+```
+[Main] 계정별 Kill Switch OFF — 처리 보류 | rid=recguSNRtQOTkH7U2 | account_code_ref=IDN-000042
+```
+Airtable 재조회: `post_status=ready` 그대로(오염·삭제·`failed` 오표기 없음), `ig_media_id` 공란(발행 API 진입 0건) — 성공기준 전부 충족.
+
+**정리**: 테스트 레코드 2건(`recguSNRtQOTkH7U2`/`recJcUL2cYyh4awWw`) 전부 삭제 완료(재조회로 삭제 확인). 실제 라이브 계정(`yuna18253`/`aijomoojin`, `automation_enabled=true`)은 무변경 유지.
+
+**판정**: 계정별 Kill Switch(IG 발행) **Runtime SUCCESS로 최종 종결**. §10-19 Table B의 Work Item 1(Kill Switch) 완료 처리.
+
+**변경 파일**: 없음(Airtable Write/Delete만, 코드 변경 0건 — 이 문서만 갱신).
+
+---
