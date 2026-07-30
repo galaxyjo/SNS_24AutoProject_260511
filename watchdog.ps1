@@ -52,12 +52,16 @@ $N8N_URL        = "http://localhost:5678"
 
 # 서비스별 연속 실패 카운터
 $failCount = @{
-    Flask     = 0
-    Streamlit = 0
-    Ngrok     = 0
-    Launcher  = 0
-    N8n       = 0
+    Flask                  = 0
+    Streamlit              = 0
+    Ngrok                  = 0
+    Launcher               = 0
+    N8n                    = 0
+    SchedulerHeartbeatMain = 0
+    SchedulerHeartbeatDm   = 0
 }
+$APP_LOG_PATH        = Join-Path $logDir "summary\app.log"
+$HEARTBEAT_STALE_MIN = 7   # ERR-089 후보 B(회장 확정, 260730)
 
 function Write-Log {
     param([string]$msg)
@@ -93,6 +97,22 @@ function Test-Http {
     } catch {
         return $false
     }
+}
+
+# ERR-089 관측 보강(260730) — app.log 안의 [SchedulerHeartbeat][tag] 마지막 줄 시각을
+# 확인해 스케줄러 루프 생존 여부를 판정한다. 파일이 없거나(Runtime 미기동 등 다른
+# 사유) 태그 자체가 최근 구간에 없으면 stale(=false)로 fail-closed 처리한다.
+function Test-SchedulerHeartbeat {
+    param([string]$tag, [int]$staleMinutes = $HEARTBEAT_STALE_MIN)
+    if (-not (Test-Path -LiteralPath $APP_LOG_PATH)) { return $false }
+    $lastLine = Get-Content -LiteralPath $APP_LOG_PATH -Tail 300 -ErrorAction SilentlyContinue |
+        Select-String -Pattern $tag -SimpleMatch | Select-Object -Last 1
+    if (-not $lastLine) { return $false }
+    if ($lastLine.Line -match '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})') {
+        $ts = [datetime]::ParseExact($matches[1], "yyyy-MM-dd HH:mm:ss", $null)
+        return (((Get-Date) - $ts).TotalMinutes -lt $staleMinutes)
+    }
+    return $false
 }
 
 # 서비스 실패 처리 — 카운터 증가 및 임계값 도달 시 Slack 알림
@@ -225,6 +245,22 @@ try {
                 Register-Failure "Flask"
             } else {
                 Register-Success "Flask"
+            }
+
+            # --- Scheduler Heartbeat 감시(Alert-only, ERR-089, 재시작 없음) ---
+            if (-not (Test-SchedulerHeartbeat -tag "[SchedulerHeartbeat][main]")) {
+                Write-Log "[WARN] Scheduler(main) Heartbeat 끊김(${HEARTBEAT_STALE_MIN}분 초과) — 자동 재시작 없음, 수동 확인 필요"
+                Send-SlackAlert "[ERR-089] Scheduler(main) Heartbeat 끊김 — 수동 확인 필요" "warning"
+                Register-Failure "SchedulerHeartbeatMain"
+            } else {
+                Register-Success "SchedulerHeartbeatMain"
+            }
+            if (-not (Test-SchedulerHeartbeat -tag "[SchedulerHeartbeat][dm]")) {
+                Write-Log "[WARN] Scheduler(dm) Heartbeat 끊김(${HEARTBEAT_STALE_MIN}분 초과) — 자동 재시작 없음, 수동 확인 필요"
+                Send-SlackAlert "[ERR-089] Scheduler(dm) Heartbeat 끊김 — 수동 확인 필요" "warning"
+                Register-Failure "SchedulerHeartbeatDm"
+            } else {
+                Register-Success "SchedulerHeartbeatDm"
             }
 
             # --- Streamlit 감시 ---

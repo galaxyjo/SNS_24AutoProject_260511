@@ -272,6 +272,15 @@ def start_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    # ERR-089 관측 보강 — 이 스케줄러 루프 생존을 60초 간격으로 남긴다.
+    _scheduler.add_job(
+        lambda: logger.info("[SchedulerHeartbeat][dm] alive"),
+        trigger="interval",
+        seconds=60,
+        id="scheduler_heartbeat_dm",
+        replace_existing=True,
+    )
+
     _scheduler.start()
     logger.info(
         f"[Followup] 스케줄러 시작 | 팔로업 폴링=5분 | 댓글 폴링=5분 | "
