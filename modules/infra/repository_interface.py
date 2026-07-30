@@ -126,10 +126,12 @@ class PublishAccount(TypedDict):
 
 class PublishAccountV2(PublishAccount, total=False):
     """PublishAccount + automation_enabled(계정별 Kill Switch, 260730)
-    + fb_page_id(Multi-account DM Routing, 260730) — 전부 옵션 필드,
+    + fb_page_id(Multi-account DM Routing, 260730)
+    + reply_mode(계정별 DM 자동응답 모드, 260730) — 전부 옵션 필드,
     기존 4개 필수 필드는 그대로라 기존 호출부·Fake/Mock과 100% 호환된다."""
     automation_enabled: bool
     fb_page_id: str
+    reply_mode: str
 
 
 class PersonaProfile(TypedDict):
@@ -430,6 +432,20 @@ class RepositoryInterface(ABC):
     @abstractmethod
     def mark_lead_converted(self, record_id: str) -> None:
         """bridge_status=converted, lead_status=converted, converted_at 갱신."""
+
+    @abstractmethod
+    def record_reply_observability(
+        self,
+        record_id: str,
+        *,
+        reply_mode_used: str,
+        persona_code_ref: str = "",
+        send_status: str = "",
+        prompt_version: str = "",
+        persona_check_pass: bool = False,
+    ) -> None:
+        """260730 — 계정별 reply_mode Observability. 응답 본문은 저장하지 않고
+        어떤 모드·Persona·프롬프트 버전으로 처리됐는지와 발송 결과만 기록한다."""
 
     # ── Source_Items export pipeline ─────────────────────────────────────────
 

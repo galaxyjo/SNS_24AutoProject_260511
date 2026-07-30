@@ -504,6 +504,10 @@ class AirtableRepository(RepositoryInterface):
         if isinstance(api_provider, dict):  # singleSelect는 {"name": ...} 형태로 올 수 있음
             api_provider = api_provider.get("name", "")
 
+        reply_mode = f.get("reply_mode", "")
+        if isinstance(reply_mode, dict):  # singleSelect는 {"name": ...} 형태로 올 수 있음
+            reply_mode = reply_mode.get("name", "")
+
         # 260730 계정별 Kill Switch(Fail-closed): Airtable checkbox는 unchecked를 키
         # 생략으로 표현해 missing과 false를 구분하지 않는다 — 명시적으로 체크(true)
         # 안 된 계정은 전부 automation_enabled=False로 취급한다(회장 승인, 우회 방지
@@ -515,6 +519,7 @@ class AirtableRepository(RepositoryInterface):
             credential_key=f.get("credential_key", ""),
             automation_enabled=f.get("automation_enabled", False),
             fb_page_id=f.get("fb_page_id", ""),
+            reply_mode=reply_mode,
         )
 
     _IG_USER_ID_PATTERN = re.compile(r"^[0-9]+$")
@@ -1132,6 +1137,25 @@ class AirtableRepository(RepositoryInterface):
             "lead_status":   "converted",
             "converted_at":  datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
+
+    def record_reply_observability(
+        self,
+        record_id: str,
+        *,
+        reply_mode_used: str,
+        persona_code_ref: str = "",
+        send_status: str = "",
+        prompt_version: str = "",
+        persona_check_pass: bool = False,
+    ) -> None:
+        fields: dict = {"reply_mode_used": reply_mode_used, "persona_check_pass": persona_check_pass}
+        if persona_code_ref:
+            fields["persona_code_ref"] = persona_code_ref
+        if send_status:
+            fields["send_status"] = send_status
+        if prompt_version:
+            fields["prompt_version"] = prompt_version
+        self._patch_lead_interaction(record_id, fields)
 
     # ── 23. export용 Source_Items 배치 조회 ──────────────────────────────────
 

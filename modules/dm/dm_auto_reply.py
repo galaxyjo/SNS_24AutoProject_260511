@@ -327,7 +327,7 @@ def handle_price_inquiry(
     received_at: datetime,
     account_code_ref: str = "",
 ) -> None:
-    """단가 문의 감지 → 10% 마진 가격으로 자동 응답 → Lead 업데이트 → 팔로업 예약 → Telegram 알림."""
+    """단가 문의 감지 → 계정별 reply_mode에 따라 자동 응답 → Lead 업데이트 → 팔로업 예약 → Telegram 알림."""
     if _has_recent_auto_replied(sender_igsid, minutes=3):
         logger.info(f"[AutoReply] duplicate skip | record={record_id} sender={sender_igsid} status=auto_replied")
         return
@@ -341,8 +341,33 @@ def handle_price_inquiry(
     from modules.dm.dm_followup_scheduler import set_followup_schedule
     from modules.common.retry_queue import get_retry_queue
 
+    # 260730 — 계정별 reply_mode(Account_Registry.reply_mode: template/persona/disabled).
+    # 계정 미지정·조회실패·공란은 전부 기존 전역 PRICE_AUTO_REPLY_ENABLED 동작으로
+    # fallback한다(Fail-open, 기존 동작 100% 보존).
+    reply_mode = ""
+    try:
+        account = _repo.get_publish_account(account_code_ref) if account_code_ref else None
+        if account:
+            reply_mode = account.get("reply_mode", "")
+    except Exception as exc:
+        logger.warning(f"[AutoReply] 계정 reply_mode 조회 실패 — 전역 기본값 사용 | {exc}")
+    if not reply_mode:
+        reply_mode = "persona" if PRICE_AUTO_REPLY_ENABLED else "template"
+
+    if reply_mode == "disabled":
+        logger.info(f"[AutoReply] reply_mode=disabled — 응답 생략 | account_code_ref={account_code_ref or 'unknown'}")
+        try:
+            _repo.record_reply_observability(record_id, reply_mode_used="disabled", send_status="skipped")
+        except Exception as exc:
+            logger.warning(f"[AutoReply] Observability 기록 실패(무시) | {exc}")
+        return
+
     reply_price = None
-    if not PRICE_AUTO_REPLY_ENABLED:
+    persona_code_ref = ""
+    prompt_version = ""
+    persona_check_pass = False
+
+    if reply_mode == "template":
         # Gate C: 상품(Post/Product) 매핑 전까지 가격 숫자는 절대 자동발송하지 않는다.
         # Buyer 응답 자체는 유지 — 접수 확인 + 상품확인 요청으로 대체.
         # bridge_status가 auto_replied로 안 바뀌어 _has_recent_auto_replied가 이 경로를
@@ -352,17 +377,29 @@ def handle_price_inquiry(
             logger.info(f"[AutoReply] 상품확인 요청 중복 skip(3분 이내, 동일 문의) | sender={_mask_igsid(sender_igsid)}")
             return
         reply_msg = PRODUCT_CONFIRM_TEMPLATE
-        logger.info(f"[AutoReply] PRICE_AUTO_REPLY_ENABLED=false — 상품확인 요청으로 대체 | sender={_mask_igsid(sender_igsid)}")
-    else:
+        logger.info(f"[AutoReply] reply_mode=template — 상품확인 요청으로 대체 | sender={_mask_igsid(sender_igsid)}")
+    else:  # reply_mode == "persona"
         base_price = get_base_price()
         if base_price is None:
             logger.warning("[AutoReply] 기준 가격 없음 — 자동 응답 생략")
             return
 
         reply_price = round(base_price * (1 + MARGIN_RATE))
+        prompt_version = "gemini-persona-v1"
         try:
             from modules.dm.ai_reply_generator import generate_reply
             persona_kwargs = _get_persona_kwargs(account_code_ref)
+            persona_check_pass = bool(
+                persona_kwargs.get("tone_style")
+                or persona_kwargs.get("greeting_template")
+                or persona_kwargs.get("followup_template")
+            )
+            if persona_check_pass:
+                try:
+                    persona = _repo.get_persona_by_account_code(account_code_ref)
+                    persona_code_ref = persona.get("persona_code", "") if persona else ""
+                except Exception:
+                    persona_code_ref = ""
             reply_msg = generate_reply(inquiry_text, base_price, MARGIN_RATE, **persona_kwargs)
             logger.info(f"[AutoReply] AI 응답 생성 사용 | account_code_ref={account_code_ref or 'unknown'}")
         except Exception as exc:
@@ -389,9 +426,24 @@ def handle_price_inquiry(
         rq.start()
         rq.enqueue("ig_auto_reply", {"sender_igsid": sender_igsid, "message": reply_msg, "account_code_ref": account_code_ref})
         logger.warning(f"[AutoReply] DM 발송 실패 → retry queue 등록 | to={sender_igsid}")
+        try:
+            _repo.record_reply_observability(
+                record_id, reply_mode_used=reply_mode, persona_code_ref=persona_code_ref,
+                send_status="failed", prompt_version=prompt_version, persona_check_pass=persona_check_pass,
+            )
+        except Exception as exc:
+            logger.warning(f"[AutoReply] Observability 기록 실패(무시) | {exc}")
         # 실제 발송이 안 됐으므로 "답변완료" 상태전환·팔로업예약·알림 전부 생략한다.
         # (재시도 성공 시 상태를 소급 반영하는 로직은 P0-1/Gate F의 Outbox·재조정 설계 범위)
         return
+
+    try:
+        _repo.record_reply_observability(
+            record_id, reply_mode_used=reply_mode, persona_code_ref=persona_code_ref,
+            send_status="sent", prompt_version=prompt_version, persona_check_pass=persona_check_pass,
+        )
+    except Exception as exc:
+        logger.warning(f"[AutoReply] Observability 기록 실패(무시) | {exc}")
 
     delay_sec = int((datetime.now(timezone.utc) - received_at).total_seconds())
 
