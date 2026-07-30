@@ -1707,3 +1707,32 @@ commit: `c3e711d`~`f9c91cf`(9개, 개별 목적 분리) + 이 인계 문서 갱�
 push: 세션 종료 처리 시점에 확인 필요
 
 ---
+
+## [260730_전일세션] 계정별 Kill Switch Runtime SUCCESS + ERR-089 Scheduler Stall 관측 보강 + DM Multi-account Routing Runtime SUCCESS + ERR-090
+
+**마스터 12단계 진행**: 0(Scope Lock)~6(11단계 Scope Gate) 완료. 7번(Multi-account Routing) 중 **DM 채널(자동응답+팔로업)만 완료**, 댓글 채널은 재조사(설계)만 하고 **10.5-6단계로 다음 세션 이월**(회장 지시). 11단계(3계정 확장) 실행은 계속 HOLD.
+
+**[4번] 계정별 Kill Switch(IG 발행) — Runtime SUCCESS**: `Account_Registry.automation_enabled` Fail-closed 채택(Airtable checkbox unchecked=missing 구분 안 됨 실측, 회장 확정) — `PublishAccountV2` 옵션 서브타입(Blast Radius 0). 배포 전 라이브 계정 2개(`yuna18253`/`aijomoojin`) `automation_enabled=true` 명시 설정. **라이브 Canary**: OFF 테스트 계정(`IDN-000042`, 가짜 credential이라 구조적으로 실게시 불가) 레코드가 `[Main] 계정별 Kill Switch OFF` 로그로 정확히 차단, `post_status=ready` 오염 없이 유지, 발행 API 진입 0건 확인. 테스트 레코드 2건 사후 삭제. commit `e9b8fb8`/`1ba3c96`/`f15cb7b`.
+
+**ERR-089(Scheduler Stall, PARTIAL, 부수 발견)**: Kill Switch Canary 도중 우연히 발견 — launcher 내부 두 `BackgroundScheduler`가 07:48:10~08:16:18 약 28분간 Job 실행 시도 0건. Root Cause는 Thread Dump·리소스 시계열 부재로 **UNKNOWN 유지**(HOLD, 재발 시 착수). watchdog이 launcher 내부(Flask·스케줄러) 응답성을 원천적으로 감시 안 하던 공백을 Confirmed로 특정(HTTP 헬스체크가 260527부터 주석처리돼 있었음). 관측 보강 4단계 전부 구현+라이브 검증 완료(전부 Alert-only, 자동재시작 없음): ①watchdog Flask 헬스체크 복구(Mock+라이브 Canary로 Start-Launcher/Start-Flask 0회 호출 확인) ②두 스케줄러 60초 heartbeat 로그 ③Gemini 호출 소요시간 로그(model·timeout·재시도정책 무변경) ④재발 판정 기준(Flask 즉시 Alert/Heartbeat 7분 무응답 Alert, 후보 B 회장 확정). commit `d7d038a`/`c00a734`/`e4d324e`/`cee92ee`.
+
+**[5번] Regression Baseline — SUCCESS**: 전체 690 passed/95 failed/3 xfailed/4 errors. 95개 중 6개 표본(s1/s2/s5/gate_and_approval 각 파일) 재검증 전부 기존 `runtime_boot_policy.json` PermissionError(오늘 코드 무관, 6/6 확인). 오늘 변경 파일은 `git stash` 대조로 이미 확인. **신규 회귀 0건.** commit `42472d2`.
+
+**[7번-DM] Multi-account DM Routing — Runtime SUCCESS**: 착수 전 `fb_page_id` 데이터 공백 블로커 발견 — Account_Registry 라이브 계정 2개 전부 `fb_page_id` 공란이었음. 실측(read-only Graph API, 토큰 원문 미노출)으로 해소: yuna18253(`facebook_login`)의 실제 Page `868456346356581`(기존 전역 `FACEBOOK_PAGE_ID`와 정확히 일치) — Airtable 저장. aijomoojin(`instagram_login`)은 `graph.facebook.com`이 IGAA 토큰을 파싱 못함(HTTP 400, ERR-077과 동일 유형) — Facebook Page 개념 자체가 없어 `graph.instagram.com/{ig_user_id}/messages` 직접 발송으로 설계. 신규 `_resolve_dm_send_target()`(`dm_auto_reply.py`) — Provider별 분기, 실패 시 기존 전역 계정으로 fallback(회장 승인 정책, 동작 100% 보존). `send_ig_reply()`/`_send_ig_dm()`에 `account_code_ref` 파라미터 추가, `LeadInteraction`/`PublishAccountV2`에 각각 `account_code_ref`/`fb_page_id` 옵션 필드 추가. 신규 `tests/test_dm_multi_account_send.py`(7개 시나리오) + 기존 테스트 회귀 baseline 동일 확인. commit `ae2bec2`/`cf7155c`.
+
+**10.5단계 Canary Gate 5개 전부 PASS(순서대로)**: ①Commit 감사(`cf7155c`=문서 1파일만, `ae2bec2`=실코드 7파일, 두 commit diff 전체 Secret 패턴 검색 0건 — ERR-090 재발 없음 확인) ②**DM Runtime Canary**: 회장이 실제 yuna18253으로 가격문의 DM 발송(`가격 얼마예요test`) → `[AutoReply] 단가 문의 감지`→`[AutoReply] IG DM 발송 완료` 확인, Airtable `Lead_Interactions`(`recPS93ofW2PNP4Lq`) `account_code_ref=IDN-000041` 정확히 태깅, fallback 경고 로그 0건(계정별 경로로 실제 발송된 것으로 판단) ③Fail-open 검증(오전 Mock 5개 시나리오로 충분, 회장 확정 — 계정/Credential 미해석 시 "발송 안 함"이 아니라 "전역 fallback"이 회장이 이미 확정한 정책임을 재확인) ④데이터 정리·Rollback(`git revert --no-commit ae2bec2` dry-run 충돌 0건 확인 후 abort/원상복구, 테스트 DM 2건(`reckGeXBDGYDljBNl`/`recPS93ofW2PNP4Lq`)은 실제 계정의 실제 대화라 삭제하지 않고 보존 결정) ⑤Push(`42472d2..cf7155c`, ahead/behind 0/0 확인).
+
+**ERR-090(신규, OPEN, 부수 사고)**: 7단계 설계 중 `.env` grep(`PAGE_ID`/`IG_USER_ID` 키 이름만 보려던 의도)가 `ACCESS_TOKEN` 라인까지 매칭해 YUNA/AI 토큰 원문이 Claude Code tool 출력에 노출(대화 기록 내 잔존, 외부 유출 증거 없음) — ERR-077/FP-059와 동일 클래스. 이후 grep 패턴에 `-v ACCESS_TOKEN` 등 안전장치 필요(Prevention). 회장 지시로 **토큰 재발급은 보류**(나중에 처리), 기록만 우선(commit `34c8901`).
+
+**댓글 Routing(마스터 6번) 재조사 — 설계만, 코드 미착수, 다음 세션 이월**: 당초 "폴링 루프 자체를 계정별로 재구성해야 함(Blast Radius 중간)"으로 예상했으나 재확인 결과 Blast Radius가 예상보다 **작음** — `comment_poller.py`는 이미 `comment_poll_targets`(캠페인 media_id 상태머신, FP-047 Package 1 Phase A)를 순회하는 구조라 여러 계정의 media_id가 섞여도 폴링 루프 자체는 손댈 필요 없음. `comment_auto_reply.py::_try_private_reply()`에 `media_id`가 이미 파라미터로 존재해, `media_id`→`Instagram_Posts.account_code_ref` 역조회 Repository 메서드 1개만 신규로 추가하면 DM 채널에서 만든 `_resolve_dm_send_target()`를 그대로 REUSE 가능. **다음 세션 10.5-6단계로 착수**(회장 지시 — "10.5-6단계는 다음 새로운 세션에서 구현한다").
+
+**판정**: DM 채널 Multi-account Routing **Runtime SUCCESS로 종결**. Kill Switch **Runtime SUCCESS로 종결**. ERR-089는 관측성만 확보한 **PARTIAL**(Root Cause 여전히 UNKNOWN, HOLD). ERR-090은 **OPEN**(토큰 재발급 보류). 댓글/팔로업 세부 Routing은 **다음 세션 착수 예정**.
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-089/090 신규) / `docs/WORKFLOW_ARCHITECTURE_STATUS.md`(§10-20~22 신설) / `docs/VALIDATION_STATUS.md`(3건 요약 추가) / `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 신규 섹션) / 이 항목.
+
+**변경 파일(오늘 전체 세션)**: `watchdog.ps1` / `launcher/main.py` / `modules/dm/dm_auto_reply.py` / `modules/dm/dm_followup_scheduler.py` / `modules/sns/caption_generator.py` / `modules/common/meta_graph.py` / `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` + 신규 테스트 2파일 + 문서 다수. Airtable Write 다수(자동화 플래그·fb_page_id 등, 전부 개별 승인 확인), Runtime Restart 2회(회장 직접 실행), 코드 diff --check 전부 PASS, 신규 회귀 0건(전 구간).
+
+commit: `e9b8fb8`~`cf7155c`(15개, 개별 목적 분리) 전부 push 완료(origin/master 0/0 동기화)
+push: 완료(`42472d2..cf7155c`)
+
+---

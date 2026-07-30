@@ -1,3 +1,25 @@
+# 2026-07-30 16:46 ICT — 세션 종료 인계: DM Multi-account Routing Runtime SUCCESS, 댓글 Routing(10.5-6)은 다음 세션
+
+_기록 시각: 2026-07-30 16:46 ICT · 상태: **PARTIAL/IN_PROGRESS** — 마스터 12단계 기준 0~6번 완료, 7번(Multi-account Routing) 중 **DM 채널만 완료**(댓글·팔로업 세부는 다음 세션 10.5-6단계). 11단계(다계정 확장) 실행은 계속 HOLD. 이 항목이 최신 상태이며, 아래 260730 10:36 항목은 그 이전(오전) 기록으로 보존._
+
+## 완료된 FACT(오늘 오후 추가분, 260730)
+- **DM Multi-account Routing(자동응답+팔로업) Runtime SUCCESS**: 착수 전 블로커(`fb_page_id` 공백) 실측 해소 — yuna18253(facebook_login)의 실제 Page `868456346356581`(기존 전역값과 일치) Airtable 저장, aijomoojin(instagram_login)은 Facebook Page 개념 자체가 없음을 실측 확인(`graph.facebook.com`이 IGAA 토큰 파싱 불가) → `graph.instagram.com` 직접 호출로 설계. 신규 `_resolve_dm_send_target()`(Provider 분기, 실패 시 전역 fallback, 회장 승인 정책) 구현. **라이브 Canary**: 회장이 실제 yuna18253으로 가격문의 DM 발송 → 수신·Lead Scoring·계정별 경로 발송 성공(fallback 경고 로그 0건, `account_code_ref=IDN-000041` 정확히 태깅) Runtime 확인. commit `ae2bec2`/`cf7155c`.
+- **10.5단계 Canary Gate 5개 전부 PASS**: ①Commit 감사(`cf7155c`=문서만, `ae2bec2`=실코드 7파일, Secret 노출 0건) ②DM Runtime Canary(위) ③Fail-open 검증(오전 Mock 5개로 충분, 회장 확정) ④데이터 정리·Rollback(코드는 `git revert --no-commit` dry-run 충돌 0건 확인, 테스트 DM 2건은 실제 계정 대화라 삭제 안 하고 보존 결정) ⑤Push(`42472d2..cf7155c`, 0/0 동기화).
+- **ERR-090(신규, OPEN)**: Claude Code가 `.env` grep 중 실수로 YUNA/AI 토큰 원문을 tool 출력에 노출(대화 기록 내, 외부 유출 증거 없음). ERR-077/FP-059와 동일 클래스. 토큰 재발급은 회장 지시로 **보류**(나중에 처리). commit `34c8901`.
+- **댓글 Routing(6번) 재조사(설계만, 코드 미착수)**: 당초 "폴링 루프 자체를 계정별로 재구성해야 함(Blast Radius 중간)"으로 예상했으나 재확인 결과 **더 작음** — `comment_poller.py`는 이미 `comment_poll_targets`(캠페인 media_id 상태머신)를 순회해 계정이 섞여도 폴링 루프 자체는 안 건드려도 됨. `_try_private_reply()`에 `media_id`가 이미 파라미터로 있어 `media_id`→`Instagram_Posts.account_code_ref` 역조회 1단계만 추가하면 `_resolve_dm_send_target()`를 그대로 REUSE 가능. **다음 세션 10.5-6단계로 이월**(회장 지시).
+
+## 남은 UNKNOWN
+- ERR-089 Root Cause(블로킹 I/O·GIL 경합·OS 레벨 정지 중 무엇인지) — 관측만 확보, 재발 자체는 못 막음. HOLD(재발 시 착수).
+- 마스터 2번(Critical Path 부모그룹 5개 재구성)은 여전히 PROVISIONAL.
+
+## 다음 정확한 단계
+**10.5-6단계: 댓글 계정별 Routing** — 신규 Repository 메서드(`ig_media_id`→`account_code_ref` 역조회) 1개 + `comment_auto_reply.py` 연결. 설계는 위 FACT에 요약됨, Caller Map 상세 재확인부터 시작.
+
+## 다음 단계 승인 필요 여부
+필요 — 착수 전 5요소/Gate 제출 후 승인.
+
+---
+
 # 2026-07-30 10:36 ICT — 계정별 Kill Switch Runtime SUCCESS + ERR-089 관측 보강 완료 + Regression Baseline PASS
 
 _기록 시각: 2026-07-30 10:36 ICT · 상태: **PARTIAL/IN_PROGRESS** — 마스터 12단계 기준 0~4·5·6번 완료, 7번(Multi-account Routing) 착수 전. 11단계(다계정 확장) 실행은 여전히 HOLD. 이 항목이 최신 상태이며, 아래 260729 22:35 항목은 그 이전 기록으로 보존._
