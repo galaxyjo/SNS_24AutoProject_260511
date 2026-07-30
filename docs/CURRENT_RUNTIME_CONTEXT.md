@@ -1,3 +1,37 @@
+# 2026-07-31 06:26 ICT — 10.6단계 Close Gate SUCCESS 선언(GPT 최종 검수 승인) — 세션 종료 인계
+
+_기록 시각: 2026-07-31 06:26 ICT · 상태: **10.6단계 SUCCESS/Closed(회장·GPT 확정)** — SUCCESS 기준 12개 항목 전부 Runtime Evidence로 충족. 이 항목이 최신 상태이며, 아래 260730 18:23 이하는 이 세션의 진행 기록으로 보존._
+
+## Close Gate 판정 경위
+1차 요약 제출 시 GPT가 "#8(중복·오발송 0건) 수정 후 라이브 재검증 없음, 테스트로만 대체 불가"로 **PARTIAL** 판정 → 11단계 착수 HOLD 확정, 우선순위를 "Persona 중복방지 라이브 재검증 → Close Gate 재판정"으로 명확히 지정. 통제된 Canary 설계(대상/횟수/간격/중단기준/증거위치 사전 제출 후 승인) → 실행 → **실제 4건 연속 문의 중 발송 정확히 1건, 나머지 3건 dedup 차단 확인**(10.6-6A) → GPT 재검수 **SUCCESS 12/12 확정(260731 06:26)**.
+
+## 10.6 SUCCESS 12개 항목 최종 상태
+전부 PASS — 상세 근거는 `docs/VALIDATION_STATUS.md`(`kpi_canary_exclusion_reimplement_260731`/`persona_dedup_postfix_runtime_gate_260731`/`10_6_close_gate_success_260731` 행) 참조.
+
+## 오늘 세션 전체 요약(260730 오후~260731 새벽)
+- Publishing Soak SUCCESS, 승인 없는 Scope 이탈 1건 발생 후 완전 원복(ERR-095/FP-068)
+- Account-level `reply_mode` + Observability 신규 기능(Airtable Schema 6필드 승인)
+- 오래된 회귀테스트 3건 무력화 발견·복구(ERR-096/FP-069)
+- Persona 실측 SUCCESS + 중복발송 경합조건 발견·수정·**라이브 재검증까지 완료**(ERR-097/FP-070)
+- retry_queue 6개 핸들러 재시작 생존성 결함 발견·수정(ERR-098/FP-071)
+- KPI Canary 오염 재해결(ERR-095 후속, Scope 안에서 재구현)
+- **10.6단계 Close Gate SUCCESS 선언**
+
+## Commit 이력(이 세션, 최신 커밋까지)
+`68172d6`~`6304172`(9개, 이미 push 완료) + 이번 Close Gate 문서화 커밋(다음).
+
+## Track 상태(변경 없음)
+- **Comment Provider Routing**: 구조적 미지원으로 격리, BUILD는 별도 Gate(11단계 착수 전 선행조건으로 GPT가 우선순위 지정: "중복 Canary → Close Gate → Comment Routing → 11단계 → Track B")
+- **Track B(콘텐츠 자동화)**: 설계만 완료, 착수 안 함
+- **11단계(3계정 확장)**: 자동 착수 금지, 회장 별도 승인 대상
+
+## 다음 세션 시작 시 확인할 것
+1. 이 문서(최상단) + `git status`/`git log`
+2. GPT 지정 우선순위대로면 **다음은 Comment Provider Routing**(11단계 착수 전 선행조건) — 착수 여부는 회장 확인 필요
+3. Push 여부 확인(이번 Close Gate 커밋 포함)
+
+---
+
 # 2026-07-30 18:23 ICT — 10.6 Track A(aijomoojin Publishing Soak) 세션 종료 인계
 
 _기록 시각: 2026-07-30 18:23 ICT · 상태: **10.6 Track A 진행중(오늘 세션 다수 항목 SUCCESS, Close Gate는 아직)** — 마스터 Critical Path 10개 중 완료 6개/부분 2개/미완료 2개(신규기능 영역, HOLD). 이 항목이 최신 상태이며, 아래 260730 19:53(10.5 Close Gate) 이하는 이전 세션 기록으로 보존._
