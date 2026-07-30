@@ -1802,3 +1802,28 @@ commit: 이 세션 신규 변경분(코드 3 + 테스트 2) 단일 목적 commit
 push: 세션 종료 시점에 확인 필요
 
 ---
+
+## [260730_같은세션_이어서2] 10.5-5단계 Persona 연결 — ERR-093(콘텐츠 0건) 확인 후 Repository+wiring 선구현, 회귀 재확인 방법론 정정
+
+댓글 Routing SUCCESS 직후 10.5-5단계(Persona 연결) 착수.
+
+**발견(ERR-093)**: Airtable `Persona_Profile` 테이블을 직접 조회한 결과 레코드 1건(`PER-001`, "엔틱")뿐이며, `account_code_ref`(Linked Record 타입) 공란, `tone_style`/`greeting_template`/`followup_template` 전부 공란. yuna18253(`IDN-000041`)/aijomoojin(`IDN-000036`) 둘 다 `Account_Registry.Persona_Profile` 링크가 공란 — 즉 실제 연결된 Persona 콘텐츠가 어느 계정에도 없다. `ai_reply_generator.generate_reply()`는 이미 `tone_style` 등을 받는 파라미터가 있었지만(260729 배선), 호출부(`dm_auto_reply.py`)가 실제로는 이 값을 한 번도 넘긴 적이 없었다는 것도 이번에 코드로 확인.
+
+**회장 결정(AskUserQuestion 선택형)**: 콘텐츠부터 채우기보다 코드(Repository 조회+wiring)를 먼저 구현 — 지금은 빈 값이라 안전하게 기존과 동일 동작, 회장이 나중에 Airtable만 채우면 즉시 반영되는 구조.
+
+**구현**: `repository_interface.py`에 `PersonaProfile` TypedDict + `get_persona_by_account_code(account_code)` 추상메서드 신설. `airtable_repository.py`에 구현 — **`Persona_Profile.account_code_ref`가 Linked Record 타입(multipleRecordLinks)임을 Airtable 스키마 조회로 실측 확인**(다른 테이블의 일반 텍스트 `account_code_ref`와 다름, 필드타입 추측 금지 원칙 준수)해, 직접 필터링 대신 Account_Registry의 반대쪽 링크 필드(`Persona_Profile`)를 통해 역조회 → 링크된 Persona 레코드를 ID로 단건 GET. 링크 0건/공란/`active=false`는 None(Fail-open), 2건 이상 링크는 `RepositoryValidationError`(임의 선택 금지). `modules/dm/dm_auto_reply.py`에 `_get_persona_kwargs(account_code_ref)` 헬퍼 신설 — 조회 성공 시에만 `generate_reply()` 호출에 tone_style 등을 실제로 전달, 실패/미연결 시 전부 빈 문자열(기존 프롬프트 100% 동일).
+
+**테스트**: 신규 `tests/test_get_persona_by_account_code.py`(10개, 이 세션 직접 실행 **10 passed**) + `tests/test_dm_persona_kwargs.py`(5개, `modules.dm` PermissionError로 이 세션 직접 실행 불가 — DM 테스트들과 동일 패턴, 회장 터미널 실행 필요).
+
+**회귀 확인 방법론 정정(중요)**: 직전 두 항목(ERR-091/ERR-092)에서 전체 회귀를 `tail -25`/`tail -40`으로만 확인해 "실패 파일 4개, 기존 baseline과 동일"이라 보고했는데, 이번에 `grep "^FAILED" | sed ... | sort | uniq -c`로 전체를 다시 확인한 결과 **실제로는 11개 파일**(`test_dome_export_batch_isolation.py`/`test_insta_upload_batch_isolation.py`/`test_meta_graph_version.py`/`test_package_b_post_attribution.py`/`test_package_c0_canary_classification.py`/`test_package_s1_canary_safe_mode.py`/`test_package_s2_publish_block.py`/`test_package_s5_write_budget_idempotency.py`/`test_provider_routing.py`/`test_publish_gate_and_approval.py`/`test_publish_outcome_unknown.py`)에서 실패가 발생 — `tail`이 출력 뒷부분만 보여줘 앞쪽 실패들을 놓쳤던 것. **5개 파일을 `--tb=short`로 직접 표본 재현한 결과 전부 정확히 동일한 원인**(`modules/common/canary_safe_mode.py::get_canary_safe_mode_state()`가 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` 접근 시 이 세션 환경의 `PermissionError`, 260728부터 반복 문서화된 기존 제약)으로 수렴 — **"신규 회귀 0건"이라는 결론 자체는 바뀌지 않지만, 확인 방법이 더 엄밀해야 했다는 교훈(FP-064와 같은 계열: 잘린/요약된 출력만으로 결론짓지 말 것)을 남긴다.** 전체 결과: 717 passed / 93~96 failed(재실행 간 소폭 변동, 기존 문서화된 `test_review_grid_ui.py` flaky 포함 추정) / 3 xfailed / 7 errors(6개 기존 `modules.dm` 계열 + 신규 `test_dm_persona_kwargs.py` 1개, 동일 클래스).
+
+**기록**: `docs/ERROR_DATABASE.md`(ERR-093 신규, PARTIAL) / `docs/VALIDATION_STATUS.md`(`persona_repository_wiring_err093_260730` 행 추가, 이전 두 행에도 정정 코멘트 추가) / `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 신규 섹션, 18:57 ICT) / 이 항목.
+
+**변경 파일**: `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / `modules/dm/dm_auto_reply.py` / 신규 `tests/test_get_persona_by_account_code.py` / 신규 `tests/test_dm_persona_kwargs.py`. Airtable Write 0건(read-only 조회만), Runtime Restart 0건.
+
+**판정**: 10.5-5단계 Persona 연결의 **코드 구현은 SUCCESS로 종결**(Repository+wiring+mock 테스트+전체 회귀 확인). 다만 **실제 콘텐츠·계정 연결이 0건이라 Runtime 실효과는 아직 없음(PARTIAL)** — 회장이 Airtable에 콘텐츠를 채우는 것이 후속 조건.
+
+commit: 이 세션 신규 변경분(코드 3 + 테스트 2) 단일 목적 commit 예정(다음 커맨드)
+push: 세션 종료 시점에 확인 필요
+
+---

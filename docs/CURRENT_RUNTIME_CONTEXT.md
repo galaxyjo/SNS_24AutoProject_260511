@@ -1,3 +1,25 @@
+# 2026-07-30 18:57 ICT — 10.5-5단계(Persona 연결): ERR-093(콘텐츠 0건) 확인 후 Repository+wiring 선구현, 전체 회귀 재확인(11개 파일 모두 기존 원인)
+
+_기록 시각: 2026-07-30 18:57 ICT · 상태: **PARTIAL/IN_PROGRESS** — 댓글 Routing(아래 18:00 항목) SUCCESS 이후 10.5-5단계(Persona 연결) 착수. Persona_Profile 실제 콘텐츠가 없어 코드만 선구현(회장 결정), 콘텐츠 입력은 회장 담당으로 남음. 이 항목이 최신 상태이며, 아래 260730 18:00 항목은 그 이전 기록으로 보존._
+
+## 완료된 FACT(이 세션, 260730 18:57)
+- **Persona_Profile 콘텐츠 0건 확인**: Airtable 직접조회 — `Persona_Profile` 레코드 1건(`PER-001`, "엔틱")뿐이고 그마저 `account_code_ref`(Linked Record) 공란·`tone_style`/`greeting_template`/`followup_template` 전부 공란. yuna18253/aijomoojin 둘 다 `Account_Registry.Persona_Profile` 링크 공란 — 어느 계정에도 연결된 Persona 없음(ERR-093).
+- **회장 결정(선택형)**: 콘텐츠 입력 전에 코드부터 구현 — 지금은 빈 값이라 기존 동작과 100% 동일, 회장이 나중에 Airtable만 채우면 바로 반영.
+- **구현**: `get_persona_by_account_code()`(Repository, Linked Record 역조회 — 필드타입 실측 확인 후 구현) + `dm_auto_reply.py::_get_persona_kwargs()`로 `generate_reply()` 호출에 실제 배선. Fail-open(조회 실패/미연결/inactive는 전부 빈 문자열).
+- **전체 회귀 재확인, 중요 정정**: 이전 두 항목(DM/댓글)에서 "실패 파일 4개, 기존 baseline과 동일"이라 보고했던 것이 `tail -25` 출력 절단으로 인한 불완전 확인이었음을 이번에 전체 `grep`으로 발견 — 실제로는 **11개 파일**이 실패하지만, 5개 파일을 직접 표본 재현(`test_meta_graph_version.py`/`test_dome_export_batch_isolation.py`/`test_package_b_post_attribution.py`/`test_package_s5_write_budget_idempotency.py` 등)한 결과 **전부 동일하게 `runtime_boot_policy.json` PermissionError**(이 세션 환경의 기존 제약, 오늘 코드와 무관)로 수렴함을 확인 — **신규 회귀 0건 결론 자체는 유지**. 717 passed / 93~96 failed(재실행 간 소폭 변동) / 3 xfailed / 7 errors.
+
+## 남은 UNKNOWN
+- Persona_Profile 실제 콘텐츠(tone_style/greeting_template/followup_template) 입력 담당·시점 — 여전히 회장 담당, 미정.
+- `test_dm_persona_kwargs.py`(신규 5개)는 이 세션 환경 제약으로 미실행 — 회장 터미널 확인 필요.
+
+## 다음 정확한 단계
+문서화·commit 승인 대기 → 이후 6번(Integration Validation) 착수.
+
+## 다음 단계 승인 필요 여부
+필요 — 문서화·commit은 코드 구현 승인과 별개 게이트.
+
+---
+
 # 2026-07-30 18:00 ICT — 10.5-6단계(댓글 Routing): ERR-092/FP-066 발견·해결, aijomoojin 댓글 캠페인 0건 확인
 
 _기록 시각: 2026-07-30 18:00 ICT · 상태: **PARTIAL/IN_PROGRESS** — DM Routing Close Gate(아래 17:36 항목) 완료 후 10.5-6단계(댓글 Routing) 착수, 설계 전제 재검토로 새 구조적 한계 발견·해결까지 완료. 이 항목이 최신 상태이며, 아래 260730 17:36 항목은 그 이전 기록으로 보존._

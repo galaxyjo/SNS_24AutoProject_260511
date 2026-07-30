@@ -110,6 +110,28 @@ def detect_price_inquiry(text: str) -> bool:
     return any(kw in lower for kw in PRICE_KEYWORDS)
 
 
+def _get_persona_kwargs(account_code_ref: str) -> dict:
+    """260730 10.5-5단계(Persona 연결) — account_code_ref로 연결된 Persona_Profile을
+    조회해 generate_reply()에 넘길 tone_style/greeting_template/followup_template을
+    구한다. account_code_ref가 없거나 연결된(active) Persona가 없거나 조회 실패 시
+    전부 빈 문자열(기존 동작 100% 동일, Fail-open)."""
+    empty = {"tone_style": "", "greeting_template": "", "followup_template": ""}
+    if not account_code_ref:
+        return empty
+    try:
+        persona = _repo.get_persona_by_account_code(account_code_ref)
+    except Exception as exc:
+        logger.warning(f"[AutoReply] Persona 조회 실패 — 기본 프롬프트 사용 | account_code_ref={account_code_ref} | {exc}")
+        return empty
+    if persona is None:
+        return empty
+    return {
+        "tone_style": persona.get("tone_style", ""),
+        "greeting_template": persona.get("greeting_template", ""),
+        "followup_template": persona.get("followup_template", ""),
+    }
+
+
 def get_base_price() -> float | None:
     """Instagram_Posts 중 price>0 최신값. 없으면 DEFAULT_BASE_PRICE env 폴백."""
     try:
@@ -340,7 +362,8 @@ def handle_price_inquiry(
         reply_price = round(base_price * (1 + MARGIN_RATE))
         try:
             from modules.dm.ai_reply_generator import generate_reply
-            reply_msg = generate_reply(inquiry_text, base_price, MARGIN_RATE)
+            persona_kwargs = _get_persona_kwargs(account_code_ref)
+            reply_msg = generate_reply(inquiry_text, base_price, MARGIN_RATE, **persona_kwargs)
             logger.info(f"[AutoReply] AI 응답 생성 사용 | account_code_ref={account_code_ref or 'unknown'}")
         except Exception as exc:
             logger.warning(f"[AutoReply] AI 응답 실패 — 템플릿 폴백 | {exc}")

@@ -132,6 +132,14 @@ class PublishAccountV2(PublishAccount, total=False):
     fb_page_id: str
 
 
+class PersonaProfile(TypedDict):
+    """Persona_Profile 조회 결과(260730 10.5-5단계, Persona 연결)."""
+    persona_code:       str
+    tone_style:         str
+    greeting_template:  str
+    followup_template:  str
+
+
 class CrawlTarget(TypedDict, total=False):
     target_url:    str
     platform:      str
@@ -301,6 +309,15 @@ class RepositoryInterface(ABC):
         0건이면 None. 2건 이상(모호)이면 RepositoryValidationError를 발생시켜야 한다
         (첫 레코드를 임의 선택하지 않는다). 네트워크/HTTP 오류는 None으로 감추지 않고
         RepositoryUnavailableError로 구분한다. access_token은 반환하지 않는다."""
+
+    @abstractmethod
+    def get_persona_by_account_code(self, account_code: str) -> PersonaProfile | None:
+        """260730 10.5-5단계(Persona 연결) — Account_Registry.account_code로 계정을 찾아,
+        그 계정에 Linked Record로 연결된 Persona_Profile(1건, active=true인 것만)을
+        반환한다. 계정이 없거나, 연결된 Persona가 없거나, active인 연결 Persona가
+        없으면 None. 2건 이상 연결(모호함)이면 RepositoryValidationError를 발생시킨다
+        (첫 레코드를 임의 선택하지 않는다). 네트워크/HTTP 오류는 None으로 감추지 않고
+        RepositoryUnavailableError로 구분한다."""
 
     @abstractmethod
     def get_account_code_ref_by_media_id(self, media_id: str) -> str:

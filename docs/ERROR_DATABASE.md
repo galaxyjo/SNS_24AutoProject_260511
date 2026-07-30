@@ -1778,3 +1778,19 @@ watchdog.log(같은 구간):
 **Status:** RESOLVED — 코드 구현·mock 테스트·전체 회귀 확인 완료. 실제 Graph API 조건(aijomoojin 게시물이 실제 캠페인에 등록된 상태)에서의 실측 Canary는 그런 게시물이 아직 없어 수행 불가(Accept, aijomoojin 댓글 캠페인이 실제 등록되는 시점에 재검증 필요).
 
 **관련:** ERR-091, FP-065, FP-066(신규)
+
+## ERR-093 | Persona_Profile 실제 콘텐츠·계정 연결 0건 확인 — Repository 조회+wiring만 선구현 (PARTIAL, 260730)
+
+**Type:** Missing Data(콘텐츠 부재) — 코드 결함 아님
+
+**경위:** ERR-092 종결 직후 10.5-5단계(Persona 연결) 착수. Airtable 직접 조회 결과 `Persona_Profile` 테이블에 레코드가 `PER-001`(엔틱) 단 1건뿐이며, 그 1건조차 `account_code_ref`(Linked Record) 공란·`tone_style`/`greeting_template`/`followup_template` 전부 공란임을 확인. 살아있는 계정 2개(yuna18253=`IDN-000041`, aijomoojin=`IDN-000036`) 모두 `Account_Registry.Persona_Profile` 링크도 공란 — 어느 계정에도 Persona가 연결돼 있지 않다.
+
+**회장 결정(선택형 질문)**: 콘텐츠 입력 전에 코드(Repository 조회+wiring)부터 먼저 구현 — 지금은 빈 값이라 기존 동작과 100% 동일하게 유지되고, 나중에 회장이 Airtable에 콘텐츠만 채우면 바로 반영되는 구조.
+
+**Fix(구현 완료)**: `repository_interface.py`+`airtable_repository.py`에 `get_persona_by_account_code(account_code)` 신규 — `Persona_Profile.account_code_ref`가 Linked Record 타입임을 실측 확인(필드 타입 추측 금지 원칙 준수)해, Account_Registry의 `Persona_Profile` 링크 필드를 통해 역조회(직접 텍스트 매칭 아님). 연결 0건/공란/inactive는 None(Fail-open), 2건 이상 연결은 `RepositoryValidationError`(임의 선택 금지). `modules/dm/dm_auto_reply.py`에 `_get_persona_kwargs(account_code_ref)` 헬퍼 신설 — `ai_reply_generator.generate_reply()` 호출 시 조회된 tone_style/greeting_template/followup_template을 그대로 전달(조회 실패·미연결 시 전부 빈 문자열, 기존 동작 100% 보존).
+
+**검증**: 신규 mock 테스트 15개(`tests/test_get_persona_by_account_code.py` 10개, 이 세션에서 직접 실행 **10 passed** + `tests/test_dm_persona_kwargs.py` 5개, `modules.dm` PermissionError로 이 세션 직접 실행 불가 — 회장 터미널 실행 필요). 전체 회귀 재확인: **717 passed / 93~96 failed(재실행 간 소폭 변동, 기존 문서화된 flaky 1건 포함) / 3 xfailed / 7 errors** — 실패 11개 파일 중 5개 파일(`test_meta_graph_version.py`/`test_dome_export_batch_isolation.py`/`test_package_b_post_attribution.py`/`test_package_s5_write_budget_idempotency.py` 등)을 직접 표본 재현해 전부 동일한 `runtime_boot_policy.json` PermissionError(오늘 코드와 무관, 기존 환경제약)임을 확인. **참고**: 이전 두 항목(ERR-091/ERR-092)에서 "실패 파일 4개, 기존 baseline과 동일"이라 보고한 것은 `tail -25` 출력이 잘려 일부만 보인 결과였음 — 실제로는 11개 파일이지만 전부 동일 원인으로 수렴, 신규 회귀라는 결론 자체는 변하지 않는다(FP-064 교훈 재확인: 잘린 출력으로 성급히 결론내지 말 것).
+
+**Status:** PARTIAL — 코드·mock 테스트·전체 회귀 확인 완료. **실제 콘텐츠 입력(tone_style 등)과 계정 연결은 회장 담당, 시점 미정** — 콘텐츠가 채워지기 전까지는 이 기능이 Runtime에서 실질적 효과를 내지 않는다(안전하게 no-op).
+
+**관련:** 260729 22:35 세션의 "Persona Runtime 최소연결(PARTIAL)" 항목 후속

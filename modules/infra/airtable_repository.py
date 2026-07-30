@@ -32,6 +32,7 @@ from modules.infra.repository_interface import (
     LeadBridgeStatus,
     LeadInteraction,
     LeadInteractionCreate,
+    PersonaProfile,
     PostPublishResult,
     PublishAccount,
     PublishAccountV2,
@@ -594,6 +595,68 @@ class AirtableRepository(RepositoryInterface):
                 f"ig_media_id={media_id}에 대응하는 Instagram_Posts 레코드가 2건 이상(모호함)"
             )
         return records[0].get("fields", {}).get("account_code_ref", "")
+
+    def get_persona_by_account_code(self, account_code: str) -> PersonaProfile | None:
+        """260730 10.5-5단계(Persona 연결) — Account_Registry→Persona_Profile
+        Linked Record 역조회. Persona_Profile.account_code_ref는 multipleRecordLinks
+        타입이라, Account_Registry 레코드의 Persona_Profile 링크 필드(연결의 반대쪽
+        끝)를 통해 역조회한다(직접 filterByFormula로 링크 필드를 텍스트처럼 매칭하지
+        않음 — 필드 타입 추측 금지 원칙)."""
+        if not account_code or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code):
+            return None
+
+        try:
+            r = requests.get(
+                _url("Account_Registry"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": f"{{account_code}}='{account_code}'",
+                    "maxRecords": 2,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Account_Registry", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Account_Registry")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if len(records) != 1:
+            return None
+
+        persona_ids = records[0].get("fields", {}).get("Persona_Profile", [])
+        if not persona_ids:
+            return None
+        if len(persona_ids) > 1:
+            raise RepositoryValidationError(
+                f"account_code={account_code}에 연결된 Persona_Profile이 2건 이상(모호함)"
+            )
+
+        try:
+            r2 = requests.get(
+                _url("Persona_Profile", persona_ids[0]),
+                headers=_headers(),
+                timeout=_TIMEOUT,
+            )
+            r2.raise_for_status()
+            log_api_call("Persona_Profile", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Persona_Profile")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        f = r2.json().get("fields", {})
+        if not f.get("active", False):
+            return None
+
+        return PersonaProfile(
+            persona_code=f.get("persona_code", ""),
+            tone_style=f.get("tone_style", ""),
+            greeting_template=f.get("greeting_template", ""),
+            followup_template=f.get("followup_template", ""),
+        )
 
     # ── 9. 업로드 선점 마킹 ───────────────────────────────────────────────────
 
