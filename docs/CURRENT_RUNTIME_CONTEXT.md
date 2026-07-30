@@ -6,17 +6,21 @@ _기록 시각: 2026-07-30 16:46 ICT · 상태: **PARTIAL/IN_PROGRESS** — 마�
 - **DM Multi-account Routing(자동응답+팔로업) Runtime SUCCESS**: 착수 전 블로커(`fb_page_id` 공백) 실측 해소 — yuna18253(facebook_login)의 실제 Page `868456346356581`(기존 전역값과 일치) Airtable 저장, aijomoojin(instagram_login)은 Facebook Page 개념 자체가 없음을 실측 확인(`graph.facebook.com`이 IGAA 토큰 파싱 불가) → `graph.instagram.com` 직접 호출로 설계. 신규 `_resolve_dm_send_target()`(Provider 분기, 실패 시 전역 fallback, 회장 승인 정책) 구현. **라이브 Canary**: 회장이 실제 yuna18253으로 가격문의 DM 발송 → 수신·Lead Scoring·계정별 경로 발송 성공(fallback 경고 로그 0건, `account_code_ref=IDN-000041` 정확히 태깅) Runtime 확인. commit `ae2bec2`/`cf7155c`.
 - **10.5단계 Canary Gate 5개 전부 PASS**: ①Commit 감사(`cf7155c`=문서만, `ae2bec2`=실코드 7파일, Secret 노출 0건) ②DM Runtime Canary(위) ③Fail-open 검증(오전 Mock 5개로 충분, 회장 확정) ④데이터 정리·Rollback(코드는 `git revert --no-commit` dry-run 충돌 0건 확인, 테스트 DM 2건은 실제 계정 대화라 삭제 안 하고 보존 결정) ⑤Push(`42472d2..cf7155c`, 0/0 동기화).
 - **ERR-090(신규, OPEN)**: Claude Code가 `.env` grep 중 실수로 YUNA/AI 토큰 원문을 tool 출력에 노출(대화 기록 내, 외부 유출 증거 없음). ERR-077/FP-059와 동일 클래스. 토큰 재발급은 회장 지시로 **보류**(나중에 처리). commit `34c8901`.
-- **댓글 Routing(6번) 재조사(설계만, 코드 미착수)**: 당초 "폴링 루프 자체를 계정별로 재구성해야 함(Blast Radius 중간)"으로 예상했으나 재확인 결과 **더 작음** — `comment_poller.py`는 이미 `comment_poll_targets`(캠페인 media_id 상태머신)를 순회해 계정이 섞여도 폴링 루프 자체는 안 건드려도 됨. `_try_private_reply()`에 `media_id`가 이미 파라미터로 있어 `media_id`→`Instagram_Posts.account_code_ref` 역조회 1단계만 추가하면 `_resolve_dm_send_target()`를 그대로 REUSE 가능. **다음 세션 10.5-6단계로 이월**(회장 지시).
+- **댓글 Routing(6번) 재조사(설계만, 코드 미착수)**: 당초 "폴링 루프 자체를 계정별로 재구성해야 함(Blast Radius 중간)"으로 예상했으나 재확인 결과 **더 작음** — `comment_poller.py`는 이미 `comment_poll_targets`(캠페인 media_id 상태머신)를 순회해 계정이 섞여도 폴링 루프 자체는 안 건드려도 됨. `_try_private_reply()`에 `media_id`가 이미 파라미터로 있어 `media_id`→`Instagram_Posts.account_code_ref` 역조회 1단계만 추가하면 `_resolve_dm_send_target()`를 그대로 REUSE 가능. **회장이 우선순위를 재조정 — 댓글 Routing보다 DM Close Gate가 먼저**(아래 참조).
+- **DM Routing Close Gate 발견(회장 지시로 우선순위 최상위 재조정, 정책 승인·구현은 다음 세션)**: 전역 fallback의 실제 목적지를 실측 — `INSTA_IG_USER_ID`(공개 ID)가 yuna18253의 ig_user_id와 정확히 일치, 즉 **전역 fallback은 항상 yuna18253 고정**. yuna18253 자신의 해석 실패는 fallback도 결과가 같아 문제 없으나, **aijomoojin의 계정 해석이 실패하면 fallback이 yuna18253 Page 토큰으로 잘못 시도**(Instagram igsid는 Page별 스코프라 Graph API가 거절할 가능성 높음 — "오계정 전달"보다 "aijomoojin 고객이 조용히 답장 못 받음" 쪽에 가까움, Hypothesis). **회장이 제안 정책을 승인**: account_code_ref가 있는데(어느 계정인지 이미 알고 있는데) 해석 실패 시 — yuna18253이면 그대로 fallback 유지(결과 동일), **그 외 계정(aijomoojin 등)이면 fallback 시도 없이 명확한 오류로 retry_queue行**(account_code_ref 자체가 없는 레거시/미해석 DM만 지금처럼 전역 fallback 유지). **아직 코드 미구현** — 다음 세션 착수 대상.
 
 ## 남은 UNKNOWN
 - ERR-089 Root Cause(블로킹 I/O·GIL 경합·OS 레벨 정지 중 무엇인지) — 관측만 확보, 재발 자체는 못 막음. HOLD(재발 시 착수).
 - 마스터 2번(Critical Path 부모그룹 5개 재구성)은 여전히 PROVISIONAL.
+- aijomoojin 실제 DM Runtime Canary — 아직 미실행(코드·데이터 선결조건은 없음 확인됨, 회장이 실제 DM만 보내면 됨, yuna18253과 동일 절차).
 
-## 다음 정확한 단계
-**10.5-6단계: 댓글 계정별 Routing** — 신규 Repository 메서드(`ig_media_id`→`account_code_ref` 역조회) 1개 + `comment_auto_reply.py` 연결. 설계는 위 FACT에 요약됨, Caller Map 상세 재확인부터 시작.
+## 다음 정확한 단계(우선순위 재조정됨, 회장 확정 260730 17:10 ICT)
+1. **DM Routing Close Gate**(최우선, 댓글보다 먼저) — ①aijomoojin 실제 가격문의 DM Canary(yuna18253과 동일 절차, 코드 선결조건 없음) ②승인된 fallback 정책(위 FACT) 구현 — `_resolve_dm_send_target()` 호출부에서 account_code_ref 존재+해석실패+yuna18253 아님 조건일 때 fallback 생략하고 즉시 retry_queue 위임 ③의도적 실패 재현으로 정책 동작 확인.
+2. 그 다음 **10.5-6단계: 댓글 계정별 Routing**(신규 Repository 메서드 `ig_media_id`→`account_code_ref` 역조회 + `comment_auto_reply.py` 연결).
+3. **ERR-090 토큰 재발급** — 10.5 Close Gate 이전까지는 완료해야 함(회장 지시, 순서는 자유이나 마감 있음).
 
 ## 다음 단계 승인 필요 여부
-필요 — 착수 전 5요소/Gate 제출 후 승인.
+필요 — DM Close Gate 착수 전 5요소/Gate 제출 후 승인.
 
 ---
 

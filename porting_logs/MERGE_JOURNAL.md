@@ -1736,3 +1736,21 @@ commit: `e9b8fb8`~`cf7155c`(15개, 개별 목적 분리) 전부 push 완료(orig
 push: 완료(`42472d2..cf7155c`)
 
 ---
+
+## [260730_세션종료직전_추가발견] DM Routing Close Gate — 전역 fallback이 yuna18253 고정임을 실측, 회장이 우선순위 재조정
+
+DM 채널 SUCCESS 선언 직후 회장이 "yuna 1계정만 검증됐고 전역 fallback이 남아있어 다계정 완료 판정은 이르다"고 지적 — Read-only 재조사(코드 미착수) 수행.
+
+**FACT**: `INSTA_IG_USER_ID`(공개 ID, 실측) = `17841476202821375` = yuna18253의 ig_user_id와 정확히 일치. **전역 fallback은 항상 yuna18253으로 고정**돼 있음(`FACEBOOK_PAGE_ID`도 yuna18253 Page). yuna18253 자신의 해석 실패는 fallback도 결과가 같아 무해하나, **aijomoojin의 계정 해석이 실패하면 fallback이 엉뚱하게 yuna18253 Page 토큰으로 시도**됨 — Instagram igsid가 Page별 스코프라 Graph API가 거절할 가능성이 높아 "오계정 전달"보다는 "aijomoojin 고객이 조용히 답장을 못 받게 됨" 쪽에 더 가까움(Hypothesis, 실제 Graph API 응답으로 확인된 것은 아님).
+
+**Task A(Runtime 검증 조건) 확인**: 별도 코드·데이터 선결조건 없음 — `DM_ACCOUNT_ROUTING_ENABLED=true`, aijomoojin Account_Registry(ig_user_id/credential_key/api_provider) 전부 populated 확인됨. 오늘 yuna18253과 동일 절차(회장이 실제 가격문의 DM 발송)로 바로 Runtime 검증 가능.
+
+**제안 정책 — 회장 승인 완료(구현은 다음 세션)**: account_code_ref가 있는데 해석 실패 시 — yuna18253이면 그대로 fallback 유지(결과 동일), **그 외 계정이면 fallback 시도 없이 명확한 오류로 retry_queue行**. account_code_ref 자체가 없는(레거시/미해석) DM만 지금처럼 전역 fallback 유지.
+
+**회장이 재조정한 우선순위(260730 17:10 ICT 확정)**: 1) DM Routing Close Gate(aijomoojin 실제 Canary + 위 정책 구현) 최우선 → 2) 10.5-6단계(댓글 Routing) → 3) ERR-090 토큰 재발급(10.5 Close Gate 이전 완료 필수, 순서는 자유) → HOLD 유지: ERR-089 Root Cause(재발 시에만 착수).
+
+**판정**: PARTIAL — Read-only 조사·정책 승인까지 완료, 코드 구현은 미착수. 상태변경 0건(코드·Airtable·Restart·Commit 전부 없음, 이 문서만 갱신).
+
+**기록**: `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단 항목에 직접 반영, 우선순위·정책 갱신) / 이 항목.
+
+---
