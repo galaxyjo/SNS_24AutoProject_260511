@@ -1,3 +1,24 @@
+# 2026-07-30 10:36 ICT — 계정별 Kill Switch Runtime SUCCESS + ERR-089 관측 보강 완료 + Regression Baseline PASS
+
+_기록 시각: 2026-07-30 10:36 ICT · 상태: **PARTIAL/IN_PROGRESS** — 마스터 12단계 기준 0~4·5·6번 완료, 7번(Multi-account Routing) 착수 전. 11단계(다계정 확장) 실행은 여전히 HOLD. 이 항목이 최신 상태이며, 아래 260729 22:35 항목은 그 이전 기록으로 보존._
+
+## 완료된 FACT(오늘, 260730)
+- **계정별 Kill Switch(IG 발행) Runtime SUCCESS**: `Account_Registry.automation_enabled` Fail-closed 채택(Airtable checkbox unchecked=missing, 우회 방지 우선, 회장 확정) — `PublishAccountV2` 옵션 서브타입으로 Blast Radius 0. 배포 전 라이브 계정 2개(`yuna18253`/`aijomoojin`) 명시 `true` 설정. **라이브 Canary(10:02:17 ICT)**: `automation_enabled=false` 테스트 계정 레코드가 정확히 차단(`ready` 유지, `ig_media_id` 공란) — PASS. 테스트 레코드 사후 삭제. commit `e9b8fb8`/`1ba3c96`/`f15cb7b`.
+- **ERR-089(Scheduler Stall, PARTIAL)**: Kill Switch Canary 도중 우연히 발견 — `launcher/main.py` 내부 두 `BackgroundScheduler`가 07:48:10~08:16:18 약 28분간 Job 실행 0건. Root Cause **UNKNOWN**(Thread Dump·리소스 시계열 부재). watchdog이 launcher 내부 응답성을 감시하지 않던 공백을 Confirmed. 관측 보강 4단계 전부 구현·라이브 검증 완료(Flask Alert-only/Scheduler Heartbeat 60초·7분 임계값/Gemini 호출 소요시간 로그/재발 판정 기준) — commit `d7d038a`/`c00a734`/`e4d324e`/`cee92ee`.
+- **Regression Baseline(마스터 5번) SUCCESS**: 전체 690 passed/95 failed/3 xfailed/4 errors. 95개 표본 6개 재검증 — 전부 기존 `runtime_boot_policy.json` PermissionError(오늘 코드 무관). 오늘 변경 파일은 개별 `git stash` 대조로 이미 확인. **신규 회귀 0건**(95개 전수 재실행은 아님, 명시).
+
+## 남은 UNKNOWN
+- ERR-089 Root Cause(블로킹 I/O·GIL 경합·OS 레벨 정지 중 무엇인지) — 관측성만 확보, 재발 자체는 못 막음.
+- 마스터 12단계 2번(Critical Path 부모그룹 5개 재구성)은 여전히 PROVISIONAL — GPT 최종 확정 없음.
+
+## 다음 정확한 단계
+마스터 12단계 **7번(Multi-account Routing 설계)** — DM·댓글·팔로업 3곳이 전부 단일 전역 `INSTA_ACCESS_TOKEN`만 쓰는 문제. 5요소(①Ingress 계정식별 ②계정별 Credential 선택 ③`account_code_ref` 저장·전파 ④계정별 Queue·Idempotency·Log 격리 ⑤Fail-closed) 설계 필요 — High Risk(Repository Interface 변경 가능성) 분류, Codex Full Review 대상.
+
+## 다음 단계 승인 필요 여부
+필요 — 7번 착수는 회장 승인 대상(대형 작업, 오늘 세션에서 "미착수" 확정 후 5번으로 우회했었음).
+
+---
+
 # 2026-07-29 22:35 ICT — 세션 종료 인계: 10.5단계(필수 부품 조립·통합) 착수, 11단계 여전히 HOLD
 
 _기록 시각: 2026-07-29 22:35 ICT · 상태: **PARTIAL/IN_PROGRESS** — 10단계 Closed Gate 이후 11단계 착수 전 선행 Gate 4개를 오늘 전부 처리했고, 이어서 GPT Master Execution Directive로 "10.5단계(필수 부품 조립·통합)"가 공식 우선순위로 고정됐다. 11단계(다계정 확장) 실행은 계속 HOLD. 이 항목이 최신 상태이며, 아래 9단계 항목은 그 이전 기록으로 그대로 보존한다._
