@@ -89,7 +89,16 @@ def _fetch_posts_or_raise() -> list[dict]:
 
 # ── 개별 지표 계산 ────────────────────────────────────────────────────────────
 
+_CANARY_POST_CODE_PREFIX = "IP-CANARY-"
+
+
 def _upload_stats(posts: list[dict]) -> dict:
+    # 260731(10.6-5B, 재도입 — ERR-095에서 원복됐던 것을 별도 승인 하 재구현) —
+    # insta_post_code가 "IP-CANARY-"로 시작하는 레코드(수동 Canary 게시물, 기존
+    # 명명 규칙 재사용)는 운영 KPI 집계에서 제외한다. data_classification은 Safe
+    # Mode 없이 실제 게시하려면 "production"이어야 해서(canary_classification.py)
+    # 구분 근거로 쓸 수 없다. (p.get(...) or "") — 필드가 None이어도 안전.
+    posts  = [p for p in posts if not (p.get("insta_post_code") or "").startswith(_CANARY_POST_CODE_PREFIX)]
     total  = len(posts)
     posted = sum(1 for p in posts if p.get("post_status") == "posted")
     ready  = sum(1 for p in posts if p.get("post_status") == "ready")
