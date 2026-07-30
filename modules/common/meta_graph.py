@@ -5,6 +5,7 @@ import re
 
 
 _GRAPH_BASE_URL = "https://graph.facebook.com"
+_INSTAGRAM_GRAPH_BASE_URL = "https://graph.instagram.com"
 _DEFAULT_MESSAGING_VERSION = "v25.0"
 _VERSION_PATTERN = re.compile(r"^v\d+\.\d+$")
 
@@ -32,3 +33,12 @@ def messaging_graph_url(path: str) -> str:
     if not normalized or "://" in normalized:
         raise ValueError("Graph API path must be a non-empty relative path")
     return f"{_GRAPH_BASE_URL}/{get_messaging_graph_api_version()}/{normalized}"
+
+
+def instagram_login_graph_url(path: str) -> str:
+    """260730 Multi-account DM Routing — instagram_login Provider(예: aijomoojin) 전용.
+    facebook_login과 달리 Page Token 교환 없이 graph.instagram.com에 직접 요청한다."""
+    normalized = str(path).strip().lstrip("/")
+    if not normalized or "://" in normalized:
+        raise ValueError("Graph API path must be a non-empty relative path")
+    return f"{_INSTAGRAM_GRAPH_BASE_URL}/{get_messaging_graph_api_version()}/{normalized}"

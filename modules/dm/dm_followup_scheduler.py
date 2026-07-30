@@ -98,9 +98,18 @@ def _get_page_token() -> str:
     return user_token
 
 
-def _send_ig_dm(igsid: str, text: str) -> bool:
-    page_id    = os.getenv("FACEBOOK_PAGE_ID", "")
-    page_token = _get_page_token()
+def _send_ig_dm(igsid: str, text: str, account_code_ref: str = "") -> bool:
+    """260730 Multi-account DM Routing — account_code_ref 해석에 성공하면 계정별
+    경로(facebook_login Page 교환 또는 instagram_login 직접호출)를 쓰고, 실패하면
+    기존 전역 계정으로 fallback한다(동작 100% 보존, dm_auto_reply.py와 로직 REUSE)."""
+    from modules.dm.dm_auto_reply import _resolve_dm_send_target
+    target = _resolve_dm_send_target(account_code_ref)
+    if target:
+        url, page_token = target["url"], target["token"]
+    else:
+        page_id    = os.getenv("FACEBOOK_PAGE_ID", "")
+        page_token = _get_page_token()
+        url        = messaging_graph_url(f"{page_id}/messages")
 
     body = _json.dumps({
         "recipient":      {"id": igsid},
@@ -110,7 +119,7 @@ def _send_ig_dm(igsid: str, text: str) -> bool:
     }, ensure_ascii=False).encode("utf-8")
 
     resp = requests.post(
-        messaging_graph_url(f"{page_id}/messages"),
+        url,
         headers={
             "Authorization": "Bearer " + page_token,
             "Content-Type": "application/json; charset=utf-8",
@@ -176,11 +185,12 @@ def process_due_followups() -> None:
     logger.info(f"[Followup] 처리 대상 {len(records)}건")
 
     for rec in records:
-        record_id   = rec["id"]
-        igsid       = rec.get("igsid", "")
-        cur_status  = rec.get("bridge_status", "")
-        next_status = STAGE_NEXT_STATUS.get(cur_status)
-        template    = STAGE_TEMPLATES.get(cur_status, "")
+        record_id        = rec["id"]
+        igsid             = rec.get("igsid", "")
+        cur_status        = rec.get("bridge_status", "")
+        next_status       = STAGE_NEXT_STATUS.get(cur_status)
+        template          = STAGE_TEMPLATES.get(cur_status, "")
+        account_code_ref  = rec.get("account_code_ref", "")
 
         if not igsid or not next_status or not template:
             logger.warning(f"[Followup] 상태 불명 — skip | record={record_id} status={cur_status}")
@@ -193,17 +203,17 @@ def process_due_followups() -> None:
         stage_num = {"followup1_sent": "1차", "followup2_sent": "2차", "followup3_sent": "3차"}.get(
             next_status, next_status
         )
-        sent = _send_ig_dm(igsid, template)
+        sent = _send_ig_dm(igsid, template, account_code_ref)
 
         if not sent:
             from modules.common.retry_queue import get_retry_queue
             def _retry_followup(payload: dict) -> None:
-                if not _send_ig_dm(payload["igsid"], payload["text"]):
+                if not _send_ig_dm(payload["igsid"], payload["text"], payload.get("account_code_ref", "")):
                     raise RuntimeError("followup DM send failed")
             rq = get_retry_queue()
             rq.register("ig_followup", _retry_followup)
             rq.start()
-            rq.enqueue("ig_followup", {"igsid": igsid, "text": template})
+            rq.enqueue("ig_followup", {"igsid": igsid, "text": template, "account_code_ref": account_code_ref})
             logger.warning(f"[Followup] DM 발송 실패 → retry queue 등록 | to={igsid}")
 
         # 다음 단계 예약 — 3차 발송 시 LOST 타임아웃 기준 시각 설정

@@ -9,7 +9,7 @@ import requests
 from datetime import datetime, timezone
 
 from modules.common.logger import get_logger
-from modules.common.meta_graph import messaging_graph_url
+from modules.common.meta_graph import messaging_graph_url, instagram_login_graph_url
 from modules.infra.airtable_repository import AirtableRepository
 
 logger = get_logger(__name__)
@@ -138,14 +138,65 @@ def _get_page_token() -> str:
     return user_token  # fallback
 
 
-def send_ig_reply(sender_igsid: str, message: str) -> bool:
-    """Page Messages API로 Instagram DM을 전송한다.
+def _resolve_dm_send_target(account_code_ref: str) -> dict | None:
+    """260730 Multi-account DM Routing — account_code_ref로 계정별 발송 대상(URL+Token)을
+    계산한다. account_code_ref가 없거나 조회·자격증명·Page 교환 중 하나라도 실패하면
+    None을 반환하고, 호출자는 기존 전역 계정(INSTA_ACCESS_TOKEN/FACEBOOK_PAGE_ID)으로
+    fallback한다(회장 승인 정책 — 계정 미해석이 답장 자체를 막지 않음)."""
+    if not account_code_ref:
+        return None
+    try:
+        account = _repo.get_publish_account(account_code_ref)
+        if account is None:
+            return None
+        from modules.common.credential_resolver import resolve_credential
+        cred = resolve_credential(account["credential_key"])
+    except Exception as exc:
+        logger.warning(f"[AutoReply] 계정별 credential 해석 실패 — 전역 fallback | account_code_ref={account_code_ref} | {exc}")
+        return None
+
+    provider = account.get("api_provider", "")
+    if provider == "instagram_login":
+        # facebook_login과 달리 Page Token 교환 없이 IG 토큰을 그대로 사용한다(ERR-077 실측).
+        return {"url": instagram_login_graph_url(f"{cred.ig_user_id}/messages"), "token": cred.access_token}
+
+    if provider == "facebook_login":
+        page_id = account.get("fb_page_id", "")
+        if not page_id:
+            logger.warning(f"[AutoReply] fb_page_id 미설정 — 전역 fallback | account_code_ref={account_code_ref}")
+            return None
+        try:
+            r = requests.get(
+                messaging_graph_url("me/accounts"),
+                params={"access_token": cred.access_token, "fields": "id,access_token"},
+                timeout=10,
+            )
+            for page in r.json().get("data", []):
+                if page.get("id") == page_id:
+                    return {"url": messaging_graph_url(f"{page_id}/messages"), "token": page["access_token"]}
+        except Exception as exc:
+            logger.warning(f"[AutoReply] Page Token 교환 실패 — 전역 fallback | account_code_ref={account_code_ref} | {exc}")
+        return None
+
+    logger.warning(f"[AutoReply] 미지원 api_provider — 전역 fallback | account_code_ref={account_code_ref} | provider={provider!r}")
+    return None
+
+
+def send_ig_reply(sender_igsid: str, message: str, account_code_ref: str = "") -> bool:
+    """Page Messages API(또는 instagram_login 직접 경로)로 Instagram DM을 전송한다.
 
     /{ig-user-id}/messages 는 Instagram Messaging 제품 심사 필요.
-    /{page-id}/messages + Page Access Token 이 올바른 경로.
+    /{page-id}/messages + Page Access Token 이 facebook_login의 올바른 경로.
+    account_code_ref가 계정별 발송 대상으로 해석되면 그 경로를 쓰고, 아니면 기존
+    전역 계정으로 fallback한다(동작 100% 보존).
     """
-    page_id    = os.getenv("FACEBOOK_PAGE_ID", "")
-    page_token = _get_page_token()
+    target = _resolve_dm_send_target(account_code_ref)
+    if target:
+        url, page_token = target["url"], target["token"]
+    else:
+        page_id = os.getenv("FACEBOOK_PAGE_ID", "")
+        page_token = _get_page_token()
+        url = messaging_graph_url(f"{page_id}/messages")
 
     body = _json.dumps({
         "recipient":      {"id": sender_igsid},
@@ -159,7 +210,7 @@ def send_ig_reply(sender_igsid: str, message: str) -> bool:
     }
 
     resp = requests.post(
-        messaging_graph_url(f"{page_id}/messages"),
+        url,
         headers=headers,
         data=body,
         timeout=15,
@@ -228,7 +279,7 @@ def send_telegram_price_pending(sender_igsid: str, inquiry: str) -> None:
 
 def _retry_send_ig_reply(payload: dict) -> None:
     """retry_queue 핸들러 — IG DM 재전송."""
-    if not send_ig_reply(payload["sender_igsid"], payload["message"]):
+    if not send_ig_reply(payload["sender_igsid"], payload["message"], payload.get("account_code_ref", "")):
         raise RuntimeError("IG DM send failed")
 
 
@@ -281,7 +332,7 @@ def handle_price_inquiry(
             reply_msg = REPLY_TEMPLATE.format(price=reply_price)
 
     try:
-        sent = send_ig_reply(sender_igsid, reply_msg)
+        sent = send_ig_reply(sender_igsid, reply_msg, account_code_ref)
     except Exception:
         # send_ig_reply가 False가 아니라 예외(네트워크 오류 등)를 던지는 경우에도
         # 선점을 남겨두면 3분간 정당한 재시도까지 "중복"으로 막힌다. 최소한 해제 후
@@ -298,7 +349,7 @@ def handle_price_inquiry(
         rq = get_retry_queue()
         rq.register("ig_auto_reply", _retry_send_ig_reply)
         rq.start()
-        rq.enqueue("ig_auto_reply", {"sender_igsid": sender_igsid, "message": reply_msg})
+        rq.enqueue("ig_auto_reply", {"sender_igsid": sender_igsid, "message": reply_msg, "account_code_ref": account_code_ref})
         logger.warning(f"[AutoReply] DM 발송 실패 → retry queue 등록 | to={sender_igsid}")
         # 실제 발송이 안 됐으므로 "답변완료" 상태전환·팔로업예약·알림 전부 생략한다.
         # (재시도 성공 시 상태를 소급 반영하는 로직은 P0-1/Gate F의 Outbox·재조정 설계 범위)

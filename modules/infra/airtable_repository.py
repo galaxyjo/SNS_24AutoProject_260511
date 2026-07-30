@@ -513,6 +513,7 @@ class AirtableRepository(RepositoryInterface):
             ig_user_id=f.get("ig_user_id", ""),
             credential_key=f.get("credential_key", ""),
             automation_enabled=f.get("automation_enabled", False),
+            fb_page_id=f.get("fb_page_id", ""),
         )
 
     _IG_USER_ID_PATTERN = re.compile(r"^[0-9]+$")
@@ -938,6 +939,7 @@ class AirtableRepository(RepositoryInterface):
                 bridge_status=f.get("bridge_status", ""),
                 lead_status=f.get("lead_status", ""),
                 relay_scheduled_at=f.get("relay_scheduled_at", ""),
+                account_code_ref=f.get("account_code_ref", ""),
             ))
         return result
 

@@ -81,6 +81,7 @@ class TestGetPublishAccount:
             ig_user_id="17841467725643424",
             credential_key="AI",
             automation_enabled=False,  # 260730 Kill Switch: 필드 미설정(Airtable unchecked) → Fail-closed
+            fb_page_id="",  # 260730 Multi-account DM Routing: 필드 미설정(instagram_login은 해당없음)
         )
         assert "access_token" not in account
 

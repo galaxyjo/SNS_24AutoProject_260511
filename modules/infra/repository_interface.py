@@ -125,9 +125,11 @@ class PublishAccount(TypedDict):
 
 
 class PublishAccountV2(PublishAccount, total=False):
-    """PublishAccount + automation_enabled(계정별 Kill Switch, 260730) — 옵션 필드,
+    """PublishAccount + automation_enabled(계정별 Kill Switch, 260730)
+    + fb_page_id(Multi-account DM Routing, 260730) — 전부 옵션 필드,
     기존 4개 필수 필드는 그대로라 기존 호출부·Fake/Mock과 100% 호환된다."""
     automation_enabled: bool
+    fb_page_id: str
 
 
 class CrawlTarget(TypedDict, total=False):
@@ -152,6 +154,7 @@ class LeadInteraction(TypedDict, total=False):
     lead_status:         str
     lead_grade:          str
     relay_scheduled_at:  str
+    account_code_ref:    str   # 7단계(Multi-account Routing, 260730) — 팔로업 DM 발송 계정 분기용, 선택
 
 
 class TrainingCandidate(TypedDict, total=False):
