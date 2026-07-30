@@ -1923,6 +1923,30 @@ _기록 시각: 2026-07-31 06:26 ICT · 상태: **10.6단계 SUCCESS/Closed(회�
 3. Track B(콘텐츠 자동화) — 신규기능, 계속 HOLD
 
 ## Commit·Push
-이번 Close Gate 문서화(`VALIDATION_STATUS.md`/`CURRENT_RUNTIME_CONTEXT.md`/이 파일) 커밋 예정, push는 회장 확인 후.
+이번 Close Gate 문서화(`VALIDATION_STATUS.md`/`CURRENT_RUNTIME_CONTEXT.md`/이 파일) 커밋(`3d79c79`) + push 완료.
+
+---
+
+# 2026-07-31 06:38 ICT — 다음 세션 우선순위 정정: Track B(무인게시) → 11단계, Comment Routing 순서 재배치
+
+_기록 시각: 2026-07-31 06:38 ICT · 상태: **기록만(코드 변경 없음)** — 회장이 GPT의 "Comment Routing → 11단계 → Track B" 제안을 대체해 순서를 확정._
+
+## 확정 순서
+**Track B 단일계정 무인게시 완성 → 안정성 Soak → 11단계 3계정 확장.** Comment Provider Routing은 폐기 아님 — Track B Close Gate 이후, 11단계 이전(순서 9번)으로 재배치.
+
+## Track B 10단계 세부(회장 확정, 상세는 `docs/CURRENT_RUNTIME_CONTEXT.md` 최상단 표 참조)
+0 Baseline → 1 계정별 콘텐츠 필터 분리 → 2 후킹카피 자동생성 → 3 이미지 자동생성 → 4 자동 품질검수 → 5 무인 승인 정책(draft→ready 자동전환) → 6 기존 게시 파이프라인 연결 → 7 무인 Soak → 8 Track B Close Gate → 9 Comment Routing → 10 11단계.
+
+## 핵심 결정
+사람 승인 단계는 개발 초기 Canary에만 유지 — 최종 성공 기준은 자동 품질검수 통과 후 **무인게시**(매번 사람 승인 구조 아님).
+
+## RISK(회장 명시)
+생성 기능만 만들고 자동 승인·중복방지·비용 제한을 빼면 "콘텐츠 생성기"일 뿐 무인게시 시스템이 아님 — 5·7단계를 건너뛰고 8로 직행 금지.
+
+## 다음 세션 첫 작업
+`Track B-0: 무인게시 Scope·성공 기준 Read-only 확정` — 신규 코드 작성으로 바로 시작 금지(회장 명시).
+
+## Commit·Push
+이 정정 자체는 문서 기록만(코드 변경 0건) — 커밋·push 예정(다음).
 
 ---
