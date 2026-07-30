@@ -1683,7 +1683,7 @@ def handle_order_conversion(record_id: str, sender_igsid: str, text: str) -> Non
 
 ---
 
-## ERR-089 | launcher/main.py 내부 두 BackgroundScheduler가 약 28분간 Job 실행을 시도하지 않음 — watchdog은 launcher 내부 응답성을 감시하지 않아 미탐지 (OPEN, Root Cause UNKNOWN)
+## ERR-089 | launcher/main.py 내부 두 BackgroundScheduler가 약 28분간 Job 실행을 시도하지 않음 — watchdog은 launcher 내부 응답성을 감시하지 않아 미탐지 (PARTIAL, 관측성 보강 완료·Root Cause 여전히 UNKNOWN)
 
 **Type:** 관측성 공백(Observability Gap) + 미확정 Runtime 정지(Root Cause UNKNOWN) — 계정별 Kill Switch(ERR 무관, §WORKFLOW §10-20) Runtime Canary 도중 발견
 
@@ -1715,10 +1715,14 @@ watchdog.log(같은 구간):
 
 **Fix:** 미적용 — Root Cause 미확정 상태에서는 코드 수정 대상을 특정할 수 없음. 회장 지시로 최소 관측성 보강(§Prevention)만 먼저 승인 대상.
 
-**Prevention(승인 대기, 미구현):** (1) `watchdog.ps1`의 launcher HTTP 헬스체크 재활성화(Streamlit과 동일 수준), (2) 두 `BackgroundScheduler` 각각의 자가진단 heartbeat 로그(스케줄러 루프 생존 자체를 현재 로그로는 알 수 없음), (3) 외부 API(Gemini/Airtable/Meta Graph) 호출에 `timeout=` 명시 + 호출 시작/종료 타임스탬프 로깅, (4) 재발 시 Root Cause를 특정할 수 있는 관측 기준 정의.
+**Prevention(1~3 구현·commit 완료, 260730 — 전부 Alert-only, 자동 재시작 없음):**
+1. `watchdog.ps1` Flask HTTP 헬스체크 Alert-only 복구 — commit `d7d038a`(Mock+라이브 Canary 검증 완료, §10-20/§10-21 Runtime Evidence 참조)
+2. 두 `BackgroundScheduler`(main/dm) 각각 60초 간격 heartbeat 로그(`[SchedulerHeartbeat][main|dm]`) — commit `c00a734`
+3. Gemini 호출(`caption_generator.py`/`ai_reply_generator.py`) 시작~종료 소요시간 로그(model·timeout·재시도 정책 무변경) — commit `e4d324e`. Airtable·Meta Graph·Facebook Crawler timeout 감사는 별도 HOLD 유지(미착수).
+4. **재발 판정 기준(확정, 260730)**: watchdog이 30초 주기로 아래를 판정 — ①Flask `/health` 무응답 → 즉시 WARN+Slack(재시작 없음) ②`[SchedulerHeartbeat][main]` 또는 `[dm]`이 **연속 7분** 이상 안 찍히면(후보 B, 최단 Job 주기 5분+2분 여유, 회장 확정) WARN+Slack ③재발 시 Gemini 호출 로그의 `X.X초` 값으로 어느 호출이 오래 걸렸는지 1차 특정 가능 — 단, 이 3개 신호로도 최종 Root Cause 자체가 자동으로 밝혀지는 것은 아니며, "정지가 다시 발생했음을 조용히 놓치지 않는 것"까지가 이번 보강의 목표.
 
-**Risk:** `HIGH` — 재발 시 게시·크롤링·KPI·Engagement가 조용히 멈추며 watchdog도 탐지하지 못한다(이번처럼 우연히 다른 작업 중 발견되지 않는 한). 라이브 운영 중(`INSTAGRAM_PROVIDER_ROUTING_ENABLED=true`)이라 실사용자 영향 가능성 있음(이번 구간 실제 영향은 UNKNOWN — 해당 시각 대기 중이던 게시물 없었을 가능성 있으나 미확인).
+**Risk:** `HIGH → MEDIUM`(관측성 확보 후) — 재발을 조용히 놓칠 위험은 해소됐으나(1~3 구현), Root Cause 자체는 여전히 UNKNOWN이라 재발 자체를 막지는 못한다. 라이브 운영 중(`INSTAGRAM_PROVIDER_ROUTING_ENABLED=true`) 실사용자 영향 가능성은 이번 구간 기준 여전히 UNKNOWN.
 
-**Status:** OPEN — Root Cause UNKNOWN, 관측성 보강 4단계 승인 대기(회장 지시, 260730). Kill Switch Canary는 이 Incident가 분리·최소 관측 확보 전까지 재개 금지.
+**Status:** PARTIAL — 관측성 보강 1~4 전부 완료·commit(`d7d038a`/`c00a734`/`e4d324e`), 실제 라이브 Runtime에서 24시간+ 오탐 없이 안정 동작하는지는 아직 관측 중(미검증). Root Cause는 Confirmed 승격 전까지 UNKNOWN 유지. Kill Switch Canary 재개는 이 관측 보강 완료로 조건 충족(회장 재승인 시 진행 가능).
 
 **관련:** 계정별 Kill Switch(§WORKFLOW_ARCHITECTURE_STATUS.md §10-20) Runtime Canary 도중 발견
