@@ -1879,3 +1879,23 @@ watchdog.log(같은 구간):
 **Status:** RESOLVED — 코드 수정 + 신규 테스트 + 전체 DM Suite 66 passed로 확인 완료.
 
 **관련:** FP-070(신규), ERR-061(Gate C 원 설계)
+
+---
+
+## ERR-098 | retry_queue 핸들러 6개가 지연등록이라 재시작 후 pending task가 영구 dead — comment_airtable_record만 반영됐던 기존 예방책(FP-047)을 나머지 6개로 확대 적용 (RESOLVED, 260730)
+
+**Type:** Durable Recovery 결함(재시작 생존성) — Operations Soak(10.6-5) 중 발견
+
+**경위:** 10.6-5 Operations Soak 중 `db/retry_queue.db`에서 `task_type=lead_update_score`, `last_error="no handler for lead_update_score"`인 `dead` 작업 30건 발견. 원인 추적 중 `modules/comment/comment_auto_reply.py::register_retry_handlers()`의 기존 주석이 **이 정확한 위험을 이미 예견**하고 있었음을 확인: "기존 `ig_auto_reply`/`ig_followup`처럼 실패 시점에 지연등록하면, 재시작 후 pending task가 handler를 못 찾고 dead 처리될 위험이 있음"(FP-047 계열). 즉 `comment_airtable_record` 하나만 즉시등록(eager)으로 고쳐졌고, 나머지는 방치돼 있었다.
+
+**전수 확인(Confirmed)**: 동일 지연등록 패턴을 쓰는 핸들러 6개 — `ig_auto_reply`(dm_auto_reply.py), `ig_followup`(dm_followup_scheduler.py), `dm_record_interaction`(dm_receiver.py), `order_mark_converted`(order_detector.py), `lead_update_score`(lead_scorer.py), `lead_mark_closed`(lead_closer.py).
+
+**Fix:** 6개 모듈 전부에 `comment_airtable_record`와 동일한 `register_retry_handlers(rq)` 함수 신설(REUSE, 새 설계 없음). 기존에 함수 내부 nested closure였던 핸들러(`_retry_update_lead_score` 등)는 module-level로 이동(기존 지연등록 호출부는 그대로 보존 — 동일 handler 재등록은 무해). `launcher/main.py::_start_background_services()`에서 `rq.start()` 이전에 7종(comment 포함) 전부 즉시등록하도록 배선. `modules.dm` import는 기존 `start_scheduler`/`app`과 동일하게 지연(lazy) import로 유지(파일 최상단으로 옮기면 `modules.dm.__init__`의 Safe Mode 체크 실행 순서가 바뀌는 위험이 있어 회피).
+
+**검증:** 신규 `tests/test_retry_handler_eager_registration.py`(6건, 6개 모듈 각각의 register_retry_handlers 동작 확인) + 기존 `test_crm_write_retry_queue.py`/`test_smoke_crm.py`(이 세션에서 직접 실행, 29 passed) + 회장 터미널에서 DM 관련 전체 6개 파일 재실행 **72 passed, 0 failed**(신규 6건 포함, Raw Output 확인 260730 18:1x).
+
+**Risk:** 발견 시점 `MEDIUM`(재시작마다 pending 상태였던 재시도 작업이 조용히 영구 유실 — 회장/자동화가 알아채기 어려움). Fix 적용 후 `LOW`.
+
+**Status:** RESOLVED — 코드 수정 + 신규 테스트 + 전체 검증 완료. 단, **이미 dead 처리된 30건 자체는 원복되지 않음**(스코어 갱신 실패가 실제 발생했던 시점의 데이터 유실, 소급 재처리는 범위 밖).
+
+**관련:** FP-071(신규), FP-047(comment_airtable_record 원 사례)
