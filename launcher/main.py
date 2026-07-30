@@ -654,11 +654,29 @@ def _start_background_services(canary_safe_mode: bool):
         return None, scheduler
 
     rq = get_retry_queue()
-    # FP-047: comment_airtable_record 핸들러는 반드시 rq.start() 이전에 eager 등록해야
-    # 함 — 기존 ig_auto_reply/ig_followup처럼 실패 시점에 지연등록하면 재시작 후 pending
-    # task가 handler를 못 찾고 dead 처리될 위험이 있음(설계문서 §6).
+    # FP-047/ERR-097: 모든 retry_queue 핸들러는 반드시 rq.start() 이전에 eager 등록해야
+    # 함 — 실패 시점에만 지연등록하면 재시작 후 pending task가 handler를 못 찾고 dead
+    # 처리될 위험이 있음(설계문서 §6). 260730 ERR-097에서 comment_airtable_record 외
+    # 6개 핸들러(ig_auto_reply/ig_followup/dm_record_interaction/order_mark_converted/
+    # lead_update_score/lead_mark_closed)가 동일 위험에 노출돼 있음을 확인해 전부 이관.
+    # modules.dm/modules.crm은 여기서 처음 lazy import한다(기존 start_scheduler/app과
+    # 동일 패턴) — 파일 최상단에서 import하면 modules.dm.__init__의 canary_safe_mode
+    # 체크가 launcher 자체의 Safe Mode 판단보다 먼저 실행되는 순서 변경이 생기므로 피한다.
+    from modules.dm.dm_auto_reply import register_retry_handlers as _register_dm_auto_reply_retry_handlers
+    from modules.dm.dm_followup_scheduler import register_retry_handlers as _register_followup_retry_handlers
+    from modules.dm.dm_receiver import register_retry_handlers as _register_dm_receiver_retry_handlers
+    from modules.crm.order_detector import register_retry_handlers as _register_order_retry_handlers
+    from modules.crm.lead_scorer import register_retry_handlers as _register_lead_scorer_retry_handlers
+    from modules.crm.lead_closer import register_retry_handlers as _register_lead_closer_retry_handlers
+
     _register_comment_retry_handlers(rq)
-    logger.info("[Main] comment_airtable_record retry handler 등록 완료")
+    _register_dm_auto_reply_retry_handlers(rq)
+    _register_followup_retry_handlers(rq)
+    _register_dm_receiver_retry_handlers(rq)
+    _register_order_retry_handlers(rq)
+    _register_lead_scorer_retry_handlers(rq)
+    _register_lead_closer_retry_handlers(rq)
+    logger.info("[Main] retry_queue 핸들러 7종 eager 등록 완료(comment/ig_auto_reply/ig_followup/dm_record_interaction/order/lead_score/lead_close)")
     rq.start()
 
     # 2. 크롤링·업로드 스케줄러 시작 (백그라운드)

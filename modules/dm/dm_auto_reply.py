@@ -352,6 +352,13 @@ def _retry_send_ig_reply(payload: dict) -> None:
         raise RuntimeError("IG DM send failed")
 
 
+def register_retry_handlers(rq) -> None:
+    """260730(ERR-097 계열) — launcher 시작 시 즉시(eager) 호출해야 함(rq.start() 이전).
+    실패 시점에만 지연등록하면 재시작 후 pending task가 handler를 못 찾고 dead 처리됨
+    (comment_airtable_record/FP-047과 동일 계약)."""
+    rq.register("ig_auto_reply", _retry_send_ig_reply)
+
+
 def handle_price_inquiry(
     record_id: str,
     sender_igsid: str,

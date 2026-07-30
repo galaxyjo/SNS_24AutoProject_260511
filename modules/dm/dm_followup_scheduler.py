@@ -164,6 +164,19 @@ def _send_telegram_followup(igsid: str, stage_label: str, preview: str) -> None:
         logger.warning(f"[Followup] Telegram 알림 실패 | {exc}")
 
 
+def _retry_followup(payload: dict) -> None:
+    """retry_queue 핸들러 — 팔로업 DM 재전송."""
+    if not _send_ig_dm(payload["igsid"], payload["text"], payload.get("account_code_ref", "")):
+        raise RuntimeError("followup DM send failed")
+
+
+def register_retry_handlers(rq) -> None:
+    """260730(ERR-097 계열) — launcher 시작 시 즉시(eager) 호출해야 함(rq.start() 이전).
+    실패 시점에만 지연등록하면 재시작 후 pending task가 handler를 못 찾고 dead 처리됨
+    (comment_airtable_record/FP-047과 동일 계약)."""
+    rq.register("ig_followup", _retry_followup)
+
+
 # ── 스케줄 등록 ───────────────────────────────────────────────────────────────
 
 def set_followup_schedule(record_id: str) -> None:
@@ -214,9 +227,6 @@ def process_due_followups() -> None:
 
         if not sent:
             from modules.common.retry_queue import get_retry_queue
-            def _retry_followup(payload: dict) -> None:
-                if not _send_ig_dm(payload["igsid"], payload["text"], payload.get("account_code_ref", "")):
-                    raise RuntimeError("followup DM send failed")
             rq = get_retry_queue()
             rq.register("ig_followup", _retry_followup)
             rq.start()

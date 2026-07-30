@@ -147,6 +147,21 @@ def record_interaction(sender_igsid: str, message_text: str, account_code_ref: s
     return record_id
 
 
+def _retry_record_interaction(payload: dict) -> None:
+    """retry_queue 핸들러 — DM 수신 기록 재시도."""
+    record_interaction(
+        payload["sender_id"], payload["text"],
+        account_code_ref=payload.get("account_code_ref", ""),
+    )
+
+
+def register_retry_handlers(rq) -> None:
+    """260730(ERR-097 계열) — launcher 시작 시 즉시(eager) 호출해야 함(rq.start() 이전).
+    실패 시점에만 지연등록하면 재시작 후 pending task가 handler를 못 찾고 dead 처리됨
+    (comment_airtable_record/FP-047과 동일 계약)."""
+    rq.register("dm_record_interaction", _retry_record_interaction)
+
+
 def _resolve_dm_account_code_ref(recipient_id: str | None) -> str:
     """Bundle B(260726) — recipient.id로 Account_Registry를 역조회해 account_code_ref를 얻는다.
     킬스위치가 꺼져있거나 조회에 실패해도 예외를 전파하지 않는다(fail-open) —
@@ -312,12 +327,6 @@ def _process_webhook_event(data: dict):
             except Exception as exc:
                 logger.error(f"[Airtable] 기록 실패 — retry queue 등록 | sender_id={sender_id} | {exc}")
                 from modules.common.retry_queue import get_retry_queue
-
-                def _retry_record_interaction(payload: dict) -> None:
-                    record_interaction(
-                        payload["sender_id"], payload["text"],
-                        account_code_ref=payload.get("account_code_ref", ""),
-                    )
 
                 rq = get_retry_queue()
                 rq.register("dm_record_interaction", _retry_record_interaction)

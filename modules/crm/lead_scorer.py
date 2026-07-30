@@ -55,6 +55,18 @@ def is_repeat_inquiry(sender_igsid: str) -> bool:
         return False
 
 
+def _retry_update_lead_score(payload: dict) -> None:
+    """retry_queue 핸들러 — 스코어 업데이트 재시도."""
+    _repo.update_lead_score(payload["record_id"], payload["score"], payload["grade"])
+
+
+def register_retry_handlers(rq) -> None:
+    """260730(ERR-097 계열) — launcher 시작 시 즉시(eager) 호출해야 함(rq.start() 이전).
+    실패 시점에만 지연등록하면 재시작 후 pending task가 handler를 못 찾고 dead 처리됨
+    (comment_airtable_record/FP-047과 동일 계약)."""
+    rq.register("lead_update_score", _retry_update_lead_score)
+
+
 def update_lead_score(record_id: str, score: int, grade: str) -> None:
     """Lead_Interactions에 lead_score, lead_grade 업데이트.
 
@@ -66,9 +78,6 @@ def update_lead_score(record_id: str, score: int, grade: str) -> None:
     except Exception as exc:
         logger.warning(f"[Scorer] 업데이트 예외 — retry queue 등록 | record={record_id} | {exc}")
         from modules.common.retry_queue import get_retry_queue
-
-        def _retry_update_lead_score(payload: dict) -> None:
-            _repo.update_lead_score(payload["record_id"], payload["score"], payload["grade"])
 
         rq = get_retry_queue()
         rq.register("lead_update_score", _retry_update_lead_score)

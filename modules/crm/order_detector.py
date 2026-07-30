@@ -25,6 +25,18 @@ def detect_order(text: str) -> bool:
     return any(kw in lower for kw in ORDER_KEYWORDS)
 
 
+def _retry_mark_converted(payload: dict) -> None:
+    """retry_queue 핸들러 — 주문 전환 마킹 재시도."""
+    _repo.mark_lead_converted(payload["record_id"])
+
+
+def register_retry_handlers(rq) -> None:
+    """260730(ERR-097 계열) — launcher 시작 시 즉시(eager) 호출해야 함(rq.start() 이전).
+    실패 시점에만 지연등록하면 재시작 후 pending task가 handler를 못 찾고 dead 처리됨
+    (comment_airtable_record/FP-047과 동일 계약)."""
+    rq.register("order_mark_converted", _retry_mark_converted)
+
+
 def handle_order_conversion(record_id: str, sender_igsid: str, text: str) -> None:
     """주문 의사 감지 → lead_status/bridge_status=converted 업데이트 + Telegram 알림.
 
@@ -37,9 +49,6 @@ def handle_order_conversion(record_id: str, sender_igsid: str, text: str) -> Non
     except Exception as exc:
         logger.error(f"[Order] 전환 처리 실패 — retry queue 등록 | record={record_id} | {exc}")
         from modules.common.retry_queue import get_retry_queue
-
-        def _retry_mark_converted(payload: dict) -> None:
-            _repo.mark_lead_converted(payload["record_id"])
 
         rq = get_retry_queue()
         rq.register("order_mark_converted", _retry_mark_converted)
