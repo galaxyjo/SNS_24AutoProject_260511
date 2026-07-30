@@ -1680,3 +1680,45 @@ def handle_order_conversion(record_id: str, sender_igsid: str, text: str) -> Non
 **Status:** **RESOLVED(durable retry 확보) — commit `75c60d2`, 260729. 알림 게이팅 미적용은 알려진 잔존 사항으로 별도 판단 필요.**
 
 **관련:** ERR-080, ERR-085, ERR-086, ERR-087, FP-057, FP-063, FP-064
+
+---
+
+## ERR-089 | launcher/main.py 내부 두 BackgroundScheduler가 약 28분간 Job 실행을 시도하지 않음 — watchdog은 launcher 내부 응답성을 감시하지 않아 미탐지 (OPEN, Root Cause UNKNOWN)
+
+**Type:** 관측성 공백(Observability Gap) + 미확정 Runtime 정지(Root Cause UNKNOWN) — 계정별 Kill Switch(ERR 무관, §WORKFLOW §10-20) Runtime Canary 도중 발견
+
+**Raw:**
+```
+2026-07-30 07:48:10 [INFO] apscheduler.executors.default - Job "_job_insta_upload (trigger: interval[0:05:00], next run at: 2026-07-30 09:53:08 KST)" executed successfully
+────────── 07:48:10~08:16:18, 27분58초간 app.log 0줄(health check·dotenv 경고 포함 전부) ──────────
+2026-07-30 08:16:19 [WARNING] apscheduler.executors.default - Run time of job "process_due_followups ..." was missed by 0:00:10.069824
+2026-07-30 08:16:19 [WARNING] ... "process_lost_candidates ..." was missed by 0:00:10.069977
+2026-07-30 08:16:19 [WARNING] ... "poll_new_comments ..." was missed by 0:00:10.067222
+2026-07-30 08:18:18 [WARNING] ... "_job_comment_dead_monitor ..." was missed by 0:10:10.063522
+2026-07-30 08:18:18 [WARNING] ... "_job_insta_upload ..." was missed by 0:00:10.063522
+2026-07-30 08:18:18 [WARNING] ... "_job_dome_export ..." was missed by 0:01:10.064520
+2026-07-30 08:18:18 [WARNING] ... "_job_fb_crawl ..." was missed by 0:16:10.064520
+2026-07-30 08:18:18 [WARNING] ... "_job_kpi_snapshot ..." was missed by 0:14:10.064520
+2026-07-30 08:18:18 [WARNING] ... "_job_engagement_update ..." was missed by 0:13:10.065510
+2026-07-30 08:18:18 [WARNING] ... "_job_dome_crawl ..." was missed by 0:12:10.066523
+
+watchdog.log(같은 구간):
+[HEARTBEAT] alive — 07:48~08:16 전 구간 30초 간격 끊김 0건(watchdog 자체 프로세스는 생존)
+[2026-07-30 08:16:21] [WARN] Streamlit 응답 없음 — 재시작 시도    ← 별도 프로세스, launcher 아님
+[2026-07-30 08:16:32] [ERROR] Streamlit 재시작 후에도 응답 없음
+[2026-07-30 08:17:05] [RECOVER] Streamlit 복구
+```
+
+**Root Cause(UNKNOWN, Hypothesis만 존재):** launcher 프로세스 내부에 독립된 `BackgroundScheduler` 2개(`launcher/main.py::_build_scheduler()` + `modules/dm/dm_followup_scheduler.py::start_scheduler()`, 둘 다 apscheduler 3.11.2 기본값 `misfire_grace_time=1초`/`coalesce=True`/`ThreadPoolExecutor max_workers=10`)가 있으며, 07:48:10~08:16:18 사이 양쪽 스케줄러 전부 "Running job" 시작 로그조차 0건이었다 — 개별 Job 하나가 멈춘 게 아니라 스케줄러 루프 자체가 정지한 패턴. 후보 원인(블로킹 I/O에 `timeout=` 미설정/GIL 경합/OS 레벨 프로세스 일시정지) 중 무엇인지는 Thread Dump·리소스 시계열 부재로 특정 불가. 07:37~41의 Gemini API 429(도매꾹 caption 생성)는 각 사이클이 정상 종료 로그를 남겨 직접 원인일 가능성은 낮음(반증 방향, Confirmed 아님). Kill Switch 코드(commit `e9b8fb8`, 순수 dict 읽기)는 구조적으로 배제.
+
+**핵심 관측성 공백(Confirmed):** `watchdog.ps1:216-218`의 Flask/launcher HTTP 헬스체크가 `[260527]` 주석으로 비활성화돼 있어(`# if (-not (Test-Http $FLASK_URL)) {`), launcher는 오직 OS 프로세스 존재 여부(`Test-Launcher`, 커맨드라인 매칭)로만 감시된다. Streamlit은 HTTP 체크가 살아있어 이번에 무응답을 스스로 탐지·재시작했지만, **launcher 내부(Flask 응답성·스케줄러 동작)가 멈춰도 watchdog은 원천적으로 알 수 없다** — 이번 정지도 자동 탐지가 아니라 Kill Switch Canary 관측 중 우연히 발견됐다.
+
+**Fix:** 미적용 — Root Cause 미확정 상태에서는 코드 수정 대상을 특정할 수 없음. 회장 지시로 최소 관측성 보강(§Prevention)만 먼저 승인 대상.
+
+**Prevention(승인 대기, 미구현):** (1) `watchdog.ps1`의 launcher HTTP 헬스체크 재활성화(Streamlit과 동일 수준), (2) 두 `BackgroundScheduler` 각각의 자가진단 heartbeat 로그(스케줄러 루프 생존 자체를 현재 로그로는 알 수 없음), (3) 외부 API(Gemini/Airtable/Meta Graph) 호출에 `timeout=` 명시 + 호출 시작/종료 타임스탬프 로깅, (4) 재발 시 Root Cause를 특정할 수 있는 관측 기준 정의.
+
+**Risk:** `HIGH` — 재발 시 게시·크롤링·KPI·Engagement가 조용히 멈추며 watchdog도 탐지하지 못한다(이번처럼 우연히 다른 작업 중 발견되지 않는 한). 라이브 운영 중(`INSTAGRAM_PROVIDER_ROUTING_ENABLED=true`)이라 실사용자 영향 가능성 있음(이번 구간 실제 영향은 UNKNOWN — 해당 시각 대기 중이던 게시물 없었을 가능성 있으나 미확인).
+
+**Status:** OPEN — Root Cause UNKNOWN, 관측성 보강 4단계 승인 대기(회장 지시, 260730). Kill Switch Canary는 이 Incident가 분리·최소 관측 확보 전까지 재개 금지.
+
+**관련:** 계정별 Kill Switch(§WORKFLOW_ARCHITECTURE_STATUS.md §10-20) Runtime Canary 도중 발견
