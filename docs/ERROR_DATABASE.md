@@ -1859,3 +1859,23 @@ watchdog.log(같은 구간):
 **Status:** RESOLVED — Mock 수정 + 전체 DM Suite 64 passed로 확인 완료.
 
 **관련:** FP-069(신규), ae2bec2(원인 커밋)
+
+---
+
+## ERR-097 | persona 경로(reply_mode=persona)에 즉시-선점 중복방지가 없어 실제 가격 응답이 4회 중복발송됨 — 10.6-4D 실측으로 최초 발견, Gate C 설계(260713) 시점부터 잠재 (RESOLVED, 260730)
+
+**Type:** Race Condition(경합조건) — 260713 Gate C 도입 이후 지금까지 잠재, 오늘 처음 실제 트래픽으로 노출됨
+
+**경위:** 10.6-4D에서 aijomoojin `reply_mode=persona`를 실측 검증하던 중, 회장이 짧은 시간에 "가격 얼마예요"를 여러 번 보냈는데 **실제 Instagram DM이 4번 중복 발송**됨(전부 실제 msg_id 확인, 260730 17:38:38/17:39:02/17:39:18/17:39:42). `_has_recent_auto_replied()`는 Airtable 쿼리로 "최근 3분 내 auto_replied 있는지" 확인하는데, `generate_reply()`(Gemini)가 처리되는 수십 초(실측 최초 성공 케이스: 문의 접수~발송완료 78초) 동안 도착한 후속 문의들이 "아직 반영 안 된" 상태를 통과해 각자 독립적으로 AI 응답을 생성·발송함.
+
+**Root Cause(Confirmed):** 기존 상품확인 템플릿 경로(Gate C, `PRICE_AUTO_REPLY_ENABLED=false`)는 즉시-메모리-선점 잠금(`_AWAITING_PRODUCT_DEDUP`, `dm_auto_reply.py`)이 있어 이 문제를 막았지만, **실제 가격을 안내하는 persona/AI 경로(`reply_price is not None` 분기)에는 이 보호가 처음부터 없었다** — `PRICE_AUTO_REPLY_ENABLED`가 프로젝트 시작부터 지금까지 계속 `false`였기 때문에, 이 분기가 실제 운영 트래픽을 받은 것 자체가 오늘(10.6-4D, aijomoojin `reply_mode=persona` 실측)이 처음이라 이제까지 노출되지 않았던 잠재 결함.
+
+**Fix:** `_AWAITING_PRODUCT_DEDUP`와 동일 패턴(발신자 단위, 즉시 선점, `threading.Lock`, 3분 TTL)으로 `_PERSONA_REPLY_DEDUP` 신설. persona 분기 진입 즉시 선점, `get_base_price()` 실패/`send_ig_reply()` 실패·예외 시 해제(정당한 재시도까지 막지 않음). 성공 시엔 해제 안 함(3분 경과로 자연 만료, `_has_recent_auto_replied()`의 Airtable 확인과 상호 보완). 기존 template 경로(`_AWAITING_PRODUCT_DEDUP`)는 무변경.
+
+**검증:** 신규 테스트 `test_persona_mode_dedups_rapid_successive_calls_from_same_sender`(연속 2회 호출 시 1회만 발송) + `test_persona_reply_slot_released_when_base_price_missing`(가격조회 실패 시 정상 해제) — 회장 터미널에서 대상 6개 DM 테스트 파일 재실행, **66 passed, 0 failed**(신규 2건 포함, 기존 회귀 0건, Raw Output 확인 260730 17:5x).
+
+**Risk:** 발견 시점 `MEDIUM`(실제 고객에게 동일 가격 안내가 4번 반복 발송됨 — 스팸처럼 보일 수 있으나 금전적/오정보 위험은 없음, 가격 자체는 동일 계산식). Fix 적용 후 `LOW`.
+
+**Status:** RESOLVED — 코드 수정 + 신규 테스트 + 전체 DM Suite 66 passed로 확인 완료.
+
+**관련:** FP-070(신규), ERR-061(Gate C 원 설계)
