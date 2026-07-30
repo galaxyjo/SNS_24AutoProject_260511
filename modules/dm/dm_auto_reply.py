@@ -103,6 +103,38 @@ def _release_awaiting_product_slot(sender_igsid: str, inquiry_text: str) -> None
         _AWAITING_PRODUCT_DEDUP.pop(key, None)
 
 
+# 260730 — persona 경로(reply_mode=persona) 전용 중복방지. generate_reply()(Gemini)
+# 호출이 수십 초 걸릴 수 있어, 그 사이 같은 발신자가 보낸 후속 문의가
+# _has_recent_auto_replied()(Airtable 쿼리 — 아직 첫 응답의 auto_replied 반영 전)를
+# 통과해 실제 가격 안내가 중복 발송되는 것을 실측으로 확인(10.6-4D)하고 추가했다.
+# 상품확인 템플릿 경로(_AWAITING_PRODUCT_DEDUP)와 달리 문의문이 달라도 같은 발신자면
+# 중복으로 본다 — 실제 가격을 안내하는 경로라 더 보수적으로 막는다.
+_PERSONA_REPLY_DEDUP: dict[str, datetime] = {}
+_PERSONA_REPLY_DEDUP_MINUTES = 3
+_PERSONA_REPLY_DEDUP_LOCK = threading.Lock()
+
+
+def _try_reserve_persona_reply_slot(sender_igsid: str) -> bool:
+    """True=선점 성공(발송 진행), False=3분 내 동일 발신자 처리 중/완료라 skip."""
+    now = datetime.now(timezone.utc)
+    with _PERSONA_REPLY_DEDUP_LOCK:
+        last = _PERSONA_REPLY_DEDUP.get(sender_igsid)
+        if last is not None and (now - last).total_seconds() < _PERSONA_REPLY_DEDUP_MINUTES * 60:
+            return False
+        _PERSONA_REPLY_DEDUP[sender_igsid] = now
+        if len(_PERSONA_REPLY_DEDUP) > 5000:
+            stale = [k for k, v in _PERSONA_REPLY_DEDUP.items() if (now - v).total_seconds() > 3600]
+            for k in stale:
+                del _PERSONA_REPLY_DEDUP[k]
+        return True
+
+
+def _release_persona_reply_slot(sender_igsid: str) -> None:
+    """발송 실패/예외/가격조회 실패 시 선점 해제 — 정당한 재시도까지 막지 않도록."""
+    with _PERSONA_REPLY_DEDUP_LOCK:
+        _PERSONA_REPLY_DEDUP.pop(sender_igsid, None)
+
+
 # ── 공개 함수 ─────────────────────────────────────────────────────────────────
 
 def detect_price_inquiry(text: str) -> bool:
@@ -379,9 +411,13 @@ def handle_price_inquiry(
         reply_msg = PRODUCT_CONFIRM_TEMPLATE
         logger.info(f"[AutoReply] reply_mode=template — 상품확인 요청으로 대체 | sender={_mask_igsid(sender_igsid)}")
     else:  # reply_mode == "persona"
+        if not _try_reserve_persona_reply_slot(sender_igsid):
+            logger.info(f"[AutoReply] persona 응답 중복 skip(3분 이내, 처리 중/완료) | sender={_mask_igsid(sender_igsid)}")
+            return
         base_price = get_base_price()
         if base_price is None:
             logger.warning("[AutoReply] 기준 가격 없음 — 자동 응답 생략")
+            _release_persona_reply_slot(sender_igsid)
             return
 
         reply_price = round(base_price * (1 + MARGIN_RATE))
@@ -414,6 +450,8 @@ def handle_price_inquiry(
         # 그대로 재발생시켜 상위(dm_receiver.py)의 기존 예외 처리로 넘긴다.
         if reply_price is None:
             _release_awaiting_product_slot(sender_igsid, inquiry_text)
+        else:
+            _release_persona_reply_slot(sender_igsid)
         raise
 
     if not sent:
@@ -421,6 +459,8 @@ def handle_price_inquiry(
             # 선점은 이미 걸어뒀는데 실제 발송은 실패했으므로 해제 — 정당한 재시도가
             # "3분 내 중복"으로 오인되어 막히지 않도록 한다.
             _release_awaiting_product_slot(sender_igsid, inquiry_text)
+        else:
+            _release_persona_reply_slot(sender_igsid)
         rq = get_retry_queue()
         rq.register("ig_auto_reply", _retry_send_ig_reply)
         rq.start()

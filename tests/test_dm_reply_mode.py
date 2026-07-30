@@ -49,9 +49,11 @@ class _FakeRepo:
 def _restore_repo_and_dedup():
     original = dm_auto_reply._repo
     dm_auto_reply._AWAITING_PRODUCT_DEDUP.clear()
+    dm_auto_reply._PERSONA_REPLY_DEDUP.clear()
     yield
     dm_auto_reply._repo = original
     dm_auto_reply._AWAITING_PRODUCT_DEDUP.clear()
+    dm_auto_reply._PERSONA_REPLY_DEDUP.clear()
 
 
 def test_reply_mode_disabled_skips_send_and_records_skipped(monkeypatch):
@@ -107,6 +109,57 @@ def test_reply_mode_persona_via_account_override_even_when_global_disabled(monke
     assert repo.observability_calls[0]["persona_code_ref"] == "PER-002"
     assert repo.observability_calls[0]["persona_check_pass"] is True
     assert repo.observability_calls[0]["send_status"] == "sent"
+
+
+def test_persona_mode_dedups_rapid_successive_calls_from_same_sender(monkeypatch):
+    """10.6-4D 실측 발견 — persona 경로는 generate_reply()(수십 초 소요)가 끝나기 전
+    _has_recent_auto_replied()(Airtable 쿼리)만으로는 후속 문의를 못 막아 중복 발송됨.
+    즉시 선점하는 _PERSONA_REPLY_DEDUP이 두 번째 호출을 막는지 검증한다."""
+    repo = _FakeRepo(
+        {"IDN-000036": {"reply_mode": "persona"}},
+        persona={"persona_code": "PER-002", "tone_style": "친근함", "greeting_template": "", "followup_template": ""},
+    )
+    dm_auto_reply._repo = repo
+    monkeypatch.setattr(dm_auto_reply, "get_base_price", lambda: 10000.0)
+    monkeypatch.setattr("modules.dm.ai_reply_generator.generate_reply", lambda *a, **k: "AI가 생성한 답변")
+    sent_messages = []
+    monkeypatch.setattr(dm_auto_reply, "send_ig_reply", lambda sid, msg, ref="": sent_messages.append(msg) or True)
+    monkeypatch.setattr(dm_auto_reply, "update_lead_replied", lambda *a, **k: None)
+    monkeypatch.setattr(dm_auto_reply, "send_telegram_autoreply", lambda *a, **k: None)
+
+    from modules.dm import dm_followup_scheduler
+    monkeypatch.setattr(dm_followup_scheduler, "set_followup_schedule", lambda *a, **k: None)
+
+    # _has_recent_auto_replied가 아직 반영 전(False)인 상황을 그대로 재현 — 첫 호출이
+    # 아직 완료 전이라고 가정하고 두 번째 호출을 곧바로 실행한다.
+    dm_auto_reply.handle_price_inquiry(
+        record_id="rec1", sender_igsid="ig_race_test",
+        inquiry_text="가격 얼마예요", received_at=datetime.now(timezone.utc),
+        account_code_ref="IDN-000036",
+    )
+    dm_auto_reply.handle_price_inquiry(
+        record_id="rec2", sender_igsid="ig_race_test",
+        inquiry_text="가격 얼마예요", received_at=datetime.now(timezone.utc),
+        account_code_ref="IDN-000036",
+    )
+
+    assert sent_messages == ["AI가 생성한 답변"], "두 번째 호출이 중복 skip 안 되고 또 발송됨"
+    assert len(repo.observability_calls) == 1
+
+
+def test_persona_reply_slot_released_when_base_price_missing(monkeypatch):
+    """가격 조회 실패로 자동응답을 생략할 때도 선점이 풀려야 정당한 재시도가 막히지 않는다."""
+    repo = _FakeRepo({"IDN-000036": {"reply_mode": "persona"}})
+    dm_auto_reply._repo = repo
+    monkeypatch.setattr(dm_auto_reply, "get_base_price", lambda: None)
+
+    dm_auto_reply.handle_price_inquiry(
+        record_id="rec1", sender_igsid="ig_price_missing",
+        inquiry_text="가격 얼마예요", received_at=datetime.now(timezone.utc),
+        account_code_ref="IDN-000036",
+    )
+
+    assert "ig_price_missing" not in dm_auto_reply._PERSONA_REPLY_DEDUP, "가격조회 실패 후 선점이 안 풀림"
 
 
 def test_reply_mode_template_via_account_override_even_when_global_enabled(monkeypatch):
