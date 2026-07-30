@@ -1726,3 +1726,21 @@ watchdog.log(같은 구간):
 **Status:** PARTIAL — 관측성 보강 1~4 전부 완료·commit(`d7d038a`/`c00a734`/`e4d324e`), 실제 라이브 Runtime에서 24시간+ 오탐 없이 안정 동작하는지는 아직 관측 중(미검증). Root Cause는 Confirmed 승격 전까지 UNKNOWN 유지. Kill Switch Canary 재개는 이 관측 보강 완료로 조건 충족(회장 재승인 시 진행 가능).
 
 **관련:** 계정별 Kill Switch(§WORKFLOW_ARCHITECTURE_STATUS.md §10-20) Runtime Canary 도중 발견
+
+---
+
+## ERR-090 | Claude Code가 `.env` grep 중 YUNA_INSTA_ACCESS_TOKEN·AI_INSTA_ACCESS_TOKEN 원문을 tool 출력에 노출(대화 기록에 잔존) (OPEN, 토큰 교체 대기)
+
+**Type:** Secret 노출(Claude Code 실행 실수) — CLAUDE.md 14.1 위반
+
+**경위:** 7단계(Multi-account Routing) DM Page Messages API 설계 중 `fb_page_id` 확인을 위해 `grep -n "PAGE_ID\|AI_INSTA\|YUNA_INSTA" .env`를 실행 — 의도는 `_IG_USER_ID`/`PAGE_ID` 키 이름만 확인하려던 것이었으나 패턴이 `ACCESS_TOKEN` 라인까지 매칭해, `YUNA_INSTA_ACCESS_TOKEN`과 `AI_INSTA_ACCESS_TOKEN` 원문이 그대로 tool 출력에 찍혔다(260730 10:51 ICT). ERR-077/FP-059(260725 yuna18253 로그노출)와 동일 클래스.
+
+**Fix:** 미적용 — 토큰 재발급은 Meta Developer Console/Access Token Debugger 접근이 필요하며 Claude Code는 이 권한이 없다(회장 전용, 기존 ERR-077 대응과 동일). 회장이 두 계정 모두 재발급 후 `.env` 교체 필요.
+
+**Prevention(적용 필요):** `.env` grep 시 `_ACCESS_TOKEN` 라인을 항상 제외하는 패턴 사용(예: `grep -v ACCESS_TOKEN` 병행) — 이번처럼 "키 이름만 보려던" 의도와 실제 정규식 매칭 범위가 어긋나지 않도록 값 필드가 있는 라인은 원천적으로 자동 배제.
+
+**Risk:** `MEDIUM` — 대화 기록(로컬)에만 노출, 외부 유출 증거는 없음. 단 노출 자체를 "아무도 안 봤을 것"으로 추정하지 않고 교체 원칙 적용(ERR-077 선례와 동일).
+
+**Status:** OPEN — 회장이 Meta Developer Console에서 두 계정(yuna18253/aijomoojin) 토큰 재발급 후 `.env` 교체 대기.
+
+**관련:** ERR-077, FP-059(260725 동일 클래스 선례)
