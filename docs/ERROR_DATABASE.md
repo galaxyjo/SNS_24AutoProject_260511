@@ -1834,6 +1834,8 @@ watchdog.log(같은 구간):
 
 **Status:** RESOLVED — 원상복귀 Evidence 확인 완료. 10.6 Track A는 `aijomoojin Publishing Soak`으로 재고정, Track B(콘텐츠 자동화 포함 구조개선)는 계속 HOLD.
 
+**후속(260731 10.6-5B)**: 원복 당시의 KPI 오염 문제 자체는 여전히 미해결 상태였음 — 별도 우선순위 항목(8-b)으로 승격돼 회장이 명시 승인한 뒤, 동일 설계(Codex CONDITIONAL PASS 받았던 것)를 Scope 안에서 재구현. Codex가 지적했던 P2(None 안전성)도 이번에 함께 반영. `modules/metrics/kpi_collector.py`(`_upload_stats()` 8줄 추가) + `tests/test_kpi_collector_canary_exclusion.py`(5건, None 안전성·success_rate 분모 포함) — 28 passed. `CANARY-FB-*`(Facebook Canary) 미분리는 여전히 별도 HOLD.
+
 **관련:** FP-068(신규)
 
 ---
