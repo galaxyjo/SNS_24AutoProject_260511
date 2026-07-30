@@ -1,3 +1,39 @@
+# 2026-07-30 18:23 ICT — 10.6 Track A(aijomoojin Publishing Soak) 세션 종료 인계
+
+_기록 시각: 2026-07-30 18:23 ICT · 상태: **10.6 Track A 진행중(오늘 세션 다수 항목 SUCCESS, Close Gate는 아직)** — 마스터 Critical Path 10개 중 완료 6개/부분 2개/미완료 2개(신규기능 영역, HOLD). 이 항목이 최신 상태이며, 아래 260730 19:53(10.5 Close Gate) 이하는 이전 세션 기록으로 보존._
+
+## 기준점
+- Active Root `C:\SNS_24AutoProject_260511` / Branch `master` / HEAD는 이 세션 커밋 8개 반영 후 `9570a7c`(2026-07-30 세션 시작 시점 HEAD `711ca34`에서 진행)
+- **Push 미실행** — 오늘 커밋 8개 전부 로컬에만 존재, 다음 세션 시작 시 push 여부 확인 필요
+- 10.5단계는 여전히 Closed Gate(재조사 안 함)
+
+## 오늘(260730 오후~저녁) 완료 FACT
+1. **Publishing Soak SUCCESS**: aijomoojin 실제 게시 1건(`ig_media_id=18106786787117918`). 계정/Credential 교차오염 0건 코드 확인.
+2. **승인 없는 Scope 이탈 사고 + 완전 원복**(ERR-095/FP-068): Publishing Soak 도중 공용 `kpi_collector.py`를 승인 오해로 수정 → 회장이 Scope 이탈로 판정 → `git checkout`으로 전량 원복, 문서화.
+3. **Account-level reply_mode + Observability 신규 기능**(commit `68172d6`): `Account_Registry.reply_mode`(template/persona/disabled) + `Lead_Interactions` Observability 필드 6개(Airtable Schema Write 승인됨, 본문 미저장). `dm_auto_reply.py::handle_price_inquiry()`가 전역 `PRICE_AUTO_REPLY_ENABLED` 대신 계정별 값 우선 사용, 공란/실패 시 기존 동작 100% fallback.
+4. **오래된 회귀테스트 3건 무력화 발견·복구**(commit `bcf6c70`, ERR-096/FP-069): `test_dm_rules.py`의 mock이 `ae2bec2`(같은 세션 초반 커밋)의 시그니처 변경을 반영 못 해 몇 시간째 조용히 실패 중이었음.
+5. **Persona 실측 SUCCESS**: `reply_mode=persona` 설정 후 실제 DM으로 종단간 확인 — `Lead_Interactions` Observability로 `reply_mode_used=persona`/`persona_code_ref=PER-002`/`persona_check_pass=true` 확인, 실제 Instagram 발송.
+6. **Persona 경합조건 발견·수정**(commit `efb85fe`, ERR-097/FP-070): 실측 도중 동일 문의가 4회 중복 발송되는 것을 실제로 목격 — `generate_reply()` 처리 중(수십 초) 후속 문의가 Airtable 쿼리 기반 dedup을 통과하던 구조적 결함(260713 Gate C 설계 이후 처음 실제 트래픽을 받아 노출). `_PERSONA_REPLY_DEDUP`(즉시 선점) 신설.
+7. **retry_queue 재시작 생존성 결함 발견·수정**(commit `f8bee58`, ERR-098/FP-071): Operations Soak 중 `lead_update_score` dead 작업 30건 발견 — `comment_airtable_record`(FP-047)만 적용됐던 즉시등록 패턴이 나머지 6개 핸들러엔 없었음. 6개 전부 이관, launcher 시작 시 즉시등록.
+8. **회장 재시작 2회 + Runtime 검증**: 매 코드변경마다 `Restart-Service SNS_Watchdog` + pytest 재실행으로 확인(72 passed 최종). retry_queue 수정은 재시작 후 로그로 "no handler" 오류 소멸 직접 확인.
+
+## Track 상태
+- **Track A(aijomoojin 단일계정 안정성 증명)**: Critical Path 10개 중 완료 6개(게시/DM/팔로업/Persona/Airtable저장/계정격리) + 부분 2개(retry_queue는 오늘 해결, Scheduler 지속관찰은 세션 내내 크래시 0건이나 정식 "기간" 관찰은 계속 필요) + 미완료 2개(콘텐츠수집·댓글, 아래 HOLD).
+- **Comment(댓글 처리)**: `comment_poller.py`가 전역 yuna 토큰+facebook host 하드코딩, 계정별 라우팅 전무 — 구조적 미지원으로 격리, BUILD는 HOLD(GPT 결정).
+- **Track B(aijomoojin 콘텐츠 자동화)**: 후킹카피 생성(BUILD 후보, Gemini client 패턴 REUSE)/이미지 생성(BUY 후보, 같은 Gemini SDK로 `generate_images` 존재 확인) 설계만 완료, 착수 안 함. `CANARY-FB-*`류 KPI 미분리 문제도 별도 HOLD.
+
+## Commit 이력(이 세션, 전부 push 미실행)
+`68172d6` reply_mode+Observability → `bcf6c70` mock 수정(ERR-096) → `efb85fe` persona race fix(ERR-097) → `9fd824c` docs → `f8bee58` retry eager reg(ERR-098) → `9570a7c` docs.
+(정확한 순서·해시는 `git log --oneline -8` 재확인 권장)
+
+## 다음 세션 시작 시 확인할 것
+1. 이 문서(최상단) + `porting_logs/MERGE_JOURNAL.md`(tail) + `git status`/`git log`
+2. **Push 여부 결정** — 오늘 커밋 8개 로컬에만 존재
+3. 10.6 Close Gate 도달 여부는 Scheduler 지속관찰 기간을 회장이 얼마나 요구하는지에 달림 — 재소환 시 확인
+4. Track B(콘텐츠 자동화) 착수는 10.6 Close Gate 이후로 계속 보류 중
+
+---
+
 # 2026-07-30 19:53 ICT — 10.5단계 Close Gate SUCCESS 선언(GPT 3차 재판정 최종 승인) — 세션 종료 인계
 
 _기록 시각: 2026-07-30 19:53 ICT · 상태: **10.5단계 SUCCESS(회장/GPT 확정)** — 마스터 우선순위 9개 중 0~6번 완료(2~6번은 이 세션에서 처리), 7번(ERR-090)은 회장 결정으로 Scope 제외, 8번(Close Gate)은 GPT가 260730 19:48 ICT SUCCESS로 최종 판정. 9번(11단계 검토)은 착수하지 않음(회장 별도 승인 대상). 이 항목이 최신 상태이며, 아래 260730 18:57 이전 항목들은 이 세션 진행 기록으로 보존._

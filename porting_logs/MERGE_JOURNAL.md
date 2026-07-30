@@ -1875,3 +1875,34 @@ Commit·Push **없음**(요청 범위에 포함되지 않음, 문서 변경만 �
 회장이 Track A(Publishing Canary 실행) 재개 여부를 별도로 결정.
 
 ---
+
+# 2026-07-30 18:23 ICT — 10.6 Track A 세션 종료: Publishing/Persona 실측 SUCCESS + 결함 3건 발견·수정(ERR-096~098)
+
+_기록 시각: 2026-07-30 18:23 ICT · 상태: **진행중(회장 지시로 오늘 세션 종료)** — 10.6-3R 이후 이 세션에서 처리한 전체 흐름 요약. 상세는 `docs/CURRENT_RUNTIME_CONTEXT.md`(최상단) 참조._
+
+## 요약
+10.6-3R(승인 없는 KPI 코드 원복) 이후 회장 승인 하에 Publishing Canary 재개 → 실제 게시 SUCCESS(`ig_media_id=18106786787117918`) → 콘텐츠 자동화(Track B) 논의는 GPT 우선순위 검토 후 HOLD 유지 확정 → Persona 실측(`reply_mode` 신규 기능, Airtable Schema 6필드 추가) → 실제 DM으로 종단간 SUCCESS 확인 → 그 과정에서 발견한 결함 2건(persona 중복발송 경합조건, retry_queue 재시작 생존성)을 회장 승인 하에 즉시 조사·수정 → Operations Soak(Scheduler 지속관찰) 병행.
+
+## 커밋 8개(전부 push 미실행)
+1. `68172d6` feat(dm): reply_mode + Observability
+2. `bcf6c70` fix(test): 오래된 mock 시그니처 복구(ERR-096/FP-069)
+3. `efb85fe` fix(dm): persona 중복발송 경합조건(ERR-097/FP-070)
+4. `9fd824c` docs: 10.6-4D/4E 기록
+5. `f8bee58` fix(retry): retry_queue 6개 즉시등록(ERR-098/FP-071)
+6. `9570a7c` docs: 10.6-5A 기록
+7~8. 이번 문서화 커밋(VALIDATION_STATUS.md/CURRENT_RUNTIME_CONTEXT.md/MERGE_JOURNAL.md, 다음 커밋 예정)
+
+## Airtable Schema 변경(승인됨, 되돌리지 않음)
+- `Account_Registry.reply_mode`(singleSelect: template/persona/disabled)
+- `Lead_Interactions.reply_mode_used`/`persona_code_ref`/`send_status`/`prompt_version`/`persona_check_pass`(5필드, 본문 미저장)
+
+## 10.6 Critical Path 10개 최종 상태(회장 확인 완료)
+완료 6(게시/DM/팔로업/Persona/Airtable저장/계정격리) · 부분 2(retry_queue 오늘 해결, Scheduler 지속관찰 계속) · 미완료 2(콘텐츠수집/댓글, 신규기능 영역 HOLD).
+
+## Commit·Push 상태
+Commit **8건 완료**(위 목록). **Push 미실행** — 세션 종료 시점 일괄 승인 대상(회장 확인 필요).
+
+## 다음 세션 시작 시 확인할 것
+`docs/CURRENT_RUNTIME_CONTEXT.md` 최상단 전문 참조 — Push 여부, Scheduler 관찰 지속 여부, Track B 착수 여부가 핵심 결정사항.
+
+---
