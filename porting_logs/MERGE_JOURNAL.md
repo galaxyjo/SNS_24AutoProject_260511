@@ -1950,3 +1950,32 @@ _기록 시각: 2026-07-31 06:38 ICT · 상태: **기록만(코드 변경 없음
 이 정정 자체는 문서 기록만(코드 변경 0건) — 커밋·push 예정(다음).
 
 ---
+
+# 2026-07-31 11:31 ICT — Track B-1(계정별 콘텐츠 필터 분리) 완료, commit·push 반영
+
+_기록 시각: 2026-07-31 11:31 ICT · 상태: **Track B-1 SUCCESS(Track B 전체 1/14단계, Close Gate 아님)** — GPT Adversarial Review 3라운드(Track B-1D→1E→1F→1G) 거쳐 코드 확정, 17/17 테스트, commit·push 완료._
+
+## 경위
+Track B-0(Scope 확정)→Design Memo(1차, Identity를 Router 내부에 판정)→GPT PARTIAL(계정 매핑 미검증·Allowlist 과도범위 지적)→Airtable 3중 교차검증(Read-only)으로 재설계→GPT PARTIAL(Identity 책임 중복·오류코드 오분류 지적)→Router에서 Identity 제거·`PUBLISH_GATE_INTERNAL_ERROR` 분리(Track B-1E)→GPT PARTIAL(비공란 미등록 계정이 여전히 Router 뒤에서 걸릴 수 있음 지적)→Identity 전체(공란/조회실패/Kill Switch)를 Router 호출 전으로 이동(Track B-1G)→GPT SUCCESS 확정.
+
+## 최종 구현
+- `modules/sns/content_filter.py`: `resolve_publish_gate(caption, account_code_ref)` 신규(Global Safety→Domain Routing→Domain Gate만, Identity 책임 없음). `ACCOUNT_DOMAIN_POLICY={"IDN-000041":"PRODUCT","IDN-000036":"AI_CONTENT"}`. 결과코드 6종: `GLOBAL_SAFETY_REJECTED`/`UNKNOWN_DOMAIN`/`DOMAIN_GATE_NOT_READY`/`DOMAIN_CONTENT_REJECTED`/`PUBLISH_ALLOWED`/`PUBLISH_GATE_INTERNAL_ERROR`.
+- `launcher/main.py`: 기존 Identity 블록(공란/`routing_enabled`/`get_publish_account`/`automation_enabled`) 전체를 콘텐츠 Gate 호출보다 앞으로 재배치. `gate_enabled=false`(기본값)일 때는 기존 로그·동작 100% 보존, `gate_enabled=true`일 때만 `IDENTITY_REJECTED` 리포팅 추가 — 신규 중복 로직 없음.
+- `tests/test_publish_gate_and_approval.py`: 17 passed(신규 13건 — PRODUCT 정상/거부, AI_CONTENT 미준비, UNKNOWN_DOMAIN 2건, IDENTITY_REJECTED 3건, Blocklist 2건, Router 예외 1건).
+
+## Account_Registry 실측 Evidence(설계 근거)
+Airtable Account_Registry 33건 중 `account_code` 값 있는 레코드는 정확히 2건(`IDN-000041`=yuna18253, `IDN-000036`=aijomoojin). `IDN-000036`은 `Platform_Accounts.username="aijomoojin/"` + `.env AI_INSTA_IG_USER_ID`=Account_Registry.ig_user_id 일치 + 실게시 `ig_media_id=18106786787117918` 3중 교차검증으로 확정(owner_name 문자열 유사성만으로 판단 안 함).
+
+## 검증
+`facebook_crawler.py`(Track A 크롤링) diff 0줄 — 회귀 없음. `git diff --check` exit 0. 인접 Red Baseline 3개 파일(`test_insta_upload_batch_isolation.py`/`test_provider_routing.py`/`test_publish_outcome_unknown.py`) 실패는 `git stash` A/B로 원본 master에서도 동일 재현 확인(`.env PUBLISH_TEXT_GATE_ENABLED=true` + 그 테스트들의 기존 fixture 공백, 오늘 변경과 무관) — HOLD 유지, 이번 범위에서 수정하지 않음.
+
+## 현재 상태
+`IDN-000036`(aijomoojin)은 여전히 `DOMAIN_GATE_NOT_READY`로 Fail-closed — 무인게시 불가 그대로(의도된 상태, Track B 순서 4 자동품질검수 구현 전까지 유지).
+
+## Commit·Push
+`99d96b2`(3파일: `content_filter.py`/`launcher/main.py`/`tests/test_publish_gate_and_approval.py`) — 회장 승인 후 commit·push 완료(260731 11:31/11:45 ICT).
+
+## 다음 정확한 단계
+Track B 순서 2(후킹카피 자동생성) — 이번 세션 종료 시점 기준 아직 미착수.
+
+---

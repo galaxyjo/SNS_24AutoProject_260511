@@ -1901,3 +1901,21 @@ watchdog.log(같은 구간):
 **Status:** RESOLVED — 코드 수정 + 신규 테스트 + 전체 검증 완료. 단, **이미 dead 처리된 30건 자체는 원복되지 않음**(스코어 갱신 실패가 실제 발생했던 시점의 데이터 유실, 소급 재처리는 범위 밖).
 
 **관련:** FP-071(신규), FP-047(comment_airtable_record 원 사례)
+
+---
+
+## ERR-099 | 발행 직전 텍스트 Gate가 계정 무관하게 도매 키워드만 요구 — Track B(aijomoojin AI콘텐츠) 게시 시도 시 100% 차단될 구조였음 (RESOLVED, 260731)
+
+**Type:** Missing Feature / Design Gap(계정별 Domain 분기 부재) — Track B-1(계정별 콘텐츠 필터 분리) 착수 전 Design Memo 작성 중 발견
+
+**경위:** Track B(aijomoojin 무인게시) 착수 전 Read-only 조사 중 `launcher/main.py:461-464`(발행 직전 텍스트 Gate, `PUBLISH_TEXT_GATE_ENABLED` 활성 시 적용)가 `content_filter.py`의 도매 전용 `KEYWORDS`/`BRAND_ALLOWLIST` 하나로 **모든 계정**의 캡션을 판정함을 발견. `.env`에서 `PUBLISH_TEXT_GATE_ENABLED=true`가 이미 Runtime 활성 상태임을 확인(Runtime Evidence). aijomoojin(IDN-000036) 페르소나 콘텐츠는 도매 키워드와 무관하므로, Track B가 게시를 시도하는 순간 100% 차단될 잠재 결함이었음(실제 게시 시도·오류 발생은 없었음 — 사전 발견, 운영 영향 0건).
+
+**Fix:** `resolve_publish_gate()`(신규, `content_filter.py`) — `Identity → Global Safety → Domain Routing → Domain Gate → Publish` 5단계로 분리. `ACCOUNT_DOMAIN_POLICY={"IDN-000041":"PRODUCT","IDN-000036":"AI_CONTENT"}` 코드 Allowlist 채택(2계정 규모 REUSE 최적, `Account_Registry.category` 필드는 260615 FB그룹 후보풀 전용으로 확인돼 재사용 기각, 3계정 이상 확장 시 Airtable 필드 방식 재검토). PRODUCT는 기존 `passes_keyword_filter()` 그대로 REUSE(무변경), AI_CONTENT는 전용 Domain Gate 미구현 상태이므로 `DOMAIN_GATE_NOT_READY`로 명시적 Fail-closed(임시 통과 금지). Identity(공란/Account_Registry 조회실패/`automation_enabled=false`)는 `launcher/main.py`가 소유하며 Router 호출보다 항상 먼저 실행(Router에 Identity 중복 구현 안 함, GPT 리뷰로 재설계).
+
+**검증:** `tests/test_publish_gate_and_approval.py` **17/17 PASS**(신규 13건: PRODUCT 정상/거부, AI_CONTENT 미준비, UNKNOWN_DOMAIN 2건, IDENTITY_REJECTED 3건, Blocklist 2건, Router 예외 1건 등). `facebook_crawler.py`(Track A 크롤링) diff 0줄 — 회귀 없음(`git diff --stat` 확인). `git stash` A/B로 인접 파일 실패(`test_insta_upload_batch_isolation.py`/`test_provider_routing.py`/`test_publish_outcome_unknown.py`)가 이 세션 환경의 기존 `runtime_boot_policy.json` PermissionError Red Baseline임을 원본 master 코드로도 재현해 확인 — 오늘 변경과 무관.
+
+**Risk:** 발견 시점 `MEDIUM`(실제 발생했다면 Track B 콘텐츠 생성기능 전체가 게시 단계에서 조용히 막혀 원인 특정에 시간이 걸렸을 잠재 위험 — 데이터 유실·오게시 위험은 없었음, Confirmed 사고 아님). Fix 적용 후 `LOW`.
+
+**Status:** RESOLVED — commit `99d96b2`, push 완료(260731).
+
+**관련:** FP-072(신규), ERR-091(유사 클래스: 전역 설정이 특정 계정에 고정)

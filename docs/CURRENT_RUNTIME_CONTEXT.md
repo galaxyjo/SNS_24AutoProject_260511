@@ -1,3 +1,35 @@
+# 2026-07-31 11:31 ICT — Track B-1(계정별 콘텐츠 필터 분리) 완료 — 세션 진행 중 인계
+
+_기록 시각: 2026-07-31 11:31 ICT · 상태: **Track B 0~14단계 중 1단계 SUCCESS**(Track B 전체 Close Gate 아님, 2~7단계 미착수). 이 항목이 최신 상태이며, 아래 260731 06:26(10.6 Close Gate) 이하는 이전 기록으로 보존._
+
+## 완료 FACT
+`launcher/main.py`의 발행 직전 텍스트 Gate가 계정 무관하게 yuna 도매 키워드만 요구하던 구조적 결함(ERR-099)을 Track B 착수 전 사전 발견 → `resolve_publish_gate()`(Global Safety→Domain Routing→Domain Gate) 신규 구현, Identity(공란/미등록/Kill Switch)는 `launcher/main.py` 소유로 Router보다 항상 우선 실행(GPT Adversarial Review 3라운드 거쳐 확정). 상세는 `porting_logs/MERGE_JOURNAL.md`(260731 11:31 항목)·`docs/VALIDATION_STATUS.md`(`track_b_1_account_content_gate_260731`)·`docs/ERROR_DATABASE.md`(ERR-099)·`docs/FAILURE_PATTERN.md`(FP-072) 참조.
+
+## Track B 순서표 갱신 (0번 표 기준, 1번 완료로 갱신)
+| 순서 | 작업 | 상태 |
+|---:|---|---|
+| 0 | Baseline 확인 | ✅ |
+| 1 | 계정별 콘텐츠 필터 분리 | ✅ 260731 완료(commit `99d96b2`) — `IDN-000041→PRODUCT`/`IDN-000036→AI_CONTENT`, 미등록·공란은 `IDENTITY_REJECTED` |
+| 2 | 후킹 카피 자동생성 | 미착수 |
+| 3 | 이미지 자동생성 | 미착수 |
+| 4 | 자동 품질검수 | 미착수 |
+| 5 | 무인 승인 정책 | 미착수 |
+| 6 | 기존 게시 파이프라인 연결 | 미착수 |
+| 7 | 무인 Soak | 미착수 |
+| 8 | Track B Close Gate | 미착수(2~7 선행 필요) |
+| 9 | Comment Provider Routing | 미착수 |
+| 10 | 11단계 | 미착수 |
+
+## 현재 상태
+`IDN-000036`(aijomoojin)은 여전히 `DOMAIN_GATE_NOT_READY`로 Fail-closed — **무인게시 불가 그대로**(의도된 상태, 4단계 자동품질검수 구현 전까지 유지). Commit `99d96b2` push 완료(11:45 ICT), 인접 Red Baseline 3개 파일은 HOLD(오늘 변경과 무관, A/B로 확인).
+
+## 다음 세션 시작 시 확인할 것
+1. 이 문서(최상단) + `git status`/`git log`
+2. 다음 작업은 Track B 순서 2(후킹 카피 자동생성) — Design Memo부터 시작(신규 코드 바로 작성 금지, 지금까지의 Gate 절차 동일 적용)
+3. Push 여부는 이미 완료 확인됨(재확인만)
+
+---
+
 # 2026-07-31 06:26 ICT — 10.6단계 Close Gate SUCCESS 선언(GPT 최종 검수 승인) — 세션 종료 인계
 
 _기록 시각: 2026-07-31 06:26 ICT · 상태: **10.6단계 SUCCESS/Closed(회장·GPT 확정)** — SUCCESS 기준 12개 항목 전부 Runtime Evidence로 충족. 이 항목이 최신 상태이며, 아래 260730 18:23 이하는 이 세션의 진행 기록으로 보존._
