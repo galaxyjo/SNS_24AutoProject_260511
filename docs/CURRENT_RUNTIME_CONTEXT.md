@@ -1,3 +1,43 @@
+# 2026-07-31 17:10 ICT — Track B 2~4(Source Pipeline/후킹카피/이미지생성) 완료 — 세션 종료 인계
+
+_기록 시각: 2026-07-31 17:10 ICT · 상태: **Track B 0~10 순서표(260731 06:38 확정판) 중 0~3단계 SUCCESS**(4~10단계 미착수, Track B 전체 Close Gate 아님). 이 항목이 최신 상태이며, 아래 260731 11:31(Track B-1) 이하는 이전 기록으로 보존._
+
+## 완료 FACT(이번 세션 후반)
+- **Source Pipeline**(`modules/sns/source_selector.py`, commit `85456bf`): `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`을 섹션 단위로 파싱해 topic_id/title/status/source_url/core_message/prohibited_expression 추출. HOLD 상태·URL공란·core_message공란 항목은 Fail-closed 제외 — 실제 13개 항목 중 5개(3.1~3.5)만 선택 가능. source_url 기준 중복 방지. 10/10 PASS.
+- **후킹 카피 생성**(`caption_generator.py::generate_hook_caption()`, commit `bb8b2e0`): 기존 Gemini client/throttle/재시도 REUSE, core_message 밖 사실 생성 금지 프롬프트 제약. 6/6 PASS(mock).
+- **이미지 자동생성**(`visual_brief.py`+`image_provider_cloudflare.py`, commit `320984c`): Cloudflare Workers AI(FLUX.1-schnell, 무료 10,000 neurons/일) Provider 채택 — 공식 문서로 상업이용·무료한도 확인(Gemini Imagen 계열은 무료 없음+로컬 SDK 예제 모델명이 이미 폐기된 걸 발견해 기각). SQLite로 하루 3장 상한 영속(Fail-closed). **실제 이미지 3장 생성 성공**(Canary #1~#3, 회장 육안검수 완료) — Canary #1에서 Netflix 로고·일본어 텍스트 노출 발견 → 근본원인(Cloudflare FLUX.1-schnell은 negative_prompt 미지원, 공식문서 확인) 특정 → v2 프롬프트(안전지시를 전부 positive prompt로 이동, 브랜드명 명시 회피)로 수정 후 Canary #2/#3 재검증. 20/20 PASS(mock, 실제 API 호출 없음).
+- 3개 커밋 전부 push 완료(`aa7caf5..320984c`).
+
+## Track B 순서표 갱신(260731 06:38 확정판 기준)
+| 순서 | 작업 | 상태 |
+|---:|---|---|
+| 0 | Baseline 확인 | ✅ |
+| 1 | 계정별 콘텐츠 필터 분리 | ✅ commit `99d96b2` |
+| 2 | 후킹 카피 자동생성 | ✅ commit `85456bf`(Source Pipeline, 이 표엔 없었으나 2단계 선행 작업으로 실제 수행됨)+`bb8b2e0`(캡션) |
+| 3 | 이미지 자동생성 | ✅ commit `320984c` — Cloudflare FLUX.1-schnell, 하루 3장 상한 |
+| 4 | 자동 품질검수 | 미착수 — **다음 세션 시작 지점** |
+| 5 | 무인 승인 정책 | 미착수 |
+| 6 | 기존 게시 파이프라인 연결 | 미착수 |
+| 7 | 무인 Soak | 미착수 |
+| 8 | Track B Close Gate | 미착수(4~7 선행 필요) |
+| 9 | Comment Provider Routing | 미착수 |
+| 10 | 11단계 | 미착수 |
+
+**표기 불일치 메모(다음 세션 참고)**: 이 표(260731 06:38 확정판)에는 "Source Pipeline"이 별도 행으로 없어서, 실제로는 2단계(후킹카피) 착수 전 선행작업으로 함께 수행됨 — 세션 중 "Track B-2/3/4"라는 별도 넘버링(제 편의상 명칭, source_selector→caption→image 순서)도 혼용됐음. 다음 세션은 이 표(0~10)를 SSOT로 삼는다.
+
+## 부가 산출물(코드 아님)
+- "새글" 대화형 트리거(회장 인수인계, Codex 수동운영 대체) — 실사례형(케이스스터디) 콘텐츠, Track B 자동화와 별개 트랙, 코드화 안 함. 상세는 memory `feedback_new_post_trigger_phrase.md`.
+
+## 현재 상태
+`IDN-000036`(aijomoojin)은 여전히 `DOMAIN_GATE_NOT_READY`로 Fail-closed — **무인게시 불가 그대로**(4단계 자동품질검수 구현 전까지 유지, 의도된 상태). `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`가 `.env`에 신규 설정됨(값 미기록). 오늘 이미지 생성 쿼터 3/3 소진(내일 UTC 00:00 리셋).
+
+## 다음 세션 시작 시 확인할 것
+1. 이 문서(최상단) + `git status`/`git log`
+2. 다음 작업은 Track B 순서 4(자동 품질검수) — 출처·금칙어·중복·허위주장 차단 Design Memo부터 시작(신규 코드 바로 작성 금지)
+3. Push 여부는 이미 완료 확인됨(재확인만)
+
+---
+
 # 2026-07-31 11:31 ICT — Track B-1(계정별 콘텐츠 필터 분리) 완료 — 세션 진행 중 인계
 
 _기록 시각: 2026-07-31 11:31 ICT · 상태: **Track B 0~14단계 중 1단계 SUCCESS**(Track B 전체 Close Gate 아님, 2~7단계 미착수). 이 항목이 최신 상태이며, 아래 260731 06:26(10.6 Close Gate) 이하는 이전 기록으로 보존._

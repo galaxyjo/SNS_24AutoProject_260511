@@ -1979,3 +1979,35 @@ Airtable Account_Registry 33건 중 `account_code` 값 있는 레코드는 정�
 Track B 순서 2(후킹카피 자동생성) — 이번 세션 종료 시점 기준 아직 미착수.
 
 ---
+
+# 2026-07-31 17:10 ICT — Track B 2~3단계(Source Pipeline/후킹카피/이미지생성) 완료, 세션 종료 인계
+
+_기록 시각: 2026-07-31 17:10 ICT · 상태: **Track B 0~10 순서표(260731 06:38 확정판) 중 0~3단계 SUCCESS**, 3개 커밋 push 완료._
+
+## 경위
+Track B-1 완료 직후 이어서 진행. Source Pipeline(source_selector.py) 설계는 GPT Adversarial Review 없이 Design Memo→구현으로 비교적 짧게 진행(순수 파일 파싱, Airtable 비의존이라 Blast Radius 작아 상대적으로 저위험 판단). 후킹 캡션도 동일 패턴. 이미지 생성(Track B-4)에서는 Provider 선정에 GPT/회장 상의(Imagen 계열 무료 없음 발견→회장이 Cloudflare Workers AI+FLUX.1-schnell 직접 지정)와 실제 Canary 3회(품질 실패 1회, 근본원인 수정 후 재검증 2회) 과정을 거침. 마지막에 GPT 스타일 리뷰가 "Track B-4 이미지생성 4파일이 커밋 안 됐다"는 누락을 지적해 뒤늦게 커밋(`320984c`).
+
+## 최종 구현(3개 커밋)
+1. `85456bf` — `modules/sns/source_selector.py`: Sourcebook 파서+Topic 선택기, 10 passed
+2. `bb8b2e0` — `caption_generator.py::generate_hook_caption()`: Gemini 텍스트 REUSE, 6 passed
+3. `320984c` — `visual_brief.py`+`image_provider_cloudflare.py`: Cloudflare FLUX.1-schnell Provider, 20 passed
+
+## Provider 선정 경위(이미지 생성)
+Gemini Imagen 4 계열 SDK introspection으로 존재는 확인했으나 실제로는 무료 티어 없음(장당 $0.02~0.06) + 로컬 SDK 문서 예제 모델명(`imagen-3.0-generate-002`)이 이미 폐기(260630)됨을 WebSearch로 발견 → 회장이 GitHub/OSS 대안 검토 지시 → Cloudflare Workers AI(무료 10,000 neurons/일, 공식문서 확인)+FLUX.1-schnell(Apache-2.0, BFL 공식 ToS로 상업이용 확인)로 확정, 회장이 직접 하루 3장 상한 지정.
+
+## 품질 실패·수정 Evidence
+Canary #1(Topic 3.1 Netflix)에서 Netflix 로고·일본어 텍스트 노출(회장 "0점" 판정) → 근본원인 2가지 확정: ①Cloudflare FLUX.1-schnell은 `negative_prompt` 파라미터 자체 미지원(공식 문서 재확인, "no logo" 지시가 애초에 전달 안 됨) ②core_message에 브랜드명("Netflix")이 원문 그대로 있어 로고 연상 유발. `visual_brief.py` v2로 수정(안전지시 전부 positive prompt 본문 이동 + 특정 브랜드명 명시 회피) → Canary #2(3.1 재검증)/#3(3.3 Radical Candor, 브랜드명 영향 분리 검증) 재실행, 회장 육안검수 진행 중(최종 확정 답변은 세션 내 명시적 "합격" 선언 없이 다음 화제로 전환됨 — UNKNOWN으로 남김, 다음 세션에서 재확인 필요).
+
+## 부가 산출물(Track B 코드 아님)
+"새글" 대화형 트리거 — 회장이 기존 Codex로 수동 운영하던 실사례형(케이스스터디) 콘텐츠 프로세스 인수인계. WebSearch로 실시간 사례 검색→한국어 바이럴 캡션→이미지 프롬프트 3단계, Track B 자동화와 별개 트랙으로 코드화 안 함(memory `feedback_new_post_trigger_phrase.md`에 저장, 회장 수정본으로 캡션 스타일 세부사항 1회 학습 반영).
+
+## 현재 상태
+`IDN-000036`은 여전히 `DOMAIN_GATE_NOT_READY` — 무인게시 불가 그대로. 오늘 이미지 생성 쿼터 3/3 소진(내일 UTC 리셋). `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` `.env` 신규 설정(값 미기록).
+
+## Commit·Push
+`85456bf`/`bb8b2e0`/`320984c` 전부 push 완료(`aa7caf5..320984c`, 260731 17:10 ICT 이전 확인).
+
+## 다음 정확한 단계
+Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3 이미지 품질에 대한 회장의 명시적 최종 판정이 없었으므로, 다음 세션에서 먼저 재확인 필요(UNKNOWN).
+
+---
