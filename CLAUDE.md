@@ -352,6 +352,32 @@ read-only 조사 명령(`Get-*`, `grep`, `diff`, `status` 조회, 이미 승인�
 
 근거: 260729 세션 — 9단계(예외삼킴·데이터손실 감사) 진행 중 회장이 명시적으로 확정. "모든 업무진행에 적용된다. 다음 10단계 11단계 다 적용. 모든 진행에 적용" — 특정 단계 한정이 아니라 프로젝트 전체 항구 규칙으로 지정됨.
 
+### 단계 시작 전 Objective Lock 프리앰블 (STEP PREAMBLE)
+"단계 위치 표기 헤더"(첫 줄) 바로 다음, 압축 본문(FACT/RISK/ACTION) 앞에 아래 4줄을 고정 순서로 출력한다. 이 4개가 기존 확정사항(CLAUDE.md/CURRENT_RUNTIME_CONTEXT.md/사용자 최근 승인)과 일치하지 않으면 작업하지 않는다.
+
+```
+최종 목적: 이 Track/단계 전체가 최종적으로 달성하려는 것 한 줄
+현재 단계·현재 작업: 지금 수행 중인 단 하나의 구체적 작업 한 줄
+현재 단계 Success Criteria: 이번 단계가 무엇을 충족해야 SUCCESS인지 한 줄
+금지·HOLD 범위: 이번 단계에서 하지 않는·하면 안 되는 것(승인 범위 밖 항목) 한 줄
+```
+
+**예시**:
+```
+최종 목적: 조사→글→이미지→Vault 저장 MVP(Track B-6)를 안전하게 완성한다.
+현재 단계·현재 작업: content_package_builder.py Close Gate Read-only 재검증 중이다.
+현재 단계 Success Criteria: 신규 2파일 diff 확인 + git diff --check + 인코딩/BOM + 테스트 재실행.
+금지·HOLD 범위: 코드 추가 수정·Commit·Push·Runtime 연결·Vault 실사용은 하지 않는다.
+```
+
+**적용 규칙**:
+1. 단계 위치 표기 헤더와 마찬가지로 모든 중간·최종 출력에 매번 표시한다(생략 금지).
+2. 압축 출력 형식(아래, 5~10줄)의 예산은 헤더 + 이 4줄 + 본문을 합쳐 9~14줄로 확장 적용한다.
+3. "금지·HOLD 범위" 줄은 막연한 "위험한 행동 금지"가 아니라, 그 단계에서 실제로 승인받지 않은 구체적 항목(코드수정/Commit/Runtime연결/Airtable Write/Vault 실연결 등)을 적는다.
+4. 순서는 항상 [단계 위치 표기 헤더] → [이 4줄] → [압축 본문] → (필요시) [ELI10 한 줄] 로 고정하며, 서로 자리를 침범하지 않는다.
+
+근거: 260731 회장 명시 지시("Claude Code가 매 단계 시작 전 목적·금지·현재 작업 3줄을 먼저 출력하라") + 같은 날 `docs/gpt 업무지침서_260731_0731pm.txt`(Anti-Drift Hard Control, GPT 초안)의 "1. Objective Lock" 항목 대조 결과 4개 항목(최종 목적/현재 단계·현재 작업/Success Criteria/금지·HOLD 범위)이 더 완전한 버전으로 확인돼 이를 채택. Track B-6/B-6R 세션에서 회장이 매 지시문마다 이 4가지를 직접 풀어써야 했던 반복 부담을 줄이고, Claude Code가 스스로 매 단계 시작 시 선언하게 해 승인 범위 이탈을 구조적으로 예방하기 위함. 원문 `docs/gpt 업무지침서_260731_0731pm.txt`의 나머지 항목(External-First Gate/Architecture Gate/State-Change Gate 등)은 CLAUDE.md 기존 섹션(Multi-AI Review Policy/Gate 1~26/Runtime Governance 등)과 상당 부분 중복 — 전체 병합 여부는 별도 확인 후 결정(임의 병합 금지).
+
 ### 압축 출력 형식 (COMPACT OUTPUT FORMAT)
 전체 출력을 5~10줄로 제한한다. 위 "단계 위치 표기 헤더"(첫 줄)는 그대로 유지하고, 그 아래를 다음 4개 항목으로만 구성한다.
 

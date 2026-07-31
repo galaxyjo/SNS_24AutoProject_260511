@@ -2011,3 +2011,23 @@ Canary #1(Topic 3.1 Netflix)에서 Netflix 로고·일본어 텍스트 노출(�
 Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3 이미지 품질에 대한 회장의 명시적 최종 판정이 없었으므로, 다음 세션에서 먼저 재확인 필요(UNKNOWN).
 
 ---
+
+### Track B-5/B-6/B-6R — Vault 저장 MVP 구현 + Build-vs-Buy-vs-Reuse 재검증 + CLAUDE.md Objective Lock 추가 (2026-07-31)
+
+**배경:** Track B(조사→글→이미지→Vault 저장→채널 게시) 로드맵 중 5단계(Vault 데이터 계약)~6단계(Content Package Builder MVP)를 진행. 회장이 "외부 오픈소스 조사 없이 신규 코드부터 짰다"고 지적(순서 위반, HOLD)해 Build-vs-Buy-vs-Reuse 재조사(Track B-6R)를 별도로 수행.
+
+**Track B-5:** `vault/content/`, `vault/images/` 신규 생성, `.gitignore`에 `vault/` 추가(기존 `db/`,`logs/`,`backup/`과 동일하게 git 비추적). Frontmatter 필드 계약 확정(`content_id`/`topic_id`/`title`/`source_url`/`claims`/`status`/`caption`/`image_path`/`created_at`/`channel_status`).
+
+**Track B-6:** `modules/sns/content_package_builder.py`(신규) — 기존 Track B-1~4 순수함수 4개(select_next_topic/generate_hook_caption/build_visual_brief+build_image_prompt/generate_image)를 조립. 최초 설계에서 회장이 조건부 승인하며 수정 7개 지시: ①이미지 실패 시 `.md`/`.png` 둘 다 저장 안 함(draft_text_only 폐기 — source_url이 사용완료로 오인돼 재시도가 막히는 것 방지) ②Atomic Write(임시파일→`os.replace`, 중간실패 시 임시·부분파일 전부 제거) ③`content_id = topic_id(.→-)+날짜+sha256(source_url)[:8]`(stdlib, 외부 의존성 0) ④Frontmatter는 `json.dumps()`로 인코딩(PyYAML 설치 금지 유지) ⑤Vault 스캔은 `status: complete`만 인정, 파싱 실패 시 `VaultScanError`로 즉시 중단(조용히 건너뛰지 않음) ⑥신규 파일 2개로 범위 한정, Track B-1~4 기존 파일 미수정, Runtime·Airtable·Queue 미연결 ⑦최소 테스트 6개 요구(전체성공/토픽없음/중복id/빈캡션/이미지실패/atomic write 실패) — 실제 9개로 구현(부가 2개 포함). Close Gate Read-only 재검증: `git diff --check` 실제 위반 0건(exit=1은 신규파일 CRLF 안내뿐, 기존 추적파일 대조로 확인), BOM 없음, 인코딩 정상, 부분파일 0건(강제 실패 테스트로 확인), Track B-1~4 diff 0건. **SUCCESS 선언.**
+
+**Track B-6R(Build-vs-Buy-vs-Reuse 재검증):** 외부 후보 조사 — python-frontmatter(MIT, PyPI 관리양호)는 PyYAML을 강제 의존시켜 회장의 "PyYAML 설치 금지" 지침과 충돌 → 회장이 직접 "금지 유지" 재확인, REJECT. atomicwrites는 이미 구현한 stdlib(tempfile+os.replace 같은 디렉터리) 패턴과 정확히 동일해 REJECT(중복). obsidian-git(MIT, 최근 4주 내 릴리즈, 290만 다운로드)은 Vault Git 백업용 ADOPT 후보이나 Python 코드와 무관(회장이 Obsidian 앱에서 직접 설치)이고 설치 가이드는 "나중에"로 보류. webpub은 범위 과잉(정적사이트 프레임워크 전체) REJECT. naver-blog-xmlrpc(비공식)는 공식 대안 부재 확인+ToS 위험으로 REJECT(기존 Naver Browser Automation HOLD 근거 보강). **최종: `content_package_builder.py`+테스트 HOLD 해제, 그대로 채택 확정.**
+
+**CLAUDE.md 갱신:** "단계 시작 전 Objective Lock 프리앰블"(최종목적/현재단계·작업/Success Criteria/금지·HOLD범위 4줄) 신규 섹션 추가 — 회장 지시(3줄) + 같은 날 회장이 직접 저장한 `docs/gpt 업무지침서_260731_0731pm.txt`(개인 참고자료, "GPT에만 해당, 통합 금지" 확정)의 Objective Lock 항목(4줄) 대조로 4줄 버전 채택.
+
+**백업:** `C:\backup_(18)_260731_1432_SNS_24AutoProject_260511.zip`(22.8MB, 4218 entries) — `.venv`(677MB)/`db`(락)/`logs`(락) 제외(각각 재설치 가능/Runtime 락).
+
+**미해결 발견:** 전체 `tests/` 실행 시 95 failed/8 collection error(Hypothesis: `runtime_boot_policy.json` PermissionError) — `docs/VALIDATION_STATUS.md`의 `instagram_provider_routing_design_260725` 항목에 문서화된 기존 baseline은 "5 failed"뿐이라 이번 95는 그 baseline과 크게 어긋남. **기존 환경 문제로 단정 금지**, 다음 세션에서 회귀 여부 우선 확인 필요.
+
+**Commit·Push:** 이번 세션 전체 미실행(승인 대기) — `.gitignore`/`CLAUDE.md`/신규 2파일 전부 미커밋 상태로 세션 종료.
+
+---

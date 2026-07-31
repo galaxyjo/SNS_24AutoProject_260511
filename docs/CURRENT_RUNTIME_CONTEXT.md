@@ -1,3 +1,28 @@
+# 2026-07-31 16:37 ICT — Track B-5/B-6/B-6R 완료 + CLAUDE.md Objective Lock 규칙 추가 — 세션 종료 인계
+
+_기록 시각: 2026-07-31 16:37 ICT · 상태: **Track B 0~10 순서표 중 5~6단계 SUCCESS**(B-6R은 6단계에 대한 Build-vs-Buy-vs-Reuse 재검증, 7단계 이후 미착수). 이 항목이 최신 상태이며, 아래 260731 17:10(Track B 2~4) 이하는 이전 기록으로 보존._
+
+## 완료 FACT(이번 세션)
+- **Track B-5**(Obsidian Vault 데이터 계약): `vault/content/`, `vault/images/` 생성, `.gitignore`에 `vault/` 추가(git 비추적, `db`/`logs`/`backup`과 동일 패턴). Frontmatter 계약 확정(`content_id`/`topic_id`/`title`/`source_url`/`claims`/`status`/`caption`/`image_path`/`created_at`/`channel_status`).
+- **Track B-6**(`modules/sns/content_package_builder.py`, 신규): 기존 Track B-1~4(select_next_topic/generate_hook_caption/build_visual_brief+build_image_prompt/generate_image)를 순서대로 호출하는 조립 코드. 회장 승인 수정조건 7개 전부 반영 — 이미지 실패 시 `.md`/`.png` 둘 다 저장 안 함(draft_text_only 폐기, source_url 재시도 가능하게 유지) / Atomic Write(임시파일+`os.replace`, 부분파일 0건 테스트로 확인) / `content_id = topic_id(.→-)+날짜+sha256(source_url)[:8]`(stdlib만, 외부 의존성 0) / Frontmatter는 `json.dumps()`로 YAML-safe 인코딩(PyYAML 미설치) / Vault 스캔은 `status: complete`만 인정, 파싱 실패 시 `VaultScanError`로 즉시 중단. 신규 테스트(`tests/test_content_package_builder.py`) 9/9 PASS, 관련 회귀(source_selector+visual_brief+image_provider_cloudflare 포함) 39/39 PASS. Track B-1~4 기존 파일 diff 0건.
+- **Track B-6R**(Build-vs-Buy-vs-Reuse 재검토): python-frontmatter(MIT, 관리양호)·atomicwrites·obsidian-git(MIT, 관리 매우양호)·webpub·naver-blog-xmlrpc(비공식) 등 외부 후보 조사 — python-frontmatter는 PyYAML 강제 의존이 회장의 "PyYAML 설치 금지" 지침과 충돌해 REJECT(회장 재확인), atomicwrites/webpub은 이미 구현된 stdlib 패턴과 동등하거나 범위 과잉이라 REJECT, obsidian-git은 ADOPT 후보(회장 Obsidian 앱에 직접 설치, Python 코드 무관)이나 설치 가이드는 "나중에"로 보류. naver-blog-xmlrpc는 공식 API 부재 확인 + ToS 위험으로 REJECT(Browser Automation HOLD 유지 근거 강화). **최종 결정: `content_package_builder.py`+테스트 HOLD 해제, 현재 구현 그대로 채택.**
+- CLAUDE.md에 "단계 시작 전 Objective Lock 프리앰블"(최종목적/현재단계·작업/Success Criteria/금지·HOLD범위, 4줄) 규칙 신규 추가 — 회장 채팅 지시(3줄) + 같은 날 `docs/gpt 업무지침서_260731_0731pm.txt`(회장 개인 참고자료, 통합 금지 확정) 대조로 4줄 버전 채택.
+- 전체 프로젝트 백업 `C:\backup_(18)_260731_1432_SNS_24AutoProject_260511.zip`(22.8MB, 4218 entries, 무결성 확인) — `.venv`(677MB, 재설치 가능)/`db`(락)/`logs`(락) 제외.
+
+## 발견(미해결, 다음 세션 우선 확인 대상)
+전체 `tests/` 실행 시 **95 failed / 8 collection error** 관찰(`C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` PermissionError로 보임, Root Cause는 Hypothesis). **주의**: `docs/VALIDATION_STATUS.md`의 `instagram_provider_routing_design_260725` 항목에는 그 시점 전체 회귀가 "557 passed/**5 failed**(기존 무관 baseline: test_dm_close.py 4 + test_review_grid_ui.py flaky 1)/3 xfailed"로 문서화되어 있어, 이번 세션의 95 failed는 그 baseline(5)과 크게 다르다 — **"기존 환경 문제"로 단정하지 말 것**, Track B-6 신규 파일 제외 상태에서도 재현되는지, 그리고 baseline 기록 시점 이후 무엇이 바뀌었는지 다음 세션에서 반드시 먼저 확인.
+
+## 현재 상태
+`IDN-000036`(aijomoojin)은 여전히 `DOMAIN_GATE_NOT_READY`로 Fail-closed — 무인게시 불가 그대로. Track B-7(블로그·SNS용 변환, Draft Canary) 미착수. 회장이 제기한 "Obsidian을 제2두뇌·1000 페르소나 원천으로" 쓰는 더 큰 그림(`Multi-AI Operating Charter v1.0`, GPT 초안)은 논의만 됐고 Architecture 확정·Claude Code 실행 없음 — Charter 자체 순서(Section 5)상 Claude Code 차례가 아직 오지 않음.
+
+## 다음 세션 시작 시 확인할 것
+1. 이 문서(최상단) + `git status`/`git log`
+2. 위 "전체 테스트 95 failed" 발견 — 문서화된 Baseline(5 failed) 대비 회귀인지 우선 확인(추정 금지)
+3. Track B-7 착수는 회장 승인·Architecture 확정 이후에만
+4. Push 여부: 이번 세션 Commit·Push 전혀 없음(재확인 필요)
+
+---
+
 # 2026-07-31 17:10 ICT — Track B 2~4(Source Pipeline/후킹카피/이미지생성) 완료 — 세션 종료 인계
 
 _기록 시각: 2026-07-31 17:10 ICT · 상태: **Track B 0~10 순서표(260731 06:38 확정판) 중 0~3단계 SUCCESS**(4~10단계 미착수, Track B 전체 Close Gate 아님). 이 항목이 최신 상태이며, 아래 260731 11:31(Track B-1) 이하는 이전 기록으로 보존._
