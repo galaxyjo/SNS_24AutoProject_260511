@@ -244,6 +244,17 @@ Raw Evidence 확보
 
 원본: `CLAUDE.md` §16.3("one purpose / one validated change / one user approval / one commit")과 같은 원칙이며, 여기서는 "코드+직접테스트는 같이 묶어도 되는 예외"를 명시적으로 추가한다.
 
+### 11.1 ⚠️ Commit 메시지·Diff 일치 재확인 (260731 강조 추가, ERR-100)
+
+**`git commit` 실행 직전, 반드시 `git diff --cached --stat`(또는 diff 본문)를 마지막으로 다시 보고, 지금 쓰려는 커밋 메시지가 그 결과와 실제로 일치하는지 확인한 뒤에만 실행한다.**
+
+- **이전 커밋의 메시지를 복붙 시작점으로 쓰지 않는다** — 스타일 참고용으로 열어보는 것과, 그 텍스트를 그대로 가져다 쓰는 것은 다르다. 매번 지금 staged된 diff만 보고 새로 작성한다.
+- `CLAUDE.md` §16.2("변경 후: 실제 Diff 확인")는 지금까지 "예상 파일만 바뀌었는가"(파일 범위)에는 적용돼 왔으나, "**커밋 메시지 내용이 그 diff를 정확히 설명하는가**"는 별도로 검사되지 않고 있었다 — 이 항목이 그 빈틈을 명시적으로 메운다.
+- 코드 Commit뿐 아니라 문서(docs) Commit에도 동일하게 적용한다.
+- 위반 시 결과: 실제 변경 내용과 무관한 커밋 메시지가 Git 이력에 영구히 남아, 이후 `git log`/`MERGE_JOURNAL.md` 등으로 이력을 추적할 때 잘못된 근거로 오판을 유발할 수 있다(Evidence Rule §5 "Git은 변경 이력을 증명" 원칙 자체가 훼손됨).
+
+**근거(ERR-100, `docs/ERROR_DATABASE.md` 참조)**: 260731 세션 종료 인계 문서 커밋(`71bb7cd`) 작성 시, 직전 Track B-1 문서 커밋의 메시지를 그대로 복붙해 실행 — 실제 staged diff(Track B 2~4 내용)와 메시지(Track B-1/ERR-099 내용)가 완전히 어긋난 채 커밋됨. Push 전이라 `git commit --amend`로 메시지만 정정(내용 diff는 무변경 확인).
+
 ---
 
 ## 12. Read-only 실행 규칙 — Batch 허용 범위와 순차실행의 구분 (260726 D2 신설)

@@ -1919,3 +1919,21 @@ watchdog.log(같은 구간):
 **Status:** RESOLVED — commit `99d96b2`, push 완료(260731).
 
 **관련:** FP-072(신규), ERR-091(유사 클래스: 전역 설정이 특정 계정에 고정)
+
+---
+
+## ERR-100 | Claude Code가 이전 커밋 메시지를 복붙해 실제 diff와 무관한 내용으로 커밋함 (RESOLVED, 260731)
+
+**Type:** AI 작업 습관 결함(Process Error, 코드 결함 아님) — 세션종료 문서 인계 커밋 작성 중 회장이 직접 발견
+
+**경위:** Track B 2~4(Source Pipeline/후킹캡션/이미지생성) 세션종료 인계 문서 3개(`CURRENT_RUNTIME_CONTEXT.md`/`VALIDATION_STATUS.md`/`MERGE_JOURNAL.md`) 커밋(`71bb7cd`) 작성 시, 직전 세션의 Track B-1 문서 커밋(`aa7caf5`) 메시지("docs: Track B-1 (account content gate) completion record", ERR-099/FP-072 언급)를 "비슷한 문서 커밋이니까"라는 이유로 그대로 복붙해 실행 — 실제 staged diff(Track B 2~4 내용: source_selector.py/generate_hook_caption/이미지생성 요약)와 커밋 메시지 내용이 완전히 어긋남. 회장이 커밋 로그를 보고 직접 지적해 발견.
+
+**Root Cause:** `git commit` 실행 직전 "지금 staged된 diff와 지금 쓰려는 메시지가 실제로 일치하는가"를 마지막으로 재확인하는 단계가 없었음. `git status`/`git diff --stat`로 "어떤 파일이 바뀌었는가"(파일 범위)는 매번 확인했지만, "메시지가 그 내용을 정확히 설명하는가"는 별도의 검사 대상으로 취급하지 않았음 — 이전 커밋 메시지를 스타일 참고용으로 열람하는 것 자체가 아니라, 그 텍스트를 복붙 "시작점"으로 삼아 내용 갱신을 빼먹은 것이 직접 원인.
+
+**Fix:** `git commit --amend`로 메시지만 정정(`73e3e05`, 회장 승인 하에 실행 — diff 내용은 `git diff 71bb7cd 73e3e05` 결과 0줄로 무변경 확인). 재발방지 절차를 `docs/SILICON_VALLEY_EXECUTION_STANDARD.md` §11.1(신규)에 명시 추가 — 커밋 직전 `git diff --cached` 재확인을 항구 규칙으로 고정. 개인 작업습관 메모리(`feedback_commit_message_diff_check.md`)에도 저장.
+
+**Risk:** 발견 시점 `LOW`(코드·데이터 변경 없음, 문서 커밋 메시지만 부정확 — 단, 방치했다면 향후 `git log`/인계 문서 추적 시 잘못된 근거로 오판 유발 가능, Evidence Rule "Git은 변경 이력을 증명" 원칙 훼손 위험). Fix 적용 후 `LOW` 유지(재발방지 절차로 예방).
+
+**Status:** RESOLVED — 메시지 정정(`73e3e05`) + SV Standard §11.1 신규 + 개인 메모리 저장 완료. Push는 회장 별도 승인 대기.
+
+**관련:** SV Standard §11.1(신규), [[feedback_commit_message_diff_check]]
