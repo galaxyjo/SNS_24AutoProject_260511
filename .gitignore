@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 logs/
 backup/
+vault/
 .venv/
 venv/
 *.db
