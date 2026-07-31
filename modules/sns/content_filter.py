@@ -54,16 +54,72 @@ def detect_and_translate(text: str) -> str:
         return ""
     return text
 
-# 키워드 필터
-def passes_keyword_filter(text: str) -> bool:
+# 계정 무관 공통 차단 — Track B-1D(260731) Global Safety Gate로 추출
+def _passes_global_safety(text: str) -> bool:
     lower = text.lower()
     if any(bl in lower for bl in CAPTION_BLOCKLIST):
         logger.info(f"[CaptionBlocklist] 차단 감지 — 제외")
+        return False
+    return True
+
+
+# 키워드 필터 — Track A(PRODUCT) Domain Gate
+def passes_keyword_filter(text: str) -> bool:
+    lower = text.lower()
+    if not _passes_global_safety(text):
         return False
     return (
         any(kw in lower for kw in KEYWORDS)
         or any(br in lower for br in BRAND_ALLOWLIST)
     )
+
+
+# ── Account Domain Routing (Track B-1D, 260731) ─────────────────────────────
+# Account_Registry 실측(260731) 기준 — 등록된 계정만 허용, 그 외 전부 Fail-closed.
+ACCOUNT_DOMAIN_POLICY = {
+    "IDN-000041": "PRODUCT",      # yuna18253 — 화장품 도매
+    "IDN-000036": "AI_CONTENT",   # aijomoojin — Track B AI 생성 콘텐츠
+}
+
+
+def resolve_publish_gate(caption: str, account_code_ref: str) -> tuple[bool, str]:
+    """발행 직전 계정별 콘텐츠 Gate.
+
+    Identity 검증은 이 함수의 책임이 아니다 — Caller(launcher/main.py)가 이미
+    account_code_ref의 Identity를 검증한 뒤에만 호출한다는 전제(Track B-1E, 260731,
+    airtable_repository.py/main.py의 기존 Identity Gate와 책임 중복 방지).
+
+    순서: Global Safety → Domain Routing → Domain Gate.
+    반환: (허용여부, 결과코드) — 결과코드는 다음 중 하나.
+      GLOBAL_SAFETY_REJECTED / UNKNOWN_DOMAIN / DOMAIN_GATE_NOT_READY /
+      DOMAIN_CONTENT_REJECTED / PUBLISH_ALLOWED / PUBLISH_GATE_INTERNAL_ERROR
+    """
+    try:
+        account_code_ref = (account_code_ref or "").strip()
+        caption = caption or ""
+
+        if not _passes_global_safety(caption):
+            return False, "GLOBAL_SAFETY_REJECTED"
+
+        domain = ACCOUNT_DOMAIN_POLICY.get(account_code_ref)
+        if domain is None:
+            return False, "UNKNOWN_DOMAIN"
+
+        if domain == "PRODUCT":
+            if not passes_keyword_filter(caption):
+                return False, "DOMAIN_CONTENT_REJECTED"
+            return True, "PUBLISH_ALLOWED"
+
+        if domain == "AI_CONTENT":
+            # Track B Domain Gate 미구현 — 임시 통과·필터 비활성화 금지
+            return False, "DOMAIN_GATE_NOT_READY"
+
+        return False, "UNKNOWN_DOMAIN"
+    except Exception as exc:
+        # Blocklist 등 콘텐츠 안전규칙 위반(GLOBAL_SAFETY_REJECTED)과 구분되는
+        # Router 내부 오류 전용 코드 — 원인 불명 상태를 안전규칙 위반으로 오분류하지 않는다.
+        logger.warning(f"[PublishGate] Router 내부 예외 — Fail-closed | {exc}")
+        return False, "PUBLISH_GATE_INTERNAL_ERROR"
 
 # 연락처/회사명 제거
 def clean_contact_info(text: str) -> str:

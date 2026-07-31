@@ -50,7 +50,7 @@ from modules.common.health_monitor import get_health, print_health
 from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 from modules.infra.airtable_usage_logger import log_api_call
 from modules.common.log_sanitizer import redact_sensitive
-from modules.sns.content_filter import passes_keyword_filter
+from modules.sns.content_filter import resolve_publish_gate
 
 init_logging()
 logger = get_logger(__name__)
@@ -458,72 +458,89 @@ def _job_insta_upload():
             logger.warning("[Main] unverified ig_media_id detected — skip | post_id=%s", post_id)
             continue
 
-        # 발행 직전 텍스트 Quality Gate (기본 비활성 — PUBLISH_TEXT_GATE_ENABLED=true 시에만 적용)
-        if os.getenv("PUBLISH_TEXT_GATE_ENABLED", "false").lower() == "true":
-            if not passes_keyword_filter(caption):
-                logger.info(f"[PublishGate] 텍스트 차단 | rid={post_id}")
+        # ── Identity Gate (main.py 소유, Router보다 항상 우선) ──
+        # 순서 고정: Identity → Global Safety → Domain Routing → Domain Gate → Publish
+        # (Track B-1G, 260731). gate_enabled=false일 때는 기존 로그·동작(경고만, mark_post_result
+        # 없음) 100% 보존 — 신규 IDENTITY_REJECTED 리포팅은 gate_enabled=true일 때만 추가.
+        gate_enabled = os.getenv("PUBLISH_TEXT_GATE_ENABLED", "false").lower() == "true"
+
+        def _identity_reject(reason_log: str, is_warning: bool = True) -> None:
+            if gate_enabled:
+                logger.info(f"[PublishGate] IDENTITY_REJECTED | rid={post_id}")
                 from modules.infra.repository_interface import PostPublishResult as _PPR
-                repo.mark_post_result(post_id, _PPR(status="rejected", platform_post_id="", error_code=""))
-                continue
+                repo.mark_post_result(post_id, _PPR(status="rejected", platform_post_id="", error_code="IDENTITY_REJECTED"))
+            elif is_warning:
+                logger.warning(reason_log)
+            else:
+                logger.info(reason_log)
 
         if not account_code_ref:
-            logger.warning(
-                "[Main] account_code_ref 공란 — Legacy 전역 계정 fallback 금지, 처리 보류 | rid=%s",
-                post_id,
+            _identity_reject(
+                f"[Main] account_code_ref 공란 — Legacy 전역 계정 fallback 금지, 처리 보류 | rid={post_id}"
             )
             continue
-        else:
-            # ── 신규 경로: 계정별 Provider 분기(260725 설계, 기본 비활성) ──
-            if not routing_enabled:
-                logger.info(
-                    "[Main] account_code_ref 존재하나 라우팅 비활성(INSTAGRAM_PROVIDER_ROUTING_ENABLED=false) "
-                    "— 처리 보류 | rid=%s | account_code_ref=%s", post_id, account_code_ref,
-                )
+
+        # ── 신규 경로: 계정별 Provider 분기(260725 설계, 기본 비활성) ──
+        if not routing_enabled:
+            logger.info(
+                "[Main] account_code_ref 존재하나 라우팅 비활성(INSTAGRAM_PROVIDER_ROUTING_ENABLED=false) "
+                "— 처리 보류 | rid=%s | account_code_ref=%s", post_id, account_code_ref,
+            )
+            continue
+
+        account = repo.get_publish_account(account_code_ref)
+        if account is None:
+            _identity_reject(
+                f"[Main] account_code_ref 조회 실패(없음/중복/형식오류) — 처리 보류 | rid={post_id} | account_code_ref={account_code_ref}"
+            )
+            continue
+
+        # 260730 계정별 Kill Switch(Fail-closed) — Airtable에서 명시적으로 체크
+        # 안 된 계정은 게시하지 않는다. claim_post_for_upload() 이전이라 uploading
+        # 마킹·Retry Queue 어디에도 진입하지 않고, post_status=ready 그대로 유지된다.
+        if not account.get("automation_enabled", False):
+            _identity_reject(
+                f"[Main] 계정별 Kill Switch OFF — 처리 보류 | rid={post_id} | account_code_ref={account_code_ref}",
+                is_warning=False,
+            )
+            continue
+
+        # 발행 직전 계정별 콘텐츠 Gate (기본 비활성 — PUBLISH_TEXT_GATE_ENABLED=true 시에만 적용)
+        # Identity는 위에서 이미 통과했으므로 Router는 Global Safety → Domain Routing →
+        # Domain Gate만 수행한다(중복 구현 금지).
+        if gate_enabled:
+            allowed, gate_result = resolve_publish_gate(caption, account_code_ref)
+            if not allowed:
+                logger.info(f"[PublishGate] {gate_result} | rid={post_id}")
+                from modules.infra.repository_interface import PostPublishResult as _PPR
+                repo.mark_post_result(post_id, _PPR(status="rejected", platform_post_id="", error_code=gate_result))
                 continue
 
-            account = repo.get_publish_account(account_code_ref)
-            if account is None:
-                logger.warning(
-                    "[Main] account_code_ref 조회 실패(없음/중복/형식오류) — 처리 보류 | rid=%s | account_code_ref=%s",
-                    post_id, account_code_ref,
-                )
-                continue
+        provider_conf = PROVIDER_CONFIG.get(account["api_provider"])
+        if provider_conf is None:
+            logger.warning(
+                "[Main] 미지원 api_provider — 처리 보류 | rid=%s | api_provider=%r",
+                post_id, account["api_provider"],
+            )
+            continue
 
-            # 260730 계정별 Kill Switch(Fail-closed) — Airtable에서 명시적으로 체크
-            # 안 된 계정은 게시하지 않는다. claim_post_for_upload() 이전이라 uploading
-            # 마킹·Retry Queue 어디에도 진입하지 않고, post_status=ready 그대로 유지된다.
-            if not account.get("automation_enabled", False):
-                logger.info(
-                    "[Main] 계정별 Kill Switch OFF — 처리 보류 | rid=%s | account_code_ref=%s",
-                    post_id, account_code_ref,
-                )
-                continue
+        try:
+            cred = resolve_credential(account["credential_key"])
+        except CredentialResolutionError as e:
+            logger.warning(f"[Main] credential 해석 실패 — 처리 보류 | rid={post_id} | {e}")
+            continue
 
-            provider_conf = PROVIDER_CONFIG.get(account["api_provider"])
-            if provider_conf is None:
-                logger.warning(
-                    "[Main] 미지원 api_provider — 처리 보류 | rid=%s | api_provider=%r",
-                    post_id, account["api_provider"],
-                )
-                continue
+        if cred.ig_user_id != account["ig_user_id"]:
+            # Airtable ig_user_id와 .env ig_user_id가 다르면 어느 쪽도 신뢰하지 않고 차단(GPT 감사 필수조건)
+            logger.warning(
+                "[Main] ig_user_id 불일치(Airtable vs .env) — 처리 보류 | rid=%s | account_code_ref=%s",
+                post_id, account_code_ref,
+            )
+            continue
 
-            try:
-                cred = resolve_credential(account["credential_key"])
-            except CredentialResolutionError as e:
-                logger.warning(f"[Main] credential 해석 실패 — 처리 보류 | rid={post_id} | {e}")
-                continue
-
-            if cred.ig_user_id != account["ig_user_id"]:
-                # Airtable ig_user_id와 .env ig_user_id가 다르면 어느 쪽도 신뢰하지 않고 차단(GPT 감사 필수조건)
-                logger.warning(
-                    "[Main] ig_user_id 불일치(Airtable vs .env) — 처리 보류 | rid=%s | account_code_ref=%s",
-                    post_id, account_code_ref,
-                )
-                continue
-
-            token      = cred.access_token
-            ig_user_id = cred.ig_user_id
-            api_host   = provider_conf["host"]
+        token      = cred.access_token
+        ig_user_id = cred.ig_user_id
+        api_host   = provider_conf["host"]
 
         # claim: uploading 마킹 (non-atomic, single-worker only) — 자격증명 해석 성공 이후에만 도달
         if not repo.claim_post_for_upload(post_id):
