@@ -93,6 +93,7 @@ class InstagramPost(TypedDict, total=False):
     account_code_ref: str
     data_classification: str
     canary_run_id:    str
+    source_url:       str
 
 
 class _InstagramPostCreateRequired(TypedDict):
@@ -134,12 +135,17 @@ class PublishAccountV2(PublishAccount, total=False):
     reply_mode: str
 
 
-class PersonaProfile(TypedDict):
-    """Persona_Profile 조회 결과(260730 10.5-5단계, Persona 연결)."""
+class PersonaProfile(TypedDict, total=False):
+    """Persona_Profile 조회 결과(260730 10.5-5단계, Persona 연결).
+
+    260801 6E — language(옵션 필드) 추가. 기존 4개 필드는 그대로이며 모든
+    기존 호출부가 항상 4개를 채워 넣으므로 total=False 전환은 런타임 동작에
+    영향 없다(TypedDict는 런타임 강제가 없는 타입힌트 전용)."""
     persona_code:       str
     tone_style:         str
     greeting_template:  str
     followup_template:  str
+    language:           str
 
 
 class CrawlTarget(TypedDict, total=False):

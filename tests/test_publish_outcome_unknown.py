@@ -110,12 +110,16 @@ class TestPublishSinglePhaseHandling:
         assert result["outcome_unknown"] is True
         assert mock_post.call_count == 4  # /media 1회 + ConnectTimeout 3회, 새 /media 없음
 
-    def test_media_publish_http_400_is_clear_failure_no_retry(self):
+    def test_media_publish_http_400_is_outcome_unknown_no_retry(self):
+        """260801 6D — HTTP 400을 더 이상 '명확한 실패'로 간주하지 않는다(실측
+        사고 2건: 400 응답 직후 서버측에서 실제로는 게시가 성공한 사례 확인,
+        aijomoojin Canary media_id 17900221041544868/18021773060855830).
+        5xx와 동일하게 outcome_unknown으로 격리해 재시도를 막는다."""
         with patch("requests.post", side_effect=[_MEDIA_OK, _Resp(400)]) as mock_post:
             result = launcher_main.publish_single("r6", "http://img", "cap", "tok", "iguser")
 
         assert result["ok"] is False
-        assert result.get("outcome_unknown") is not True
+        assert result["outcome_unknown"] is True
         assert mock_post.call_count == 2
 
     def test_media_publish_http_500_is_outcome_unknown_no_retry(self):

@@ -390,9 +390,14 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
 
         if r2.status_code >= 400:
-            # 서버가 명확히 거부 — 게시 안 됐음이 확실하므로 재시도 없이 실패 확정
-            logger.error(f"[publish_single] media_publish 명확한 실패(HTTP {r2.status_code}) | rid={rid} | creation_id={creation_id}")
-            return {"ok": False, "error": f"http_{r2.status_code}", "creation_id": creation_id}
+            # 260801 6D — 실측 사고 2건 확인: HTTP 400을 "명확한 거부"로 간주했으나
+            # 실제로는 동일 요청이 400을 반환한 직후(수십 초 내) 서버측에서 조용히
+            # 게시가 성공한 사례가 2건 발생, 그 상태에서 재시도가 실제 중복게시를
+            # 만들었다(aijomoojin Canary, media_id 17900221041544868/18021773060855830).
+            # "명확한 실패"라는 기존 가정이 틀렸으므로 5xx와 동일하게 outcome_unknown으로
+            # 격리하고 재시도하지 않는다 — 재게시 여부는 실계정 확인 후 사람이 결정한다.
+            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}")
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
 
         try:
             ig_media_id = r2.json()["id"]
@@ -509,7 +514,23 @@ def _job_insta_upload():
         # Identity는 위에서 이미 통과했으므로 Router는 Global Safety → Domain Routing →
         # Domain Gate만 수행한다(중복 구현 금지).
         if gate_enabled:
-            allowed, gate_result = resolve_publish_gate(caption, account_code_ref)
+            # 260801 AI_CONTENT Gate v0/v1 — PRODUCT 도메인은 이 인자들을 쓰지 않으므로
+            # 기존 동작 100% 보존(하위호환 kwargs).
+            _persona_code = ""
+            _required_language = ""
+            try:
+                _persona = repo.get_active_persona_by_account_code_v2(account_code_ref)
+                _persona_code = _persona.get("persona_code", "") if _persona else ""
+                _required_language = _persona.get("language", "") if _persona else ""
+            except Exception:
+                _persona_code = ""
+                _required_language = ""
+            allowed, gate_result = resolve_publish_gate(
+                caption, account_code_ref,
+                source_url=post.get("source_url", ""),
+                persona_code=_persona_code,
+                required_language=_required_language,
+            )
             if not allowed:
                 logger.info(f"[PublishGate] {gate_result} | rid={post_id}")
                 from modules.infra.repository_interface import PostPublishResult as _PPR
@@ -541,6 +562,22 @@ def _job_insta_upload():
         token      = cred.access_token
         ig_user_id = cred.ig_user_id
         api_host   = provider_conf["host"]
+
+        # 260801 Step5 T1 Delta — aijomoojin 전용 Binding Adapter. account_code_ref가
+        # IDN-000036이 아니거나 Feature Flag가 false면 이 모듈을 import조차 하지
+        # 않는다(다른 계정·Flag off 경로에 이 신규 코드 자체가 관여하지 않도록 격리).
+        # "IDN-000036" 리터럴은 modules.common.aijomoojin_binding_adapter의
+        # AIJOMOOJIN_ACCOUNT_CODE와 중복되나, import 자체를 피하기 위한 의도적 중복.
+        if account_code_ref == "IDN-000036" and os.getenv(
+            "AIJOMOOJIN_BINDING_ADAPTER_ENABLED", "false"
+        ).strip().lower() == "true":
+            from modules.common.aijomoojin_binding_adapter import verify_aijomoojin_binding
+            if not verify_aijomoojin_binding(account_code_ref, repo):
+                logger.warning(
+                    "[Main] aijomoojin Binding 검증 실패 — 처리 보류 | rid=%s | account_code_ref=%s",
+                    post_id, account_code_ref,
+                )
+                continue
 
         # claim: uploading 마킹 (non-atomic, single-worker only) — 자격증명 해석 성공 이후에만 도달
         if not repo.claim_post_for_upload(post_id):

@@ -166,6 +166,35 @@ def generate_hook_caption(
     return "", ""
 
 
+def check_caption_safety(caption: str) -> tuple[bool, str]:
+    """260801 AI_CONTENT Gate v0 — 이미 생성된 caption 텍스트의 Gemini Safety
+    상태를 확인한다(재생성 아님, 신규 caption을 만들지 않음).
+
+    기존 generate_hook_caption()은 API 응답의 candidate.finish_reason/
+    safety_ratings를 버리고 text만 반환하므로, 이미 생성된 콘텐츠에 대해서는
+    이 함수로 별도 1회 확인한다. finish_reason이 STOP이 아니면(SAFETY 등)
+    차단 상태로 판단한다 — 점수·카테고리별 세부 정책 엔진은 만들지 않는다."""
+    if not caption or not caption.strip():
+        return False, "EMPTY_CAPTION"
+
+    try:
+        _throttle()
+        client = _get_client()
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=caption,
+        )
+    except Exception as e:
+        return False, f"SAFETY_CHECK_ERROR:{e}"
+
+    if not response.candidates:
+        return False, "NO_CANDIDATE"
+
+    candidate = response.candidates[0]
+    reason = candidate.finish_reason.name if candidate.finish_reason else "UNKNOWN"
+    return reason == "STOP", reason
+
+
 def generate_caption_clone(text: str) -> tuple[str, str]:
     """
     Clone Mode:

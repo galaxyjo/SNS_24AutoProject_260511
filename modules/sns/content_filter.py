@@ -82,7 +82,55 @@ ACCOUNT_DOMAIN_POLICY = {
 }
 
 
-def resolve_publish_gate(caption: str, account_code_ref: str) -> tuple[bool, str]:
+_AI_CONTENT_REQUIRED_ACCOUNT = "IDN-000036"
+_AI_CONTENT_REQUIRED_PERSONA = "PER-002"
+
+
+def passes_ai_content_gate_v0(
+    caption: str,
+    account_code_ref: str,
+    source_url: str,
+    persona_code: str,
+    required_language: str = "",
+) -> tuple[bool, str]:
+    """260801 AI_CONTENT Gate v0/v1(최소 구현) — GPT 검수 승인 조건 5개 + 언어일치(v1)를 확인한다.
+
+    복잡한 키워드 사전·정책 엔진·점수 모델은 만들지 않는다(금지 항목). Gemini
+    Safety는 caption_generator.check_caption_safety()를 REUSE하며, 이미 생성된
+    caption을 재생성하지 않고 별도 1회 안전확인만 한다.
+
+    260801 6E — 실측 오사고(영어 게시) 재발방지: Persona_Profile.language(예: "ko")를
+    호출자가 전달하면, 기존 _korean_ratio() 임계값(caption_generator.detect_and_translate와
+    동일 기준 0.2)으로 caption 실제 언어가 요구언어와 맞는지 확인한다. required_language가
+    빈 값이면(기존 호출부) 이 검사를 건너뛴다 — 하위호환."""
+    if account_code_ref != _AI_CONTENT_REQUIRED_ACCOUNT:
+        return False, "AI_CONTENT_ACCOUNT_MISMATCH"
+    if persona_code != _AI_CONTENT_REQUIRED_PERSONA:
+        return False, "AI_CONTENT_PERSONA_MISMATCH"
+    if not caption or not caption.strip():
+        return False, "AI_CONTENT_EMPTY_CAPTION"
+    if not source_url or not source_url.strip():
+        return False, "AI_CONTENT_NO_SOURCE"
+    if required_language.strip().lower() == "ko" and _korean_ratio(caption) <= 0.2:
+        return False, "AI_CONTENT_LANGUAGE_MISMATCH"
+
+    from modules.sns.caption_generator import check_caption_safety
+
+    safe, reason = check_caption_safety(caption)
+    if not safe:
+        return False, f"AI_CONTENT_SAFETY_BLOCKED:{reason}"
+
+    return True, "PUBLISH_ALLOWED"
+
+
+def resolve_publish_gate(
+    caption: str,
+    account_code_ref: str,
+    *,
+    source_url: str = "",
+    persona_code: str = "",
+    required_language: str = "",
+) -> tuple[bool, str]:
     """발행 직전 계정별 콘텐츠 Gate.
 
     Identity 검증은 이 함수의 책임이 아니다 — Caller(launcher/main.py)가 이미
@@ -93,7 +141,10 @@ def resolve_publish_gate(caption: str, account_code_ref: str) -> tuple[bool, str
     반환: (허용여부, 결과코드) — 결과코드는 다음 중 하나.
       GLOBAL_SAFETY_REJECTED / UNKNOWN_DOMAIN / DOMAIN_GATE_NOT_READY /
       DOMAIN_CONTENT_REJECTED / PUBLISH_ALLOWED / PUBLISH_GATE_INTERNAL_ERROR
-    """
+
+    source_url/persona_code/required_language는 AI_CONTENT 도메인 전용 선택
+    인자(260801 Gate v0/v1)다 — PRODUCT 도메인 기존 호출부(2-인자)는 그대로
+    동작한다(하위호환)."""
     try:
         account_code_ref = (account_code_ref or "").strip()
         caption = caption or ""
@@ -111,8 +162,9 @@ def resolve_publish_gate(caption: str, account_code_ref: str) -> tuple[bool, str
             return True, "PUBLISH_ALLOWED"
 
         if domain == "AI_CONTENT":
-            # Track B Domain Gate 미구현 — 임시 통과·필터 비활성화 금지
-            return False, "DOMAIN_GATE_NOT_READY"
+            return passes_ai_content_gate_v0(
+                caption, account_code_ref, source_url, persona_code, required_language
+            )
 
         return False, "UNKNOWN_DOMAIN"
     except Exception as exc:

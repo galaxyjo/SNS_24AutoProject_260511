@@ -464,9 +464,62 @@ class AirtableRepository(RepositoryInterface):
                     account_code_ref=f.get("account_code_ref", ""),
                     data_classification=f.get("data_classification", ""),
                     canary_run_id=f.get("canary_run_id", ""),
+                    source_url=f.get("source_url", ""),
                 )
             )
         return result
+
+    def fetch_due_scheduled_post(self, account_code_ref: str, now_iso: str) -> "InstagramPost | None":
+        """260801 Step6B — scheduled_upload_at<=now_iso인 due Record를 특정
+        계정에서 정확히 1건만 반환한다(가장 이른 예약시각 우선). 미래 예약
+        (scheduled_upload_at>now_iso)은 결과에서 자동 제외된다. test/canary
+        Record는 fetch_pending_posts()와 동일하게 배제한다. 기존
+        fetch_pending_posts()는 이 메서드 추가로 수정하지 않는다(다른 계정·
+        기존 게시경로 영향 회피)."""
+        account_code_ref = (account_code_ref or "").strip()
+        if not account_code_ref:
+            return None
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": (
+                        f"AND({{account_code_ref}}='{account_code_ref}',"
+                        f"{{post_status}}='{InstagramPostStatus.READY.value}',"
+                        f"{{scheduled_upload_at}}<=DATETIME_PARSE('{now_iso}'),"
+                        "OR({data_classification}=BLANK(),{data_classification}='production'),"
+                        "{canary_run_id}=BLANK())"
+                    ),
+                    "sort[0][field]": "scheduled_upload_at",
+                    "sort[0][direction]": "asc",
+                    "maxRecords": 1,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if not records:
+            return None
+        rec = records[0]
+        f = rec.get("fields", {})
+        return InstagramPost(
+            post_id=rec["id"],
+            image_url=f.get("image_url", f.get("source_url", "")),
+            caption=f.get("caption", ""),
+            hashtag=f.get("hashtag", ""),
+            post_status=f.get("post_status", ""),
+            ig_media_id=f.get("ig_media_id", ""),
+            account_code_ref=f.get("account_code_ref", ""),
+            data_classification=f.get("data_classification", ""),
+            canary_run_id=f.get("canary_run_id", ""),
+        )
 
     # ── 8-1. 계정 조회 (Provider 분기용, access_token 미포함) ─────────────────
 
@@ -661,6 +714,97 @@ class AirtableRepository(RepositoryInterface):
             tone_style=f.get("tone_style", ""),
             greeting_template=f.get("greeting_template", ""),
             followup_template=f.get("followup_template", ""),
+        )
+
+    def get_active_persona_by_account_code_v2(self, account_code: str) -> PersonaProfile | None:
+        """260801 Step4 T1 Account Binding Gate — Account_Registry Record ID와
+        Persona_Profile의 원시 account_code_ref(Linked Record ID 배열)를 Python에서
+        정확 비교(exact membership)한다. formula 부분문자열 매칭(FIND/ARRAYJOIN)은
+        오매칭 위험(예: "IDN-000036-OLD" 부분일치)이 있어 사용하지 않는다.
+
+        Persona_Profile 전체를 `offset`이 없어질 때까지 페이지네이션하며 조회한다
+        (100건 이상이어도 뒷페이지 후보를 놓치지 않음).
+
+        Repository 책임 범위: 특정 account_code에 연결된 active Persona 단일조회까지만
+        수행한다. 특정 persona_code(예: PER-002)를 요구하는지는 이 함수의 책임이 아니며,
+        호출자(향후 aijomoojin Binding Adapter)가 반환된 PersonaProfile.persona_code를
+        검증해야 한다 — 이 함수는 PER-002를 하드코딩하지 않는다.
+
+        기존 get_persona_by_account_code()는 무수정(다른 Caller 영향 회피, T1 Gate
+        승인 범위)."""
+        if not account_code or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code):
+            return None
+
+        try:
+            r = requests.get(
+                _url("Account_Registry"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": f"{{account_code}}='{account_code}'",
+                    "maxRecords": 2,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Account_Registry", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Account_Registry")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if len(records) != 1:
+            return None
+        account_record_id = records[0]["id"]
+
+        candidates: list = []
+        offset = None
+        while True:
+            params = {"pageSize": 100}
+            if offset:
+                params["offset"] = offset
+            try:
+                r2 = requests.get(
+                    _url("Persona_Profile"),
+                    headers=_headers(),
+                    params=params,
+                    timeout=_TIMEOUT,
+                )
+                r2.raise_for_status()
+                log_api_call("Persona_Profile", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Persona_Profile")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+
+            body = r2.json()
+            candidates.extend(body.get("records", []))
+            offset = body.get("offset")
+            if not offset:
+                break
+
+        exact_matches = [
+            rec for rec in candidates
+            if isinstance(rec.get("fields", {}).get("account_code_ref"), list)
+            and account_record_id in rec["fields"]["account_code_ref"]
+            and rec.get("fields", {}).get("active", False)
+        ]
+
+        if len(exact_matches) == 0:
+            return None
+        if len(exact_matches) > 1:
+            raise RepositoryValidationError(
+                f"account_code={account_code}(Record ID={account_record_id})에 연결된 "
+                f"active Persona_Profile이 정확비교 기준 2건 이상(모호함)"
+            )
+
+        f = exact_matches[0].get("fields", {})
+        return PersonaProfile(
+            persona_code=f.get("persona_code", ""),
+            tone_style=f.get("tone_style", ""),
+            greeting_template=f.get("greeting_template", ""),
+            followup_template=f.get("followup_template", ""),
+            language=f.get("language", ""),
         )
 
     # ── 9. 업로드 선점 마킹 ───────────────────────────────────────────────────

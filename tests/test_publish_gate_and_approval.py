@@ -156,7 +156,8 @@ def test_text_gate_blocks_and_marks_rejected_when_enabled(monkeypatch, caplog):
 
     monkeypatch.setattr(launcher_main, "publish_single", _fake_publish_single)
     monkeypatch.setattr(
-        launcher_main, "resolve_publish_gate", lambda caption, account_code_ref: (False, "DOMAIN_CONTENT_REJECTED")
+        launcher_main, "resolve_publish_gate",
+        lambda caption, account_code_ref, **k: (False, "DOMAIN_CONTENT_REJECTED"),
     )
 
     with caplog.at_level(logging.INFO):
@@ -223,7 +224,8 @@ def test_text_gate_disabled_by_default_preserves_existing_behavior(monkeypatch):
     monkeypatch.setattr(launcher_main, "publish_single", _fake_publish_single)
     # resolve_publish_gate를 차단으로 세팅해도, 게이트가 꺼져있으면 호출 자체가 안 되어야 함
     monkeypatch.setattr(
-        launcher_main, "resolve_publish_gate", lambda caption, account_code_ref: (False, "DOMAIN_CONTENT_REJECTED")
+        launcher_main, "resolve_publish_gate",
+        lambda caption, account_code_ref, **k: (False, "DOMAIN_CONTENT_REJECTED"),
     )
 
     launcher_main._job_insta_upload()
@@ -280,7 +282,8 @@ def test_text_gate_passes_through_when_filter_returns_true(monkeypatch):
 
     monkeypatch.setattr(launcher_main, "publish_single", _fake_publish_single)
     monkeypatch.setattr(
-        launcher_main, "resolve_publish_gate", lambda caption, account_code_ref: (True, "PUBLISH_ALLOWED")
+        launcher_main, "resolve_publish_gate",
+        lambda caption, account_code_ref, **k: (True, "PUBLISH_ALLOWED"),
     )
 
     launcher_main._job_insta_upload()
@@ -483,12 +486,16 @@ def test_gate_product_account_non_wholesale_caption_rejected():
     assert code == "DOMAIN_CONTENT_REJECTED"
 
 
-def test_gate_ai_content_account_blocked_gate_not_ready():
+def test_gate_ai_content_account_without_v0_kwargs_fails_closed():
+    """260801 AI_CONTENT Gate v0 — 무조건 DOMAIN_GATE_NOT_READY이던 이전 동작은
+    폐기됐다(GPT 검수 승인, Gate v0 구현). source_url/persona_code 없이 호출하면
+    (이전 2-인자 호출 방식) 여전히 Fail-closed로 차단되지만 사유가 달라진다 —
+    자세한 5개 조건별 테스트는 tests/test_ai_content_gate_v0.py 참조."""
     from modules.sns.content_filter import resolve_publish_gate
 
     allowed, code = resolve_publish_gate("아무 정상적인 컨설팅 콘텐츠 캡션", "IDN-000036")
     assert allowed is False
-    assert code == "DOMAIN_GATE_NOT_READY"
+    assert code in ("AI_CONTENT_PERSONA_MISMATCH", "AI_CONTENT_NO_SOURCE")
 
 
 def test_gate_unknown_account_code_rejected():
