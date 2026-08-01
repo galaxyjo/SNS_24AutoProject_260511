@@ -1,3 +1,138 @@
+# 2026-08-01 20:11 ICT — 6D SUCCESS / 6E SUCCESS / 6F HOLD(DEFER) — 세션 종료 기록
+
+_기록 시각: 2026-08-01 20:11 ICT · 상태: 6D(중복사고 방지)·6E(AI_CONTENT Gate v1 언어검사) 코드레벨 SUCCESS, 6F(3-post 자동게시 Canary) #1/3 큐잉 시도 중 기존 안전상한(DAILY_IMAGE_CAP=3/일)에 걸려 HOLD, 회장 지시로 다음 세션(UTC 리셋 후, 약 260802 07:00 ICT)으로 DEFER. 이 항목이 최신 상태이며, 아래 260801 19:17(Gate v0 최소조립) 이하는 이전 기록으로 보존._
+
+## 6D — 중복사고 방지(HTTP 4xx → outcome_unknown)
+- 실사고 근거(이전 기록): media_publish HTTP 400을 "명확한 실패"로 분류하던 기존 로직이 실제로는 부정확(400 직후 서버측 조용한 성공 2건 실측) → 재시도가 실제 중복게시를 만듦.
+- 수정: `launcher/main.py::publish_single()` — HTTP≥400 응답을 기존 5xx/timeout과 동일하게 `outcome_unknown=True`로 반환(정의된 실패 아님, 재시도 안 함, 사람 확인 대기로 격리).
+- 검증: 신규/갱신 테스트 PASS(`test_publish_outcome_unknown.py`), 타겟 회귀 0건(기존 T4 PermissionError baseline 3건만 잔존, 무관).
+- 실측 재발검증(라이브)은 미실행 — 코드레벨 수정만 확인됨, 실제 검증은 6F Canary에서.
+
+## 6E — AI_CONTENT Gate v1(언어일치 검사)
+- 실사고 근거(이전 기록): `Persona_Profile.language="ko"`(PER-002) 값이 Airtable에 이미 있었는데 Gate가 읽지 않아 영어 게시 사고 발생.
+- Airtable Read-only 확인(Evidence): `Persona_Profile.language`(fldZv0QunGbvVxhtG) 실존, PER-002="ko".
+- 수정(전부 additive/하위호환): `repository_interface.py`(PersonaProfile.language 옵션필드) / `airtable_repository.py`(get_active_persona_by_account_code_v2가 language 반환) / `content_filter.py`(passes_ai_content_gate_v0·resolve_publish_gate에 required_language 옵션 kwarg, 기존 `_korean_ratio()` REUSE, 임계값 0.2) / `launcher/main.py`(persona.language를 Gate 호출에 전달).
+- 검증: 신규 테스트 8건 PASS(영어차단/한국어통과/kwarg미전달시 스킵/resolve_publish_gate 경유/Repository language 반환), 타겟 회귀 68 passed / 3 failed(전부 기존 T4 baseline, 무관).
+
+## 6F — 3-post 자동게시 Canary(HOLD/DEFER)
+- 준비: `tools/_canary_260801_queue_aijomoojin_post_6f.py`(신규, gitignore 대상 `tools/_*.py`) — create_content_package(target_language="ko" 명시)→imgbb 업로드→Instagram_Posts ready 레코드 1건 큐잉만 수행(게시는 기존 APScheduler가 자동 수행해야 증명 성립). Canary 최소단위 원칙에 따라 3건을 한 번에 큐잉하지 않고 1건씩 순차 실행+검증 설계.
+- 실행 결과: #1/3 시도 → Gemini 캡션 생성 성공 → 이미지 생성 단계에서 `DAILY_IMAGE_CAP_EXCEEDED`(cap=3, UTC 기준 오늘 이미 4회 사용) → Fail-closed 설계대로 Vault/Airtable 어디에도 부분기록 없이 즉시 중단(롤백 불필요, 확인됨).
+- 결정: 코드결함 아님, 기존 안전상한 정상작동 — 회장 지시로 오늘 추가 시도 없이 다음 세션(UTC 리셋 이후)으로 DEFER.
+
+## 남은 미결(다음 세션 우선순위)
+1. 6F 재개: `C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe C:\SNS_24AutoProject_260511\tools\_canary_260801_queue_aijomoojin_post_6f.py`로 #1/3부터, 매 1건마다 자동게시(ig_media_id) 확인 후 다음 건 진행.
+2. 6F 3/3 성공 후 6G(정식 운영 전환: 매일 08:00 ICT, 하루 1건) 승인 여부 결정.
+3. Step6B Delta(`publish_ledger.py`/`aijomoojin_scheduled_publish_job.py`/`fetch_due_scheduled_post`) 재승인 또는 폐기 결정 — 여전히 미사용.
+4. 이번 세션 전체 코드 변경(6D+6E) **Commit·Push 0건** — 별도 승인 필요.
+
+---
+
+# 2026-08-01 19:17 ICT — AI_CONTENT Gate v0 조립 완료(최소 구현) — 정식 안전검사는 후속 별도 진행
+
+_기록 시각: 2026-08-01 19:17 ICT · 상태: Gate v0는 "최소 조립"으로 명시 확정 — Gemini `finish_reason` 재사용 + Sourcebook 출처확인 + 계정/Persona 일치, 4개 조건뿐. 키워드 정책엔진·컨텍츠 분류기·점수모델 등 정식 안전검사는 아직 없음(의도적 DEFER, 회장 지시). 이 항목이 최신 상태이며, 아래 260801 18:28(Step6C SUCCESS) 이하는 이전 기록으로 보존._
+
+## Gate v0 최종 상태(기록)
+- 위치: `modules/sns/content_filter.py::passes_ai_content_gate_v0()` + `modules/sns/caption_generator.py::check_caption_safety()`.
+- 확인 항목 4개뿐: ①Gemini `finish_reason==STOP`(유해성만, 주제 적합성 아님) ②Sourcebook `source_url` 존재 ③`account_code_ref==IDN-000036` ④`persona_code==PER-002`.
+- **명시적으로 하지 않은 것**(정식 안전검사에서 다뤄야 할 항목, 이번엔 DEFER): 콘텐츠 언어 검증(아래 사고 참조), 브랜드/경쟁사 언급 필터, 카테고리·주제 적합성 분류, 반복/유사 콘텐츠 탐지, 실제 발행 전 사람 승인(Approval Gate) 등.
+
+## 이번 세션 실사고 2건(다음 세션·정식 안전검사 설계 시 반드시 반영)
+1. **언어 불일치 사고**: `content_package_builder.create_content_package()`가 Persona(PER-002)의 Airtable `language="ko"` 필드를 확인하지 않고, 호출자(이 세션)가 `target_language="EN"`을 임의 지정 — 실제 계정에 영어 캡션이 게시됨(1차 실패작, 회장이 직접 삭제). **근본원인**: Persona 데이터에 이미 있는 값을 Runtime이 자동으로 반영하는 연결이 없음(T1에서 이미 지적된 "Persona 적용 경로 NOT IMPLEMENTED" 문제의 실제 발현).
+2. **모호한 실패 재시도 → 실제 중복게시 사고**: `publish_single()`의 media_publish HTTP 400을 "명확한 실패(안전하게 재시도 가능)"로 분류하는 기존 로직이 실제로는 **부정확했음** — 2건 모두 400 응답 직후(수십 초 이내) 실제로는 서버에서 게시가 조용히 성공한 상태였고, 재시도가 진짜 중복 게시를 만듦. **교훈**: HTTP 400이어도 재시도 전에 반드시 계정의 실제 최근 게시물 목록(`GET /{ig_user_id}/media`)으로 이미 올라갔는지 확인해야 한다 — 이번 세 번째 시도부터는 이 확인을 먼저 하도록 절차를 바꿨고(교훈 반영), `publish_single()` 코드 자체의 400 분류 로직 수정은 이번 세션에서 하지 않음(DEFER, 별도 승인 필요).
+
+## 최종 성공 확정 Evidence(재확인)
+- media_id: `17924318079395000`(Radical Candor, 한국어) — 실제 계정 `GET /media` 조회로 최근 게시물 1건만 존재함을 확인, 이전 3개(영어/넷플릭스 1 + 중복 한국어 2)는 회장이 앱에서 직접 삭제 완료(API 삭제 미지원 확인됨).
+
+## 다음 세션 우선순위
+1. **정식 안전검사 설계**(회장 지시, "정석대로") — 언어 검증, 콘텐츠 분류, 발행 전 승인 Gate 등을 Gate v0에 이어 REUSE→ADOPT→ADAPT→BUILD 순서로 재검토.
+2. `publish_single()`의 HTTP 400 분류 로직 재검토(실사고 기반 — outcome_unknown으로 재분류할지 검토).
+3. `content_package_builder.create_content_package()`가 Persona.language를 자동 반영하도록 연결.
+
+---
+
+# 2026-08-01 18:28 ICT — Step 6C SUCCESS — aijomoojin 최초 실계시 게시 성공(media_id 확보, 회장 확인)
+
+_기록 시각: 2026-08-01 18:28 ICT · 상태: **IDN-000036(aijomoojin) 계정, 기존 APScheduler(`_job_insta_upload`) 자동실행으로 실제 Instagram 게시 성공** — 수동 `publish_single()` 호출 없이 자동 claim→Persona Gate→AI_CONTENT Gate v0→Meta 게시까지 전부 자동 경로로 완료. 이 항목이 최신 상태이며, 아래 260801 14:45(Step4 SUCCESS) 이하는 이전 기록으로 보존._
+
+## 최종 결과
+- **media_id: `17919000633413180`**(실제 Instagram, 회장이 앱에서 직접 확인·"성공" 확정)
+- 계정: IDN-000036 / aijomoojin, Airtable Record `recYKIHJYw8G4MrE3` → `post_status=posted`, `ig_media_id=17919000633413180`
+- 콘텐츠: Sourcebook 3.1 "Netflix Culture Memo"(source_url: jobs.netflix.com/culture), Track B 기존 함수(source_selector/caption_generator/visual_brief/image_provider_cloudflare) REUSE로 생성한 실제 콘텐츠 1건
+
+## 이번 세션 핵심 경로(요약)
+1. **T1 Account Binding**: `IDN-000036↔aijomoojin↔PER-002` Airtable Linked Record 실증 확인 → `aijomoojin_binding_adapter.py`(신규, Feature Flag 기본 false) 구현·19테스트 PASS.
+2. **Step6B External-First 위반 자체교정**: 첫 시도(Publish Ledger·예약게시 오케스트레이터·로컬이미지→ImgBB 직접업로드)를 외부후보 비교 없이 먼저 BUILD해 회장이 `ISOLATED_UNAPPROVED`로 격리 지시 → GitHub Actions/obsidian-git/n8n 3개 공식 비교 후 전부 탈락, 기존 APScheduler REUSE가 정답으로 재확인됨(이 Delta 파일들은 실제 성공 경로에서 사용 안 됨, 재검토 대상으로 잔존).
+3. **T4 Root Cause 완전확정**: `runtime_boot_policy.json` PermissionError는 파일 손상이 아니라 Claude Code 세션의 비상승(UAC deny-only) 토큰 vs `C:\ProgramData\SNS_24AutoProject` ACL(SYSTEM+Administrators만 Allow) 차이 — 회장이 관리자 PowerShell에서 직접 실증(동일 계정, 상승 시 정상).
+4. **Safe Mode "armed" 정책파일 생성 도구가 코드베이스에 없음 확인** → 새 보안시스템을 만들지 않고 `data_classification="production"` 경로(Safe Mode 불필요)로 우회 없이 재설계.
+5. **DOMAIN_GATE_NOT_READY 발견**: `content_filter.py`가 AI_CONTENT 도메인(aijomoojin)을 "Domain Gate 미구현"으로 영구 하드블록하고 있었음(의도된 설계, 주석에 우회금지 명시) — GPT 검수 승인 후 **AI_CONTENT Gate v0** 구현(Gemini `finish_reason` REUSE + Sourcebook source_url 존재 + account/persona 일치 5조건, 신규 외부부품·키워드엔진 0개), 15개 신규 테스트 + 기존 3개 테스트 갱신, 32/32 PASS, 기존 baseline(6개 무관 실패) 회귀 0건.
+6. **실행**: Airtable production 분류 Record 1건 생성 → 관리자 2회 재시작(Flag+코드 반영) → 자동 실행 1차 시도 media_publish HTTP 400(컨테이너는 FINISHED, 원인은 응답본문 미저장으로 불명) → 회장 승인 후 동일 creation_id로 media_publish 재호출(신규 컨테이너 생성 아님, 중복게시 아님) → **HTTP 200, media_id 확보**.
+
+## 남은 미결 항목(다음 세션)
+- `.env`의 `AIJOMOOJIN_BINDING_ADAPTER_ENABLED=true`가 현재 Live에 적용된 상태 — "매일 08:00 ICT·하루 1건" 정식 운영 전환 여부는 별도 결정 필요.
+- Step6B Delta(`publish_ledger.py`/`aijomoojin_scheduled_publish_job.py`/`image_hosting.upload_local_file_to_imgbb`/`fetch_due_scheduled_post`)는 실제 성공 경로에 쓰이지 않음 — 재승인 또는 폐기 결정 필요.
+- `.env`의 `CANARY_SAFE_MODE`/`CANARY_RUN_ID`/`CANARY_EXPIRES_AT` 3줄은 무효(파일 기반 정책이 우선)로 잔존 — DEFER 유지.
+- 이번 세션 전체 코드 변경(Gate v0, T1 Adapter, Step6B Delta 포함) **Commit·Push 0건** — 전부 미승인 상태로 세션 종료.
+
+---
+
+# 2026-08-01 14:45 ICT — Step 4 SUCCESS / APPROVED — T1 Persona 조회 승인, Adapter 다음구현 허용(회장 최종 승인)
+
+_기록 시각: 2026-08-01 14:45 ICT · 상태: **Step 4 SUCCESS/APPROVED**(회장 최종 승인) — T1 Account Binding 중 Persona 조회 부분(신규 메서드+전용 테스트)만 승인·보존, 나머지는 다음 단계 구현 허용범위로 확정. 이 항목이 최신 상태이며, 아래 260801 12:30(Step 3 종료) 이하는 이전 기록으로 보존._
+
+## 회장 최종 승인 범위
+- 보존: `modules/infra/airtable_repository.py`의 신규 Persona 조회 메서드(`get_active_persona_by_account_code_v2`) + 전용 테스트(`tests/test_airtable_repository_persona_binding.py`).
+- 다음 구현 허용범위: aijomoojin 전용 Binding Adapter 1개, 확인된 Active Caller 연결부, 전용 테스트.
+- 금지: 기존 DM 핵심함수·기존 게시 핵심함수(`publish_single()` 등)·다른 계정 경로 변경.
+- Rollback 범위: 이번 신규 hunk·신규 파일·연결 import/call만 원복(전체 checkout 금지).
+- 신규 부품 도입 순서: `REUSE → ADOPT → ADAPT → BUILD` — 공식·OSS 후보 3개 비교 후 부적합할 때만 최소 Glue Code 작성.
+- 기존 Token·계정·Airtable·실게시 Evidence는 `PASS_REUSED` — 재검증 금지.
+
+## 상태
+Step 4(T1 범위): SUCCESS/APPROVED. 코드 구현은 이 기록 시점까지 시작 안 함(문서 기록만).
+
+---
+
+# 2026-08-01 12:30 ICT — Step 3 종료(SUCCESS/CLOSED) — 남은 4개 기술 Gate Step 4 이관(회장 승인)
+
+_기록 시각: 2026-08-01 12:30 ICT · 상태: **Step 3 SUCCESS/CLOSED(회장 최종 승인)** — Obsidian Content OS MVP Architecture 조사·Scope 확정 단계 종료, T1~T4는 해결완료 아닌 Step 4 구현·검증 Gate로 명시 이관. 이 항목이 최신 상태이며, 아래 260801 11:59(MVP Scope 확정) 이하는 이전 기록으로 보존._
+
+## 회장 최종 승인 결정
+- Step 3(Architecture 조사·Scope 확정)을 종료한다.
+- 현재 MVP Sourcebook(입력): `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`
+- 현재 Output: `vault/content`, `vault/images`
+- Obsidian Vault Runtime 연결·Automation Input은 현재 MVP OUT_OF_SCOPE 유지(Critical UNKNOWN 아님).
+- Obsidian 중심 Content OS 장기 목표는 폐기하지 않으며, 별도 Scope·Approval·Canary Gate로 재개한다.
+- 남은 4개 기술항목은 Step 3 미해결 방치가 아니라 **Step 4 구현·검증 Gate로 명시 이관**한다(해결 완료 아님, Step 4 진입을 위한 확정된 작업범위).
+
+## Step 4로 이관된 기술 Gate(해결 완료 아님)
+- T1 Account Binding Gate — IDN-000036/@aijomoojin/IG User ID/credential_key=AI/Persona PER-002 게시직전 Fail-closed, 실Meta username 대조는 Live Canary 전 검증.
+- T2 Receipt Gate — Post ID 영속, Airtable 실패시 RECEIPT_SYNC_PENDING, Receipt만 재시도(Instagram 재호출 0), 완료후 PUBLISHED 전이.
+- T3 Publish Ledger Gate — unique_publish_key 중복차단, Atomic Reserve(BEGIN IMMEDIATE), version/fencing, UNKNOWN 자동재게시 금지, Crash·동시실행·재시작 검증.
+- T4 R6·R8 Test Isolation Gate — runtime_boot_policy.json 의존성 격리(policy_path Fixture), 핵심 Assertion 실행, 제품로직 PASS/FAIL과 환경결함 분리.
+
+## 상태 구분
+Step 3 공식 상태: SUCCESS/CLOSED. Step 4 Entry: READY(구현은 아직 시작 안 함). T1~T4는 Step 4의 확정된 작업범위이며 현재 해결 완료 아님.
+
+---
+
+# 2026-08-01 11:59 ICT — Obsidian Content OS MVP Scope 확정(회장 결정) — 문서 기록
+
+_기록 시각: 2026-08-01 11:59 ICT · 상태: **회장이 현재 MVP 입력·출력·OUT_OF_SCOPE 범위를 확정**(코드·Runtime 변경 없음, 문서 기록만). 이 항목이 최신 상태이며, 아래 260731 16:37(Track B-5/B-6/B-6R) 이하는 이전 기록으로 보존._
+
+## 회장 확정 결정(이번 세션)
+- **현재 MVP 입력**: `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`(기존 Sourcebook 그대로 사용).
+- **현재 MVP 출력**: `vault/content`(Caption·Metadata), `vault/images`(Image) — 기존 Track B-5/B-6 산출물 경로 그대로 재사용.
+- **현재 MVP OUT_OF_SCOPE**(회장 확정, 실패조건 아님): Obsidian Vault Runtime 연결 / Automation Input / Obsidian Git / git archive / Allowlist Manifest / Daily Journal·Life OS·Finance 개인정보 Canary.
+- **장기 방향**: Obsidian 중심 Content OS 목표는 폐기하지 않는다 — 현재 MVP 성공 이후 별도 승인 단계에서 재개한다.
+- **Scope Drift 교정**: 위 OUT_OF_SCOPE 항목은 현재 Step 3의 Critical UNKNOWN 또는 실패조건으로 계산하지 않는다.
+- R5(`content_package_builder.py`) 판정은 기존 ADAPT 상태 그대로 유지 — 이번 결정으로 재판정하지 않음.
+- Account Binding·Airtable Receipt·Publish Ledger·SQLite concurrency/fencing·R6·R8 테스트 격리는 이 Scope 확정과 별개의 미해결 기술 Gate로 유지.
+
+## 근거
+회장 채팅 지시(2026-08-01 세션) — Claude Code Read-only 조사(Step 3 REVISE) 결과 제출 이후 회장이 직접 MVP Scope를 위와 같이 확정. 코드·Runtime·Airtable 변경 0건, 이 세션은 문서 기록만 수행.
+
+---
+
 # 2026-07-31 16:37 ICT — Track B-5/B-6/B-6R 완료 + CLAUDE.md Objective Lock 규칙 추가 — 세션 종료 인계
 
 _기록 시각: 2026-07-31 16:37 ICT · 상태: **Track B 0~10 순서표 중 5~6단계 SUCCESS**(B-6R은 6단계에 대한 Build-vs-Buy-vs-Reuse 재검증, 7단계 이후 미착수). 이 항목이 최신 상태이며, 아래 260731 17:10(Track B 2~4) 이하는 이전 기록으로 보존._

@@ -649,3 +649,99 @@ Airtable 재조회: `post_status=ready` 그대로(오염·삭제·`failed` 오�
 **변경 파일(이번 세션 전체)**: `modules/dm/dm_auto_reply.py` / `modules/dm/dm_followup_scheduler.py` / `modules/comment/comment_auto_reply.py` / `modules/infra/repository_interface.py` / `modules/infra/airtable_repository.py` / 신규 테스트 5파일 / 신규 `tools/run_followup_routing_canary.py`. Airtable Write: Persona_Profile 2건(콘텐츠 입력). Runtime Restart 0건. commit 3개(`8e90402`/`0c085b9`/`8d0ed91`) + 이 문서화 커밋(다음).
 
 ---
+
+### Obsidian Content OS MVP — Scope 확정(회장 결정, 2026-08-01)
+
+**배경**: Track B(조사→글→이미지→Vault저장) 이후 Obsidian Vault를 콘텐츠 원천으로 연결하는 상위 목표(Obsidian Content OS)를 이번 세션에서 Read-only로 검증(Step 3, Gate A/B/C·E1~E5 등 다수 Evidence 제출). 회장이 검증 결과를 바탕으로 현재 MVP Scope를 아래와 같이 확정.
+
+**회장 확정 결정**:
+- 현재 MVP 입력: `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`(기존 Sourcebook 직접 사용).
+- 현재 MVP 출력: `vault/content`, `vault/images`(기존 Track B-5/B-6 경로 재사용).
+- 현재 MVP OUT_OF_SCOPE: Obsidian Vault Runtime 연결 / Automation Input / Obsidian Git / git archive / Allowlist Manifest / 민감파일(Daily Journal·Life OS·Finance) Canary — **이 항목들은 Critical UNKNOWN 또는 Step 3 실패조건으로 계산하지 않는다**(OUT_OF_SCOPE와 UNKNOWN을 구분).
+- 장기 방향: Obsidian 중심 Content OS는 폐기하지 않으며, 현재 MVP 성공 이후 별도 승인·Approval·Canary Gate에서 재개한다.
+
+**향후 Obsidian 연결 단계에서만 증명할 항목**(현재 MVP 범위 밖, 목록만 보존): Commit 고정 Allowlist / 경로 정규화·symlink·상위경로 탈출 차단 / 민감파일 0건 Canary / Automation Input Consumer / 원본 Vault 수정 0건.
+
+**별도 미해결 기술 Gate(이 Scope 확정과 무관하게 유지)**: Account Binding 실Meta대조 / Airtable Receipt 상태계약 / Publish Ledger SQLite concurrency·fencing / R6·R8 자동테스트 격리(`policy_path` 주입 fixture 부재).
+
+**Scope**: 문서 기록만(코드·Runtime·Airtable·Vault 변경 0건). Commit·Push는 별도 승인 대상.
+
+---
+
+### Step 3 종료(SUCCESS/CLOSED) — Step 4 기술 Gate 이관(회장 승인, 2026-08-01)
+
+**Step 3 판정**: SUCCESS / CLOSED
+
+**종료 근거**:
+- MVP Source·Output Scope 확정(Sourcebook 직접사용, vault/content·vault/images 출력).
+- Obsidian 장기 목표와 현재 MVP Scope 분리 확정.
+- OUT_OF_SCOPE 항목(Obsidian Vault 연결/Automation Input/Obsidian Git/git archive/Allowlist Manifest/민감파일 Canary)을 현재 Critical UNKNOWN에서 제외.
+- 남은 기술항목을 아래 Step 4 Gate로 명시적 이관(해결 완료 아님).
+
+**Step 4 Entry Condition**(READY, 구현 미착수):
+- T1 Account Binding Gate
+- T2 Receipt Gate
+- T3 Publish Ledger Gate
+- T4 R6·R8 Test Isolation Gate
+
+**주의**: 이관은 해결 완료를 의미하지 않는다. 각 항목은 Step 4에서 구현·Acceptance Test Evidence가 별도로 필요하다.
+
+---
+
+### Step 4 SUCCESS / APPROVED — T1 Persona 조회 승인 + 다음 구현 허용범위(회장 최종 승인, 2026-08-01)
+
+**판정**: Step 4(T1 Account Binding 범위) SUCCESS / APPROVED.
+
+**승인범위**:
+- 보존: `airtable_repository.py` 신규 Persona 조회 메서드 + 전용 테스트.
+- 다음 구현 허용: aijomoojin 전용 Adapter 1개, 확인된 Active Caller 연결부, 전용 테스트.
+- 금지: 기존 DM·기존 게시 핵심함수·다른 계정 변경.
+- Rollback: 신규 hunk·신규 파일·연결 import/call만 원복.
+- 신규 부품: REUSE→ADOPT→ADAPT→BUILD 순서로 공식·OSS 후보 3개 비교 후 부적합시만 최소 Glue Code.
+- 기존 Token·계정·Airtable·실게시 Evidence: PASS_REUSED(재검증 금지).
+
+**State Change**: 공식문서만 수정. Code·Runtime·Commit·Push 0건.
+
+---
+
+### Step 6C SUCCESS — aijomoojin 최초 실게시(media_id 확보) + AI_CONTENT Gate v0 (2026-08-01 18:28)
+
+**판정**: SUCCESS — IDN-000036(aijomoojin), media_id=`17919000633413180`, 기존 APScheduler 자동실행(수동 publish_single 호출 0회), 중복게시 0건, 타계정 게시 0건.
+
+**핵심 발견 + 해결**:
+- **DOMAIN_GATE_NOT_READY**: `content_filter.py`의 AI_CONTENT 도메인이 "Domain Gate 미구현"으로 영구 하드블록 중이었음(의도된 설계). GPT 검수 승인 거쳐 **AI_CONTENT Gate v0** 구현 — Gemini `candidate.finish_reason` REUSE(신규 API·패키지 0개) + Sourcebook `source_url` 존재 + `account_code_ref==IDN-000036` + `persona_code==PER-002` 5조건. `resolve_publish_gate()`는 하위호환 kwargs로 확장(PRODUCT 도메인 동작 불변, 15+3개 테스트로 확인).
+- **T4(runtime_boot_policy.json PermissionError) Root Cause 완전확정**: 세션 비상승 토큰 vs ProgramData ACL 차이(관리자 직접 실증).
+- **Safe Mode "armed" 파일 생성 공식 도구 없음 확인** → 새 보안시스템 미생성, `data_classification="production"` 경로로 우회.
+- **External-First 자기교정 사례**: Step6B에서 외부비교 없이 먼저 BUILD한 Delta(Ledger/예약Job/로컬이미지업로드)가 `ISOLATED_UNAPPROVED` 처리됨 → 이후 GitHub Actions/obsidian-git/n8n 3개 공식 비교, 전부 탈락, 기존 APScheduler REUSE 재확인.
+
+**실행 결과**: 1차 시도 media_publish HTTP 400(컨테이너는 FINISHED로 확인, 원인 불명 — 응답본문 미저장) → 회장 승인 후 동일 creation_id 재호출(신규 컨테이너 아님) → HTTP 200 성공.
+
+**Feature Flag 상태**: `AIJOMOOJIN_BINDING_ADAPTER_ENABLED=true`가 현재 `.env`·Live 프로세스에 적용된 상태 — "매일 08:00 ICT·하루 1건" 정식 운영 전환은 별도 결정 대상(DEFER).
+
+**State Change**: 코드 다수 파일(Gate v0 5곳, T1 Adapter, Step6B Delta) + Airtable Record 1건(production) + `.env` Flag. **Commit·Push 0건**(전체 세션 미실행).
+
+---
+
+### AI_CONTENT Gate v0 — 최소 조립 확정 기록, 정식 안전검사는 후속 DEFER (2026-08-01 19:17)
+
+**Gate v0 범위(4조건뿐)**: Gemini `finish_reason==STOP`(유해성) / Sourcebook `source_url` 존재 / `account_code_ref==IDN-000036` / `persona_code==PER-002`. 언어검증·주제분류·경쟁사필터·발행전 사람승인 등은 포함 안 됨(회장 지시로 명시적 DEFER, "정석대로"의 정식 안전검사는 별도 세션).
+
+**실사고 2건(교훈, 후속 설계 시 반영 필수)**:
+1. Persona.language(ko)를 확인 안 하고 target_language="EN" 임의 지정 → 영어 게시 사고 → 회장이 수동삭제.
+2. `publish_single()`의 HTTP 400="명확한 실패" 분류가 실제로는 부정확 — 400 직후 서버측에서 조용히 게시 성공한 사례 2건 실측, 재시도가 진짜 중복게시를 만듦 → 회장이 3개 전부 수동삭제 후 세 번째 콘텐츠로 재시도해 성공(media_id 17924318079395000, 중복 0건 실측 확인).
+
+**Commit·Push 0건.**
+
+---
+
+### 6D SUCCESS + 6E SUCCESS + 6F HOLD(DEFER) — 세션 종료 기록 (2026-08-01 20:11)
+
+**6D**: `launcher/main.py::publish_single()` HTTP≥400을 기존 5xx/timeout과 동일하게 `outcome_unknown`으로 재분류(재시도 안 함, 사람 확인 대기) — 실사고 2건(HTTP 400 직후 조용한 성공 후 재시도로 중복게시) 재발방지. `test_publish_outcome_unknown.py` 갱신 PASS, 타겟 회귀 0건(기존 T4 baseline만 잔존).
+
+**6E**: `Persona_Profile.language`(PER-002="ko", Airtable Read-only 확인 Evidence)를 실제 Gate에 연결 — `passes_ai_content_gate_v0()`/`resolve_publish_gate()`에 `required_language` 옵션 kwarg 추가(하위호환), 기존 `_korean_ratio()` REUSE(임계값 0.2, caption_generator와 동일 기준). 변경 4파일(`repository_interface.py`/`airtable_repository.py`/`content_filter.py`/`launcher/main.py`), 신규 테스트 8건 PASS, 타겟 회귀 68 passed / 3 failed(전부 기존 T4 baseline).
+
+**6F**: `tools/_canary_260801_queue_aijomoojin_post_6f.py`(신규) 준비 — Canary 최소단위 원칙에 따라 3건을 한 번에 큐잉하지 않고 1건씩 순차 실행+검증(자동게시 확인 후 다음 건) 설계. #1/3 실행 시 `DAILY_IMAGE_CAP_EXCEEDED`(기존 안전상한, cap=3/일 UTC, 오늘 이미 4회 사용)로 HOLD — 코드결함 아님, Fail-closed 설계대로 Vault/Airtable 부분기록 0건. 회장 지시로 다음 세션(UTC 리셋 후, 약 260802 07:00 ICT)으로 DEFER.
+
+**Commit·Push**: 이번 세션 전체 미실행(승인 대기) — 6D+6E 코드변경 전부 미커밋.
+
+---

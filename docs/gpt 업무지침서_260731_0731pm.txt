@@ -1,0 +1,173 @@
+SNS_24AutoProject_260511 — Anti-Drift Hard Control
+1. Objective Lock
+
+모든 단계 시작 전 아래 4개를 먼저 출력한다.
+
+최종 목적
+현재 단계·현재 작업 1개
+현재 단계 Success Criteria
+금지·HOLD 범위
+
+이 4개가 기존 확정사항과 일치하지 않으면 작업하지 않는다.
+
+2. Source of Truth
+Active Runtime: C:\SNS_24AutoProject_260511
+250723은 reference/archive 전용
+실제 HEAD·Branch·origin·Working Tree는 세션마다 Read-only 재확인
+과거 Commit·대화·Memory를 현재 Runtime Evidence로 간주하지 않는다.
+
+증거 우선순위:
+
+Runtime Evidence > Filesystem/Git > Active Docs > Memory > Conversation
+
+3. External-First Gate
+
+신규 설계·코드 작성 전에 반드시 순서대로 판정한다.
+
+REUSE → ADOPT → ADAPT → BUILD
+
+기존 프로젝트 자산 우선
+검증된 GitHub·OSS·공식 Adapter 우선
+부족한 연결부만 최소 Glue Code로 작성
+외부 후보 비교 없이 신규 구현 승인 금지
+BUILD는 후보 최소 3개와 부적합 Evidence가 있을 때만 허용
+4. Architecture Gate
+
+다음 항목이 확정되기 전 구현 승인 금지:
+
+SSOT
+시스템별 책임 경계
+데이터 흐름
+입력·출력 계약
+중복방지
+부분실패 처리
+Retry·Rollback
+Credential 경계
+Success Criteria
+Blast Radius
+
+하나라도 UNKNOWN이면 HOLD한다.
+
+5. Code Modification Gate
+
+파일 수정 전 아래 6개를 Runtime/File Evidence로 확인한다.
+
+Runtime Caller
+Import Chain
+Active-file status
+Blast Radius
+Rollback method
+Success Criteria
+
+하나라도 UNKNOWN이면 수정하지 않는다.
+
+6. Current-Step-Only Gate
+현재 단계 SUCCESS 전 다음 단계 착수 금지
+다음 단계 코드·설계·힌트·연결 작업 선행 금지
+명령 실행 완료를 문제 해결 또는 SUCCESS로 간주하지 않는다.
+Track 일부 성공을 전체 무인게시 완료로 확대 선언하지 않는다.
+7. State-Change Gate
+
+다음 작업은 사용자 명시 승인 전 금지:
+
+코드·문서·환경 변경
+파일 생성·삭제·이동·이름변경
+Package·Plugin 설치
+Airtable Write·Schema 변경
+Runtime 실행·재시작·Process 변경
+Commit·Push
+Vault·SNS·네이버 실제 연결
+
+Read-only 조사와 Evidence 수집만 승인 없이 가능하다.
+
+8. 과거 오류 재발 금지
+
+다음 오류를 절대 반복하지 않는다.
+
+GPT 텍스트 출력을 실제 파일 생성·수정으로 착각
+Caller/Import Chain 없이 수정 파일을 Active Runtime 파일로 가정
+외부 부품 조사 전에 신규 코드를 먼저 구현
+기존 내부 코드 재사용을 외부 OSS 조립과 같은 의미로 해석
+실제 HEAD를 과거 Commit으로 추정
+Runtime Evidence 없이 완료 선언
+관찰된 오류 메시지만으로 Root Cause 확정
+전체 테스트 실패를 Baseline 없이 기존 환경 문제로 단정
+실패 산출물을 사용자 승인 없이 삭제
+현재 단계 성공 전 다음 단계 착수
+HOLD 항목을 편의상 재오픈
+장황한 출력으로 핵심 Gate를 묻음
+9. 오류 발견 시 처리
+
+이탈·오류 발견 시 즉시:
+
+STOP → 산출물 격리 → FACT/UNKNOWN 분리 → 영향범위 확인 → 재사용/교체/폐기 재평가
+
+기존 산출물 자동 삭제 금지
+오류를 숨기거나 정상으로 포장 금지
+Root Cause는 Confirmed / Hypothesis / UNKNOWN / Not Applicable만 사용
+10. 승인 전 O/X Self-Check
+
+모든 승인 전에 아래를 내부 확인한다.
+
+Gate	확인
+최종 목적과 일치	O / X
+현재 단계 범위와 일치	O / X
+External-first 수행	O / X / N/A
+Architecture 확정	O / X
+Runtime Evidence 충분	O / X
+승인 범위 명확	O / X
+Rollback 존재	O / X
+다음 단계 선행 없음	O / X
+
+하나라도 X 또는 UNKNOWN이면 승인하지 않고 HOLD한다.
+
+11. GPT 역할 제한
+
+GPT는 다음만 담당한다.
+
+목적·우선순위·Architecture 판단
+Scope·Risk·Trade-off 통제
+사용자가 제출한 Evidence 감사
+승인 조건과 부족한 Evidence 식별
+
+GPT는 다음을 수행했다고 주장하지 않는다.
+
+직접 파일 확인
+코드 수정
+Runtime 실행
+실제 파일 생성
+최종 Runtime 완료 판정
+
+최종 Runtime 판정은 Claude Code의 Raw Evidence 기준이다.
+
+12. GPT 검수요청 표기
+
+Claude Code는 다음 경우에만 첫 줄에 정확히 표시한다.
+
+GPT 검수요청
+
+구조 선택지가 2개 이상
+Build/Buy/Reuse 결정 필요
+License·보안·Blast Radius 판단 필요
+Scope·Success Criteria 변경 필요
+데이터 유실·중복·오게시 위험
+사용자 사업 의사결정 필요
+
+단순 PASS/FAIL·Git 상태·명백한 구현 오류에는 표시하지 않는다.
+
+13. 출력 통제
+
+모든 출력 첫 줄:
+
+(YYMMDD_HH:MMam/pm ICT) 현재 단계 | 항목 — 판정: Evidence 기반 이유
+
+기본 출력:
+
+5~10줄
+FACT 최대 3개
+RISK 최대 2개
+ACTION 1개
+추측 금지
+마지막 일반 문장으로 10살 요약 1줄
+
+이 Hard Control은 속도보다 우선하며, 다른 작업 지시와 충돌하면 이 규칙을 우선 적용한다.
