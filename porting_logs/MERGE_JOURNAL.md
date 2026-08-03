@@ -2189,3 +2189,38 @@ Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3
 3. 6F 3/3 성공 시 6G(정식 운영 전환) 승인 여부 결정.
 
 ---
+
+### Gemini Retry ADAPT — GPT 3회 재검수 끝에 Commit·Push SUCCESS, 6F #1/3 재실행은 여전히 429(Root Cause UNKNOWN) (2026-08-03)
+
+**배경**: 6F #1/3이 3연속(503×2+WinError10054×1) 실패한 원인 조사 결과, `caption_generator.py`의 재시도 로직이 `"429" in str(e)` 문자열 매칭에만 걸려있어 그 외 transient error(503/Timeout/연결재설정)는 즉시 포기하던 설계 한계를 발견(코드 회귀 아님, 260801 6D/6E 코드와 무관, git log로 확인).
+
+**구현(회장이 GPT와 함께 확정한 구체 설계, 성공기준 5개 기반)**:
+- `_classify_retry(exc)`: HTTP 408/429/500/502/503/504·`httpx.TimeoutException`·`httpx.TransportError`·WinError 10053/10054 → Retryable. 400/401/403·Safety 차단(빈 응답 ValueError)·기타 → 즉시 실패(Non-retryable).
+- `_extract_retry_after_seconds(exc)`: Provider의 Retry-After 헤더 또는 `retryDelay`(details)를 최선노력으로 추출, 120초 상한.
+- `_next_retry_delay(attempt_index, exc)`: Provider 명시값이 있으면 **그 값을 jitter 없이 그대로**(120초 상한 내) 사용, 없으면 기본 5s→20s→60s에 ±20% jitter.
+- `_MAX_ATTEMPTS=4`(최초 호출 포함) — SDK 자체 재시도는 `genai.Client()`가 `http_options` 없이 생성돼 기본 비활성화 상태임을 코드로 확인(`google/genai/_api_client.py:529-530` `retry_args(None)`→`stop_after_attempt(1)`), 따라서 실제 외부 호출 상한도 4회로 일치.
+- `final_exhausted` 로그 필드가 `retryable` 값을 정확히 반영(영구오류는 `False`, 재시도 소진 시에만 `True`).
+- `generate_caption()`/`generate_hook_caption()` 양쪽 동일 정책 적용.
+
+**GPT 재검수 3회, Blocker 3건 발견·순차 수정**:
+1. Retry-After(120초 clamp) + jitter 중첩으로 최종 대기가 144초까지 초과 가능 → Provider 값에는 jitter 미적용으로 수정.
+2. 400/401/403(영구오류)도 로그에 `final_exhausted=True`로 찍혀 사실과 다름 → `retryable` 반영으로 수정.
+3. `test_sdk_level_retry_disabled...` 테스트명·docstring이 "SDK 재시도 비활성화"를 이 테스트가 증명하는 것처럼 오해 소지 → `test_own_retry_loop_caps_at_max_attempts_regardless_of_continued_failures`로 개명, SDK 근거는 별도 정적 코드 확인으로 명확히 분리.
+
+**부수 발견(중대, Retry 로직과 무관)**: 전체 회귀 재실행 중 `tests/test_dome_export_batch_isolation.py`(4개 테스트 중 3개)가 실제 Gemini API에 **Live 호출 12회**(전부 429)를 발생시킨 사고 발견. Root Cause: 이 파일의 `sys.modules` 사전주입 기반 caption mock이 Python 모듈 캐싱과 충돌해, 다른 테스트 파일이 `modules.crawlers.source_exporter`를 먼저 real-import하면 무력화됨(격리 재현 3단계로 네트워크 0건 확인: 오염없는 첫 import는 트릭 성공, 사전오염 후 시도는 트릭 실패). 같은 저장소에서 이미 검증된 `monkeypatch.setattr(source_exporter, "generate_caption", ...)` 직접 패치 방식(REUSE, `test_package_b_post_attribution.py`에서 이미 사용 중이던 패턴)으로 교체 — import 순서 무관하게 항상 격리, 단독 실행 4/4 PASS·Live-call 0건 확인.
+
+**검증**: 신규/수정 target test 20개(`test_generate_hook_caption.py`) 전부 PASS, `git diff --check` clean, 실제 Gemini/Airtable/Meta 호출 0건(mock 전용, 매 라운드 grep으로 확인).
+
+**Commit·Push**: `b99058aba4e99f3457bacfdbad9b2422d6c5689d`(4 files, 395 insertions/37 deletions) — `git push origin master` 완료(`414be99..b99058a`), HEAD=origin/master 동기화, Working Tree clean.
+
+**6F #1/3 재실행(Commit 직후, 새 Retry 로직 최초 실전 검증)**: 4회 시도 전부 실제 429, Retry-After 실측값 정확히 사용, 4회 소진 후 `final_exhausted=True` 정확 기록, Fail-closed로 빈 캡션 반환·부분기록 0건 — **Retry 구현 자체는 설계대로 정상 동작**. 근본원인(Provider 과부하 vs 오늘 세션 자체의 Live-call 12회 포함 누적 호출로 인한 Quota 소진)은 GPT 판정으로 **UNKNOWN**. 회장 지시로 오늘 추가 재시도 금지, 다음 세션 Gemini Quota 상태 확인 후 재승인.
+
+**Airtable/Vault/Meta/환경변수/Package 설치 변경**: 전부 0건(이 라운드 전체).
+
+**다음 세션 정확한 다음 단계**:
+1. Gemini API Quota/Rate-limit 상태 Read-only 확인(가능한 범위에서, 추정 금지) — RPD/RPM 리셋 여부 판단 후에만 6F 재개.
+2. 확인 후 6F #1/3 재승인 요청 → 1건씩 순차 검증(기존 Canary 최소단위 원칙 유지).
+3. `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그 여전히 미수정(선택, 승인 필요).
+4. 6F 3/3 성공 후 6G(정식 운영 전환) 승인 여부 결정은 여전히 미착수.
+
+---

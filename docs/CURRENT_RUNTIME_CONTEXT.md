@@ -1,3 +1,24 @@
+# 2026-08-03 12:19pm ICT — Gemini Retry 구현 Commit·Push 완료, 6F #1/3 재실행도 429 지속 — DEFER
+
+_기록 시각: 2026-08-03 12:19pm ICT · 상태: Gemini transient-error Retry 구현(`_classify_retry`/`_next_retry_delay`, `_MAX_ATTEMPTS=4`) GPT 3회 재검수(Blocker 3건 순차 수정: 120초 clamp+jitter 분리, `final_exhausted` 정확성, 테스트명 오해소지 제거) 끝에 SUCCESS 판정 → 회장 승인으로 4개 파일(`caption_generator.py`/`test_generate_hook_caption.py`/`test_dome_export_batch_isolation.py`/이 문서) commit(`b99058a`)·push 완료(HEAD=origin/master 동기화 확인). 승인 하에 6F #1/3 즉시 재실행했으나 4회 전부 실제 Gemini `429`(Retry-After 실측값 정확히 사용, 4회 소진 후 `final_exhausted=True` 정확 기록, Airtable/Vault 부분기록 0건) — **Retry 구현 자체는 설계대로 정상 동작 확인됨**, 근본 원인(Provider 과부하 vs 오늘 세션 중 자체 발생한 Live-call 12회를 포함한 누적 호출로 인한 일일 Quota 소진)은 GPT 판정으로 **UNKNOWN**. 회장 지시로 오늘 6F 추가 실행 없이 다음 세션으로 DEFER, 다음 세션 시작 시 Gemini Quota/리셋 상태 Read-only 확인부터 선행. 이 항목이 최신 상태이며, 아래 260803 09:39(6F 1차 재개 시도) 이하는 이전 기록으로 보존._
+
+## Commit·Push 확정 Evidence
+- Commit `b99058aba4e99f3457bacfdbad9b2422d6c5689d`(4 files changed, 395 insertions/37 deletions) — `git push origin master` 완료(`414be99..b99058a`), `git status -sb` ahead/behind 0/0, Working Tree clean.
+
+## 6F #1/3 재실행 결과(260803 12:16~12:18pm ICT, 새 Retry 로직 적용 후 최초 실행)
+- 4회 시도 전부 실제 Gemini `429 Too Many Requests`(`category=provider_http_429`), Retry-After 실측값 사용(0.0s/56.0s 등, jitter 미적용 — 설계대로), 4회 소진 후 `final_exhausted=True` 정확 기록, 빈 캡션으로 Fail-closed 종료 → `content_package_builder`가 `CAPTION_GENERATION_FAILED`로 즉시 중단(Airtable 호출 전, 부분기록 0건).
+- **판정(GPT)**: Retry·상한·Fail-closed 전부 정상 — 문제는 여전히 Gemini 쪽(Provider 과부하 또는 오늘 세션 자체 사고로 발생한 Live-call 12회 포함 누적 호출로 인한 Quota 소진), Root Cause는 현재 Evidence로 구분 불가 → **UNKNOWN**.
+- 회장 지시: 오늘 6F 추가 재시도 금지(무한 Retry 우회 위험), 다음 세션 Gemini Quota/리셋 상태 확인 후 재승인받아 실행.
+- **별개(기존 알려진 문제, 미수정)**: `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 콘솔 크래시 재발(ad-hoc gitignore 스크립트, 이번 커밋 범위 밖, 계속 DEFER).
+
+## 다음 세션 시작 시 확인할 것
+1. Gemini API Quota/Rate-limit 상태 Read-only 확인(가능하면 — 공식 콘솔/문서로 RPD/RPM 리셋 여부 판단, 추정 금지).
+2. 확인 후 6F #1/3 재승인 요청 → 1건씩 순차 검증 재개(기존 Canary 최소단위 원칙 그대로).
+3. 6F 3/3 성공 후 6G(정식 운영 전환) 승인 여부 결정은 여전히 미착수.
+4. `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그는 여전히 미수정(선택, 승인 필요).
+
+---
+
 # 2026-08-03 09:39 ICT — 6F #1/3 재개 시도 3연속 실패(Gemini 외부장애) — HOLD/DEFER
 
 _기록 시각: 2026-08-03 09:39 ICT · 상태: 6D+6E는 260801 20:19 ICT에 commit(`6360c58`)·push 완료(Step6B Delta `414be99`도 동일 시점 commit·push 완료, 이전 기록의 "미커밋" 서술은 이 시점 이후 갱신되지 않은 것이었음 — git log로 재확인). 6F #1/3 재개: DAILY_IMAGE_CAP은 SQLite 직접조회로 리셋 확인(오늘 UTC count=0/3)했으나, `create_content_package()`의 캡션 생성(Gemini) 단계에서 3회 연속 실패(503×2 + WinError 10054×1) — 코드결함·Airtable Write 0건, 전부 Gemini 쪽 외부 문제로 판정. 회장 지시로 오늘 추가 재시도 없이 다음 세션으로 DEFER. 이 항목이 최신 상태이며, 아래 260801 20:11(6D/6E SUCCESS·6F HOLD) 이하는 이전 기록으로 보존._
