@@ -2165,3 +2165,27 @@ Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3
 3. 6D+6E 코드변경 Commit·Push 승인 여부 확인(요청 없으면 계속 미실행 유지).
 
 ---
+
+### 6F #1/3 재개 시도 — 3연속 Gemini 외부장애로 HOLD/DEFER (2026-08-03)
+
+**Commit·Push 상태 정정(Evidence: `git log`)**: 이전 항목(260801 22:xx 기록분)에서 "6D+6E 미커밋"으로 남긴 것은 그 세션 내 실제로는 `2026-08-01 20:19` `6360c58`(6D+6E)·`414be99`(Step6B Delta, 격리)로 곧이어 commit·push까지 완료됐음이 이번 세션 `git log`/`git status -sb`(origin/master와 diff 0)로 확인됨. 문서 소급수정 대신 이 항목에 정정만 기록.
+
+**DAILY_IMAGE_CAP 리셋 확인(read-only Evidence)**: `db/image_gen_quota.db` 직접조회 — 마지막 생성 `2026-08-01 12:03:08`(그날 4회), SQLite `datetime('now')`(UTC) `2026-08-03 01:59:09` 기준 오늘 카운트 `0`. 상한 정상 리셋 확인, cap 문제 아님.
+
+**6F #1/3 3회 연속 실행 결과(전부 Airtable 호출 이전 `create_content_package()` 캡션 생성 단계에서 실패, 부분기록 0건)**:
+1. 09:00:12 ICT — Gemini `503 UNAVAILABLE`("high demand, try again later")
+2. 09:30:09 ICT — `WinError 10054`(원격 호스트에 의한 연결 강제종료)
+3. 09:39:40 ICT — Gemini `503 UNAVAILABLE`(동일 메시지) — 회장 승인 하에 즉시 3차 재시도했으나 동일 실패
+
+**판정**: 코드결함 아님, Airtable/Vault Write 0건(전부 확인됨). 3회 연속 동일 계열 실패(외부 Gemini 측 지속 장애 가능성)로 회장 지시에 따라 4차 즉시 재시도 없이 다음 세션으로 DEFER.
+
+**별개 발견(코드결함, 낮은 위험, 미수정, 승인 대기)**: `tools/_canary_260801_queue_aijomoojin_post_6f.py:36`의 실패 시 print 문(`"ABORT: content_package_builder 실패 —"`)이 em-dash(—)를 포함해 Windows cp949 콘솔에서 `UnicodeEncodeError`로 크래시 — `result.error_code` 값이 화면에 안 보이고 스택트레이스로 대체됨(원인 자체는 stdout의 Gemini 원문 로그로 대체 확인). gitignore 대상 ad-hoc 스크립트(`tools/_*.py`)라 커밋 영향 없음 — 수정은 다음 세션 회장 승인 후.
+
+**Airtable 변경**: 0건. **Commit·Push**: 이번 세션 코드 변경 없음(문서만).
+
+**다음 세션 정확한 다음 단계**:
+1. `C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe C:\SNS_24AutoProject_260511\tools\_canary_260801_queue_aijomoojin_post_6f.py` 재실행(#1/3)부터 재개(Gemini 쪽 상태 호전 확인 후).
+2. (선택, 승인 필요) em-dash 출력버그 1줄 수정.
+3. 6F 3/3 성공 시 6G(정식 운영 전환) 승인 여부 결정.
+
+---

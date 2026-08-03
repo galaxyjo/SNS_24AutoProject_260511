@@ -1,3 +1,27 @@
+# 2026-08-03 09:39 ICT — 6F #1/3 재개 시도 3연속 실패(Gemini 외부장애) — HOLD/DEFER
+
+_기록 시각: 2026-08-03 09:39 ICT · 상태: 6D+6E는 260801 20:19 ICT에 commit(`6360c58`)·push 완료(Step6B Delta `414be99`도 동일 시점 commit·push 완료, 이전 기록의 "미커밋" 서술은 이 시점 이후 갱신되지 않은 것이었음 — git log로 재확인). 6F #1/3 재개: DAILY_IMAGE_CAP은 SQLite 직접조회로 리셋 확인(오늘 UTC count=0/3)했으나, `create_content_package()`의 캡션 생성(Gemini) 단계에서 3회 연속 실패(503×2 + WinError 10054×1) — 코드결함·Airtable Write 0건, 전부 Gemini 쪽 외부 문제로 판정. 회장 지시로 오늘 추가 재시도 없이 다음 세션으로 DEFER. 이 항목이 최신 상태이며, 아래 260801 20:11(6D/6E SUCCESS·6F HOLD) 이하는 이전 기록으로 보존._
+
+## 6F #1/3 재개 시도(260803, 이번 세션)
+- **DAILY_IMAGE_CAP 리셋 확인(Evidence)**: `db/image_gen_quota.db` 직접조회 — 마지막 생성 `2026-08-01 12:03:08`(그날 4회), 오늘(SQLite `datetime('now')`=UTC `2026-08-03 01:59:09`) 카운트 `0`. 리셋 확인됨, cap 문제 아님.
+- **3회 연속 실패**(전부 Airtable 호출 이전 `create_content_package()` 캡션 생성 단계에서 중단, 부분기록 0건):
+  1. 09:00:12 — Gemini `503 UNAVAILABLE`("This model is currently experiencing high demand...")
+  2. 09:30:09 — `WinError 10054`(기존 연결이 원격 호스트에 의해 강제로 끊김)
+  3. 09:39:40 — Gemini `503 UNAVAILABLE`(동일 메시지)
+- **회장 결정**: 즉시 4차 재시도 대신 오늘은 중단, 다음 세션으로 DEFER.
+- **별개 발견(코드결함, 낮은 위험, 미수정)**: `tools/_canary_260801_queue_aijomoojin_post_6f.py:36`의 실패 시 print 문이 em-dash(—)를 포함해 Windows cp949 콘솔에서 `UnicodeEncodeError`로 크래시 — 실제 `result.error_code` 값이 화면에 안 보이고 스택트레이스로 대체됨(원인 자체는 stdout의 Gemini 원문 로그로 대체 확인 가능했음). 다음 세션에서 회장 승인 시 1줄 수정 대상(gitignore 대상 ad-hoc 스크립트라 커밋 영향 없음).
+
+## 6D/6E Commit·Push 상태 정정(Evidence: git log)
+- `6360c58`(6D+6E 코드변경) / `414be99`(Step6B Delta, 격리) 둘 다 `2026-08-01 20:19` commit, 현재 `git status -sb`상 `origin/master`와 diff 0(push 완료 확인).
+- 이전 기록(260801 20:11 항목)의 "Commit·Push 0건/미승인" 서술은 그 기록 시각 **직후**(같은 세션 8분 뒤, 20:19) 진행된 것으로 확인 — 문서 자체를 소급 수정하지 않고 이 최신 항목에 정정 사실만 기록.
+
+## 다음 세션 우선순위
+1. 6F #1/3 재시도(Gemini 쪽 상태 호전 후) — 동일 명령: `C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe C:\SNS_24AutoProject_260511\tools\_canary_260801_queue_aijomoojin_post_6f.py`
+2. (선택, 승인 필요) `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그 수정 — ad-hoc 스크립트라 낮은 위험이나 코드수정이므로 승인 절차 그대로 적용.
+3. 6F 3/3 성공 후 6G(정식 운영 전환) 승인 여부 결정은 여전히 미착수.
+
+---
+
 # 2026-08-01 20:11 ICT — 6D SUCCESS / 6E SUCCESS / 6F HOLD(DEFER) — 세션 종료 기록
 
 _기록 시각: 2026-08-01 20:11 ICT · 상태: 6D(중복사고 방지)·6E(AI_CONTENT Gate v1 언어검사) 코드레벨 SUCCESS, 6F(3-post 자동게시 Canary) #1/3 큐잉 시도 중 기존 안전상한(DAILY_IMAGE_CAP=3/일)에 걸려 HOLD, 회장 지시로 다음 세션(UTC 리셋 후, 약 260802 07:00 ICT)으로 DEFER. 이 항목이 최신 상태이며, 아래 260801 19:17(Gate v0 최소조립) 이하는 이전 기록으로 보존._
