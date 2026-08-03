@@ -116,9 +116,15 @@ def passes_ai_content_gate_v0(
 
     from modules.sns.caption_generator import check_caption_safety
 
-    safe, reason = check_caption_safety(caption)
-    if not safe:
+    safety_status, reason = check_caption_safety(caption)
+    if safety_status == "UNSAFE":
         return False, f"AI_CONTENT_SAFETY_BLOCKED:{reason}"
+    if safety_status == "RETRY_EXHAUSTED":
+        return False, f"AI_CONTENT_SAFETY_RETRY_EXHAUSTED:{reason}"
+    if safety_status == "PERMANENT":
+        return False, f"AI_CONTENT_SAFETY_CHECK_FAILED:{reason}"
+    if safety_status != "SAFE":
+        return False, f"AI_CONTENT_SAFETY_CHECK_FAILED:UNKNOWN_STATUS:{safety_status}"
 
     return True, "PUBLISH_ALLOWED"
 

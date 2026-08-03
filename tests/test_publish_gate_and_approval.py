@@ -5,6 +5,8 @@
 
 import logging
 
+import pytest
+
 from modules.infra.repository_interface import InstagramPostStatus, PostPublishResult
 
 
@@ -173,6 +175,80 @@ def test_text_gate_blocks_and_marks_rejected_when_enabled(monkeypatch, caplog):
     assert "[PublishGate] DOMAIN_CONTENT_REJECTED | rid=rec1" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("gate_result", "expected_status"),
+    [
+        ("AI_CONTENT_SAFETY_BLOCKED:SAFETY", "rejected"),
+        ("AI_CONTENT_SAFETY_RETRY_EXHAUSTED:provider_http_503", "failed"),
+        ("AI_CONTENT_SAFETY_CHECK_FAILED:permanent_http_400", "failed"),
+    ],
+)
+def test_safety_gate_terminal_status_before_claim_and_meta(
+    monkeypatch, gate_result, expected_status
+):
+    monkeypatch.setenv("PUBLISH_TEXT_GATE_ENABLED", "true")
+    monkeypatch.setenv("INSTAGRAM_PROVIDER_ROUTING_ENABLED", "true")
+
+    from launcher import main as launcher_main
+
+    calls = {"mark_post_result": [], "claim": 0, "publish_single": 0}
+
+    class _FakeRepo:
+        def fetch_pending_posts(self, limit=50):
+            return [{
+                "post_id": "rec-safety", "image_url": "https://example.invalid/image.jpg",
+                "caption": "검사할 캡션", "hashtag": "", "account_code_ref": "IDN-000036",
+            }]
+
+        def get_publish_account(self, account_code):
+            return {
+                "account_code": account_code,
+                "api_provider": "facebook_login",
+                "ig_user_id": "fake-ig-user",
+                "credential_key": "AIJOMOOJIN",
+                "automation_enabled": True,
+            }
+
+        def get_active_persona_by_account_code_v2(self, account_code):
+            return {"persona_code": "PER-002", "language": "ko"}
+
+        def mark_post_result(self, post_id, result):
+            calls["mark_post_result"].append((post_id, dict(result)))
+
+        def claim_post_for_upload(self, post_id):
+            calls["claim"] += 1
+            raise AssertionError("Safety 종료 뒤 claim에 도달하면 안 됨")
+
+    monkeypatch.setattr(
+        "modules.infra.airtable_repository.AirtableRepository", lambda: _FakeRepo()
+    )
+    monkeypatch.setattr(
+        "modules.common.canary_classification.validate_publication_candidate",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        launcher_main,
+        "resolve_publish_gate",
+        lambda caption, account_code_ref, **kwargs: (False, gate_result),
+    )
+
+    def _fake_publish_single(*args, **kwargs):
+        calls["publish_single"] += 1
+        raise AssertionError("Safety 종료 뒤 Meta 호출에 도달하면 안 됨")
+
+    monkeypatch.setattr(launcher_main, "publish_single", _fake_publish_single)
+
+    launcher_main._job_insta_upload()
+
+    assert calls["claim"] == 0
+    assert calls["publish_single"] == 0
+    assert len(calls["mark_post_result"]) == 1
+    post_id, result = calls["mark_post_result"][0]
+    assert post_id == "rec-safety"
+    assert result["status"] == expected_status
+    assert result["error_code"] == gate_result
+
+
 def test_text_gate_disabled_by_default_preserves_existing_behavior(monkeypatch):
     """PUBLISH_TEXT_GATE_ENABLED 미설정(기본 false) — 기존 동작(게이트 없이 바로 publish) 회귀 없음."""
     monkeypatch.delenv("PUBLISH_TEXT_GATE_ENABLED", raising=False)
@@ -244,7 +320,7 @@ def test_text_gate_passes_through_when_filter_returns_true(monkeypatch):
 
     from launcher import main as launcher_main
 
-    calls = {"publish_single": 0}
+    calls = {"publish_single": 0, "events": []}
 
     class _FakeRepo:
         def fetch_pending_posts(self, limit=50):
@@ -263,10 +339,11 @@ def test_text_gate_passes_through_when_filter_returns_true(monkeypatch):
             }
 
         def claim_post_for_upload(self, post_id):
+            calls["events"].append("claim")
             return True
 
         def mark_post_result(self, post_id, result):
-            pass
+            calls["events"].append("mark")
 
     monkeypatch.setattr(
         "modules.infra.airtable_repository.AirtableRepository", lambda: _FakeRepo()
@@ -278,6 +355,7 @@ def test_text_gate_passes_through_when_filter_returns_true(monkeypatch):
 
     def _fake_publish_single(*a, **k):
         calls["publish_single"] += 1
+        calls["events"].append("publish")
         return {"ok": True, "ig_media_id": "media3"}
 
     monkeypatch.setattr(launcher_main, "publish_single", _fake_publish_single)
@@ -289,6 +367,7 @@ def test_text_gate_passes_through_when_filter_returns_true(monkeypatch):
     launcher_main._job_insta_upload()
 
     assert calls["publish_single"] == 1
+    assert calls["events"] == ["claim", "publish", "mark"]
 
 
 def test_text_gate_blank_account_code_ref_rejected_by_main_py_identity_gate(monkeypatch, caplog):

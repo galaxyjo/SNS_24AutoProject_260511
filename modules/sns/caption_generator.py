@@ -1,10 +1,12 @@
 import os
 import random
 import time
+from typing import Literal
 
 import httpx
 from google import genai
 from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 
 _client = None
 
@@ -21,6 +23,8 @@ _RETRY_JITTER_RATIO = 0.2
 _MAX_RETRY_AFTER_SECONDS = 120.0
 _RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
 _RETRYABLE_WINERRORS = {10053, 10054}  # 연결 중단/재설정(Windows)
+
+SafetyStatus = Literal["SAFE", "UNSAFE", "PERMANENT", "RETRY_EXHAUSTED"]
 
 
 def _classify_retry(exc: Exception) -> "tuple[bool, str]":
@@ -265,33 +269,69 @@ def generate_hook_caption(
     return "", ""
 
 
-def check_caption_safety(caption: str) -> tuple[bool, str]:
+def check_caption_safety(caption: str) -> tuple[SafetyStatus, str]:
     """260801 AI_CONTENT Gate v0 — 이미 생성된 caption 텍스트의 Gemini Safety
     상태를 확인한다(재생성 아님, 신규 caption을 만들지 않음).
 
     기존 generate_hook_caption()은 API 응답의 candidate.finish_reason/
     safety_ratings를 버리고 text만 반환하므로, 이미 생성된 콘텐츠에 대해서는
-    이 함수로 별도 1회 확인한다. finish_reason이 STOP이 아니면(SAFETY 등)
-    차단 상태로 판단한다 — 점수·카테고리별 세부 정책 엔진은 만들지 않는다."""
+    이 함수로 별도 확인한다. structured Safety 신호를 response.text보다 먼저
+    확인하고, Provider transient 오류는 caption 생성과 동일한 bounded retry 계약을
+    재사용한다 — 점수·카테고리별 세부 정책 엔진은 만들지 않는다."""
     if not caption or not caption.strip():
-        return False, "EMPTY_CAPTION"
+        return "PERMANENT", "EMPTY_CAPTION"
 
-    try:
-        _throttle()
-        client = _get_client()
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=caption,
-        )
-    except Exception as e:
-        return False, f"SAFETY_CHECK_ERROR:{e}"
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            _throttle()
+            client = _get_client()
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=caption,
+            )
 
-    if not response.candidates:
-        return False, "NO_CANDIDATE"
+            # 후보가 없어 response.text가 예외를 내는 경우에도 prompt 차단 신호를
+            # 놓치지 않도록 structured prompt feedback을 항상 가장 먼저 확인한다.
+            prompt_feedback = getattr(response, "prompt_feedback", None)
+            block_reason = getattr(prompt_feedback, "block_reason", None)
+            block_reason_name = getattr(block_reason, "name", "") if block_reason else ""
+            if (
+                block_reason is not None
+                and block_reason_name != "BLOCKED_REASON_UNSPECIFIED"
+            ):
+                return "UNSAFE", block_reason_name or str(block_reason)
 
-    candidate = response.candidates[0]
-    reason = candidate.finish_reason.name if candidate.finish_reason else "UNKNOWN"
-    return reason == "STOP", reason
+            candidates = getattr(response, "candidates", None) or []
+            if not candidates:
+                return "PERMANENT", "NO_CANDIDATE_WITHOUT_BLOCK_REASON"
+
+            candidate = candidates[0]
+            finish_reason = getattr(candidate, "finish_reason", None)
+            if finish_reason == genai_types.FinishReason.SAFETY:
+                return "UNSAFE", "SAFETY"
+
+            # structured Safety 신호 확인이 끝난 뒤, candidate가 있을 때만 text 접근.
+            response_text = response.text
+            normalized_text = response_text.strip().upper() if response_text else ""
+            if normalized_text == "SAFETY":
+                return "UNSAFE", "SAFETY_TEXT"
+
+            if finish_reason == genai_types.FinishReason.STOP and normalized_text:
+                return "SAFE", "STOP"
+
+            finish_reason_name = getattr(finish_reason, "name", "UNKNOWN")
+            return "PERMANENT", f"UNHANDLED_FINISH_REASON:{finish_reason_name}"
+        except Exception as exc:
+            retryable, category = _classify_retry(exc)
+            if retryable and attempt < _MAX_ATTEMPTS:
+                delay = _next_retry_delay(attempt - 1, exc)
+                time.sleep(delay)
+                continue
+            if retryable:
+                return "RETRY_EXHAUSTED", category
+            return "PERMANENT", category
+
+    return "RETRY_EXHAUSTED", "retry_loop_unreachable"
 
 
 def generate_caption_clone(text: str) -> tuple[str, str]:

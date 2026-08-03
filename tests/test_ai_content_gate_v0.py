@@ -3,50 +3,173 @@
 
 from unittest.mock import MagicMock, patch
 
+import httpx
+import pytest
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
+
 from modules.sns.content_filter import resolve_publish_gate, passes_ai_content_gate_v0
 from modules.sns import caption_generator
 
 
-def _mock_gemini_response(finish_reason_name="STOP"):
-    candidate = MagicMock()
-    reason = MagicMock()
-    reason.name = finish_reason_name
-    candidate.finish_reason = reason
-    resp = MagicMock()
-    resp.candidates = [candidate]
-    return resp
+class _SafetyResponse:
+    def __init__(self, *, candidates=None, prompt_feedback=None, text="SAFE", text_error=None):
+        self.candidates = candidates or []
+        self.prompt_feedback = prompt_feedback
+        self._text = text
+        self._text_error = text_error
+        self.text_accesses = 0
+
+    @property
+    def text(self):
+        self.text_accesses += 1
+        if self._text_error:
+            raise self._text_error
+        return self._text
+
+
+def _safety_response(
+    finish_reason=genai_types.FinishReason.STOP, text="SAFE", text_error=None
+):
+    return _SafetyResponse(
+        candidates=[genai_types.Candidate(finish_reason=finish_reason)],
+        text=text,
+        text_error=text_error,
+    )
+
+
+class _SequenceModels:
+    def __init__(self, outcomes):
+        self._outcomes = list(outcomes)
+        self.calls = 0
+
+    def generate_content(self, model, contents):
+        self.calls += 1
+        outcome = self._outcomes[self.calls - 1]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+
+def _patch_safety_client(monkeypatch, outcomes):
+    models = _SequenceModels(outcomes)
+    monkeypatch.setattr(
+        caption_generator, "_get_client", lambda: MagicMock(models=models)
+    )
+    monkeypatch.setattr(caption_generator, "_throttle", lambda: None)
+    monkeypatch.setattr(caption_generator.time, "sleep", lambda _seconds: None)
+    return models
+
+
+def _server_error(code=503):
+    return genai_errors.ServerError(
+        code, {"error": {"code": code, "message": "transient", "status": "UNAVAILABLE"}}
+    )
+
+
+def _client_error(code):
+    return genai_errors.ClientError(
+        code, {"error": {"code": code, "message": "permanent", "status": "INVALID_ARGUMENT"}}
+    )
 
 
 class TestCheckCaptionSafety:
     def test_empty_caption_blocked(self):
-        assert caption_generator.check_caption_safety("") == (False, "EMPTY_CAPTION")
+        assert caption_generator.check_caption_safety("") == ("PERMANENT", "EMPTY_CAPTION")
 
-    def test_stop_finish_reason_is_safe(self):
-        with patch.object(caption_generator, "_get_client", return_value=MagicMock(
-            models=MagicMock(generate_content=MagicMock(return_value=_mock_gemini_response("STOP")))
-        )), patch.object(caption_generator, "_throttle"):
-            safe, reason = caption_generator.check_caption_safety("hello world")
-        assert safe is True
-        assert reason == "STOP"
+    def test_stop_finish_reason_with_normal_text_is_safe(self, monkeypatch):
+        models = _patch_safety_client(monkeypatch, [_safety_response(text="SAFE")])
+        assert caption_generator.check_caption_safety("hello world") == ("SAFE", "STOP")
+        assert models.calls == 1
 
-    def test_safety_finish_reason_is_blocked(self):
-        with patch.object(caption_generator, "_get_client", return_value=MagicMock(
-            models=MagicMock(generate_content=MagicMock(return_value=_mock_gemini_response("SAFETY")))
-        )), patch.object(caption_generator, "_throttle"):
-            safe, reason = caption_generator.check_caption_safety("some text")
-        assert safe is False
-        assert reason == "SAFETY"
+    def test_actual_safety_finish_reason_is_unsafe(self, monkeypatch):
+        response = _safety_response(genai_types.FinishReason.SAFETY, text_error=AssertionError())
+        models = _patch_safety_client(monkeypatch, [response])
+        assert caption_generator.check_caption_safety("some text") == ("UNSAFE", "SAFETY")
+        assert models.calls == 1
+        assert response.text_accesses == 0
 
-    def test_api_exception_blocks(self):
-        with patch.object(caption_generator, "_get_client", side_effect=RuntimeError("boom")):
-            safe, reason = caption_generator.check_caption_safety("text")
-        assert safe is False
-        assert reason.startswith("SAFETY_CHECK_ERROR")
+    def test_no_candidate_with_actual_block_reason_is_unsafe_without_text(self, monkeypatch):
+        response = _SafetyResponse(
+            candidates=[],
+            prompt_feedback=genai_types.GenerateContentResponsePromptFeedback(
+                block_reason=genai_types.BlockedReason.SAFETY
+            ),
+            text_error=AssertionError("text must not be read"),
+        )
+        models = _patch_safety_client(monkeypatch, [response])
+        assert caption_generator.check_caption_safety("text") == ("UNSAFE", "SAFETY")
+        assert models.calls == 1
+        assert response.text_accesses == 0
+
+    def test_no_candidate_without_block_reason_is_permanent_without_text(self, monkeypatch):
+        response = _SafetyResponse(
+            candidates=[], text_error=AssertionError("text must not be read")
+        )
+        models = _patch_safety_client(monkeypatch, [response])
+        assert caption_generator.check_caption_safety("text") == (
+            "PERMANENT", "NO_CANDIDATE_WITHOUT_BLOCK_REASON"
+        )
+        assert models.calls == 1
+        assert response.text_accesses == 0
+
+    def test_unspecified_block_reason_is_not_treated_as_unsafe(self, monkeypatch):
+        response = _SafetyResponse(
+            candidates=[],
+            prompt_feedback=genai_types.GenerateContentResponsePromptFeedback(
+                block_reason=genai_types.BlockedReason.BLOCKED_REASON_UNSPECIFIED
+            ),
+            text_error=AssertionError("text must not be read"),
+        )
+        _patch_safety_client(monkeypatch, [response])
+        assert caption_generator.check_caption_safety("text") == (
+            "PERMANENT", "NO_CANDIDATE_WITHOUT_BLOCK_REASON"
+        )
+        assert response.text_accesses == 0
+
+    def test_stop_with_exact_safety_text_is_unsafe(self, monkeypatch):
+        _patch_safety_client(monkeypatch, [_safety_response(text="  SAFETY  ")])
+        assert caption_generator.check_caption_safety("text") == ("UNSAFE", "SAFETY_TEXT")
+
+    def test_safety_text_substring_is_not_blocked(self, monkeypatch):
+        _patch_safety_client(monkeypatch, [_safety_response(text="SAFETY CHECK COMPLETE")])
+        assert caption_generator.check_caption_safety("text") == ("SAFE", "STOP")
+
+    def test_503_then_success_is_exactly_two_attempts(self, monkeypatch):
+        models = _patch_safety_client(monkeypatch, [_server_error(), _safety_response()])
+        assert caption_generator.check_caption_safety("text") == ("SAFE", "STOP")
+        assert models.calls == 2
+
+    def test_503_exhausts_at_exactly_four_attempts(self, monkeypatch):
+        models = _patch_safety_client(monkeypatch, [_server_error()] * 4)
+        assert caption_generator.check_caption_safety("text") == (
+            "RETRY_EXHAUSTED", "provider_http_503"
+        )
+        assert models.calls == caption_generator._MAX_ATTEMPTS == 4
+
+    @pytest.mark.parametrize(
+        "error",
+        [httpx.ReadTimeout("timeout"), httpx.ConnectError("connect")],
+    )
+    def test_transport_errors_are_bounded(self, monkeypatch, error):
+        models = _patch_safety_client(monkeypatch, [error] * 4)
+        status, reason = caption_generator.check_caption_safety("text")
+        assert status == "RETRY_EXHAUSTED"
+        assert reason.startswith("transport_")
+        assert models.calls == 4
+
+    @pytest.mark.parametrize("code", [400, 401, 403])
+    def test_permanent_http_errors_make_one_attempt(self, monkeypatch, code):
+        models = _patch_safety_client(monkeypatch, [_client_error(code)])
+        assert caption_generator.check_caption_safety("text") == (
+            "PERMANENT", f"permanent_http_{code}"
+        )
+        assert models.calls == 1
 
 
 class TestAiContentGateV0:
     def _patch_safe(self):
-        return patch("modules.sns.caption_generator.check_caption_safety", return_value=(True, "STOP"))
+        return patch("modules.sns.caption_generator.check_caption_safety", return_value=("SAFE", "STOP"))
 
     def test_all_conditions_pass(self):
         with self._patch_safe():
@@ -77,12 +200,31 @@ class TestAiContentGateV0:
         assert code == "AI_CONTENT_NO_SOURCE"
 
     def test_gemini_safety_blocked(self):
-        with patch("modules.sns.caption_generator.check_caption_safety", return_value=(False, "SAFETY")):
+        with patch("modules.sns.caption_generator.check_caption_safety", return_value=("UNSAFE", "SAFETY")):
             allowed, code = passes_ai_content_gate_v0(
                 "caption", "IDN-000036", "https://jobs.netflix.com/culture", "PER-002"
             )
         assert allowed is False
         assert code == "AI_CONTENT_SAFETY_BLOCKED:SAFETY"
+
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            ("RETRY_EXHAUSTED", "AI_CONTENT_SAFETY_RETRY_EXHAUSTED:provider_http_503"),
+            ("PERMANENT", "AI_CONTENT_SAFETY_CHECK_FAILED:permanent_http_400"),
+        ],
+    )
+    def test_operational_safety_failures_are_not_content_blocks(self, status, expected):
+        reason = "provider_http_503" if status == "RETRY_EXHAUSTED" else "permanent_http_400"
+        with patch(
+            "modules.sns.caption_generator.check_caption_safety",
+            return_value=(status, reason),
+        ):
+            allowed, code = passes_ai_content_gate_v0(
+                "caption", "IDN-000036", "https://jobs.netflix.com/culture", "PER-002"
+            )
+        assert allowed is False
+        assert code == expected
 
     def test_english_caption_blocked_when_korean_required(self):
         """260801 6E — 실측 오사고(영어 게시) 재발방지. required_language="ko"인데
@@ -129,7 +271,7 @@ class TestResolvePublishGateBackwardCompat:
         assert code == "DOMAIN_CONTENT_REJECTED"
 
     def test_ai_content_domain_no_longer_hardblocked(self):
-        with patch("modules.sns.caption_generator.check_caption_safety", return_value=(True, "STOP")):
+        with patch("modules.sns.caption_generator.check_caption_safety", return_value=("SAFE", "STOP")):
             allowed, code = resolve_publish_gate(
                 "caption", "IDN-000036",
                 source_url="https://jobs.netflix.com/culture", persona_code="PER-002",

@@ -534,7 +534,12 @@ def _job_insta_upload():
             if not allowed:
                 logger.info(f"[PublishGate] {gate_result} | rid={post_id}")
                 from modules.infra.repository_interface import PostPublishResult as _PPR
-                repo.mark_post_result(post_id, _PPR(status="rejected", platform_post_id="", error_code=gate_result))
+                _safety_operational_failure = gate_result.startswith((
+                    "AI_CONTENT_SAFETY_RETRY_EXHAUSTED:",
+                    "AI_CONTENT_SAFETY_CHECK_FAILED:",
+                ))
+                _gate_status = "failed" if _safety_operational_failure else "rejected"
+                repo.mark_post_result(post_id, _PPR(status=_gate_status, platform_post_id="", error_code=gate_result))
                 continue
 
         provider_conf = PROVIDER_CONFIG.get(account["api_provider"])
