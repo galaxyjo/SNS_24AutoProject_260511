@@ -15,10 +15,34 @@ _기록 시각: 2026-08-03 09:39 ICT · 상태: 6D+6E는 260801 20:19 ICT에 com
 - `6360c58`(6D+6E 코드변경) / `414be99`(Step6B Delta, 격리) 둘 다 `2026-08-01 20:19` commit, 현재 `git status -sb`상 `origin/master`와 diff 0(push 완료 확인).
 - 이전 기록(260801 20:11 항목)의 "Commit·Push 0건/미승인" 서술은 그 기록 시각 **직후**(같은 세션 8분 뒤, 20:19) 진행된 것으로 확인 — 문서 자체를 소급 수정하지 않고 이 최신 항목에 정정 사실만 기록.
 
-## 다음 세션 우선순위
-1. 6F #1/3 재시도(Gemini 쪽 상태 호전 후) — 동일 명령: `C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe C:\SNS_24AutoProject_260511\tools\_canary_260801_queue_aijomoojin_post_6f.py`
-2. (선택, 승인 필요) `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그 수정 — ad-hoc 스크립트라 낮은 위험이나 코드수정이므로 승인 절차 그대로 적용.
-3. 6F 3/3 성공 후 6G(정식 운영 전환) 승인 여부 결정은 여전히 미착수.
+## Gemini Retry 정책 — GPT 검수 완료(APPROVAL_REQUIRED, 코드 미착수)
+- 회장 지시로 근본원인(429 문자열 매칭만 재시도, 503/연결오류는 즉시 포기 — `caption_generator.py:160` 부근) 조사 후 GPT에 검수 요청, GPT가 260803 10:12 ICT 설계 승인 초안 회신:
+  - **1(재시도 구조)**: 무한 금지 — 실행당 3회(5s→20s→60s+jitter) 후 종료 → 기존 Scheduler에서 최대 2~3회 재기회 → 최종 실패 시 Alert. 총 상한 6~9회, 영구 반복 금지.
+  - **2(에러 분류)**: 503=Provider overload(Retry-After 우선, 긴 backoff) / WinError 10054=Transport reset(짧은 backoff, 반복 시 네트워크 장애로 종료) — 둘 다 Retryable이지만 분류는 분리.
+  - **3(실행 위치)**: 긴 내부 Loop 금지(Worker 점유·재시작 시 상태소실·Watchdog 영향 위험) — 기존 APScheduler REUSE + 짧은 내부 Retry만.
+  - **4(Circuit Breaker)**: 완전한 CB(Half-open 상태머신 등)는 이 규모에 YAGNI — 연속 3회 transient 실패 시 15~30분 Gemini 호출 자체를 쉬는 최소 Cooldown만.
+  - **FACT**: Airtable/Vault 0건·Fail-closed 중단은 정상(변경 대상 아님). Retry는 Caption 단계에만 적용, Meta 게시 이후 전체 Pipeline 재실행 금지.
+  - **RISK**: 다음 tick을 영구 허용하면 이름만 바뀐 무한 Retry(CLAUDE.md 15.2 위반). 10054가 방화벽/Proxy/TLS 문제면 반복호출은 복구가 아니라 장애 증폭.
+  - GPT 260803 10:23 ICT 추가 지시: "재시도 범위·상한·실패처리 설계를 GPT가 먼저 확정·승인한 뒤 Claude Code가 구현" — 즉 이 표는 방향 승인이며, **회장이 별도로 구체 설계(diff 수준)를 줄 때까지 코드 수정 착수 금지**.
+- **현재 상태**: 코드 변경 0건(대기), 다음 세션(또는 이번 세션 후속)에서 회장이 구체 설계를 전달하면 그때 5요소 승인 포맷으로 재제출 후 구현.
+
+## Gemini Retry 구현 — 실제 반영 내용(SSOT 정정, 260803 12:00pm ICT)
+
+> 위 260803 10:12/10:23 항목은 **최초 방향 승인 초안**이며, 회장이 260803 11:33 ICT 이후 전달한 **구체 설계(성공기준 5개, 승인범위 2파일)**로 대체·구체화됐다. 아래가 실제 구현 상태다 — 위 초안 항목(3회/Scheduler 재기회/Cooldown/Alert)은 **채택되지 않았다**, 혼동 방지를 위해 명시 정정한다.
+
+- **적용 범위**: `modules/sns/caption_generator.py`의 `generate_caption()`/`generate_hook_caption()` 2개 함수만. Scheduler(`launcher/main.py`) 변경 없음. Circuit Breaker/Cooldown 없음. Slack Alert 신규 연결 없음(전부 이번 구현 범위 밖으로 확정, 초안의 "Scheduler 2~3회 재기회"·"15~30분 Cooldown"·"최종실패 Alert"는 미구현).
+- **실제 재시도 상한**: 최초 호출 포함 **총 4회**(`_MAX_ATTEMPTS=4`, 초안의 "3회"가 아님) — SDK 자체 재시도는 기본 비활성화 확인됨(코드 근거: `google/genai/_api_client.py:529-530` `retry_args(None)`→`stop_after_attempt(1)`), 따라서 실제 외부 호출 상한도 4회로 일치.
+- **재시도 대상 분류**(`_classify_retry()`): HTTP 408/429/500/502/503/504, `httpx.TimeoutException`, `httpx.TransportError`, WinError 10053/10054 — 재시도. 400/401/403·Safety 차단(빈 응답)·기타는 즉시 실패(재시도 안 함).
+- **대기시간**: 기본 5s→20s→60s(±20% jitter) 또는 Provider의 Retry-After/retryDelay 우선 사용. Provider 명시값은 **120초 상한 내에서 jitter 없이 그대로** 사용(260803 11:58am ICT GPT 2차 지적으로 수정 — 최초 구현은 Provider 값에도 ±20% jitter를 적용해 120초 지시가 96초로 줄어들 수 있는 결함이 있었음). jitter는 Provider 값이 없을 때(기본 backoff 경로)만 적용.
+- **로그 정확성**: `final_exhausted` 필드가 항상 `True`였던 결함을 수정 — 이제 `retryable` 값을 그대로 반영(영구오류로 1회만에 실패한 경우 `final_exhausted=False`, 재시도를 다 쓰고 실패한 경우만 `True`).
+- **부수 수정**: `tests/test_dome_export_batch_isolation.py`의 `sys.modules` 주입 기반 Mock이 import 순서에 따라 무력화돼(Python 모듈 캐싱) 실제 Gemini Live 호출 12회가 발생한 사고 발견 → `monkeypatch.setattr(source_exporter, "generate_caption", ...)` 방식(같은 저장소의 `test_package_b_post_attribution.py`에서 이미 검증된 패턴, REUSE)으로 교체, import 순서 무관하게 항상 격리되도록 수정(단독 실행 4/4 PASS, Live-call 0건 확인).
+- **Commit·Push**: 이 기록 시점까지 여전히 0건(GPT 최종검수 대기 중, 260803 11:58am ICT 기준 2차 재검수까지 완료·3차 검수 대기).
+
+## 다음 세션 우선순위(260803 12:00pm ICT 정정 — 구현 완료 반영)
+1. **GPT 최종 Commit 승인 대기** — Retry 구현(`caption_generator.py`)·신규 target test(`test_generate_hook_caption.py`)·Mock 격리 수정(`test_dome_export_batch_isolation.py`)·이 문서, 4개 파일 전부 코드레벨 완료·단위테스트 PASS 확인됨. 승인 즉시 Commit·Push만 남음(추가 구현 작업 없음).
+2. Commit·Push 승인 후 6F #1/3 재시도 — 동일 명령: `C:\SNS_24AutoProject_260511\.venv\Scripts\python.exe C:\SNS_24AutoProject_260511\tools\_canary_260801_queue_aijomoojin_post_6f.py`
+3. (선택, 승인 필요) `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그 수정 — ad-hoc 스크립트라 낮은 위험이나 코드수정이므로 승인 절차 그대로 적용.
+4. 6F 3/3 성공 후 6G(정식 운영 전환) 승인 여부 결정은 여전히 미착수.
 
 ---
 

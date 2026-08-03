@@ -1,6 +1,10 @@
 import os
+import random
 import time
+
+import httpx
 from google import genai
+from google.genai import errors as genai_errors
 
 _client = None
 
@@ -8,8 +12,89 @@ _client = None
 _CALL_INTERVAL = 4.0
 _last_call_ts  = 0.0
 
-# 429 발생 시 재시도 대기 시간 (초)
-_RETRY_DELAYS  = [20, 40, 60]
+# Transient error(429/408/500/502/503/504/Timeout/연결재설정) 재시도 정책.
+# 최초 호출 포함 총 시도 4회, 재시도 사이 기본 대기 5s→20s→60s(±20% jitter).
+# Provider가 Retry-After/retryDelay를 명시하면 120초 상한 내에서 그 값을 우선한다.
+_MAX_ATTEMPTS = 4
+_RETRY_DELAYS = [5, 20, 60]
+_RETRY_JITTER_RATIO = 0.2
+_MAX_RETRY_AFTER_SECONDS = 120.0
+_RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
+_RETRYABLE_WINERRORS = {10053, 10054}  # 연결 중단/재설정(Windows)
+
+
+def _classify_retry(exc: Exception) -> "tuple[bool, str]":
+    """예외를 (재시도 가능 여부, 로그용 error_category)로 분류한다.
+
+    Retryable: HTTP 408/429/500/502/503/504(Provider 과부하·Rate Limit),
+    Timeout 계열(httpx.TimeoutException), 연결 재설정 계열(WinError
+    10053/10054, httpx.TransportError). Non-retryable: 그 외 전부
+    (400/401/403, Safety 차단으로 인한 빈 응답, 잘못된 입력 등) — 즉시
+    실패시켜 불필요한 대기를 만들지 않는다.
+    """
+    if isinstance(exc, genai_errors.APIError):
+        code = exc.code
+        if code in _RETRYABLE_HTTP_STATUS:
+            return True, f"provider_http_{code}"
+        return False, f"permanent_http_{code}"
+
+    winerror = getattr(exc, "winerror", None)
+    if winerror is None:
+        winerror = getattr(exc.__cause__, "winerror", None)
+    if winerror in _RETRYABLE_WINERRORS:
+        return True, f"transport_reset_winerror_{winerror}"
+
+    if isinstance(exc, httpx.TimeoutException):
+        return True, f"transport_timeout_{type(exc).__name__}"
+    if isinstance(exc, httpx.TransportError):
+        return True, f"transport_error_{type(exc).__name__}"
+
+    # 하위호환: APIError로 감싸이지 않은 429 표현(과거 테스트 더블 등)도 계속 인식한다.
+    if "429" in str(exc):
+        return True, "provider_http_429_legacy_match"
+
+    return False, f"non_retryable_{type(exc).__name__}"
+
+
+def _extract_retry_after_seconds(exc: Exception) -> "float | None":
+    """Provider가 명시한 재시도 대기(Retry-After 헤더 또는 retryDelay)를 최선노력으로
+    추출한다. 없으면 None(호출부가 기본 backoff를 사용)."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers:
+        value = headers.get("retry-after") or headers.get("Retry-After")
+        if value:
+            try:
+                return min(float(value), _MAX_RETRY_AFTER_SECONDS)
+            except (TypeError, ValueError):
+                pass
+
+    details = getattr(exc, "details", None)
+    error_details = None
+    if isinstance(details, dict):
+        error_details = details.get("error", {}).get("details")
+    if isinstance(error_details, list):
+        for item in error_details:
+            delay = item.get("retryDelay") if isinstance(item, dict) else None
+            if delay:
+                try:
+                    return min(float(str(delay).rstrip("s")), _MAX_RETRY_AFTER_SECONDS)
+                except (TypeError, ValueError):
+                    pass
+    return None
+
+
+def _next_retry_delay(attempt_index: int, exc: Exception) -> float:
+    """attempt_index(0-based) 번째 재시도 전 대기 시간(초). Provider가 Retry-After/
+    retryDelay를 명시하면 그 값을 120초 상한 내에서 그대로 사용한다(jitter 미적용 —
+    Provider 지시를 줄이거나 늘리지 않는다). 명시값이 없으면 기본 backoff
+    (_RETRY_DELAYS)에 ±20% jitter를 적용한다."""
+    provider_delay = _extract_retry_after_seconds(exc)
+    if provider_delay is not None:
+        return provider_delay
+    base = _RETRY_DELAYS[min(attempt_index, len(_RETRY_DELAYS) - 1)]
+    jitter = base * _RETRY_JITTER_RATIO
+    return max(0.0, base + random.uniform(-jitter, jitter))
 
 
 def _get_client():
@@ -34,8 +119,10 @@ def _throttle():
 def generate_caption(text: str) -> tuple[str, str]:
     """FB 포스트 텍스트 → (Instagram 캡션, 해시태그) 반환.
 
-    429 응답 시 최대 3회 재시도 (5s → 10s → 20s 백오프).
-    API 키 미설정이거나 텍스트가 없으면 빈 문자열 반환.
+    Transient error(429/408/500/502/503/504/Timeout/연결재설정)는 최초 호출
+    포함 최대 _MAX_ATTEMPTS(4)회까지 재시도(5s→20s→60s ±20% jitter, Provider
+    명시 대기가 있으면 120초 상한 내 우선). 영구 오류(400/401/403 등)는 즉시
+    실패. API 키 미설정이거나 텍스트가 없으면 빈 문자열 반환.
     """
     if not text or not text.strip():
         return "", ""
@@ -53,10 +140,7 @@ def generate_caption(text: str) -> tuple[str, str]:
         f"Post content:\n{text[:1000]}"
     )
 
-    for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
-        if delay:
-            print(f"[CAPTION] 429 재시도 {attempt}/{len(_RETRY_DELAYS)+1} | {delay}초 대기")
-            time.sleep(delay)
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
         _call_started = None
         try:
             _throttle()
@@ -66,7 +150,7 @@ def generate_caption(text: str) -> tuple[str, str]:
                 model="gemini-2.5-flash-lite",
                 contents=prompt,
             )
-            print(f"[CAPTION] Gemini 호출 완료 | {time.time() - _call_started:.1f}초")
+            print(f"[CAPTION] Gemini 호출 완료 | attempt={attempt}/{_MAX_ATTEMPTS} | {time.time() - _call_started:.1f}초")
             raw = response.text.strip()
             caption, hashtags = "", ""
             for line in raw.splitlines():
@@ -77,15 +161,23 @@ def generate_caption(text: str) -> tuple[str, str]:
             return caption, hashtags
 
         except Exception as e:
-            if _call_started is not None:
-                print(f"[CAPTION] Gemini 호출 실패 | {time.time() - _call_started:.1f}초")
-            err = str(e)
-            if "429" in err and attempt <= len(_RETRY_DELAYS):
+            elapsed = f"{time.time() - _call_started:.1f}초" if _call_started is not None else "N/A"
+            retryable, category = _classify_retry(e)
+            print(
+                f"[CAPTION] Gemini 호출 실패 | attempt={attempt}/{_MAX_ATTEMPTS} | "
+                f"category={category} | {elapsed}"
+            )
+            if retryable and attempt < _MAX_ATTEMPTS:
+                delay = _next_retry_delay(attempt - 1, e)
+                print(f"[CAPTION] 재시도 대기 | next_attempt={attempt + 1}/{_MAX_ATTEMPTS} | {delay:.1f}초")
+                time.sleep(delay)
                 continue
-            print(f"[CAPTION] 생성 실패 (생략): {e}")
+            print(
+                f"[CAPTION] 생성 실패(생략) | category={category} | "
+                f"attempt={attempt}/{_MAX_ATTEMPTS} | final_exhausted={retryable}"
+            )
             return "", ""
 
-    print("[CAPTION] 최대 재시도 초과 — 생략")
     return "", ""
 
 
@@ -102,7 +194,9 @@ def generate_hook_caption(
     동일 제약을 프롬프트에 명시). prohibited_expression이 있으면 그 표현을 피하도록
     지시한다. core_message가 비어 있으면 즉시 빈 문자열 반환 — 근거 없는 콘텐츠 생성 금지.
 
-    429 응답 시 최대 3회 재시도(_RETRY_DELAYS와 동일 정책, generate_caption()과 REUSE).
+    Transient error(429/408/500/502/503/504/Timeout/연결재설정)는 최초 호출
+    포함 최대 _MAX_ATTEMPTS(4)회까지 재시도(generate_caption()과 동일 정책,
+    _classify_retry()/_next_retry_delay() REUSE). 영구 오류는 즉시 실패.
     """
     if not core_message or not core_message.strip():
         return "", ""
@@ -130,10 +224,7 @@ def generate_hook_caption(
         "HASHTAGS: <hashtags>"
     )
 
-    for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
-        if delay:
-            print(f"[HookCaption] 429 재시도 {attempt}/{len(_RETRY_DELAYS)+1} | {delay}초 대기")
-            time.sleep(delay)
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
         _call_started = None
         try:
             _throttle()
@@ -143,7 +234,7 @@ def generate_hook_caption(
                 model="gemini-2.5-flash-lite",
                 contents=prompt,
             )
-            print(f"[HookCaption] Gemini 호출 완료 | {time.time() - _call_started:.1f}초")
+            print(f"[HookCaption] Gemini 호출 완료 | attempt={attempt}/{_MAX_ATTEMPTS} | {time.time() - _call_started:.1f}초")
             raw = response.text.strip()
             caption, hashtags = "", ""
             for line in raw.splitlines():
@@ -154,15 +245,23 @@ def generate_hook_caption(
             return caption, hashtags
 
         except Exception as e:
-            if _call_started is not None:
-                print(f"[HookCaption] Gemini 호출 실패 | {time.time() - _call_started:.1f}초")
-            err = str(e)
-            if "429" in err and attempt <= len(_RETRY_DELAYS):
+            elapsed = f"{time.time() - _call_started:.1f}초" if _call_started is not None else "N/A"
+            retryable, category = _classify_retry(e)
+            print(
+                f"[HookCaption] Gemini 호출 실패 | attempt={attempt}/{_MAX_ATTEMPTS} | "
+                f"category={category} | {elapsed}"
+            )
+            if retryable and attempt < _MAX_ATTEMPTS:
+                delay = _next_retry_delay(attempt - 1, e)
+                print(f"[HookCaption] 재시도 대기 | next_attempt={attempt + 1}/{_MAX_ATTEMPTS} | {delay:.1f}초")
+                time.sleep(delay)
                 continue
-            print(f"[HookCaption] 생성 실패 (생략): {e}")
+            print(
+                f"[HookCaption] 생성 실패(생략) | category={category} | "
+                f"attempt={attempt}/{_MAX_ATTEMPTS} | final_exhausted={retryable}"
+            )
             return "", ""
 
-    print("[HookCaption] 최대 재시도 초과 — 생략")
     return "", ""
 
 

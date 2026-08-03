@@ -6,17 +6,12 @@
 Runtime 상태변경(Airtable Write, 실제 네트워크 호출) 없이 Mock으로만 검증한다.
 """
 
-import sys
-import types
-
 import pytest
 
 
 def _import_source_exporter(monkeypatch):
-    caption_module = types.ModuleType("modules.sns.caption_generator")
-    caption_module.generate_caption = lambda text: ("caption", "#tag")
-    monkeypatch.setitem(sys.modules, "modules.sns.caption_generator", caption_module)
     from modules.crawlers import source_exporter
+    monkeypatch.setattr(source_exporter, "generate_caption", lambda text: ("caption", "#tag"))
     monkeypatch.setattr(
         source_exporter,
         "upload_to_imgbb",
