@@ -737,3 +737,19 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-059 참조.
 
 **관련:** ERR-077, FP-059
+
+---
+
+## INC-046 | aijomoojin 6F #1/3이 Queue 저장 권한오류와 Safety 503 오분류를 거쳐 수동 복구 후 1회 게시 성공 (RESOLVED for #1/3, 결함 2건 OPEN)
+
+**발생:** 2026-08-03 15:18:09~15:55:08 ICT.
+
+**요약:** 승인된 Canary 1회는 Gemini·이미지·ImgBB 성공 뒤 `runtime_boot_policy.json` PermissionError로 Airtable POST 전에 종료됐다. 사용자 `실행하라` 승인 후 Codex가 기존 산출물로 Airtable Record `recfFdfTkJoKk4biu`를 1회 생성했다. 첫 Scheduler tick에서 `AI_CONTENT_LANGUAGE_MISMATCH` 발생 — 원인은 UNKNOWN, 사용자 `수정승인` 후 동일 Record의 caption과 `ready` 상태를 복구했다. 다음 tick은 Gemini HTTP 503을 `AI_CONTENT_SAFETY_BLOCKED`로 오분류해 다시 `rejected` 처리했다. 사용자 `503 재시도 승인` 후 동일 Record만 `ready`로 복구했으며 기존 Scheduler의 15:51 tick이 15:51:56 Instagram `ig_media_id=17976679115901401`로 1회 게시했다.
+
+**최종 Evidence:** Airtable 최종 GET에서 `recfFdfTkJoKk4biu=posted`, source URL·image URL·media ID 중 하나라도 일치하는 Record 총 1건. Canary 재실행 0회, 수동 Scheduler/Meta trigger 0회, 중복 Record·중복 media ID 0건, 추적 파일 변경 0건.
+
+**영향:** #1/3은 최종 SUCCESS. 다만 자동 복구가 아닌 승인된 수동 Record 생성/상태 복구가 필요했고, ERR-101·ERR-102가 #2/3 차단 결함으로 남았다.
+
+**해결:** 이번 Record만 복구·게시 완료. 근본 코드 수정은 수행하지 않았으며 ERR-101/ERR-102는 OPEN.
+
+**관련:** ERR-101, ERR-102, FP-073, FP-074

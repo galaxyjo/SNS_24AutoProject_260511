@@ -1937,3 +1937,35 @@ watchdog.log(같은 구간):
 **Status:** RESOLVED — 메시지 정정(`73e3e05`) + SV Standard §11.1 신규 + 개인 메모리 저장 완료. Push는 회장 별도 승인 대기.
 
 **관련:** SV Standard §11.1(신규), [[feedback_commit_message_diff_check]]
+
+---
+
+## ERR-101 | 6F Canary가 Airtable 저장 직전 `runtime_boot_policy.json` 접근거부로 중단 — 콘텐츠·이미지·ImgBB 성공 후 Queue 생성 불가 (OPEN, 260803)
+
+**Type:** Runtime Permission / Pre-write Gate Coupling — aijomoojin 6F #1/3 실제 Canary에서 Confirmed
+
+**경위:** `tools/_canary_260801_queue_aijomoojin_post_6f.py`를 승인된 명령으로 정확히 1회 실행했다. Gemini 캡션·Cloudflare 이미지·Vault 산출물·ImgBB 업로드까지 성공했으나, Airtable POST 직전 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` 접근에서 `PermissionError: [WinError 5]`가 발생해 종료됐다. 따라서 원 Canary 실행 자체는 Airtable Record를 만들지 못했다. 사용자의 후속 명령 `실행하라`에 따라 Codex가 기존 산출물을 재사용해 Airtable Connector로 Record `recfFdfTkJoKk4biu`를 1회 생성했으며 Canary는 재실행하지 않았다.
+
+**Evidence:** Gemini HTTP 200(15:18:14), 이미지 생성 성공 및 Vault `.md/.png` 생성·최종수정 15:18:17, 이후 위 PermissionError. Airtable Record의 불변 `createdTime=2026-08-03T08:37:48.000Z`는 후속 Connector 생성 시각이며 최초 Canary 시각과 분리된다.
+
+**Risk:** `HIGH` — 운영 계정용 콘텐츠·이미지·외부 이미지 URL까지 생성된 뒤 Queue 저장만 실패하므로, 단순 재실행 시 비용 중복과 부분상태/중복 위험을 만든다. 이번에는 동일 산출물 식별자와 외부 상태를 확인한 뒤 Record만 복구해 중복 0건으로 종결했다.
+
+**Status:** OPEN — 코드 수정 없음. #2/3 전에 실제 entry point·boot-policy 접근 경로·Fail-closed 계약을 다시 증명하고 최소 수정 Gate가 필요하다.
+
+**관련:** FP-073, INC-046
+
+---
+
+## ERR-102 | Gemini `503 UNAVAILABLE`을 `AI_CONTENT_SAFETY_BLOCKED`로 분류해 정상 콘텐츠를 `rejected` 처리 (OPEN, 260803)
+
+**Type:** Error Classification / State Semantics — aijomoojin 6F #1/3 Scheduler Runtime에서 Confirmed
+
+**경위:** Scheduler가 Record `recfFdfTkJoKk4biu`를 15:46:24 처리하면서 Gemini Safety 검사에 진입했고, Provider가 high demand 사유의 HTTP 503을 반환했다. Runtime은 이를 `AI_CONTENT_SAFETY_BLOCKED:SAFETY_CHECK_ERROR:503 UNAVAILABLE`로 기록하고 Record를 `rejected`로 전이했다. 이는 콘텐츠 유해성 판정이 아니라 외부 서비스의 일시 장애다. 사용자 승인문 `503 재시도 승인` 후 동일 Record만 `ready`로 복구했으며, 다음 정상 Scheduler tick의 Gemini HTTP 200 뒤 15:51:56 게시 성공했다.
+
+**Evidence:** 15:46:34 HTTP 503 + `AI_CONTENT_SAFETY_BLOCKED`; 15:50:26~15:50:31 승인된 `rejected→ready`; 15:51:38 Gemini HTTP 200; 15:51:56 `ig_media_id=17976679115901401`; 최종 Airtable GET `posted`, 총 일치 Record 1건.
+
+**Risk:** `HIGH` — transient Provider 장애가 영구적인 콘텐츠 거부 상태로 저장돼 정상 Queue가 사람의 수동 복구 없이는 멈추며, 상태값 의미와 운영 통계를 오염시킨다.
+
+**Status:** OPEN — 코드 수정 없음. #2/3 전에 503/timeout/transport error를 콘텐츠 안전성 거부와 분리하는 설계·테스트·Runtime Gate가 필요하다.
+
+**관련:** FP-074, INC-046

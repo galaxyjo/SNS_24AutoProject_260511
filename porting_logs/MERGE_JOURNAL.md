@@ -2224,3 +2224,15 @@ Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3
 4. 6F 3/3 성공 후 6G(정식 운영 전환) 승인 여부 결정은 여전히 미착수.
 
 ---
+
+### 6F #1/3 실제 게시 SUCCESS + 잔존 결함 2건 DEFER (2026-08-03 16:05 ICT)
+
+**최종 판정:** GPT 검수 결과 6F #1/3 **SUCCESS**. 승인된 Canary는 정확히 1회 실행됐고, 최종 Instagram 게시도 1건뿐이다. `content_id=3-4-260803-b501c92f`, Airtable `recfFdfTkJoKk4biu`, Instagram `ig_media_id=17976679115901401`. 최종 Airtable GET은 `post_status=posted`이며 동일 source URL·image URL·media ID 조건의 Record가 총 1건이라 중복 0건이 확인됐다.
+
+**상태 전이와 승인:** 최초 Canary는 Gemini→이미지→Vault→ImgBB까지 성공한 뒤 Airtable POST 직전 `runtime_boot_policy.json` PermissionError로 종료. 회장 `실행하라` 승인 후 Codex가 기존 산출물을 재사용해 Airtable Record를 1회 생성(Canary 재실행 없음). 첫 Scheduler tick에서 `AI_CONTENT_LANGUAGE_MISMATCH` 발생 — 원인은 UNKNOWN, 회장 `수정승인` 후 동일 Record caption+`ready` 복구. 다음 tick에서 Gemini 503 high demand가 `AI_CONTENT_SAFETY_BLOCKED`로 오분류돼 다시 `rejected`; 회장 `503 재시도 승인` 후 동일 Record만 `ready` 복구. 기존 Scheduler의 15:51:23 tick이 15:51:56 게시 성공. 수동 Scheduler/Meta trigger·서비스 재시작·두 번째 Canary·중복 게시는 없었다.
+
+**잔존 결함:** ERR-101/FP-073 — 외부 산출물 생성 뒤 boot-policy 파일 권한오류로 Queue 저장 전 중단. ERR-102/FP-074 — Gemini 503 transient error를 콘텐츠 안전성 위반으로 분류해 `rejected` 저장. 두 건 모두 **OPEN**, INC-046에 운영 경과 기록. #2/3 전 수정 Gate 필요.
+
+**이번 문서화 범위:** `ERROR_DATABASE.md`·`FAILURE_PATTERN.md`·`INCIDENT_TIMELINE.md`·`VALIDATION_STATUS.md`·`MERGE_JOURNAL.md`만 변경. 코드/Airtable/Instagram/환경변수/서비스 상태변경 0건. Commit·Push 미실행(별도 승인 필요).
+
+---

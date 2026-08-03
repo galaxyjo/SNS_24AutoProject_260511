@@ -942,3 +942,27 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** 신규 계정을 추가하는 모든 단계에서, 공용/전역으로 동작하는 기존 Gate·Filter·Fallback·Routing 로직을 `grep`으로 먼저 나열하고, 각각이 "특정 계정을 암묵적으로 전제하고 있지 않은가"를 명시적으로 검토한다. Identity(계정 식별)와 Domain(계정별 콘텐츠·정책) 책임을 분리해 설계하면, 새 계정 추가 시 Domain 매핑만 추가하고 공용 로직은 건드리지 않을 수 있다.
 
 **관련:** ERR-099, ERR-091, FP-065
+
+---
+
+## FP-073 | 외부 산출물 생성 뒤 실행되는 로컬 운영정책 파일 Gate가 읽기 권한 하나로 실패하면, Queue 저장 전 부분상태가 남는다
+
+**설명:** 캡션·이미지·외부 이미지 호스팅처럼 비용과 외부 상태를 만드는 단계가 먼저 끝난 뒤, Airtable 저장 경로에서 별도 운영정책 파일을 읽는 구조다. 이 파일 접근이 거부되면 게시 Queue만 생성되지 않아 "산출물은 존재하지만 제어 레코드는 없음" 상태가 된다.
+
+**증상:** 260803 6F #1/3 — Gemini·이미지·Vault·ImgBB 성공 후 `runtime_boot_policy.json` PermissionError로 Airtable POST 전 종료(ERR-101).
+
+**예방:** 라이브 Canary 전에 실제 실행 사용자로 모든 pre-write Gate를 read-only 검증하고, 외부 상태변경보다 뒤에 있는 로컬 권한 의존성을 명시한다. 실패 후에는 산출물·호스팅 URL·Record 존재 여부를 먼저 확인하고 원 실행을 반복하지 않는다.
+
+**관련:** ERR-101, INC-046
+
+---
+
+## FP-074 | AI 안전성 검사 함수가 Provider 장애와 콘텐츠 거부를 같은 False/blocked 결과로 접으면, transient 장애가 영구 거부 상태가 된다
+
+**설명:** Safety API의 정상 유해성 판정과 503/timeout/transport failure를 동일한 `SAFETY_CHECK_ERROR` 또는 boolean 실패로 반환하고, 상위 호출자가 모두 `AI_CONTENT_SAFETY_BLOCKED`로 저장하면 상태 의미가 손실된다.
+
+**증상:** 260803 6F #1/3 — Gemini HTTP 503 high demand가 `AI_CONTENT_SAFETY_BLOCKED`로 기록되고 Airtable Record가 `rejected` 처리됨(ERR-102). 동일 콘텐츠는 승인된 재시도에서 Safety HTTP 200 후 정상 게시됐다.
+
+**예방:** `unsafe_content`와 `safety_check_transient_error`를 별도 typed result/error code로 유지한다. transient error는 게시하지 않는 Fail-closed를 유지하되 영구 `rejected`와 구분하고, 자동/수동 재시도 정책과 시도 상한을 명시한다.
+
+**관련:** ERR-102, INC-046
