@@ -1940,7 +1940,7 @@ watchdog.log(같은 구간):
 
 ---
 
-## ERR-101 | 6F Canary가 Airtable 저장 직전 `runtime_boot_policy.json` 접근거부로 중단 — 콘텐츠·이미지·ImgBB 성공 후 Queue 생성 불가 (OPEN, 260803)
+## ERR-101 | 6F Canary가 Airtable 저장 직전 `runtime_boot_policy.json` 접근거부로 중단 — 콘텐츠·이미지·ImgBB 성공 후 Queue 생성 불가 (RESOLVED, 260803)
 
 **Type:** Runtime Permission / Pre-write Gate Coupling — aijomoojin 6F #1/3 실제 Canary에서 Confirmed
 
@@ -1950,13 +1950,13 @@ watchdog.log(같은 구간):
 
 **Risk:** `HIGH` — 운영 계정용 콘텐츠·이미지·외부 이미지 URL까지 생성된 뒤 Queue 저장만 실패하므로, 단순 재실행 시 비용 중복과 부분상태/중복 위험을 만든다. 이번에는 동일 산출물 식별자와 외부 상태를 확인한 뒤 Record만 복구해 중복 0건으로 종결했다.
 
-**Status:** OPEN — 코드 수정 없음. #2/3 전에 실제 entry point·boot-policy 접근 경로·Fail-closed 계약을 다시 증명하고 최소 수정 Gate가 필요하다.
+**Status:** RESOLVED — External-First Gate로 비상승 admin Canary의 preflight 누락과 raw `PermissionError/OSError` 미변환을 분리했다. `canary_safe_mode.py`가 정책 파일 접근 오류를 typed `CanarySafeModeError`로 fail-closed 변환하고, ignored Canary는 P0 Boot Policy→P1 Account Context를 외부 상태변경 전에 수행하도록 수정했다. Active Python 3.10에서 기존 Boot Policy 테스트 20/20 및 Canary Mock EXIT 4/5/0·외부 호출 0건 PASS. tracked 2파일 Commit `b98afa178a28b3206cbbe5a327994e425b4cdb43` Push 완료. 일반 admin ACL 확대·신규 서비스·dependency 추가는 하지 않았다.
 
 **관련:** FP-073, INC-046
 
 ---
 
-## ERR-102 | Gemini `503 UNAVAILABLE`을 `AI_CONTENT_SAFETY_BLOCKED`로 분류해 정상 콘텐츠를 `rejected` 처리 (OPEN, 260803)
+## ERR-102 | Gemini `503 UNAVAILABLE`을 `AI_CONTENT_SAFETY_BLOCKED`로 분류해 정상 콘텐츠를 `rejected` 처리 (RESOLVED, 260803)
 
 **Type:** Error Classification / State Semantics — aijomoojin 6F #1/3 Scheduler Runtime에서 Confirmed
 
@@ -1966,6 +1966,6 @@ watchdog.log(같은 구간):
 
 **Risk:** `HIGH` — transient Provider 장애가 영구적인 콘텐츠 거부 상태로 저장돼 정상 Queue가 사람의 수동 복구 없이는 멈추며, 상태값 의미와 운영 통계를 오염시킨다.
 
-**Status:** OPEN — 코드 수정 없음. #2/3 전에 503/timeout/transport error를 콘텐츠 안전성 거부와 분리하는 설계·테스트·Runtime Gate가 필요하다.
+**Status:** RESOLVED — 실제 Safety 신호(`promptFeedback.blockReason`, `finishReason=SAFETY`, exact text `SAFETY`)만 `UNSAFE→rejected`; 503/timeout/transport는 동일 실행 최대 4회 bounded retry 후 `RETRY_EXHAUSTED→failed`; 400/401/403·판정불능은 `PERMANENT→failed`로 분리했다. claim/Meta 이전 분기를 유지했고 직접 관련 테스트 77/77 PASS·외부 호출 0건. 코드 3파일+기존 테스트 2파일 Commit `09f03c0d05217980317c4da03e82fe7957665c00` Push 후 `SNS_Watchdog` 통제 재시작으로 Production 적용·heartbeat·HTTP 200을 확인했다. 6F #2/3 Scheduler Safety에서 503×3 후 4번째 성공으로 실제 bounded retry를 검증했다.
 
 **관련:** FP-074, INC-046

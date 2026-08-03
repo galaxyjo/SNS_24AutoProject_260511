@@ -1,3 +1,28 @@
+# 2026-08-03 20:26 ICT — Track B 6F Claude Code 인계: 2/3 SUCCESS, Source 3.6 추가, #3 Gemini 503 소진 후 Fail-closed
+
+_이 항목이 Track B 6F의 최신 Runtime/Git 인계 상태다. 아래 과거 기록의 ERR-101/ERR-102 OPEN 및 #1 재개 지시는 이 항목으로 대체한다._
+
+## 현재 기준
+- Active Runtime: `C:\SNS_24AutoProject_260511`, branch `master`. 이 인계 문서 작업 직전 기준 `HEAD=origin/master=09f03c0d05217980317c4da03e82fe7957665c00`, tracked 변경은 Sourcebook 3.6 추가 1건뿐이었다.
+- 완료 Gate: 6F #1/3 SUCCESS, ERR-101 Production Resilience 수정·Push(`b98afa178a28b3206cbbe5a327994e425b4cdb43`), ERR-102 Provider/Safety 분류 수정·Push 및 Production 재시작 적용(`09f03c0d05217980317c4da03e82fe7957665c00`), 6F #2/3 SUCCESS.
+- `SNS_Watchdog`/SYSTEM Scheduler는 `09f03c0` 적용 후 정상 heartbeat·HTTP 200을 확인했다. 6F #2/3과 #3 사이 서비스 재시작·코드 수정은 없었다.
+
+## 6F 게시 결과
+- **#1/3 SUCCESS:** `content_id=3-4-260803-b501c92f`, Airtable `recfFdfTkJoKk4biu`, Instagram `ig_media_id=17976679115901401`, 최종 `posted`, 중복 0건.
+- **#2/3 SUCCESS:** `content_id=3-5-260803-54c5b2e9`, Source `https://www.ycombinator.com/library`, Airtable `recDFi8IWZ8qXeEOz`, Instagram `ig_media_id=18109337171018360`, 최종 `posted`. Canary 수동 호출 1회, 기존 Scheduler 자동 처리 1회, Record/Source/image URL/media ID 각각 1건, ready/uploading 0건.
+- **전체 현재 판정:** 6F는 **2/3 SUCCESS**. 3/3 완료나 6G 진입으로 해석하면 안 된다.
+
+## Source 3.6과 #3 실패
+- 기존 선택 가능한 3.1~3.5가 모두 Vault에서 사용 완료되어, NIST 공식 원문을 신규 Source `3.6 NIST AI Risk Management Framework (AI RMF 1.0)`으로 Sourcebook에 추가했다. URL은 `https://www.nist.gov/itl/ai-risk-management-framework`; 기존 Sourcebook·Vault·Ledger URL/주제 중복 0건. Source 파서·선택 Target Test `10/10 PASS`.
+- 다음 후보는 `topic_id=3.6`, 예정 `content_id=3-6-260803-54dbc154`. #3 Canary는 2026-08-03 20:19:52~20:21:28 ICT에 정확히 1회 실행됐다.
+- Gemini Caption 호출이 HTTP 503으로 4/4 소진되어 `CAPTION_GENERATION_FAILED`로 중단됐다. 마지막 성공 지점은 P0 Boot Policy·P1 Account Context·Source 3.6 선택이다. Vault md/image 0건, ImgBB 0건, Airtable Source Record 0건, Meta 0건, ready/uploading 0건, 이미지 사용량 2/3 — 부분상태와 중복은 없다.
+- 계약대로 Canary 재실행·수동 Airtable 복구·수동 Meta 게시·Commit은 실패 직후 수행하지 않았다. Source 3.6은 당시 미커밋이었으며, 사용자의 후속 인계 문서화 승인으로 이 문서들과 함께 Commit·Push 대상이 됐다.
+
+## Claude Code 다음 단일 작업
+Gemini Provider가 503에서 회복된 시점에 사용자 승인을 받은 뒤 **6F #3/3 Canary 1회만 재시도**한다. 실행 직전 Delta는 이미지 사용량 `2/3`, Airtable ready/uploading `0`, 다음 후보 `3.6`/`3-6-260803-54dbc154`만 다시 확인한다. 하나라도 다르면 HOLD한다. 실패·결과불명 시 재실행/수동 상태복구/수동 Meta 게시 금지. 성공 시 Record·Source·image URL·media ID 1:1, ready/uploading 0, 이미지 사용량 3/3을 확인하고 6F 전체 3/3 판정만 제출한다. **6G는 별도 승인 전 시작 금지.**
+
+---
+
 # 2026-08-03 12:19pm ICT — Gemini Retry 구현 Commit·Push 완료, 6F #1/3 재실행도 429 지속 — DEFER
 
 _기록 시각: 2026-08-03 12:19pm ICT · 상태: Gemini transient-error Retry 구현(`_classify_retry`/`_next_retry_delay`, `_MAX_ATTEMPTS=4`) GPT 3회 재검수(Blocker 3건 순차 수정: 120초 clamp+jitter 분리, `final_exhausted` 정확성, 테스트명 오해소지 제거) 끝에 SUCCESS 판정 → 회장 승인으로 4개 파일(`caption_generator.py`/`test_generate_hook_caption.py`/`test_dome_export_batch_isolation.py`/이 문서) commit(`b99058a`)·push 완료(HEAD=origin/master 동기화 확인). 승인 하에 6F #1/3 즉시 재실행했으나 4회 전부 실제 Gemini `429`(Retry-After 실측값 정확히 사용, 4회 소진 후 `final_exhausted=True` 정확 기록, Airtable/Vault 부분기록 0건) — **Retry 구현 자체는 설계대로 정상 동작 확인됨**, 근본 원인(Provider 과부하 vs 오늘 세션 중 자체 발생한 Live-call 12회를 포함한 누적 호출로 인한 일일 Quota 소진)은 GPT 판정으로 **UNKNOWN**. 회장 지시로 오늘 6F 추가 실행 없이 다음 세션으로 DEFER, 다음 세션 시작 시 Gemini Quota/리셋 상태 Read-only 확인부터 선행. 이 항목이 최신 상태이며, 아래 260803 09:39(6F 1차 재개 시도) 이하는 이전 기록으로 보존._

@@ -159,6 +159,25 @@ YC가 사용자 또는 프로젝트를 승인·지원한다는 표현은 금지�
 
 ---
 
+### 3.6 NIST AI Risk Management Framework (AI RMF 1.0)
+
+상태: VERIFIED FACT
+
+공식 URL: https://www.nist.gov/itl/ai-risk-management-framework
+
+검증된 설명:
+- NIST AI RMF 1.0은 조직이 AI 위험을 관리하도록 제공하는 자발적 프레임워크다.
+- 핵심 기능은 Govern, Map, Measure, Manage로 구성된다.
+- NIST는 AI RMF 1.0 개정 작업을 진행 중이다.
+
+SNS 콘텐츠 핵심 메시지:
+AI 도입은 성능뿐 아니라 설계·개발·사용·평가 전 과정의 거버넌스와 위험 식별·측정·대응을 함께 관리해야 한다.
+
+주의:
+NIST가 특정 제품이나 기업을 인증·보증하거나 모든 AI 위험을 제거한다는 표현은 금지한다.
+
+---
+
 ## 4. United States Community Platform Map
 
 ### 4.1 Reddit

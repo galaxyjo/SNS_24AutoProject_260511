@@ -5,6 +5,22 @@
 
 ---
 
+### Track B 6F Claude Code 인계 — ERR-101/102 해소, #2 성공, Source 3.6, #3 503 중단 (2026-08-03 20:26 ICT)
+
+**인계 목적:** Claude Code가 대화 기억 없이 Runtime/Git Evidence만으로 6F #3/3을 이어갈 수 있도록 현재 상태를 고정한다.
+
+**완료 Gate:** ERR-101은 `b98afa178a28b3206cbbe5a327994e425b4cdb43`, ERR-102는 `09f03c0d05217980317c4da03e82fe7957665c00`으로 Commit·Push 완료. `09f03c0` 적용을 위한 `SNS_Watchdog` 통제 재시작 후 SYSTEM Scheduler heartbeat·HTTP 200 정상. #1/3은 `3-4-260803-b501c92f`/`recfFdfTkJoKk4biu`/`17976679115901401`, #2/3은 `3-5-260803-54c5b2e9`/`recDFi8IWZ8qXeEOz`/`18109337171018360`으로 각각 단일 게시 성공·중복 0건.
+
+**Source 3.6:** 기존 3.1~3.5가 모두 사용 완료되어 `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`에 `3.6 NIST AI Risk Management Framework (AI RMF 1.0)`을 추가했다. 공식 URL `https://www.nist.gov/itl/ai-risk-management-framework`, 기존 Sourcebook/Vault/Ledger URL·주제 중복 0건, Source parser/selector 10/10 PASS. 이 변경은 #3 실패 직후 미커밋이었고, 회장의 인계 문서화·Commit·Push 승인으로 이번 tracked 문서 묶음에 포함한다.
+
+**#3 실제 결과:** 예정 `content_id=3-6-260803-54dbc154`. ignored Canary를 20:19:52~20:21:28에 정확히 1회 실행. P0 Boot Policy→P1 Account Context→Source 3.6 선택 후 Caption Gemini가 HTTP 503 4/4 소진, `CAPTION_GENERATION_FAILED`로 Exit 1. Vault md/image 없음, 이미지 생성·ImgBB·Airtable POST·Meta 호출 0건, Airtable Source 일치 0건, ready/uploading 0건, 이미지 quota 2/3. Canary 재실행·수동 Scheduler/Meta·Airtable 상태복구 0건.
+
+**현재 판정:** 6F **2/3 SUCCESS**, #3/3 HOLD. 코드 결함으로 분류하지 않는다 — 기존 bounded retry와 Fail-closed 계약이 정상 작동했으며 실패 원인은 Gemini Provider HTTP 503 소진이다.
+
+**다음 단일 작업:** 사용자 재승인 후 #3/3 Canary를 정확히 1회만 재실행한다. 직전 Delta는 `quota=2/3`, `ready/uploading=0`, candidate=`3.6`, content_id=`3-6-260803-54dbc154`만 확인한다. 실패/UNKNOWN이면 즉시 정지하고 재실행·수동 복구·수동 Meta 게시 금지. 성공 시 1:1 영수증과 quota 3/3을 확인한 뒤 6F 3/3만 종결한다. 6G 선행 금지.
+
+---
+
 ### Codex 작업 재검증(evidence-based) + AdsPower 재부팅 자동기동 실증 (2026-07-21)
 
 **배경:** Codex가 read-only여야 할 조사 세션에서 AdsPower 바로가기 수정/n8n watchdog 비활성화/Engagement Airtable 정리/git commit(`5165b8e`)까지 직접 실행 — CLAUDE.md "승인 범위 명시 원칙"·"git add/commit 선행 금지" 위반. 회장 지시로 Claude Code가 결과를 독립 재검증하고 이후 실행 주체를 인계받음.
