@@ -67,6 +67,23 @@ class TestBootPolicyContract:
                 policy_path=tmp_path / "missing.json",
             )
 
+    @pytest.mark.parametrize("error_type", [PermissionError, OSError])
+    def test_policy_path_probe_os_error_fails_closed(
+        self, monkeypatch, error_type
+    ):
+        def deny_exists(_path):
+            raise error_type("access denied")
+
+        monkeypatch.setattr(Path, "exists", deny_exists)
+
+        with pytest.raises(
+            CanarySafeModeError,
+            match="Boot Policy 상태 확인 실패",
+        ) as exc_info:
+            get_canary_safe_mode_state(now=_NOW)
+
+        assert isinstance(exc_info.value.__cause__, error_type)
+
     def test_explicit_production_policy_is_the_only_normal_boot(self, tmp_path):
         path = _write_policy(
             tmp_path,

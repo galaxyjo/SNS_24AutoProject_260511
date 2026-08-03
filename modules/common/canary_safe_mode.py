@@ -351,7 +351,16 @@ def get_canary_safe_mode_state(
         if policy_path is not None
         else DEFAULT_RUNTIME_BOOT_POLICY_PATH
     )
-    if require_boot_policy or policy_path is not None or selected_path.exists():
+    policy_required = require_boot_policy or policy_path is not None
+    if not policy_required:
+        try:
+            policy_required = selected_path.exists()
+        except OSError as exc:
+            raise CanarySafeModeError(
+                "Runtime Boot Policy 상태 확인 실패"
+            ) from exc
+
+    if policy_required:
         policy = (
             _atomic_activate_safe_policy(now=now, policy_path=selected_path)
             if activate_boot_policy
