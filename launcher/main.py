@@ -443,6 +443,20 @@ def _job_insta_upload():
         caption           = f"{post.get('caption','')}\n{post.get('hashtag','')}".strip()
         account_code_ref  = post.get("account_code_ref", "")
 
+        # 260804 Track B 6G Codex 리뷰(P0) 수정 — aijomoojin 슬롯 스케줄 Flag가
+        # 켜져 있으면 이 5분 폴링 경로는 IDN-000036을 절대 처리하지 않는다.
+        # 이 조건이 없으면 _job_aijomoojin_scheduled_post()(전용 Cron)와 이
+        # 경로가 같은 레코드를 동시에 노려 슬롯 제한이 무력화되고 중복게시
+        # 위험이 생긴다 — 다른 계정은 이 분기 자체에 영향받지 않는다.
+        if account_code_ref == "IDN-000036" and os.getenv(
+            "AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false"
+        ).strip().lower() == "true":
+            logger.info(
+                "[Main] aijomoojin 슬롯 스케줄 모드 활성 — 5분 폴링에서 제외, "
+                "전용 Cron만 처리 | rid=%s", post_id,
+            )
+            continue
+
         # S2: Query 필터가 잘못되거나 Record 상태가 외부에서 바뀌어도 claim 전에 재차 차단.
         try:
             validate_publication_candidate(
@@ -647,6 +661,204 @@ def _job_insta_upload():
             continue
 
 
+AIJOMOOJIN_SLOT_ACCOUNT_CODE = "IDN-000036"
+
+
+@handle_errors(task="aijomoojin_slot_post", notify_fn=_slack)
+def _job_aijomoojin_scheduled_post():
+    """260804 Track B 6G — aijomoojin 전용 3슬롯(06:00/10:00/17:00 ICT) 게시.
+
+    다른 계정 경로는 전혀 건드리지 않는다. `_job_insta_upload()`에는 260804
+    Codex 리뷰(P0) 수정으로 "Flag ON이면 IDN-000036 skip" 조건 1개만 추가됐다
+    — 이 조건은 account_code_ref=="IDN-000036"일 때만 평가되므로 다른 계정의
+    동작은 완전히 무변화다(Blast Radius: 이 함수 + 그 조건 1개 + 신규 Cron
+    등록 3줄).
+
+    슬롯당 최대 1건은 이 함수가 아니라 APScheduler 계약이 보장한다 — 각 슬롯은
+    독립된 CronTrigger 1개(하루 1회만 fire)이고 `max_instances=1`로 겹침
+    실행을 막는다. 이 함수 자체도 매 호출마다 후보 1건만 시도한다(성공·실패와
+    무관하게 추가 후보로 넘어가지 않음).
+
+    Catch-up(놓친 슬롯을 나중에 몰아 처리)은 `misfire_grace_time`(launcher/main.py
+    등록부, 60초로 축소 — 260804 Codex 리뷰 P2 정정)이 담당한다 — 정확히는
+    "0건"이 아니라 "60초 초과 지연은 Skip, 60초 이내 지연은 Scheduler
+    Jitter로 허용"이다(정확한 표현으로 정정, 이전 보고의 "Catch-up 0건"
+    표현이 부정확했음).
+
+    Feature Flag 재확인의 실제 의미(260804 Codex 2차 리뷰 P1 정정 — 이전
+    "재시작 없이 즉시 원복" 서술은 부정확했음): `load_dotenv(override=True)`는
+    이 모듈 import 시점(launcher 기동 시) 1회만 실행되어 그 값이 프로세스
+    환경(`os.environ`)에 고정된다. `os.getenv()`는 그 이후 매번 같은 값을
+    읽을 뿐 `.env` 파일을 다시 읽지 않는다 — 즉 `.env` 파일만 고쳐서는
+    Runtime 재시작 없이 이 값이 바뀌지 않으며, 아래의 재확인도 그 고정된
+    프로세스 값을 다시 읽는 것뿐이다. **실제 원복(끄기)에는 `.env` 수정 +
+    launcher 재시작이 필요하다** — 다른 기존 Flag(`PUBLISH_TEXT_GATE_ENABLED`
+    등)와 동일한 제약이며 이 Delta가 예외를 만든 것이 아니다. 아래 재확인은
+    "재시작 없는 즉시 원복" 수단이 아니라, Scheduler 등록 시점과 실행 시점
+    사이에 프로세스가 재시작되며 값이 실제로 바뀐 경우(예: 서비스 재시작
+    직후 잔류 실행)에 등록 당시 값과 실행 당시 값이 어긋나지 않도록 하는
+    방어적 일관성 확인이다.
+
+    Publish Ledger(Step6B, `modules/common/publish_ledger.py`)는 260804 회장
+    결정에 따라 의도적으로 쓰지 않는다(ISOLATED_UNAPPROVED·Live 미검증,
+    별도 단계에서 재승인 여부 재검토 예정) — 대신 `_job_insta_upload()`와
+    동일한 계정 한정 조회·claim·게시 안전장치를 그대로 REUSE한다."""
+    if os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() != "true":
+        logger.info("[AijomoojinSlot] Flag 프로세스 환경값 false — 이번 실행 스킵")
+        return
+
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.infra.repository_interface import PostPublishResult
+    from modules.common.credential_resolver import CredentialResolutionError, resolve_credential
+    from modules.common.canary_classification import (
+        CanaryClassificationError,
+        validate_publication_candidate,
+    )
+
+    repo = AirtableRepository()
+    # 260804 Codex 리뷰(P1) 수정 — fetch_pending_posts(limit=50) 뒤 클라이언트
+    # 필터 방식은 다른 계정 레코드가 50건을 먼저 채우면 이 계정 후보가 결과에서
+    # 밀려날 수 있었다. 계정 한정 서버측 쿼리로 전환해 다른 계정 후보 수와
+    # 무관하게 항상 이 계정 것만 조회한다.
+    posts = repo.fetch_pending_posts_for_account(AIJOMOOJIN_SLOT_ACCOUNT_CODE, limit=1)
+    if not posts:
+        logger.info("[AijomoojinSlot] ready 후보 없음 — 이번 슬롯 스킵")
+        return
+
+    post = posts[0]
+    post_id = post["post_id"]
+    image_url = post.get("image_url", "")
+    caption = f"{post.get('caption','')}\n{post.get('hashtag','')}".strip()
+
+    try:
+        validate_publication_candidate(
+            post.get("data_classification", ""),
+            post.get("canary_run_id", ""),
+            post.get("post_status", ""),
+        )
+    except CanaryClassificationError as exc:
+        logger.warning(
+            "[AijomoojinSlot][CanaryPublishBlock] 공개 게시 차단 | rid=%s | reason=%s", post_id, exc,
+        )
+        return
+
+    if post.get("ig_media_id"):
+        logger.warning("[AijomoojinSlot] unverified ig_media_id detected — skip | post_id=%s", post_id)
+        return
+
+    account = repo.get_publish_account(AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+    if account is None:
+        logger.warning("[AijomoojinSlot] 계정 조회 실패(없음/중복/형식오류) — 이번 슬롯 스킵 | rid=%s", post_id)
+        return
+
+    # 260730 계정별 Kill Switch(Fail-closed) — claim 이전이라 uploading 마킹 없음, post_status=ready 유지.
+    if not account.get("automation_enabled", False):
+        logger.info("[AijomoojinSlot] 계정별 Kill Switch OFF — 이번 슬롯 스킵 | rid=%s", post_id)
+        return
+
+    gate_enabled = os.getenv("PUBLISH_TEXT_GATE_ENABLED", "false").lower() == "true"
+    if gate_enabled:
+        _persona_code = ""
+        _required_language = ""
+        try:
+            _persona = repo.get_active_persona_by_account_code_v2(AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+            _persona_code = _persona.get("persona_code", "") if _persona else ""
+            _required_language = _persona.get("language", "") if _persona else ""
+        except Exception:
+            _persona_code = ""
+            _required_language = ""
+        allowed, gate_result = resolve_publish_gate(
+            caption, AIJOMOOJIN_SLOT_ACCOUNT_CODE,
+            source_url=post.get("source_url", ""),
+            persona_code=_persona_code,
+            required_language=_required_language,
+        )
+        if not allowed:
+            logger.info(f"[AijomoojinSlot][PublishGate] {gate_result} | rid={post_id}")
+            _safety_operational_failure = gate_result.startswith((
+                "AI_CONTENT_SAFETY_RETRY_EXHAUSTED:",
+                "AI_CONTENT_SAFETY_CHECK_FAILED:",
+            ))
+            _gate_status = "failed" if _safety_operational_failure else "rejected"
+            repo.mark_post_result(post_id, PostPublishResult(status=_gate_status, platform_post_id="", error_code=gate_result))
+            return
+
+    provider_conf = PROVIDER_CONFIG.get(account["api_provider"])
+    if provider_conf is None:
+        logger.warning(
+            "[AijomoojinSlot] 미지원 api_provider — 이번 슬롯 스킵 | rid=%s | api_provider=%r",
+            post_id, account["api_provider"],
+        )
+        return
+
+    try:
+        cred = resolve_credential(account["credential_key"])
+    except CredentialResolutionError as e:
+        logger.warning(f"[AijomoojinSlot] credential 해석 실패 — 이번 슬롯 스킵 | rid={post_id} | {e}")
+        return
+
+    if cred.ig_user_id != account["ig_user_id"]:
+        logger.warning(
+            "[AijomoojinSlot] ig_user_id 불일치(Airtable vs .env) — 이번 슬롯 스킵 | rid=%s", post_id,
+        )
+        return
+
+    if os.getenv("AIJOMOOJIN_BINDING_ADAPTER_ENABLED", "false").strip().lower() == "true":
+        from modules.common.aijomoojin_binding_adapter import verify_aijomoojin_binding
+        if not verify_aijomoojin_binding(AIJOMOOJIN_SLOT_ACCOUNT_CODE, repo):
+            logger.warning("[AijomoojinSlot] Binding 검증 실패 — 이번 슬롯 스킵 | rid=%s", post_id)
+            return
+
+    if not repo.claim_post_for_upload(post_id):
+        logger.info("[AijomoojinSlot] claim 실패(이미 선점됨) — 이번 슬롯 스킵 | rid=%s", post_id)
+        return
+
+    raw = publish_single(
+        post_id, image_url, caption, cred.access_token, cred.ig_user_id, api_host=provider_conf["host"],
+    )
+
+    if raw.get("outcome_unknown"):
+        logger.error(
+            "[AijomoojinSlot] OUTCOME_UNKNOWN — 자동재게시 금지, 수동확인 필요 | rid=%s | creation_id=%s",
+            post_id, raw.get("creation_id", ""),
+        )
+        if _slack:
+            _slack(
+                f"[긴급] aijomoojin 슬롯 게시 결과 불명 — 수동 확인 필요\n"
+                f"rid={post_id} | creation_id={raw.get('creation_id','')}"
+            )
+        return
+
+    pub_result = PostPublishResult(
+        status="posted" if raw.get("ok") else "failed",
+        platform_post_id=raw.get("ig_media_id", ""),
+        error_code=raw.get("error", ""),
+    )
+    try:
+        repo.mark_post_result(post_id, pub_result)
+        if not raw.get("ok") and _slack:
+            _slack(
+                f"[알림] aijomoojin 슬롯 게시 실패 확정\n"
+                f"rid={post_id} | error={raw.get('error','')} | creation_id={raw.get('creation_id','')}"
+            )
+    except Exception as exc:
+        if raw.get("ok"):
+            logger.error(
+                "[AijomoojinSlot] IG 게시는 성공했으나 Airtable 상태 기록 실패 — uploading 고착, "
+                "수동 확인 필요 | rid=%s | ig_media_id=%s | %s",
+                post_id, raw.get("ig_media_id", ""), exc,
+            )
+            if _slack:
+                _slack(
+                    f"[긴급] aijomoojin 슬롯 게시 성공, Airtable 상태 기록 실패 — 수동 확인 필요\n"
+                    f"rid={post_id} | ig_media_id={raw.get('ig_media_id','')}"
+                )
+        else:
+            logger.error(
+                "[AijomoojinSlot] 게시 실패 상태 기록도 실패 — uploading 고착 | rid=%s | %s", post_id, exc,
+            )
+
+
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
 
 def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
@@ -685,6 +897,27 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     sched.add_job(_job_scheduler_heartbeat_main, "interval", seconds=60,
                   id="scheduler_heartbeat_main", next_run_time=now + timedelta(seconds=10),
                   max_instances=1, coalesce=True)
+    # 260804 Track B 6G — aijomoojin 전용 3슬롯(06:00/10:00/17:00 ICT) 정식 운영모드.
+    # 기본 false(미등록) — 다른 계정·기존 insta_upload Job과 완전히 분리된 신규
+    # Job이라, 이 Flag를 끄면 이 3줄이 사라진다. 단, 이 등록은 launcher 기동
+    # 시점(load_dotenv가 프로세스 환경을 고정하는 시점) 1회만 평가되므로,
+    # `.env` 파일만 고쳐서는 반영되지 않는다 — 원복(끄기)에는 `.env` 수정 +
+    # launcher 재시작이 반드시 필요하다(260804 Codex 2차 리뷰 P1 정정 — 이전
+    # "재시작 없이 즉시 원복" 서술은 부정확했음, 다른 기존 Flag와 동일 제약).
+    # `_job_aijomoojin_scheduled_post()` 내부의 재확인은 그 제약을 없애는
+    # 수단이 아니라 방어적 일관성 확인일 뿐이다(함수 docstring 참조).
+    # misfire_grace_time=60(260804 Codex 리뷰 P2 수정, 300→60초 축소) — 슬롯
+    # 시각을 60초 넘게 놓치면 그 회차는 Skip(Catch-up 없음), 60초 이내 지연은
+    # Scheduler Jitter로만 허용한다("Catch-up 0건"이 아니라 "60초 초과만 Skip"
+    # 이 정확한 표현 — 이전 300초 값·표현 둘 다 부정확했음).
+    if os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() == "true":
+        for _slot_hour in (6, 10, 17):
+            sched.add_job(
+                _job_aijomoojin_scheduled_post, "cron",
+                hour=_slot_hour, minute=0, timezone="Asia/Bangkok",
+                id=f"aijomoojin_slot_{_slot_hour:02d}00",
+                max_instances=1, coalesce=False, misfire_grace_time=60,
+            )
     return sched
 
 

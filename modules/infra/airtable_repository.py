@@ -469,6 +469,83 @@ class AirtableRepository(RepositoryInterface):
             )
         return result
 
+    def fetch_pending_posts_for_account(self, account_code_ref: str, limit: int = 10) -> list[InstagramPost]:
+        """260804 Track B 6G — Codex 리뷰(P1) 수정. fetch_pending_posts()와 동일한
+        필터(post_status=ready, data_classification production/blank, canary_run_id
+        blank)에 account_code_ref 조건만 추가해 Airtable 서버측에서 계정을 한정한다.
+        다른 계정 후보 수가 얼마든(예: 50건 이상) 이 계정의 후보 존재 여부·개수와
+        무관하게 항상 정확히 이 계정 것만 반환한다 — fetch_pending_posts(limit=50) 뒤
+        클라이언트에서 필터링하면 다른 계정 레코드가 먼저 페이지를 채워 이 계정
+        후보가 결과에서 밀려날 수 있었던 문제(슬롯 놓침)를 해소한다. 기존
+        fetch_pending_posts()는 이 메서드 추가로 수정하지 않는다(다른 Caller 무영향).
+
+        260804 Codex 2차 리뷰(P2) 수정 — account_code_ref는 다른 계정 조회
+        메서드(get_publish_account 등)와 동일하게 `_ACCOUNT_CODE_PATTERN`으로
+        형식을 검증하고(형식 위반은 추측 없이 빈 목록), limit도 양수만 허용한다.
+        정렬은 `fetch_due_scheduled_post()`와 동일하게 `scheduled_upload_at`
+        오름차순을 명시한다 — 이 필드가 비어있는 레코드가 섞여 있으면 Airtable
+        정렬 규칙상 그 레코드들끼리의 상대 순서까지 보장되지는 않으나(값이
+        전부 동일하게 공란), 최소한 값이 있는 레코드가 먼저 오는 것과 매
+        호출마다 동일한 filter+sort 조합에 대해 재현 가능한 결과를 보장한다
+        (Airtable 기본 무정렬 대비 개선). Instagram_Posts에 별도 생성시각
+        필드가 없어(Schema 확장은 이번 범위 밖) 완전한 FIFO를 약속하지는
+        않는다 — 이 한계는 의도적으로 남겨두고 문서화한다.
+
+        260804 Codex 3차 리뷰(P2) 수정 — limit은 `bool`이 아닌 순수 `int`이고
+        1~100 범위여야만 유효하다(그 외 None/문자열/실수/bool/0 이하/101 이상은
+        전부 빈 목록으로 안전 차단, 추측 변환 없음). 상한 100은 이 메서드가
+        페이지네이션을 처리하지 않기 때문에 승인된 값이다 — Caller(현재는
+        `_job_aijomoojin_scheduled_post()`, limit=1)가 더 큰 값을 요구하게
+        되면 그때 페이지네이션과 함께 상한 재검토가 필요하다."""
+        account_code_ref = (account_code_ref or "").strip()
+        if not account_code_ref or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code_ref):
+            return []
+        if isinstance(limit, bool) or not isinstance(limit, int) or not (1 <= limit <= 100):
+            return []
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": (
+                        f"AND({{account_code_ref}}='{account_code_ref}',"
+                        f"{{post_status}}='{InstagramPostStatus.READY.value}',"
+                        "OR({data_classification}=BLANK(),"
+                        "{data_classification}='production'),"
+                        "{canary_run_id}=BLANK())"
+                    ),
+                    "sort[0][field]": "scheduled_upload_at",
+                    "sort[0][direction]": "asc",
+                    "maxRecords": limit,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        result: list[InstagramPost] = []
+        for rec in r.json().get("records", []):
+            f = rec.get("fields", {})
+            result.append(
+                InstagramPost(
+                    post_id=rec["id"],
+                    image_url=f.get("image_url", f.get("source_url", "")),
+                    caption=f.get("caption", ""),
+                    hashtag=f.get("hashtag", ""),
+                    post_status=f.get("post_status", ""),
+                    ig_media_id=f.get("ig_media_id", ""),
+                    account_code_ref=f.get("account_code_ref", ""),
+                    data_classification=f.get("data_classification", ""),
+                    canary_run_id=f.get("canary_run_id", ""),
+                    source_url=f.get("source_url", ""),
+                )
+            )
+        return result
+
     def fetch_due_scheduled_post(self, account_code_ref: str, now_iso: str) -> "InstagramPost | None":
         """260801 Step6B — scheduled_upload_at<=now_iso인 due Record를 특정
         계정에서 정확히 1건만 반환한다(가장 이른 예약시각 우선). 미래 예약
