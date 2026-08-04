@@ -1,3 +1,25 @@
+# 2026-08-04 22:20 ICT — Track B 6G 정책 변경(08:00/1건 → 06·10·17 ICT/3건) + 3슬롯 게시·Producer 자동연결 구현, Codex 4라운드 검토 — Commit·Runtime 아직 HOLD
+
+_기록 시각: 2026-08-04 22:20 ICT · 상태: **코드 구현 완료, 아직 미Commit·미Runtime반영**. 아래 260804 16:46 항목의 "6G 운영정책: 매일 08:00 ICT / 하루 1건"은 **이 항목으로 정책이 변경됐다** — 과거 기록은 소급 수정하지 않고(이 문서 기존 관행) 이 최신 항목으로 대체한다._
+
+## 정책 변경
+- **변경 전**(260804 16:46 확정): 매일 08:00 ICT, 하루 1건.
+- **변경 후**(회장 재확정, 이 세션): **매일 06:00 / 10:00 / 17:00 ICT, 슬롯당 최대 1건, 하루 목표 3건**. 실패·UNKNOWN 자동재게시 금지 원칙은 그대로 유지.
+- 변경 사유: 08:00/1건으로는 나머지 두 게시 시간대(10시·17시대)가 항상 비어, 3슬롯 자동화의 취지 자체가 성립하지 않음(회장 지적).
+
+## 구현 완료 항목(미Commit, `AIJOMOOJIN_SLOT_SCHEDULE_ENABLED`/`AIJOMOOJIN_CONTENT_PRODUCER_ENABLED` 둘 다 기본 false)
+1. **3슬롯 게시**: `_job_aijomoojin_scheduled_post()`(`launcher/main.py`) — 06/10/17 ICT CronTrigger 3개, 기존 `_job_insta_upload()`는 Flag ON 시에만 IDN-000036을 skip(다른 계정 무영향).
+2. **Producer 자동연결**: `_job_aijomoojin_content_producer()`(05/09/16 ICT, 각 슬롯 1시간 전) — 기존 `create_content_package()`(Sourcebook→캡션→이미지→Vault)를 REUSE, Airtable `ready` 생성까지 자동화. `modules/common/producer_lock`(owner-token SQLite Mutex, Lease 없음)으로 Scheduler·수동 진입점(`tools/run_aijomoojin_producer_manual.py`, 신규 tracked) 동시실행 방지.
+3. Codex Read-only Review 4라운드(P0 2건: Flag 조합 불일치로 슬롯 밖 게시 가능·stale pending이 genuine을 영구차단 — 둘 다 수정 확인됨. P1/P2 다수: 빈 record_id 오판정·Lock 상태확인 도구의 의도치 않은 쓰기·uploading 우선조회 등 — 전부 수정 완료) 전부 반영, Target Test 31개 PASS, 전체 Suite clean-master 기준선 대비 회귀 0건(반복 확인).
+
+## 남은 것(다음 단계)
+1. **Source 재고 0건** — Sourcebook(`docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`)의 3.1~3.6 전부 소진. Runtime 활성화 전 **재고 ≥3** 확인 필요(하루 3슬롯 목표 기준) — 재고 보충은 Perplexity 리서치→Gemini 초안→회장 승인→Claude Code 기록의 기존 문서화된 절차(Sourcebook 메타데이터에 Role 명시돼 있음).
+2. Codex 5차 재검토 또는 최종 승인.
+3. Commit(코드 diff + 이 문서 갱신 포함) 별도 승인.
+4. Runtime 반영(재시작) 별도 승인 — 안전한 원복 순서(Producer Flag 먼저 OFF→ready 0건 확인→Slot Flag OFF)를 `launcher/main.py` 등록부 주석에 명시함.
+
+---
+
 # 2026-08-04 16:46 ICT — Track B 6F 3/3 SUCCESS 확정, 6G(정식 운영 전환) 회장 승인 — 세션 종료, 6G 구현은 다음 세션
 
 _기록 시각: 2026-08-04 16:46 ICT · 상태: **6F 3/3 전부 SUCCESS**(media_id 3건 전부 확보), 회장이 6G(정식 운영 전환)를 원칙 승인했으나 **이번 세션에서는 구현하지 않고 다음 신규 세션에서 진행**하기로 확정. 이 항목이 최신 상태이며, 아래 260803 20:26(2/3 인계) 이하는 이전 기록으로 보존._
