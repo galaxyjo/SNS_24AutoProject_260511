@@ -1,3 +1,23 @@
+# 2026-08-05 01:33 ICT — Track B 6G Release Readiness 상태정리(중복개발 방지용, Read-only) — Producer는 아직 실사용 미검증, 내일 05/09/16 ICT 자동실행 없음
+
+_기록 시각: 2026-08-05 01:33 ICT · 목적: IMPLEMENTED(코드에 존재)와 VERIFIED(실제 동작 확인됨)와 DEPLOYED(Runtime에 반영됨)를 혼동하지 않기 위한 상태표. 아래 260805 00:29 항목("Codex 코드 로직 APPROVED")과 모순되지 않는다 — 그 항목은 코드 리뷰 통과를 의미했고, 이 항목은 그 이후 실제 Runtime Canary 결과(성공/실패)까지 반영한 갱신판이다. Read-only 확인 기준: HEAD `778e245`, Working Tree clean, `.env`의 `AIJOMOOJIN_SLOT_SCHEDULE_ENABLED=true`/`PUBLISH_TEXT_GATE_ENABLED=true`/`AIJOMOOJIN_CONTENT_PRODUCER_ENABLED`(미설정=false) 직접 확인._
+
+## Release Readiness 상태표
+
+| 구분 | 내용 |
+|---|---|
+| **1. IMPLEMENTED**(코드에 존재, Commit 완료) | `e44d0fb`(Research-to-Topic Adapter 신규 + Research/Safety/Caption/게시직전Safety 4경로 Gemini Credential 완전격리) + `778e245`(같은 4경로 모델을 `gemini-3.5-flash-lite`로 고정 — `*-latest` 아님, 다른 계정 기본 모델 무변경). 둘 다 master에 Commit됨(Push는 아래 5번 참조). |
+| **2. VERIFIED**(실제 확인된 것) | 관련 Target Test Raw 결과 "184 passed"(회귀 0건, Clean Baseline 대비 FAILED 62건·Collection ERROR 8건 SHA-256 동일 확인). Runtime Canary로 직접 확인된 것: (a) `gemini-2.5-flash-lite`/`gemini-2.5-flash` 404("no longer available to new users") 완전 해소 — 요청 URL이 `gemini-3.5-flash-lite`로 정확히 바뀜. (b) `account_email=ng*********@gmail.com`(마스킹) 로그로 aijomoojin 전용 Credential이 실제로 쓰임을 확인. (c) 실패 시 Fail-closed 계약 — Producer Lock 정상 해제, Airtable ready/uploading 신규 0건, git 추적 파일 변경 0건, Vault 신규 파일 0건, 재시도는 계약된 bounded retry(4회)뿐 추가 재실행 0건 — 2회(260805 00:56, 01:21) 모두 동일하게 확인. |
+| **3. NOT VERIFIED**(아직 실제로 성공한 적 없음) | **Topic 생성→Caption→이미지→Content Package→Airtable `post_status=ready` 1건까지 이어지는 실제 End-to-End 성공 사례가 이 Delta에서 단 한 번도 없다.** 2회 Canary 시도 전부 Research 1단계(Gemini 호출 자체)에서 실패해 그 이후 전 단계(Safety 실행/Caption 생성/이미지 생성/Airtable Write) 미도달. |
+| **4. BLOCKER**(현재 진행을 막는 것) | Gemini 429(`RESOURCE_EXHAUSTED`) — aijomoojin 전용 키(`nguyenknv15@gmail.com`, 신규 Google AI Studio 프로젝트)의 Free tier quota. 여러 모델(`gemini-2.0-flash-lite`/`gemini-2.0-flash-lite-001`/`gemini-3.5-flash-lite`)에서 반복 확인돼 모델 특정 문제가 아니라 프로젝트 단위 제약으로 판단(정확한 metric·한도 수치는 UNKNOWN — Google 대시보드 로그인 필요, 이번 조사 범위 밖). 해결책 후보(코드 변경 아님, 회장 결정 사항): 해당 프로젝트에 Billing 연결 시 Free→Tier 1 즉시 승격(Google 공식 문서 확인) 또는 quota 자연 리셋 대기. |
+| **5. NOT DEPLOYED**(Runtime에 반영 안 됨) | Push 안 함(`origin/master`는 여전히 `e44d0fb`/`778e245` 이전 상태) · `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED` 영구 ON 없음(`.env`에 미설정=false 그대로) · Runtime(watchdog/launcher NSSM 서비스) 재시작 없음 — 즉 현재 **실행 중인 launcher 프로세스는 이 Delta 3 코드(Research Adapter·Credential 격리·모델 고정)를 아직 메모리에 로드하지 않은 상태**(재시작 전까지는 코드 반영과 무관하게 이전 Delta 2 상태로 계속 동작). 참고: `AIJOMOOJIN_SLOT_SCHEDULE_ENABLED=true`/`PUBLISH_TEXT_GATE_ENABLED=true`는 이전 Delta(1)부터 이미 Runtime에 반영돼 계속 살아있는 별개 상태다(이번 Delta 3와 무관, 되돌리지 않음). |
+| **6. 명시 확인** | 위 상태 그대로면 **내일(2026-08-06) 05:00/09:00/16:00 ICT에 aijomoojin Producer 자동실행은 발생하지 않는다** — `_job_aijomoojin_content_producer()`가 매 호출마다 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED`를 확인하고 false면 즉시 스킵하는 코드 계약(260804 Codex P0 강제) 그대로이며, 이 값을 바꾸는 어떤 조치도 이번 세션에서 하지 않았다. 06:00/10:00/17:00 ICT 게시 슬롯(`_job_aijomoojin_scheduled_post()`)은 이 Delta와 무관하게 기존대로 계속 동작하되, Producer가 새 `ready` 레코드를 만들지 않으므로 새로 게시할 후보도 없다. |
+
+## 다음 실제 Blocker
+Gemini 429 Free-tier quota(위 4번) — 이게 해소(Billing 연결 또는 자연 리셋)되기 전에는 Research-to-Topic Adapter의 End-to-End 성공을 검증할 방법이 없다. 회장 승인으로 quota 회복 확인 후 Canary 정확히 1회만 재시도 예정.
+
+---
+
 # 2026-08-05 00:29 ICT — Research-to-Topic Adapter(Source 재고 0건 자동보충) 구현 + Gemini Credential 완전격리, Codex 코드 로직 APPROVED / Commit·Canary 아직 HOLD
 
 _기록 시각: 2026-08-05 00:29 ICT · 상태: **코드 구현 완료, Codex "코드 로직 APPROVED", Commit 최종승인·Runtime Canary는 아직 HOLD**(회장 승인 대기). 아래 260804 22:20 항목의 "남은 것 1. Source 재고 0건 — ... 재고 보충은 Perplexity 리서치→Gemini 초안→회장 승인→Claude Code 기록의 기존 문서화된 절차"는 **이 항목으로 대체된다** — 실제 구현은 그 수동 절차가 아니라, Sourcebook 3.x 소진 시 4.x/5.x 원천 URL을 Gemini(Search Grounding + URL Context + Structured Output)가 자동 분석해 Topic을 만드는 `modules/sns/research_to_topic_adapter.py`다. 과거 기록은 소급 수정하지 않고(이 문서 기존 관행) 이 최신 항목으로 대체한다._
