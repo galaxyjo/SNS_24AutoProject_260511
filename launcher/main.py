@@ -859,6 +859,254 @@ def _job_aijomoojin_scheduled_post():
             )
 
 
+AIJOMOOJIN_PRODUCER_ACCOUNT_CODE = "IDN-000036"
+
+
+@handle_errors(task="aijomoojin_content_producer", notify_fn=_slack)
+def _job_aijomoojin_content_producer():
+    """260804 Track B 6G — aijomoojin 전용 콘텐츠 Producer(Sourcebook Topic →
+    캡션·이미지 → Vault → Airtable ready). 매일 05:00/09:00/16:00 ICT(각 게시
+    슬롯 1시간 전)에 실행 — 하루 목표 3건에 맞춰 슬롯마다 1회.
+
+    REUSE 원칙(회장 승인 필수조건 1) — 검증된 생성 경로(`create_content_package`,
+    `modules/sns/source_selector.py`·`caption_generator.py`·
+    `image_provider_cloudflare.py`)는 이 함수가 전혀 수정하지 않는다. 이
+    함수는 그 검증된 경로를 스케줄에 연결하는 얇은 오케스트레이션일 뿐이다.
+
+    안전조건(회장 승인 필수조건 2~9, 260804 Codex 3차 리뷰 반영):
+      2. 이미 ready/uploading 레코드가 있으면 신규 생성하지 않는다
+         (`get_active_post_status_for_account`).
+      3. Airtable 저장이 확정된 뒤에만 Vault `channel_status`를
+         pending→queued로 전환한다(`mark_channel_status`).
+      4. ImgBB·Airtable 실패/결과불명 시 pending을 그대로 두고 이번 실행
+         안에서 재시도하지 않는다 — 다음 예약 실행이 `find_pending_channel_package()`
+         로 같은 패키지를 다시 시도할 수 있으나, 그건 "자동 재실행 루프"가
+         아니라 슬롯마다 1회 시도하는 동일 원칙의 반복이다(3슬롯 게시와 동일 설계).
+      5. uploading 레코드 발견 시 새로 만들지 않고 즉시 HOLD+Slack 알림.
+      6. `NO_SELECTABLE_TOPIC`은 실패가 아니라 정상 종료 — Sourcebook은 이
+         함수가 절대 수정하지 않는다, 알림만 남긴다.
+      7. 기존 6건(3.1~3.6)처럼 Airtable 저장은 성공했으나 이 메커니즘이
+         없던 시절이라 channel_status가 "pending"으로 남은 stale 항목은
+         `find_account_post_by_source_url()`로 걸러내고 절대 건드리지 않는다.
+      8~9. `modules/common/producer_lock`(owner-token, 자동만료 없음, 수동
+         해제)으로 이 Job과 `tools/run_aijomoojin_producer_manual.py`(수동
+         실행 — 이 함수를 그대로 호출만 하므로 동일 Lock을 코드 구조상
+         자동 공유한다)가 동일 Lock을 공유한다 — 둘 중 하나가 실행 중이면
+         다른 쪽은 즉시 스킵한다(대기 없음). 260804 Codex 2차 리뷰 지적으로
+         gitignore되는 `tools/_canary_260801_queue_aijomoojin_post_6f.py`에
+         Lock을 붙이는 방식은 폐기했다(일반 Commit·clone에 배포 안 됨) —
+         그 스크립트는 원상복구된 상태로 남아있고 이 Producer Lock 계약과
+         무관하다.
+
+    Publish Ledger(Step6B)는 여전히 DEFER 상태 그대로 — 이 Producer는 그것과
+    무관한 별도의, 훨씬 좁은 목적의 Lock만 사용한다.
+
+    260804 Codex 2차 리뷰(P0) 수정 — 이 Job은 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED`
+    뿐 아니라 `AIJOMOOJIN_SLOT_SCHEDULE_ENABLED`도 함께 true여야만 진행한다.
+    Producer가 만든 ready 레코드를 실제로 06/10/17 ICT 슬롯에서만 게시하게
+    막는 것은 `_job_insta_upload()`의 그 Flag 기반 skip 조건인데, Producer만
+    켜고 그 Flag를 깜빡하면(또는 끄면) 5분 폴링 Job이 그 ready를 슬롯 밖
+    아무 때나 즉시 게시해버린다 — 두 Flag가 항상 함께 켜져야 하는 계약을
+    코드로 강제한다(사람이 실수로 하나만 켜는 것을 차단)."""
+    producer_flag = os.getenv("AIJOMOOJIN_CONTENT_PRODUCER_ENABLED", "false").strip().lower() == "true"
+    slot_flag = os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() == "true"
+    if not (producer_flag and slot_flag):
+        logger.info(
+            "[AijomoojinProducer] Flag 조합 불충족(Producer=%s, SlotSchedule=%s) — "
+            "이번 실행 스킵", producer_flag, slot_flag,
+        )
+        return
+
+    from modules.common import producer_lock
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.sns.content_package_builder import (
+        DEFAULT_VAULT_ROOT,
+        VaultScanError,
+        _content_paths,
+        create_content_package,
+        find_pending_channel_packages,
+        mark_channel_status,
+        read_frontmatter,
+    )
+    from modules.sns.image_hosting import upload_local_file_to_imgbb
+
+    owner_token = producer_lock.new_owner_token()
+    if not producer_lock.acquire(owner_token):
+        # 260804 Codex 3차 리뷰(P1) 수정 — Lock에는 PID/host가 없어(의도적으로
+        # Lease/Heartbeat를 안 만들었음) "반복되면 그냥 풀어라"는 안내는 위험하다
+        # — 정상적으로 오래 걸리는 실행(Gemini/Cloudflare 대기 등) 중에 실수로
+        # 풀면 겹쳐 실행될 수 있다. 문구를 "보유 프로세스 종료를 먼저 확인"으로
+        # 바꾸고, `tools/check_aijomoojin_producer_lock.py`(Read-only 상태확인
+        # CLI, 신규 tracked)를 안내한다 — force_release() 자체는 여전히 사람이
+        # 직접 실행해야 하는 별도 함수(코드 경로에서 호출 안 함).
+        holder = producer_lock.get_holder()
+        logger.info("[AijomoojinProducer] Lock 선점 실패(다른 실행 진행 중) — 이번 실행 스킵 | holder=%s", holder)
+        if _slack:
+            _slack(
+                f"[알림] aijomoojin Producer Lock 선점 실패 — 다른 실행이 보유 중입니다\n"
+                f"holder={holder}\n"
+                f"(반복되면: launcher/수동 실행 프로세스가 실제로 종료됐는지 먼저 "
+                f"확인한 뒤에만 producer_lock.force_release()로 수동 해제하세요 — "
+                f"`tools/check_aijomoojin_producer_lock.py`로 상태 확인 가능)"
+            )
+        return
+
+    try:
+        repo = AirtableRepository()
+
+        active_status = repo.get_active_post_status_for_account(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE)
+        if active_status == "uploading":
+            logger.warning("[AijomoojinProducer] uploading 레코드 발견 — HOLD, 신규 생성 안 함")
+            if _slack:
+                _slack(
+                    "[HOLD] aijomoojin Producer — uploading 상태 레코드가 있어 "
+                    "신규 콘텐츠 생성을 중단합니다. 수동 확인이 필요합니다."
+                )
+            return
+        if active_status == "ready":
+            logger.info("[AijomoojinProducer] 이미 ready 레코드 존재 — 신규 생성 스킵")
+            return
+
+        try:
+            pending_content_ids = find_pending_channel_packages(DEFAULT_VAULT_ROOT)
+        except VaultScanError as exc:
+            logger.error(f"[AijomoojinProducer] Vault 스캔 실패 — 이번 실행 중단 | {exc}")
+            if _slack:
+                _slack(f"[긴급] aijomoojin Producer Vault 스캔 실패 — 수동 확인 필요\n{exc}")
+            return
+
+        # 260804 Codex 2차 리뷰(P0) 수정 — pending 후보가 여럿일 때 앞쪽 stale
+        # 1건에서 멈추지 않고 전부 순회해, 진짜 미완료 패키지를 찾으면 그것을
+        # 재개한다(stale은 전부 건드리지 않고 그냥 지나침, 회장 필수조건 7).
+        content_id = None
+        for candidate_id in pending_content_ids:
+            candidate_fields = read_frontmatter(candidate_id, DEFAULT_VAULT_ROOT)
+            candidate_source_url = candidate_fields.get("source_url", "") if candidate_fields else ""
+            already_in_airtable = (
+                repo.find_account_post_by_source_url(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, candidate_source_url)
+                if candidate_source_url else False
+            )
+            if already_in_airtable:
+                logger.info(
+                    "[AijomoojinProducer] pending 마커가 stale(이미 Airtable 존재) — "
+                    "건드리지 않고 통과 | content_id=%s", candidate_id,
+                )
+                continue
+            content_id = candidate_id
+            logger.info("[AijomoojinProducer] 미완료 pending 패키지 재개 | content_id=%s", content_id)
+            break
+
+        if content_id is None:
+            result = create_content_package(target_language="ko")
+            if not result.success:
+                if result.error_code == "NO_SELECTABLE_TOPIC":
+                    logger.info("[AijomoojinProducer] 선택 가능한 Topic 없음 — 안전 종료")
+                    if _slack:
+                        _slack(
+                            "[알림] aijomoojin Producer — 선택 가능한 Sourcebook Topic이 "
+                            "없습니다. 재고 보충이 필요합니다."
+                        )
+                else:
+                    logger.error(f"[AijomoojinProducer] 콘텐츠 생성 실패 | error_code={result.error_code}")
+                    if _slack:
+                        _slack(f"[알림] aijomoojin Producer 콘텐츠 생성 실패 | error_code={result.error_code}")
+                return
+            content_id = result.content_id
+            logger.info(f"[AijomoojinProducer] 신규 패키지 생성 | content_id={content_id}")
+
+        fields = read_frontmatter(content_id, DEFAULT_VAULT_ROOT)
+        if fields is None:
+            logger.error(f"[AijomoojinProducer] frontmatter 재읽기 실패 — 이번 실행 중단 | content_id={content_id}")
+            return
+        caption = fields.get("caption", "")
+        source_url = fields.get("source_url", "")
+        _, img_path = _content_paths(content_id, DEFAULT_VAULT_ROOT)
+
+        upload = upload_local_file_to_imgbb(str(img_path))
+        if not upload.get("success"):
+            logger.error(
+                "[AijomoojinProducer] imgbb 업로드 실패 — pending 유지, 재시도 없음 | "
+                "content_id=%s | %s", content_id, upload.get("error"),
+            )
+            if _slack:
+                _slack(
+                    f"[알림] aijomoojin Producer imgbb 업로드 실패 — pending 유지, 수동 확인 필요\n"
+                    f"content_id={content_id}"
+                )
+            return
+
+        image_url = upload["public_url"]
+
+        if repo.exists_post_by_image_url(image_url):
+            logger.warning(
+                "[AijomoojinProducer] 동일 image_url 이미 존재 — 중복 방지, pending 유지 | "
+                "content_id=%s", content_id,
+            )
+            return
+
+        try:
+            record_id = repo.save_instagram_post({
+                "account_code_ref": AIJOMOOJIN_PRODUCER_ACCOUNT_CODE,
+                "image_url": image_url,
+                "caption": caption,
+                "post_status": "ready",
+                "data_classification": "production",
+                "source_url": source_url,
+            })
+        except Exception as exc:
+            logger.error(
+                "[AijomoojinProducer] Airtable 저장 실패/결과불명 — pending 유지, 재시도 없음 | "
+                "content_id=%s | %s", content_id, exc,
+            )
+            if _slack:
+                _slack(
+                    f"[긴급] aijomoojin Producer Airtable 저장 실패/결과불명 — 수동 확인 필요\n"
+                    f"content_id={content_id} | image_url={image_url}"
+                )
+            return
+
+        if not record_id:
+            # 260804 Codex 3차 리뷰(P1) 수정 — source_url 기반 확인은 "이 계정에
+            # 이 source_url을 가진 레코드가 하나라도 있는가"만 물어서, 과거의
+            # posted/failed 레코드가 있어도 True가 나와 이번 저장 성공을
+            # 증명하지 못했다. image_url은 이번 imgbb 업로드로 방금 새로 생성된
+            # 고유 URL이라(과거 레코드와 우연히 같을 수 없음) exists_post_by_image_url
+            # (기존 REUSE)로 바꿔 "정확히 이번 저장"만 확인한다.
+            confirmed = repo.exists_post_by_image_url(image_url)
+            if not confirmed:
+                logger.error(
+                    "[AijomoojinProducer] Airtable 저장 결과불명(빈 record_id, read-after-write "
+                    "미확인) — pending 유지, 재시도 없음 | content_id=%s", content_id,
+                )
+                if _slack:
+                    _slack(
+                        f"[긴급] aijomoojin Producer Airtable 저장 결과불명(빈 record_id) — "
+                        f"수동 확인 필요\ncontent_id={content_id} | image_url={image_url}"
+                    )
+                return
+            logger.warning(
+                "[AijomoojinProducer] record_id는 비어있었으나 read-after-write로 저장 확인됨 | "
+                "content_id=%s", content_id,
+            )
+
+        marked = mark_channel_status(content_id, "queued", DEFAULT_VAULT_ROOT)
+        if not marked:
+            logger.error(
+                "[AijomoojinProducer] Airtable 저장은 성공했으나 channel_status 전환 실패 — "
+                "수동 확인 필요 | content_id=%s | record_id=%s", content_id, record_id,
+            )
+            if _slack:
+                _slack(
+                    f"[긴급] aijomoojin Producer — ready 레코드는 생성됐으나 Vault channel_status "
+                    f"전환 실패\ncontent_id={content_id} | record_id={record_id}"
+                )
+            return
+
+        logger.info(f"[AijomoojinProducer] 완료 | content_id={content_id} | record_id={record_id}")
+    finally:
+        producer_lock.release(owner_token)
+
+
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
 
 def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
@@ -916,6 +1164,38 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
                 _job_aijomoojin_scheduled_post, "cron",
                 hour=_slot_hour, minute=0, timezone="Asia/Bangkok",
                 id=f"aijomoojin_slot_{_slot_hour:02d}00",
+                max_instances=1, coalesce=False, misfire_grace_time=60,
+            )
+    # 260804 Track B 6G — aijomoojin 전용 Content Producer(05:00/09:00/16:00 ICT,
+    # 각 게시 슬롯 1시간 전). 기본 false(미등록), 게시 3슬롯과 완전히 분리된
+    # 신규 Job — 다른 계정·기존 insta_upload/게시 슬롯 Job은 전혀 영향받지 않는다.
+    # 원복(끄기)에는 `.env` 수정 + launcher 재시작이 필요하다(위 게시 슬롯과
+    # 동일 제약, Job 본문에서도 Flag를 다시 확인해 방어적 일관성만 추가로 확인).
+    # 260804 Codex 2차 리뷰(P0) 수정 — AIJOMOOJIN_SLOT_SCHEDULE_ENABLED도 함께
+    # true여야 등록한다. Producer만 켜고 슬롯 Flag를 깜빡하면 5분 폴링 Job이
+    # Producer가 만든 ready를 슬롯 밖에서 즉시 게시해버리는 조합을 등록
+    # 단계에서부터 차단한다(Job 본문의 재확인과 이중 방어).
+    #
+    # ⚠ 안전한 원복 순서(260804 Codex 3차 리뷰 P1 — 두 Flag를 "동시에" 끄고
+    # 재시작하면, 그 시점에 이미 만들어진 ready 레코드 1건은 이 등록 조건이
+    # 아니라 _job_insta_upload()의 skip 조건(AIJOMOOJIN_SLOT_SCHEDULE_ENABLED만
+    # 봄)에 걸리는데, 그 Flag도 이미 꺼져 있으므로 5분 폴링 Job이 슬롯 밖에서
+    # 즉시 게시해버릴 수 있다):
+    #   1) AIJOMOOJIN_CONTENT_PRODUCER_ENABLED만 먼저 false로 바꾸고 재시작
+    #      (Producer 중단, 3슬롯 게시는 그대로 유지 — 새 ready 생성만 멈춤).
+    #   2) Airtable에서 이 계정 ready/uploading 레코드가 0건인지 확인한다
+    #      (다음 슬롯을 기다리거나 수동으로 상태 확인).
+    #   3) 0건 확인 후에만 AIJOMOOJIN_SLOT_SCHEDULE_ENABLED도 false로 바꾸고
+    #      재시작한다.
+    if (
+        os.getenv("AIJOMOOJIN_CONTENT_PRODUCER_ENABLED", "false").strip().lower() == "true"
+        and os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() == "true"
+    ):
+        for _producer_hour in (5, 9, 16):
+            sched.add_job(
+                _job_aijomoojin_content_producer, "cron",
+                hour=_producer_hour, minute=0, timezone="Asia/Bangkok",
+                id=f"aijomoojin_producer_{_producer_hour:02d}00",
                 max_instances=1, coalesce=False, misfire_grace_time=60,
             )
     return sched

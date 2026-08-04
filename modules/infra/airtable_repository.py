@@ -546,6 +546,87 @@ class AirtableRepository(RepositoryInterface):
             )
         return result
 
+    def get_active_post_status_for_account(self, account_code_ref: str) -> str:
+        """260804 Track B 6G Producer — 이 계정에 현재 ready 또는 uploading 상태인
+        레코드가 있는지 확인한다. `fetch_pending_posts_for_account()`는 ready만
+        보므로(Codex 리뷰 지적) Producer의 "이미 대기 중인 게 있으면 새로 안 만든다"
+        가드는 이 메서드로 별도 구현한다. 반환값은 실제 상태 문자열("ready"
+        또는 "uploading"), 없으면 빈 문자열.
+
+        260804 Codex 3차 리뷰(P2) 수정 — `maxRecords=5`짜리 단일 결합 쿼리는
+        활성 레코드가 6건 이상이면(정상 설계상 발생하면 안 되지만 방어적으로)
+        uploading이 조회 결과에서 아예 빠질 수 있었다. 개수 상한에 기대지
+        않도록, uploading 전용 쿼리(maxRecords=1)를 먼저 실행하고, 없을 때만
+        ready 전용 쿼리(maxRecords=1)를 실행한다 — 두 쿼리 각각은 "존재하는가"
+        만 물으므로 활성 레코드 개수와 무관하게 항상 정확하다."""
+        account_code_ref = (account_code_ref or "").strip()
+        if not account_code_ref or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code_ref):
+            return ""
+
+        for status_value in ("uploading", "ready"):
+            try:
+                r = requests.get(
+                    _url("Instagram_Posts"),
+                    headers=_headers(),
+                    params={
+                        "filterByFormula": (
+                            f"AND({{account_code_ref}}='{account_code_ref}',"
+                            f"{{post_status}}='{status_value}')"
+                        ),
+                        "maxRecords": 1,
+                    },
+                    timeout=_TIMEOUT,
+                )
+                r.raise_for_status()
+                log_api_call("Instagram_Posts", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Instagram_Posts")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+
+            if r.json().get("records"):
+                return status_value
+        return ""
+
+    def find_account_post_by_source_url(self, account_code_ref: str, source_url: str) -> bool:
+        """260804 Track B 6G Producer — 이 계정+source_url 조합으로 이미 Airtable
+        레코드가 존재하는지 확인한다(상태 무관). Vault에 `channel_status: pending`
+        으로 남은 패키지를 "재개 대상"으로 오인해 이미 게시 완료된 콘텐츠를
+        중복 게시하는 것을 막기 위한 안전장치 — 기존 6건(3.1~3.6)처럼 Airtable
+        저장은 성공했지만 Vault 쪽 channel_status 전환 로직이 그때는 없어서
+        "pending" 그대로 남은 레코드를 이 메서드로 걸러낸다."""
+        account_code_ref = (account_code_ref or "").strip()
+        source_url = (source_url or "").strip()
+        if not account_code_ref or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code_ref):
+            return False
+        if not source_url:
+            return False
+        # 260804 Codex 2차 리뷰(P1/P2) 수정 — source_url은(account_code_ref와 달리)
+        # 형식이 자유로운 URL이라 정규식으로 통째로 막을 수 없다. Airtable
+        # 수식 문자열 리터럴 규칙대로 백슬래시·홑따옴표만 이스케이프한다.
+        source_url_escaped = source_url.replace("\\", "\\\\").replace("'", "\\'")
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": (
+                        f"AND({{account_code_ref}}='{account_code_ref}',"
+                        f"{{source_url}}='{source_url_escaped}')"
+                    ),
+                    "maxRecords": 1,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return bool(r.json().get("records"))
+
     def fetch_due_scheduled_post(self, account_code_ref: str, now_iso: str) -> "InstagramPost | None":
         """260801 Step6B — scheduled_upload_at<=now_iso인 due Record를 특정
         계정에서 정확히 1건만 반환한다(가장 이른 예약시각 우선). 미래 예약

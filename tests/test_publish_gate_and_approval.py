@@ -10,6 +10,14 @@ import pytest
 from modules.infra.repository_interface import InstagramPostStatus, PostPublishResult
 
 
+@pytest.fixture(autouse=True)
+def _no_slot_schedule_leak(monkeypatch):
+    """260804 Track B 6G — 실 .env의 AIJOMOOJIN_SLOT_SCHEDULE_ENABLED=true가
+    이 파일의 _job_insta_upload() 통합 테스트(IDN-000036 레코드 사용)로
+    새어들어와 claim 전에 스킵되는 것을 막는다(이 파일은 그 Flag와 무관)."""
+    monkeypatch.delenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", raising=False)
+
+
 # ── 1. InstagramPostStatus enum 확장 확인 ─────────────────────────────────
 
 def test_status_enum_has_draft_and_rejected():

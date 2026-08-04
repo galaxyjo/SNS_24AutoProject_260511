@@ -118,6 +118,78 @@ def scan_used_source_urls(vault_root: "Path | None" = None) -> set:
     return used
 
 
+def read_frontmatter(content_id: str, vault_root: "Path | None" = None) -> "dict | None":
+    """260804 Track B 6G Producer — 지정 content_id의 .md frontmatter를 읽어
+    dict로 반환한다(파일 없음/파싱 실패 시 None). `create_content_package()`는
+    무수정 — 이 함수는 호출자(Producer)가 이미 만들어진 패키지의 caption/
+    source_url/channel_status 등을 다시 읽기 위한 순수 조회 전용이다."""
+    root = vault_root or DEFAULT_VAULT_ROOT
+    md_path, _ = _content_paths(content_id, root)
+    if not md_path.exists():
+        return None
+    return _parse_frontmatter(md_path.read_text(encoding="utf-8"))
+
+
+def find_pending_channel_packages(vault_root: "Path | None" = None) -> "list[str]":
+    """260804 Track B 6G Producer — Vault content/*.md 중 channel_status가
+    "pending"인 전체 항목의 content_id를 파일명 정렬 순서로 반환한다(없으면
+    빈 리스트). Airtable 저장이 끝까지 확정되지 않은 채 남은 패키지를 찾기
+    위한 조회 전용 — 이 함수는 Airtable을 조회하지 않으므로, 반환된
+    content_id들이 실제로 아직 Airtable에 없는지는 호출자가 Repository로
+    별도 확인해야 한다(기존 6건처럼 Airtable 저장은 성공했지만 이 필드
+    자체가 그때는 갱신 로직이 없어 "pending"으로 남아있는 오탐 사례가 실제로
+    존재함 — 260804 Codex 리뷰 근거).
+
+    260804 Codex 2차 리뷰(P0) 수정 — 이전엔 첫 1건만 반환했는데, 그 1건이
+    stale(이미 Airtable에 존재)로 판정돼도 뒤에 있는 진짜 미완료 패키지를
+    영영 못 찾는 문제가 있었다. 전체 목록을 반환해 호출자가 stale을
+    건너뛰며 순회할 수 있게 한다."""
+    root = vault_root or DEFAULT_VAULT_ROOT
+    content_dir = root / "content"
+    if not content_dir.exists():
+        return []
+    pending: list[str] = []
+    for md_file in sorted(content_dir.glob("*.md")):
+        text = md_file.read_text(encoding="utf-8")
+        fields = _parse_frontmatter(text)
+        if fields is None:
+            raise VaultScanError(f"unparseable frontmatter: {md_file.name}")
+        if fields.get("channel_status") == "pending":
+            pending.append(fields.get("content_id", ""))
+    return pending
+
+
+def mark_channel_status(content_id: str, new_status: str, vault_root: "Path | None" = None) -> bool:
+    """260804 Track B 6G Producer — 지정 content_id의 .md frontmatter 중
+    channel_status 필드만 갱신한다(다른 필드·본문 caption은 그대로 보존).
+    Airtable 저장이 확정된 뒤에만 호출자가 이 함수를 호출해야 한다("pending
+    → queued" 전이는 Producer의 책임, 이 함수는 파일 쓰기만 담당). 원본
+    구성(create_content_package의 frontmatter+본문 렌더링)과 동일한 Atomic
+    Write 패턴(tmp 파일 → os.replace)을 사용한다. 파일이 없거나 파싱 실패
+    시 False를 반환하고 아무것도 쓰지 않는다."""
+    root = vault_root or DEFAULT_VAULT_ROOT
+    md_path, _ = _content_paths(content_id, root)
+    if not md_path.exists():
+        return False
+    fields = _parse_frontmatter(md_path.read_text(encoding="utf-8"))
+    if fields is None:
+        return False
+
+    caption = fields.get("caption", "")
+    fields["channel_status"] = new_status
+    new_text = _render_frontmatter(fields) + f"\n{caption}\n"
+
+    tmp_suffix = uuid.uuid4().hex[:8]
+    tmp_md = md_path.parent / f"{content_id}.md.tmp-{tmp_suffix}"
+    try:
+        tmp_md.write_text(new_text, encoding="utf-8")
+        os.replace(tmp_md, md_path)
+    except Exception:
+        _cleanup(tmp_md)
+        return False
+    return True
+
+
 def _cleanup(*paths: Path) -> None:
     for p in paths:
         try:

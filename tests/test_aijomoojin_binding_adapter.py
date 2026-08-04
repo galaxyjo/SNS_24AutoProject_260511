@@ -28,6 +28,14 @@ from modules.common.aijomoojin_binding_adapter import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_slot_schedule_leak(monkeypatch):
+    """260804 Track B 6G — 실 .env의 AIJOMOOJIN_SLOT_SCHEDULE_ENABLED=true가
+    이 파일의 _job_insta_upload() 통합 테스트로 새어들어와 IDN-000036 레코드가
+    claim 전에 스킵되는 것을 막는다(이 파일은 그 Flag와 무관한 테스트다)."""
+    monkeypatch.delenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", raising=False)
+
+
 # ── Part A: 순수 로직 단위테스트 ──────────────────────────────────────────
 
 class TestVerifyAijomoojinBindingUnit:
