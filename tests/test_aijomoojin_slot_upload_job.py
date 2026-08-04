@@ -641,3 +641,108 @@ class TestFetchPendingPostsForAccountRepositoryContract:
         assert result == []  # Mock 응답이 빈 records이므로 결과는 빈 목록(HTTP는 호출됨)
         mock_get.assert_called_once()
         assert mock_get.call_args.kwargs["params"]["maxRecords"] == good_limit
+
+
+# ── Part E: 게시 직전 Gate의 Gemini Credential 격리(260805 Codex 리뷰 P0) ──
+
+def _fake_repo_with_persona(account_posts, persona=None, get_publish_account=lambda code: AI_ACCOUNT, claim_result=True):
+    """PUBLISH_TEXT_GATE_ENABLED=true 경로 전용 — get_active_persona_by_account_code_v2()가
+    실제로 값을 반환한다(_fake_repo()는 이 경로가 호출되면 즉시 실패하도록 만들어져
+    있어 Gate 활성 테스트에는 쓸 수 없다)."""
+    calls = {"claim": [], "mark_post_result": [], "fetch_pending_posts_for_account": []}
+    persona = persona if persona is not None else {"persona_code": "PER-002", "language": "ko"}
+
+    class _FakeRepo:
+        def fetch_pending_posts_for_account(self, account_code_ref, limit=10):
+            calls["fetch_pending_posts_for_account"].append((account_code_ref, limit))
+            return account_posts
+
+        def get_publish_account(self, account_code):
+            return get_publish_account(account_code)
+
+        def claim_post_for_upload(self, post_id):
+            calls["claim"].append(post_id)
+            return claim_result
+
+        def mark_post_result(self, post_id, result):
+            calls["mark_post_result"].append((post_id, dict(result)))
+
+        def get_active_persona_by_account_code_v2(self, account_code):
+            return persona
+
+    return _FakeRepo(), calls
+
+
+class TestPublishGateCredentialIsolation:
+    """260805 Codex 리뷰(P0) — PUBLISH_TEXT_GATE_ENABLED=true일 때 게시 직전
+    resolve_publish_gate() 호출이 aijomoojin 전용 Gemini Credential
+    (research_to_topic_adapter의 것)로 격리되는지, Key가 없으면 이번 슬롯만
+    Fail-closed로 스킵하는지 확인한다."""
+
+    def _gate_env(self, monkeypatch):
+        monkeypatch.setenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "true")
+        monkeypatch.setenv("PUBLISH_TEXT_GATE_ENABLED", "true")
+        monkeypatch.setenv("AIJOMOOJIN_BINDING_ADAPTER_ENABLED", "false")
+        monkeypatch.setenv("AI_INSTA_IG_USER_ID", "17841467725643424")
+        monkeypatch.setenv("AI_INSTA_ACCESS_TOKEN", "ai-real-token")
+
+    def test_gate_enabled_passes_isolated_client_and_throttle(
+        self, monkeypatch, bypass_canary_classification
+    ):
+        self._gate_env(monkeypatch)
+        from launcher import main as launcher_main
+        import modules.sns.research_to_topic_adapter as research_adapter
+
+        sentinel_client = object()
+        monkeypatch.setattr(research_adapter, "_get_client", lambda: sentinel_client)
+
+        repo, calls = _fake_repo_with_persona([_post()])
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        monkeypatch.setattr(
+            launcher_main, "publish_single",
+            lambda *a, **k: pytest.fail("Gate가 차단했는데 게시가 시도되면 안 됨"),
+        )
+
+        captured = {}
+
+        def _spy_gate(caption, account_code_ref, *, source_url="", persona_code="",
+                      required_language="", safety_client=None, safety_throttle=None):
+            captured["safety_client"] = safety_client
+            captured["safety_throttle"] = safety_throttle
+            return False, "AI_CONTENT_SAFETY_BLOCKED:TEST"
+
+        monkeypatch.setattr(launcher_main, "resolve_publish_gate", _spy_gate)
+
+        launcher_main._job_aijomoojin_scheduled_post()
+
+        assert captured["safety_client"] is sentinel_client  # 전역 caption_generator 것이 아님
+        assert captured["safety_throttle"] is research_adapter._throttle
+        assert calls["claim"] == []  # claim은 Gate 통과 이후 단계라, 차단되면 시도조차 안 됨
+
+    def test_missing_isolated_key_skips_slot_without_calling_gate(
+        self, monkeypatch, bypass_canary_classification
+    ):
+        """AIJOMOOJIN_GEMINI_API_KEY가 없으면 전역 Key로 대체(Fallback)하지
+        않고, 이번 슬롯만 Fail-closed로 스킵한다 — resolve_publish_gate()도
+        publish_single()도 호출되지 않는다."""
+        self._gate_env(monkeypatch)
+        from launcher import main as launcher_main
+        import modules.sns.research_to_topic_adapter as research_adapter
+
+        monkeypatch.setattr(research_adapter, "_client", None)
+        monkeypatch.delenv("AIJOMOOJIN_GEMINI_API_KEY", raising=False)
+
+        repo, calls = _fake_repo_with_persona([_post()])
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        monkeypatch.setattr(
+            launcher_main, "resolve_publish_gate",
+            lambda *a, **k: pytest.fail("호출되면 안 됨 — Key 없으면 Gate 도달 전에 스킵"),
+        )
+        monkeypatch.setattr(
+            launcher_main, "publish_single",
+            lambda *a, **k: pytest.fail("호출되면 안 됨"),
+        )
+
+        launcher_main._job_aijomoojin_scheduled_post()
+
+        assert calls["mark_post_result"] == []  # 확정 결과 없이 조용히 스킵(다음 슬롯에서 재시도 가능)

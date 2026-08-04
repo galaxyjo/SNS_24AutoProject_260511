@@ -191,6 +191,9 @@ def generate_hook_caption(
     prohibited_expression: str = "",
     tone_style: str = "",
     target_language: str = "EN",
+    *,
+    client=None,
+    throttle_fn=None,
 ) -> tuple[str, str]:
     """Track B Source Topic(title/core_message) → 후킹형 Instagram 캡션+해시태그.
 
@@ -201,7 +204,12 @@ def generate_hook_caption(
     Transient error(429/408/500/502/503/504/Timeout/연결재설정)는 최초 호출
     포함 최대 _MAX_ATTEMPTS(4)회까지 재시도(generate_caption()과 동일 정책,
     _classify_retry()/_next_retry_delay() REUSE). 영구 오류는 즉시 실패.
-    """
+
+    260804 Codex 리뷰(계정별 Gemini Credential 격리) — `client`/`throttle_fn`은
+    선택 인자다. 생략하면(기존 모든 호출부 그대로) 전역 `_get_client()`/`_throttle()`을
+    그대로 쓴다 — 100% 기존 동작. `research_to_topic_adapter.py`가 발굴한
+    Topic으로 이 함수를 부를 때만 그 모듈 전용 Client/Throttle을 주입해, 다른
+    계정이 쓰는 전역 GEMINI_API_KEY·전역 호출 간격에 전혀 영향을 주지 않는다."""
     if not core_message or not core_message.strip():
         return "", ""
 
@@ -228,13 +236,14 @@ def generate_hook_caption(
         "HASHTAGS: <hashtags>"
     )
 
+    active_throttle = throttle_fn or _throttle
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         _call_started = None
         try:
-            _throttle()
-            client = _get_client()
+            active_throttle()
+            active_client = client or _get_client()
             _call_started = time.time()
-            response = client.models.generate_content(
+            response = active_client.models.generate_content(
                 model="gemini-2.5-flash-lite",
                 contents=prompt,
             )
@@ -269,7 +278,9 @@ def generate_hook_caption(
     return "", ""
 
 
-def check_caption_safety(caption: str) -> tuple[SafetyStatus, str]:
+def check_caption_safety(
+    caption: str, *, client=None, throttle_fn=None,
+) -> tuple[SafetyStatus, str]:
     """260801 AI_CONTENT Gate v0 — 이미 생성된 caption 텍스트의 Gemini Safety
     상태를 확인한다(재생성 아님, 신규 caption을 만들지 않음).
 
@@ -277,15 +288,22 @@ def check_caption_safety(caption: str) -> tuple[SafetyStatus, str]:
     safety_ratings를 버리고 text만 반환하므로, 이미 생성된 콘텐츠에 대해서는
     이 함수로 별도 확인한다. structured Safety 신호를 response.text보다 먼저
     확인하고, Provider transient 오류는 caption 생성과 동일한 bounded retry 계약을
-    재사용한다 — 점수·카테고리별 세부 정책 엔진은 만들지 않는다."""
+    재사용한다 — 점수·카테고리별 세부 정책 엔진은 만들지 않는다.
+
+    260804 Codex 리뷰(P0, 계정별 Gemini Credential 격리) — `client`/`throttle_fn`
+    생략 시 기존과 100% 동일(전역 `_get_client()`/`_throttle()`). Research-to-Topic
+    Adapter가 자체 발굴 Topic의 core_message를 검사할 때만 전용 Client/Throttle을
+    주입해, 이 Safety 확인이 다른 계정의 전역 GEMINI_API_KEY quota·호출 간격을
+    소비하지 않게 한다."""
     if not caption or not caption.strip():
         return "PERMANENT", "EMPTY_CAPTION"
 
+    active_throttle = throttle_fn or _throttle
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            _throttle()
-            client = _get_client()
-            response = client.models.generate_content(
+            active_throttle()
+            active_client = client or _get_client()
+            response = active_client.models.generate_content(
                 model="gemini-2.5-flash-lite",
                 contents=caption,
             )

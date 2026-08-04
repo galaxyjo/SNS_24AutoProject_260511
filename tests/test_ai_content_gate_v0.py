@@ -73,6 +73,14 @@ def _client_error(code):
     )
 
 
+def _forbidden_get_client():
+    raise AssertionError("전역 caption_generator._get_client()가 호출되면 안 됨")
+
+
+def _forbidden_throttle():
+    raise AssertionError("전역 caption_generator._throttle()이 호출되면 안 됨")
+
+
 class TestCheckCaptionSafety:
     def test_empty_caption_blocked(self):
         assert caption_generator.check_caption_safety("") == ("PERMANENT", "EMPTY_CAPTION")
@@ -166,6 +174,36 @@ class TestCheckCaptionSafety:
         )
         assert models.calls == 1
 
+    def test_injected_client_bypasses_global_get_client(self, monkeypatch):
+        """260805 Codex 리뷰(P1) — client 주입 시 전역 _get_client()가 0회
+        호출되는지 직접 증명한다(이전 라운드는 인자가 전달됐다는 것만 확인했지,
+        전역 Client가 실제로 미호출인지는 검증하지 않았다)."""
+        monkeypatch.setattr(caption_generator, "_get_client", _forbidden_get_client)
+        monkeypatch.setattr(caption_generator, "_throttle", lambda: None)
+        models = _SequenceModels([_safety_response(text="SAFE")])
+        injected_client = MagicMock(models=models)
+
+        status, reason = caption_generator.check_caption_safety("hello", client=injected_client)
+
+        assert (status, reason) == ("SAFE", "STOP")
+        assert models.calls == 1
+
+    def test_injected_throttle_bypasses_global_throttle(self, monkeypatch):
+        """260805 Codex 리뷰(P1) — throttle_fn 주입 시 전역 _throttle()이 0회
+        호출되는지 직접 증명한다."""
+        monkeypatch.setattr(caption_generator, "_throttle", _forbidden_throttle)
+        models = _SequenceModels([_safety_response(text="SAFE")])
+        monkeypatch.setattr(caption_generator, "_get_client", lambda: MagicMock(models=models))
+        injected_calls = []
+
+        status, reason = caption_generator.check_caption_safety(
+            "hello", throttle_fn=lambda: injected_calls.append(1)
+        )
+
+        assert (status, reason) == ("SAFE", "STOP")
+        assert injected_calls == [1]
+        assert models.calls == 1
+
 
 class TestAiContentGateV0:
     def _patch_safe(self):
@@ -257,6 +295,54 @@ class TestAiContentGateV0:
         assert allowed is True
         assert code == "PUBLISH_ALLOWED"
 
+    def test_safety_client_and_throttle_forwarded_to_check_caption_safety(self):
+        """260805 Codex 리뷰(P0) — 게시 직전 Gate도 safety_client/safety_throttle을
+        받으면 check_caption_safety()에 그대로 전달해야 한다(Research 단계만
+        격리하고 여기서 다시 전역 Key를 쓰면 격리가 무의미해진다)."""
+        captured = {}
+
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None):
+            captured["client"] = client
+            captured["throttle_fn"] = throttle_fn
+            return "SAFE", "STOP"
+
+        sentinel_client = object()
+        sentinel_throttle = lambda: None  # noqa: E731
+
+        with patch(
+            "modules.sns.caption_generator.check_caption_safety", _spy_check_caption_safety
+        ):
+            allowed, code = passes_ai_content_gate_v0(
+                "caption", "IDN-000036", "https://jobs.netflix.com/culture", "PER-002",
+                safety_client=sentinel_client, safety_throttle=sentinel_throttle,
+            )
+
+        assert allowed is True
+        assert code == "PUBLISH_ALLOWED"
+        assert captured["client"] is sentinel_client
+        assert captured["throttle_fn"] is sentinel_throttle
+
+    def test_no_safety_override_keeps_default_none(self):
+        """safety_client/safety_throttle 미전달(기존 호출부)은 check_caption_safety()에
+        None/None이 그대로 전달돼 전역 Client/Throttle을 쓰게 된다 — 하위호환."""
+        captured = {}
+
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None):
+            captured["client"] = client
+            captured["throttle_fn"] = throttle_fn
+            return "SAFE", "STOP"
+
+        with patch(
+            "modules.sns.caption_generator.check_caption_safety", _spy_check_caption_safety
+        ):
+            allowed, code = passes_ai_content_gate_v0(
+                "caption", "IDN-000036", "https://jobs.netflix.com/culture", "PER-002",
+            )
+
+        assert allowed is True
+        assert captured["client"] is None
+        assert captured["throttle_fn"] is None
+
 
 class TestResolvePublishGateBackwardCompat:
     def test_product_domain_unaffected_by_new_kwargs(self):
@@ -303,3 +389,32 @@ class TestResolvePublishGateBackwardCompat:
         )
         assert allowed is False
         assert code == "AI_CONTENT_LANGUAGE_MISMATCH"
+
+    def test_safety_client_and_throttle_passthrough_to_ai_content_gate(self):
+        """260805 Codex 리뷰(P0) — resolve_publish_gate()의 safety_client/
+        safety_throttle이 passes_ai_content_gate_v0()를 거쳐 check_caption_safety()
+        까지 그대로 전달되는지 전체 체인으로 확인한다(launcher/main.py 게시
+        직전 호출부와 동일 경로)."""
+        captured = {}
+
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None):
+            captured["client"] = client
+            captured["throttle_fn"] = throttle_fn
+            return "SAFE", "STOP"
+
+        sentinel_client = object()
+        sentinel_throttle = lambda: None  # noqa: E731
+
+        with patch(
+            "modules.sns.caption_generator.check_caption_safety", _spy_check_caption_safety
+        ):
+            allowed, code = resolve_publish_gate(
+                "caption", "IDN-000036",
+                source_url="https://jobs.netflix.com/culture", persona_code="PER-002",
+                safety_client=sentinel_client, safety_throttle=sentinel_throttle,
+            )
+
+        assert allowed is True
+        assert code == "PUBLISH_ALLOWED"
+        assert captured["client"] is sentinel_client
+        assert captured["throttle_fn"] is sentinel_throttle

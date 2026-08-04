@@ -1,3 +1,25 @@
+# 2026-08-05 00:29 ICT — Research-to-Topic Adapter(Source 재고 0건 자동보충) 구현 + Gemini Credential 완전격리, Codex 코드 로직 APPROVED / Commit·Canary 아직 HOLD
+
+_기록 시각: 2026-08-05 00:29 ICT · 상태: **코드 구현 완료, Codex "코드 로직 APPROVED", Commit 최종승인·Runtime Canary는 아직 HOLD**(회장 승인 대기). 아래 260804 22:20 항목의 "남은 것 1. Source 재고 0건 — ... 재고 보충은 Perplexity 리서치→Gemini 초안→회장 승인→Claude Code 기록의 기존 문서화된 절차"는 **이 항목으로 대체된다** — 실제 구현은 그 수동 절차가 아니라, Sourcebook 3.x 소진 시 4.x/5.x 원천 URL을 Gemini(Search Grounding + URL Context + Structured Output)가 자동 분석해 Topic을 만드는 `modules/sns/research_to_topic_adapter.py`다. 과거 기록은 소급 수정하지 않고(이 문서 기존 관행) 이 최신 항목으로 대체한다._
+
+## 구현 내용(미Commit)
+- **Research-to-Topic Adapter**(`modules/sns/research_to_topic_adapter.py`, 신규): `source_selector.select_next_topic()`이 None을 반환할 때만 호출된다(3.x가 있으면 이 모듈 자체가 호출되지 않음). Sourcebook 4.x/5.x의 미사용 원천 URL 1건을 골라 Gemini에게 그 URL을 URL Context로 직접 읽게 하고, `Candidate.url_context_metadata.url_metadata[].url_retrieval_status`(SDK 구조화 신호, 모델 자기신고 텍스트 아님)로 원천 접근 성공을 판정, `check_caption_safety()`(REUSE)로 Safety 확인 후 `create_content_package()`에 `injected_topic`으로 주입한다. 실패(URL 접근불가/core_message 공란/Safety 위반) 시 다른 URL로 재시도하지 않고 즉시 None(Fail-closed) — `launcher/main.py`의 `_job_aijomoojin_content_producer()`가 이 결과를 그대로 종료 조건으로 쓴다.
+- **Gemini Credential 완전 격리**("1 email=1 persona=1 AI tool" 원칙, 회장 명시): 이 모듈은 `caption_generator.py`의 전역 `GEMINI_API_KEY`(다른 계정과 공유)를 전혀 쓰지 않고, `AIJOMOOJIN_GEMINI_API_KEY`(계정 식별은 `.env`의 `AIJOMOOJIN_GEMINI_ACCOUNT_EMAIL`, 실제 주소는 코드에 남기지 않음)로 자체 Client/Throttle 상태를 갖는다. Codex 재검토 2라운드를 거쳐 **Research → core-message Safety → Caption 생성 → 게시 직전 최종 Safety(`resolve_publish_gate()`)까지 예외 없이 전부** 이 격리된 Client/Throttle을 쓰도록 확인됨(1라운드에서는 게시 직전 Gate가 여전히 전역 Key를 쓰는 누락이 있었고, 2라운드에서 `content_filter.py`의 `passes_ai_content_gate_v0()`/`resolve_publish_gate()`에 `safety_client`/`safety_throttle` 선택 인자를 추가해 수정함).
+- 공유 5분 Job(`_job_insta_upload()`)의 Gate 호출은 전용 Client를 주입하지 않으나, 슬롯 Flag(`AIJOMOOJIN_SLOT_SCHEDULE_ENABLED`) ON 시 aijomoojin은 그 경로에서 애초에 제외된다(기존 P0 수정, 260804) — 현재 승인된 3슬롯 운영계약 기준으로는 문제없음. Slot Flag OFF fallback 경로까지의 격리는 별도 보강 대상(미착수).
+
+## Codex 검토 결과
+- **코드 로직: APPROVED.** 확인 항목: Research/Safety/Caption/게시 직전 Safety 전부 전용 Client 사용, 전용 throttle 상태 분리, 전용 Key 누락 시 게시 claim 전 fail-closed, 다른 계정은 기본 인자로 기존 전역 동작 유지, 짧은 이메일도 최소 1글자 마스킹, 실제 이메일 문자열 Python 파일 0건, `git diff --check` clean, 관련 Target Test `175 passed`.
+- **Commit 최종 승인: HOLD.** 남은 사유 2가지 — (1) 전체 Suite 회귀 0건 최종 증명(변경본에서 기존 62 failures 외 test_dm_* 8개 collection error가 나타나 FAILED 목록 일치만으로는 부족하다는 지적) → **해소**: `git stash`로 이번 라운드 변경분(추적 9개 파일 + 미추적 2개 파일)을 전부 제거한 Clean Baseline에서 동일 명령(`pytest -q --continue-on-collection-errors`)을 재실행해 확인한 결과, FAILED 62건·ERROR(collection) 8건 모두 **byte-for-byte 동일**(`diff` 결과 완전 일치) — 즉 이 8개 collection error(`test_dm_*`, `runtime_boot_policy.json` PermissionError)는 이번 라운드 변경과 무관한 환경 사전조건이며 신규 회귀가 아님. (2) 이 문서(SSOT)가 신규 자동 Research 동작을 아직 반영하지 않음 → **이 항목 자체로 해소**.
+- **Runtime Canary: HOLD.** 아래 "남은 것" 참조.
+
+## 남은 것(다음 단계)
+1. Codex에 이 2가지 해소 결과(Clean Baseline 비교 Evidence + 이 문서 갱신) 재제출 — Commit 최종 승인 여부 확인.
+2. Commit(코드 diff + 이 문서 갱신 포함) 별도 승인.
+3. Runtime 반영(재시작) 별도 승인.
+4. `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED` 활성화는 이 Delta와 별개 — GPT 기존 시퀀싱(Delta 2 Commit → Source 3건 확보 → Preflight → Producer Runtime Canary) 그대로 유지.
+
+---
+
 # 2026-08-04 22:20 ICT — Track B 6G 정책 변경(08:00/1건 → 06·10·17 ICT/3건) + 3슬롯 게시·Producer 자동연결 구현, Codex 4라운드 검토 — Commit·Runtime 아직 HOLD
 
 _기록 시각: 2026-08-04 22:20 ICT · 상태: **코드 구현 완료, 아직 미Commit·미Runtime반영**. 아래 260804 16:46 항목의 "6G 운영정책: 매일 08:00 ICT / 하루 1건"은 **이 항목으로 정책이 변경됐다** — 과거 기록은 소급 수정하지 않고(이 문서 기존 관행) 이 최신 항목으로 대체한다._

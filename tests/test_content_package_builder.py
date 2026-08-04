@@ -201,3 +201,77 @@ def test_yaml_scalar_round_trips_colons_quotes_and_newlines():
     tricky = 'title: "Netflix" says\nline two'
     rendered = builder._yaml_scalar(tricky)
     assert json.loads(rendered) == tricky
+
+
+# ── 260804 Track B 6G — injected_topic(Research-to-Topic Adapter 연동) ────
+
+def test_injected_topic_bypasses_select_next_topic_and_scan(tmp_path, monkeypatch):
+    """injected_topic이 주어지면 select_next_topic()/scan_used_source_urls()를
+    전혀 호출하지 않는다(Adapter가 이미 검증까지 끝낸 Topic이므로 재선택 불필요)."""
+    monkeypatch.setattr(builder, "select_next_topic", lambda used: pytest.fail("호출되면 안 됨"))
+    monkeypatch.setattr(builder, "scan_used_source_urls", lambda root=None: pytest.fail("호출되면 안 됨"))
+
+    injected = _fake_topic(source_url="https://reddit.com/r/injected-topic")
+    result = builder.create_content_package(vault_root=tmp_path, injected_topic=injected)
+
+    assert result.success is True
+    md_path, img_path = builder._content_paths(result.content_id, tmp_path)
+    fields = builder._parse_frontmatter(md_path.read_text(encoding="utf-8"))
+    assert fields["source_url"] == "https://reddit.com/r/injected-topic"
+
+
+def test_no_injected_topic_uses_existing_select_next_topic_path_unchanged(tmp_path):
+    """injected_topic을 생략한 기존 호출부는 100% 이전과 동일하게 동작한다
+    (회귀 없음 재확인 — _mock_pure_pipeline autouse fixture의 select_next_topic
+    mock이 그대로 쓰인다)."""
+    result = builder.create_content_package(vault_root=tmp_path)
+    assert result.success is True
+    md_path, _ = builder._content_paths(result.content_id, tmp_path)
+    fields = builder._parse_frontmatter(md_path.read_text(encoding="utf-8"))
+    assert fields["source_url"] == "https://example.com/topic-1"  # _fake_topic() 기본값
+
+
+def test_gemini_client_and_throttle_forwarded_to_generate_hook_caption(tmp_path, monkeypatch):
+    """260804 Codex 리뷰(P0) — gemini_client/gemini_throttle을 넘기면
+    generate_hook_caption()에 그대로 전달돼야 한다(Research-to-Topic Adapter가
+    aijomoojin 전용 Credential로 Caption까지 생성하게 하는 계약의 근거)."""
+    captured = {}
+
+    def _spy_generate_hook_caption(title, core_message, prohibited_expression="",
+                                    tone_style="", target_language="EN", *, client=None, throttle_fn=None):
+        captured["client"] = client
+        captured["throttle_fn"] = throttle_fn
+        return "caption text", "#tag"
+
+    monkeypatch.setattr(builder, "generate_hook_caption", _spy_generate_hook_caption)
+
+    sentinel_client = object()
+    sentinel_throttle = lambda: None  # noqa: E731
+
+    result = builder.create_content_package(
+        vault_root=tmp_path, gemini_client=sentinel_client, gemini_throttle=sentinel_throttle,
+    )
+
+    assert result.success is True
+    assert captured["client"] is sentinel_client
+    assert captured["throttle_fn"] is sentinel_throttle
+
+
+def test_no_gemini_override_keeps_default_none(tmp_path, monkeypatch):
+    """gemini_client/gemini_throttle을 생략하면(기존 모든 호출부) None이 그대로
+    전달돼 generate_hook_caption() 내부에서 전역 Client/Throttle을 쓰게 된다."""
+    captured = {}
+
+    def _spy_generate_hook_caption(title, core_message, prohibited_expression="",
+                                    tone_style="", target_language="EN", *, client=None, throttle_fn=None):
+        captured["client"] = client
+        captured["throttle_fn"] = throttle_fn
+        return "caption text", "#tag"
+
+    monkeypatch.setattr(builder, "generate_hook_caption", _spy_generate_hook_caption)
+
+    result = builder.create_content_package(vault_root=tmp_path)
+
+    assert result.success is True
+    assert captured["client"] is None
+    assert captured["throttle_fn"] is None

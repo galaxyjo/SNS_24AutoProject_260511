@@ -364,3 +364,48 @@ def test_generate_caption_retries_on_503_then_succeeds(monkeypatch):
 
     assert caption == "ok"
     assert models.calls == 2
+
+
+def test_generate_hook_caption_uses_injected_client_not_global(monkeypatch):
+    """260804 Track B 6G — client 인자를 넘기면 전역 _get_client()를 아예
+    호출하지 않는다(다른 계정 전용 Client 격리 지원, generate_hook_caption()
+    은 이 파일을 REUSE하는 research_to_topic_adapter.py가 실제로 의존하는
+    계약이다)."""
+    monkeypatch.setattr(
+        caption_generator, "_get_client",
+        lambda: pytest.fail("전역 _get_client()가 호출되면 안 됨(client 인자를 줬으므로)"),
+    )
+    injected_models = _FakeModels(text="CAPTION: injected\nHASHTAGS: #x")
+    injected_client = _FakeClient(injected_models)
+
+    caption, hashtags = generate_hook_caption(
+        "Title", "core message", client=injected_client,
+    )
+
+    assert caption == "injected"
+    assert injected_models.calls == 1
+
+
+def test_generate_hook_caption_uses_injected_throttle_not_global(monkeypatch):
+    throttle_calls = []
+    models = _FakeModels(text="CAPTION: x\nHASHTAGS: #x")
+    _patch_client(monkeypatch, models)
+    monkeypatch.setattr(
+        caption_generator, "_throttle",
+        lambda: pytest.fail("전역 _throttle()이 호출되면 안 됨(throttle_fn 인자를 줬으므로)"),
+    )
+
+    generate_hook_caption("Title", "core message", throttle_fn=lambda: throttle_calls.append(1))
+
+    assert throttle_calls == [1]
+
+
+def test_generate_hook_caption_without_override_keeps_existing_behavior(monkeypatch):
+    """client/throttle_fn을 생략한 기존 호출부는 100% 이전과 동일(회귀 없음)."""
+    models = _FakeModels(text="CAPTION: default\nHASHTAGS: #x")
+    _patch_client(monkeypatch, models)
+
+    caption, hashtags = generate_hook_caption("Title", "core message")
+
+    assert caption == "default"
+    assert models.calls == 1

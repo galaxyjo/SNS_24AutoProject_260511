@@ -212,12 +212,18 @@ class TestReadyOrUploadingGuard:
 class TestSuccessPath:
     def test_new_package_success_creates_ready_and_marks_queued(self, monkeypatch, _flag_on, vault_root):
         from launcher import main as launcher_main
+        import modules.sns.research_to_topic_adapter as adapter
 
         def _fake_create(target_language="ko"):
             _write_fixture_package(vault_root, "new-content-1", source_url="https://new.example/a", caption="hello")
             return cpb.PackageResult(success=True, content_id="new-content-1", status="complete")
 
         monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        # Target Test 1: 기존 selectable Topic 존재(=create_content_package가 바로
+        # 성공) → Research Adapter 호출 0회.
+        monkeypatch.setattr(
+            adapter, "research_next_topic", lambda *a, **k: pytest.fail("호출되면 안 됨")
+        )
         monkeypatch.setattr(
             "modules.sns.image_hosting.upload_local_file_to_imgbb",
             lambda path: {"success": True, "public_url": "https://i.ibb.co/new.jpg"},
@@ -239,12 +245,17 @@ class TestSuccessPath:
         assert fields["channel_status"] == "queued"
 
     def test_no_selectable_topic_safe_exit_zero_partial_state(self, monkeypatch, _flag_on, vault_root):
+        """260804 Research-to-Topic Adapter 추가 후: NO_SELECTABLE_TOPIC이면
+        이제 Research Adapter를 1회 시도한다 — 이 테스트는 Adapter도 실패한
+        (원천 URL 접근 실패 등) 경우를 재현한다(둘 다 실패 → 완전 안전 종료)."""
         from launcher import main as launcher_main
+        import modules.sns.research_to_topic_adapter as adapter
 
         monkeypatch.setattr(
             cpb, "create_content_package",
             lambda *a, **k: cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC"),
         )
+        monkeypatch.setattr(adapter, "research_next_topic", lambda *a, **k: None)
         repo, calls = _fake_repo(active_status="")
         monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
         slack_calls = []
@@ -255,6 +266,100 @@ class TestSuccessPath:
         assert calls["save"] == []
         assert (vault_root / "content").exists() is False or list((vault_root / "content").glob("*.md")) == []
         assert len(slack_calls) == 1
+
+
+class TestResearchToTopicAdapterWiring:
+    """260804 Track B 6G Research-to-Topic Adapter — Producer 단에서의 배선
+    검증(Adapter 자체 로직은 test_research_to_topic_adapter.py에서 검증)."""
+
+    def test_research_success_calls_create_content_package_exactly_once_more_with_injected_topic(
+        self, monkeypatch, _flag_on, vault_root
+    ):
+        """Target Test 3 — 생성 Topic → 기존 Producer(create_content_package)
+        정확히 1회(재호출) 호출, 그 결과로 정상 게시 준비까지 완료된다."""
+        from launcher import main as launcher_main
+        import modules.sns.research_to_topic_adapter as adapter
+        from modules.sns.source_selector import SourceTopic
+
+        researched = SourceTopic(
+            topic_id="auto-deadbeef", title="Reddit Community A", status="VERIFIED FACT",
+            source_url="https://reddit.com/r/testcommunity-a", core_message="grounded message",
+            prohibited_expression="",
+        )
+        monkeypatch.setattr(adapter, "research_next_topic", lambda *a, **k: researched)
+        # 260804 Codex 리뷰(P0) — aijomoojin 전용 Client/Throttle을 격리해서
+        # 검증(실 .env의 AIJOMOOJIN_GEMINI_API_KEY 유무에 테스트가 의존하지 않게).
+        sentinel_client = object()
+        sentinel_throttle = lambda: None  # noqa: E731
+        monkeypatch.setattr(adapter, "_get_client", lambda: sentinel_client)
+        monkeypatch.setattr(adapter, "_throttle", sentinel_throttle)
+
+        create_calls = []
+
+        def _fake_create(target_language="ko", injected_topic=None, gemini_client=None, gemini_throttle=None):
+            create_calls.append({
+                "injected_topic": injected_topic,
+                "gemini_client": gemini_client,
+                "gemini_throttle": gemini_throttle,
+            })
+            if injected_topic is None:
+                return cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
+            _write_fixture_package(
+                vault_root, "researched-content-1",
+                source_url=injected_topic.source_url, caption="researched caption",
+            )
+            return cpb.PackageResult(success=True, content_id="researched-content-1", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        monkeypatch.setattr(
+            "modules.sns.image_hosting.upload_local_file_to_imgbb",
+            lambda path: {"success": True, "public_url": "https://i.ibb.co/researched.jpg"},
+        )
+        repo, calls = _fake_repo(active_status="", save_record_id="recRESEARCH1")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        # 1차(기존 경로 실패, gemini_client 없음) + 2차(injected_topic +
+        # aijomoojin 전용 Client/Throttle) 정확히 1회씩.
+        assert len(create_calls) == 2
+        assert create_calls[0]["injected_topic"] is None
+        assert create_calls[0]["gemini_client"] is None
+        assert create_calls[1]["injected_topic"] is researched
+        assert create_calls[1]["gemini_client"] is sentinel_client  # 격리된 Client가 실제로 전달됨
+        assert create_calls[1]["gemini_throttle"] is sentinel_throttle
+        assert len(calls["save"]) == 1
+        assert calls["save"][0]["caption"] == "researched caption"
+        assert calls["save"][0]["source_url"] == researched.source_url
+        fields = cpb.read_frontmatter("researched-content-1", vault_root)
+        assert fields["channel_status"] == "queued"
+
+    def test_research_failure_zero_caption_image_airtable_write(self, monkeypatch, _flag_on, vault_root):
+        """Target Test 5 — 원천 접근 실패/근거 부족(Adapter가 None 반환) →
+        Caption/Image/Airtable Write 0회, create_content_package도 2차 재호출 없음."""
+        from launcher import main as launcher_main
+        import modules.sns.research_to_topic_adapter as adapter
+
+        monkeypatch.setattr(adapter, "research_next_topic", lambda *a, **k: None)
+
+        create_calls = []
+
+        def _fake_create(target_language="ko", injected_topic=None):
+            create_calls.append(injected_topic)
+            return cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
+
+        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        monkeypatch.setattr(
+            "modules.sns.image_hosting.upload_local_file_to_imgbb",
+            lambda path: pytest.fail("호출되면 안 됨"),
+        )
+        repo, calls = _fake_repo(active_status="")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert create_calls == [None]  # 2차(injected_topic) 재호출 없음 — Research 실패 시 즉시 종료
+        assert calls["save"] == []
 
 
 class TestPendingFailureNoRetry:

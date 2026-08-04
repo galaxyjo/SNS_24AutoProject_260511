@@ -767,11 +767,26 @@ def _job_aijomoojin_scheduled_post():
         except Exception:
             _persona_code = ""
             _required_language = ""
+
+        # 260805 Codex 리뷰(P0) — 게시 직전 최종 Safety 확인도 aijomoojin 전용
+        # Gemini Credential로 격리한다(Research 단계만 격리하고 여기서 다시
+        # 전역 GEMINI_API_KEY를 쓰면 "1이메일=1페르소나" 원칙이 깨진다).
+        import modules.sns.research_to_topic_adapter as _research_adapter
+        try:
+            _safety_client = _research_adapter._get_client()
+        except RuntimeError as e:
+            logger.warning(
+                f"[AijomoojinSlot] AIJOMOOJIN_GEMINI_API_KEY 미설정 — 이번 슬롯 스킵 | rid={post_id} | {e}"
+            )
+            return
+
         allowed, gate_result = resolve_publish_gate(
             caption, AIJOMOOJIN_SLOT_ACCOUNT_CODE,
             source_url=post.get("source_url", ""),
             persona_code=_persona_code,
             required_language=_required_language,
+            safety_client=_safety_client,
+            safety_throttle=_research_adapter._throttle,
         )
         if not allowed:
             logger.info(f"[AijomoojinSlot][PublishGate] {gate_result} | rid={post_id}")
@@ -998,18 +1013,44 @@ def _job_aijomoojin_content_producer():
 
         if content_id is None:
             result = create_content_package(target_language="ko")
-            if not result.success:
-                if result.error_code == "NO_SELECTABLE_TOPIC":
-                    logger.info("[AijomoojinProducer] 선택 가능한 Topic 없음 — 안전 종료")
+            if not result.success and result.error_code == "NO_SELECTABLE_TOPIC":
+                # 260804 Track B 6G Research-to-Topic Adapter — selectable 3.x
+                # Topic이 0건일 때만 호출한다(회장 승인 조건 5·6). 이 함수 자신은
+                # 대체 URL로 연속 재시도하지 않으므로(Fail-closed, 1회만) 여기서도
+                # 정확히 1회만 부르고, 성공하면 create_content_package()를
+                # injected_topic으로 다시 정확히 1회만 호출한다.
+                import modules.sns.research_to_topic_adapter as _research_adapter
+                researched_topic = _research_adapter.research_next_topic()
+                if researched_topic is None:
+                    logger.info(
+                        "[AijomoojinProducer] 선택 가능한 Topic 없음 + Research Adapter도 "
+                        "실패/대상없음 — 안전 종료"
+                    )
                     if _slack:
                         _slack(
-                            "[알림] aijomoojin Producer — 선택 가능한 Sourcebook Topic이 "
-                            "없습니다. 재고 보충이 필요합니다."
+                            "[알림] aijomoojin Producer — 선택 가능한 Sourcebook Topic이 없고 "
+                            "Research Adapter도 새 Topic을 만들지 못했습니다(원천 URL 접근 실패/"
+                            "근거 부족/Safety 등 Fail-closed 사유). 다음 정규 슬롯에서 재평가됩니다."
                         )
-                else:
-                    logger.error(f"[AijomoojinProducer] 콘텐츠 생성 실패 | error_code={result.error_code}")
-                    if _slack:
-                        _slack(f"[알림] aijomoojin Producer 콘텐츠 생성 실패 | error_code={result.error_code}")
+                    return
+                logger.info(
+                    "[AijomoojinProducer] Research Adapter가 신규 Topic 생성 | "
+                    "topic_id=%s | source_url=%s", researched_topic.topic_id, researched_topic.source_url,
+                )
+                # 260804 Codex 리뷰(P0) — Research로 찾은 Topic의 Caption 생성도
+                # aijomoojin 전용 Gemini Client/Throttle로 해야 전역 GEMINI_API_KEY
+                # (다른 계정과 공유)를 안 건드린다. injected_topic이 없는 일반
+                # 호출(위 1000행)은 이 인자들을 안 넘기므로 기존 전역 동작 그대로다.
+                result = create_content_package(
+                    target_language="ko", injected_topic=researched_topic,
+                    gemini_client=_research_adapter._get_client(),
+                    gemini_throttle=_research_adapter._throttle,
+                )
+
+            if not result.success:
+                logger.error(f"[AijomoojinProducer] 콘텐츠 생성 실패 | error_code={result.error_code}")
+                if _slack:
+                    _slack(f"[알림] aijomoojin Producer 콘텐츠 생성 실패 | error_code={result.error_code}")
                 return
             content_id = result.content_id
             logger.info(f"[AijomoojinProducer] 신규 패키지 생성 | content_id={content_id}")

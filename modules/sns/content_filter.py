@@ -92,6 +92,9 @@ def passes_ai_content_gate_v0(
     source_url: str,
     persona_code: str,
     required_language: str = "",
+    *,
+    safety_client=None,
+    safety_throttle=None,
 ) -> tuple[bool, str]:
     """260801 AI_CONTENT Gate v0/v1(최소 구현) — GPT 검수 승인 조건 5개 + 언어일치(v1)를 확인한다.
 
@@ -102,7 +105,14 @@ def passes_ai_content_gate_v0(
     260801 6E — 실측 오사고(영어 게시) 재발방지: Persona_Profile.language(예: "ko")를
     호출자가 전달하면, 기존 _korean_ratio() 임계값(caption_generator.detect_and_translate와
     동일 기준 0.2)으로 caption 실제 언어가 요구언어와 맞는지 확인한다. required_language가
-    빈 값이면(기존 호출부) 이 검사를 건너뛴다 — 하위호환."""
+    빈 값이면(기존 호출부) 이 검사를 건너뛴다 — 하위호환.
+
+    260805 Codex 리뷰(P0, 게시 직전 Gate의 Credential 격리 누락) — safety_client/
+    safety_throttle은 선택 인자다. 생략하면(기존 호출부 그대로) check_caption_safety()가
+    전역 GEMINI_API_KEY/전역 throttle을 그대로 쓴다 — 100% 기존 동작. aijomoojin
+    슬롯 Job은 이 값에 research_to_topic_adapter 전용 Client/Throttle을 주입해,
+    Research 단계뿐 아니라 게시 직전 최종 Safety 확인까지 전역 Key를 소비하지
+    않게 한다."""
     if account_code_ref != _AI_CONTENT_REQUIRED_ACCOUNT:
         return False, "AI_CONTENT_ACCOUNT_MISMATCH"
     if persona_code != _AI_CONTENT_REQUIRED_PERSONA:
@@ -116,7 +126,9 @@ def passes_ai_content_gate_v0(
 
     from modules.sns.caption_generator import check_caption_safety
 
-    safety_status, reason = check_caption_safety(caption)
+    safety_status, reason = check_caption_safety(
+        caption, client=safety_client, throttle_fn=safety_throttle,
+    )
     if safety_status == "UNSAFE":
         return False, f"AI_CONTENT_SAFETY_BLOCKED:{reason}"
     if safety_status == "RETRY_EXHAUSTED":
@@ -136,6 +148,8 @@ def resolve_publish_gate(
     source_url: str = "",
     persona_code: str = "",
     required_language: str = "",
+    safety_client=None,
+    safety_throttle=None,
 ) -> tuple[bool, str]:
     """발행 직전 계정별 콘텐츠 Gate.
 
@@ -150,7 +164,9 @@ def resolve_publish_gate(
 
     source_url/persona_code/required_language는 AI_CONTENT 도메인 전용 선택
     인자(260801 Gate v0/v1)다 — PRODUCT 도메인 기존 호출부(2-인자)는 그대로
-    동작한다(하위호환)."""
+    동작한다(하위호환). safety_client/safety_throttle(260805 Codex 리뷰 P0)도
+    선택 인자이며 생략 시 기존과 100% 동일 — passes_ai_content_gate_v0()로
+    그대로 전달만 한다."""
     try:
         account_code_ref = (account_code_ref or "").strip()
         caption = caption or ""
@@ -169,7 +185,8 @@ def resolve_publish_gate(
 
         if domain == "AI_CONTENT":
             return passes_ai_content_gate_v0(
-                caption, account_code_ref, source_url, persona_code, required_language
+                caption, account_code_ref, source_url, persona_code, required_language,
+                safety_client=safety_client, safety_throttle=safety_throttle,
             )
 
         return False, "UNKNOWN_DOMAIN"
