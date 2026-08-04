@@ -706,9 +706,11 @@ class TestPublishGateCredentialIsolation:
         captured = {}
 
         def _spy_gate(caption, account_code_ref, *, source_url="", persona_code="",
-                      required_language="", safety_client=None, safety_throttle=None):
+                      required_language="", safety_client=None, safety_throttle=None,
+                      safety_model=None):
             captured["safety_client"] = safety_client
             captured["safety_throttle"] = safety_throttle
+            captured["safety_model"] = safety_model
             return False, "AI_CONTENT_SAFETY_BLOCKED:TEST"
 
         monkeypatch.setattr(launcher_main, "resolve_publish_gate", _spy_gate)
@@ -717,6 +719,8 @@ class TestPublishGateCredentialIsolation:
 
         assert captured["safety_client"] is sentinel_client  # 전역 caption_generator 것이 아님
         assert captured["safety_throttle"] is research_adapter._throttle
+        # 260805 회장 지시 — aijomoojin 전용 고정 모델도 함께 전달됨
+        assert captured["safety_model"] == research_adapter.RESEARCH_MODEL == "gemini-3.5-flash-lite"
         assert calls["claim"] == []  # claim은 Gate 통과 이후 단계라, 차단되면 시도조차 안 됨
 
     def test_missing_isolated_key_skips_slot_without_calling_gate(

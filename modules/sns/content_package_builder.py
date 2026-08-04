@@ -207,6 +207,7 @@ def create_content_package(
     *,
     gemini_client=None,
     gemini_throttle=None,
+    gemini_model=None,
 ) -> PackageResult:
     """260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
     Adapter(`modules/sns/research_to_topic_adapter.py`)가 이미 선정·검증한
@@ -222,7 +223,12 @@ def create_content_package(
     패키지의 Caption 생성도 그 전용 Credential로 이뤄져 전역 Key·다른 계정
     호출 간격에 전혀 영향을 주지 않는다. 이 함수는 `research_to_topic_adapter`
     를 import하지 않는다(순환 참조 방지) — 무엇을 넘길지는 호출자(launcher/
-    main.py)가 결정한다."""
+    main.py)가 결정한다.
+
+    260805 회장 지시 — `gemini_model`도 같은 이유로 선택 인자다. 생략하면
+    `generate_hook_caption()`이 기본 모델(`"gemini-2.5-flash-lite"`)을 그대로
+    쓴다(기존 동작 100% 유지). aijomoojin 전용 호출부만
+    `research_to_topic_adapter.RESEARCH_MODEL`을 명시 전달한다."""
     root = vault_root or DEFAULT_VAULT_ROOT
     (root / "content").mkdir(parents=True, exist_ok=True)
     (root / "images").mkdir(parents=True, exist_ok=True)
@@ -247,7 +253,7 @@ def create_content_package(
 
     caption, hashtags = generate_hook_caption(
         topic.title, topic.core_message, topic.prohibited_expression, tone_style, target_language,
-        client=gemini_client, throttle_fn=gemini_throttle,
+        client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
     )
     if not caption:
         return PackageResult(success=False, error_code="CAPTION_GENERATION_FAILED")

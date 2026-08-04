@@ -67,7 +67,16 @@ from modules.common.logger import get_logger
 
 logger = get_logger(__name__)
 
-RESEARCH_MODEL = "gemini-2.5-flash-lite"  # 기존 caption_generator.py와 동일 모델 REUSE
+RESEARCH_MODEL = "gemini-3.5-flash-lite"  # 260805 회장 지시 — aijomoojin 전용
+# Gemini 4경로(Research/Safety/Caption/게시직전 Safety) 전용 모델 고정. 근거(Runtime
+# Evidence, 추정 아님): 260805 Producer Canary에서 "gemini-2.5-flash-lite"/
+# "gemini-2.5-flash" 둘 다 이 계정(aijomoojin 전용 신규 Google AI Studio
+# 프로젝트) 기준 HTTP 404("no longer available to new users")로 확인됨(tools/
+# 구조화출력 조합과 무관 — 툴 없는 단순 호출도 동일 404). 같은 키로
+# "gemini-3.5-flash-lite" 직접 호출은 성공("pong") 확인. "*-latest" 계열은
+# 버전이 예고 없이 바뀔 위험이 있어(회장 지시) 고정 버전 문자열만 쓴다. 다른
+# 계정이 쓰는 caption_generator.py의 전역 모델("gemini-2.5-flash-lite")은
+# 이 상수와 완전히 분리돼 있어 무영향이다.
 _REGISTRY_PREFIXES = ("4.", "5.")  # Sourcebook 4.x/5.x만 Source Registry 대상(3.x는 REUSE 경로가 담당)
 
 _client = None  # 이 모듈 전용 — caption_generator._client(전역 GEMINI_API_KEY)와 별개
@@ -260,7 +269,7 @@ def research_next_topic(
     # (신규 모더레이션 엔진 없음), 260804 Codex 리뷰(P0)에 따라 aijomoojin 전용
     # Client/Throttle을 명시 주입해 전역 GEMINI_API_KEY quota를 소비하지 않는다 ──
     safety_status, safety_reason = check_caption_safety(
-        core_message, client=_get_client(), throttle_fn=_throttle,
+        core_message, client=_get_client(), throttle_fn=_throttle, model=RESEARCH_MODEL,
     )
     if safety_status != "SAFE":
         logger.warning(

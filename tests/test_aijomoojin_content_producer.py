@@ -296,11 +296,13 @@ class TestResearchToTopicAdapterWiring:
 
         create_calls = []
 
-        def _fake_create(target_language="ko", injected_topic=None, gemini_client=None, gemini_throttle=None):
+        def _fake_create(target_language="ko", injected_topic=None, gemini_client=None,
+                         gemini_throttle=None, gemini_model=None):
             create_calls.append({
                 "injected_topic": injected_topic,
                 "gemini_client": gemini_client,
                 "gemini_throttle": gemini_throttle,
+                "gemini_model": gemini_model,
             })
             if injected_topic is None:
                 return cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
@@ -328,6 +330,8 @@ class TestResearchToTopicAdapterWiring:
         assert create_calls[1]["injected_topic"] is researched
         assert create_calls[1]["gemini_client"] is sentinel_client  # 격리된 Client가 실제로 전달됨
         assert create_calls[1]["gemini_throttle"] is sentinel_throttle
+        # 260805 회장 지시 — aijomoojin 전용 고정 모델도 함께 전달됨
+        assert create_calls[1]["gemini_model"] == adapter.RESEARCH_MODEL == "gemini-3.5-flash-lite"
         assert len(calls["save"]) == 1
         assert calls["save"][0]["caption"] == "researched caption"
         assert calls["save"][0]["source_url"] == researched.source_url

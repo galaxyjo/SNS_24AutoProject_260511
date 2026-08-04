@@ -787,6 +787,7 @@ def _job_aijomoojin_scheduled_post():
             required_language=_required_language,
             safety_client=_safety_client,
             safety_throttle=_research_adapter._throttle,
+            safety_model=_research_adapter.RESEARCH_MODEL,
         )
         if not allowed:
             logger.info(f"[AijomoojinSlot][PublishGate] {gate_result} | rid={post_id}")
@@ -1045,6 +1046,7 @@ def _job_aijomoojin_content_producer():
                     target_language="ko", injected_topic=researched_topic,
                     gemini_client=_research_adapter._get_client(),
                     gemini_throttle=_research_adapter._throttle,
+                    gemini_model=_research_adapter.RESEARCH_MODEL,
                 )
 
             if not result.success:

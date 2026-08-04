@@ -217,6 +217,8 @@ class TestResearchNextTopic:
         tools = models.calls[0]["config"].tools
         assert any(getattr(t, "url_context", None) is not None for t in tools)
         assert any(getattr(t, "google_search", None) is not None for t in tools)
+        # 260805 회장 지시 — aijomoojin 전용 고정 모델("*-latest" 아님) 사용 확인
+        assert models.calls[0]["model"] == adapter.RESEARCH_MODEL == "gemini-3.5-flash-lite"
 
     def test_safety_check_invoked_with_isolated_client_and_throttle(
         self, sourcebook_path, vault_root, monkeypatch
@@ -233,8 +235,8 @@ class TestResearchNextTopic:
 
         safety_calls = []
 
-        def _spy_safety(text, *, client=None, throttle_fn=None):
-            safety_calls.append({"client": client, "throttle_fn": throttle_fn})
+        def _spy_safety(text, *, client=None, throttle_fn=None, model=None):
+            safety_calls.append({"client": client, "throttle_fn": throttle_fn, "model": model})
             return "SAFE", "STOP"
 
         monkeypatch.setattr(adapter, "check_caption_safety", _spy_safety)
@@ -244,6 +246,7 @@ class TestResearchNextTopic:
         assert len(safety_calls) == 1
         assert safety_calls[0]["client"] is adapter._get_client()  # 격리된 Client 그대로 전달
         assert safety_calls[0]["throttle_fn"] is adapter._throttle  # 격리된 Throttle 그대로 전달
+        assert safety_calls[0]["model"] == adapter.RESEARCH_MODEL  # 260805 — 고정모델 그대로 전달
 
     def test_url_retrieval_failure_returns_none_no_retry_with_different_url(
         self, sourcebook_path, vault_root, monkeypatch

@@ -409,3 +409,40 @@ def test_generate_hook_caption_without_override_keeps_existing_behavior(monkeypa
 
     assert caption == "default"
     assert models.calls == 1
+
+
+def test_generate_hook_caption_uses_injected_model_not_default(monkeypatch):
+    """260805 회장 지시 — model 인자를 넘기면 그 모델 문자열이 그대로
+    generate_content(model=...)에 전달돼야 한다(aijomoojin 전용 모델 고정의
+    근거 계약)."""
+    captured = {}
+
+    class _CapturingModels(_FakeModels):
+        def generate_content(self, model, contents):
+            captured["model"] = model
+            return super().generate_content(model, contents)
+
+    models = _CapturingModels(text="CAPTION: x\nHASHTAGS: #x")
+    _patch_client(monkeypatch, models)
+
+    generate_hook_caption("Title", "core message", model="gemini-3.5-flash-lite")
+
+    assert captured["model"] == "gemini-3.5-flash-lite"
+
+
+def test_generate_hook_caption_without_model_override_keeps_default(monkeypatch):
+    """model을 생략한 기존 호출부는 여전히 기본 모델("gemini-2.5-flash-lite")을
+    쓴다 — 다른 계정 무영향 확인."""
+    captured = {}
+
+    class _CapturingModels(_FakeModels):
+        def generate_content(self, model, contents):
+            captured["model"] = model
+            return super().generate_content(model, contents)
+
+    models = _CapturingModels(text="CAPTION: x\nHASHTAGS: #x")
+    _patch_client(monkeypatch, models)
+
+    generate_hook_caption("Title", "core message")
+
+    assert captured["model"] == "gemini-2.5-flash-lite"

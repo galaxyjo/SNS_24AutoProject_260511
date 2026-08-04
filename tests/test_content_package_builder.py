@@ -238,7 +238,8 @@ def test_gemini_client_and_throttle_forwarded_to_generate_hook_caption(tmp_path,
     captured = {}
 
     def _spy_generate_hook_caption(title, core_message, prohibited_expression="",
-                                    tone_style="", target_language="EN", *, client=None, throttle_fn=None):
+                                    tone_style="", target_language="EN", *, client=None,
+                                    throttle_fn=None, model=None):
         captured["client"] = client
         captured["throttle_fn"] = throttle_fn
         return "caption text", "#tag"
@@ -263,7 +264,8 @@ def test_no_gemini_override_keeps_default_none(tmp_path, monkeypatch):
     captured = {}
 
     def _spy_generate_hook_caption(title, core_message, prohibited_expression="",
-                                    tone_style="", target_language="EN", *, client=None, throttle_fn=None):
+                                    tone_style="", target_language="EN", *, client=None,
+                                    throttle_fn=None, model=None):
         captured["client"] = client
         captured["throttle_fn"] = throttle_fn
         return "caption text", "#tag"
@@ -275,3 +277,41 @@ def test_no_gemini_override_keeps_default_none(tmp_path, monkeypatch):
     assert result.success is True
     assert captured["client"] is None
     assert captured["throttle_fn"] is None
+
+
+def test_gemini_model_forwarded_to_generate_hook_caption(tmp_path, monkeypatch):
+    """260805 회장 지시 — gemini_model을 넘기면 generate_hook_caption()에 그대로
+    전달돼야 한다(aijomoojin 전용 모델 고정 계약)."""
+    captured = {}
+
+    def _spy_generate_hook_caption(title, core_message, prohibited_expression="",
+                                    tone_style="", target_language="EN", *, client=None,
+                                    throttle_fn=None, model=None):
+        captured["model"] = model
+        return "caption text", "#tag"
+
+    monkeypatch.setattr(builder, "generate_hook_caption", _spy_generate_hook_caption)
+
+    result = builder.create_content_package(vault_root=tmp_path, gemini_model="gemini-3.5-flash-lite")
+
+    assert result.success is True
+    assert captured["model"] == "gemini-3.5-flash-lite"
+
+
+def test_no_gemini_model_override_keeps_default_none(tmp_path, monkeypatch):
+    """gemini_model 생략(기존 호출부)은 None이 그대로 전달돼 generate_hook_caption()
+    내부에서 기본 모델을 쓰게 된다 — 하위호환."""
+    captured = {}
+
+    def _spy_generate_hook_caption(title, core_message, prohibited_expression="",
+                                    tone_style="", target_language="EN", *, client=None,
+                                    throttle_fn=None, model=None):
+        captured["model"] = model
+        return "caption text", "#tag"
+
+    monkeypatch.setattr(builder, "generate_hook_caption", _spy_generate_hook_caption)
+
+    result = builder.create_content_package(vault_root=tmp_path)
+
+    assert result.success is True
+    assert captured["model"] is None

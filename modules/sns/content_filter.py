@@ -95,6 +95,7 @@ def passes_ai_content_gate_v0(
     *,
     safety_client=None,
     safety_throttle=None,
+    safety_model=None,
 ) -> tuple[bool, str]:
     """260801 AI_CONTENT Gate v0/v1(최소 구현) — GPT 검수 승인 조건 5개 + 언어일치(v1)를 확인한다.
 
@@ -112,7 +113,12 @@ def passes_ai_content_gate_v0(
     전역 GEMINI_API_KEY/전역 throttle을 그대로 쓴다 — 100% 기존 동작. aijomoojin
     슬롯 Job은 이 값에 research_to_topic_adapter 전용 Client/Throttle을 주입해,
     Research 단계뿐 아니라 게시 직전 최종 Safety 확인까지 전역 Key를 소비하지
-    않게 한다."""
+    않게 한다.
+
+    260805 회장 지시 — safety_model도 같은 이유로 선택 인자다. 생략하면
+    check_caption_safety()가 기본 모델을 그대로 쓴다(기존 동작 100% 유지).
+    aijomoojin 슬롯 Job만 research_to_topic_adapter.RESEARCH_MODEL을 명시
+    전달한다."""
     if account_code_ref != _AI_CONTENT_REQUIRED_ACCOUNT:
         return False, "AI_CONTENT_ACCOUNT_MISMATCH"
     if persona_code != _AI_CONTENT_REQUIRED_PERSONA:
@@ -127,7 +133,7 @@ def passes_ai_content_gate_v0(
     from modules.sns.caption_generator import check_caption_safety
 
     safety_status, reason = check_caption_safety(
-        caption, client=safety_client, throttle_fn=safety_throttle,
+        caption, client=safety_client, throttle_fn=safety_throttle, model=safety_model,
     )
     if safety_status == "UNSAFE":
         return False, f"AI_CONTENT_SAFETY_BLOCKED:{reason}"
@@ -150,6 +156,7 @@ def resolve_publish_gate(
     required_language: str = "",
     safety_client=None,
     safety_throttle=None,
+    safety_model=None,
 ) -> tuple[bool, str]:
     """발행 직전 계정별 콘텐츠 Gate.
 
@@ -164,9 +171,9 @@ def resolve_publish_gate(
 
     source_url/persona_code/required_language는 AI_CONTENT 도메인 전용 선택
     인자(260801 Gate v0/v1)다 — PRODUCT 도메인 기존 호출부(2-인자)는 그대로
-    동작한다(하위호환). safety_client/safety_throttle(260805 Codex 리뷰 P0)도
-    선택 인자이며 생략 시 기존과 100% 동일 — passes_ai_content_gate_v0()로
-    그대로 전달만 한다."""
+    동작한다(하위호환). safety_client/safety_throttle(260805 Codex 리뷰 P0)/
+    safety_model(260805 회장 지시)도 선택 인자이며 생략 시 기존과 100% 동일 —
+    passes_ai_content_gate_v0()로 그대로 전달만 한다."""
     try:
         account_code_ref = (account_code_ref or "").strip()
         caption = caption or ""
@@ -186,7 +193,7 @@ def resolve_publish_gate(
         if domain == "AI_CONTENT":
             return passes_ai_content_gate_v0(
                 caption, account_code_ref, source_url, persona_code, required_language,
-                safety_client=safety_client, safety_throttle=safety_throttle,
+                safety_client=safety_client, safety_throttle=safety_throttle, safety_model=safety_model,
             )
 
         return False, "UNKNOWN_DOMAIN"

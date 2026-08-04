@@ -194,6 +194,7 @@ def generate_hook_caption(
     *,
     client=None,
     throttle_fn=None,
+    model=None,
 ) -> tuple[str, str]:
     """Track B Source Topic(title/core_message) → 후킹형 Instagram 캡션+해시태그.
 
@@ -209,7 +210,12 @@ def generate_hook_caption(
     선택 인자다. 생략하면(기존 모든 호출부 그대로) 전역 `_get_client()`/`_throttle()`을
     그대로 쓴다 — 100% 기존 동작. `research_to_topic_adapter.py`가 발굴한
     Topic으로 이 함수를 부를 때만 그 모듈 전용 Client/Throttle을 주입해, 다른
-    계정이 쓰는 전역 GEMINI_API_KEY·전역 호출 간격에 전혀 영향을 주지 않는다."""
+    계정이 쓰는 전역 GEMINI_API_KEY·전역 호출 간격에 전혀 영향을 주지 않는다.
+
+    260805 회장 지시 — `model`도 같은 이유로 선택 인자다. 생략하면(기존 호출부
+    그대로) 기본값 `"gemini-2.5-flash-lite"`를 그대로 쓴다. aijomoojin 전용
+    호출부만 `model="gemini-3.5-flash-lite"`(Runtime Evidence로 확인된 값,
+    `research_to_topic_adapter.RESEARCH_MODEL`)를 명시 전달한다."""
     if not core_message or not core_message.strip():
         return "", ""
 
@@ -237,6 +243,7 @@ def generate_hook_caption(
     )
 
     active_throttle = throttle_fn or _throttle
+    active_model = model or "gemini-2.5-flash-lite"
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         _call_started = None
         try:
@@ -244,7 +251,7 @@ def generate_hook_caption(
             active_client = client or _get_client()
             _call_started = time.time()
             response = active_client.models.generate_content(
-                model="gemini-2.5-flash-lite",
+                model=active_model,
                 contents=prompt,
             )
             print(f"[HookCaption] Gemini 호출 완료 | attempt={attempt}/{_MAX_ATTEMPTS} | {time.time() - _call_started:.1f}초")
@@ -279,7 +286,7 @@ def generate_hook_caption(
 
 
 def check_caption_safety(
-    caption: str, *, client=None, throttle_fn=None,
+    caption: str, *, client=None, throttle_fn=None, model=None,
 ) -> tuple[SafetyStatus, str]:
     """260801 AI_CONTENT Gate v0 — 이미 생성된 caption 텍스트의 Gemini Safety
     상태를 확인한다(재생성 아님, 신규 caption을 만들지 않음).
@@ -294,17 +301,22 @@ def check_caption_safety(
     생략 시 기존과 100% 동일(전역 `_get_client()`/`_throttle()`). Research-to-Topic
     Adapter가 자체 발굴 Topic의 core_message를 검사할 때만 전용 Client/Throttle을
     주입해, 이 Safety 확인이 다른 계정의 전역 GEMINI_API_KEY quota·호출 간격을
-    소비하지 않게 한다."""
+    소비하지 않게 한다.
+
+    260805 회장 지시 — `model`도 선택 인자다. 생략하면 기본값
+    `"gemini-2.5-flash-lite"`(기존 동작 100% 유지), aijomoojin 전용 호출부만
+    `model="gemini-3.5-flash-lite"`를 명시 전달한다."""
     if not caption or not caption.strip():
         return "PERMANENT", "EMPTY_CAPTION"
 
     active_throttle = throttle_fn or _throttle
+    active_model = model or "gemini-2.5-flash-lite"
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
             active_throttle()
             active_client = client or _get_client()
             response = active_client.models.generate_content(
-                model="gemini-2.5-flash-lite",
+                model=active_model,
                 contents=caption,
             )
 

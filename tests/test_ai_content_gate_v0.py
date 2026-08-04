@@ -204,6 +204,40 @@ class TestCheckCaptionSafety:
         assert injected_calls == [1]
         assert models.calls == 1
 
+    def test_injected_model_used_instead_of_default(self, monkeypatch):
+        """260805 회장 지시 — model 인자를 넘기면 그 모델 문자열이 그대로
+        generate_content(model=...)에 전달된다."""
+        captured = {}
+
+        class _CapturingModels(_SequenceModels):
+            def generate_content(self, model, contents):
+                captured["model"] = model
+                return super().generate_content(model, contents)
+
+        models = _CapturingModels([_safety_response(text="SAFE")])
+        monkeypatch.setattr(caption_generator, "_get_client", lambda: MagicMock(models=models))
+        monkeypatch.setattr(caption_generator, "_throttle", lambda: None)
+
+        caption_generator.check_caption_safety("hello", model="gemini-3.5-flash-lite")
+
+        assert captured["model"] == "gemini-3.5-flash-lite"
+
+    def test_no_model_override_keeps_default(self, monkeypatch):
+        captured = {}
+
+        class _CapturingModels(_SequenceModels):
+            def generate_content(self, model, contents):
+                captured["model"] = model
+                return super().generate_content(model, contents)
+
+        models = _CapturingModels([_safety_response(text="SAFE")])
+        monkeypatch.setattr(caption_generator, "_get_client", lambda: MagicMock(models=models))
+        monkeypatch.setattr(caption_generator, "_throttle", lambda: None)
+
+        caption_generator.check_caption_safety("hello")
+
+        assert captured["model"] == "gemini-2.5-flash-lite"
+
 
 class TestAiContentGateV0:
     def _patch_safe(self):
@@ -301,7 +335,7 @@ class TestAiContentGateV0:
         격리하고 여기서 다시 전역 Key를 쓰면 격리가 무의미해진다)."""
         captured = {}
 
-        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None):
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None, model=None):
             captured["client"] = client
             captured["throttle_fn"] = throttle_fn
             return "SAFE", "STOP"
@@ -327,7 +361,7 @@ class TestAiContentGateV0:
         None/None이 그대로 전달돼 전역 Client/Throttle을 쓰게 된다 — 하위호환."""
         captured = {}
 
-        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None):
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None, model=None):
             captured["client"] = client
             captured["throttle_fn"] = throttle_fn
             return "SAFE", "STOP"
@@ -342,6 +376,45 @@ class TestAiContentGateV0:
         assert allowed is True
         assert captured["client"] is None
         assert captured["throttle_fn"] is None
+
+    def test_safety_model_forwarded_to_check_caption_safety(self):
+        """260805 회장 지시 — safety_model도 check_caption_safety()에 그대로
+        전달돼야 한다(aijomoojin 전용 모델 고정 계약)."""
+        captured = {}
+
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None, model=None):
+            captured["model"] = model
+            return "SAFE", "STOP"
+
+        with patch(
+            "modules.sns.caption_generator.check_caption_safety", _spy_check_caption_safety
+        ):
+            allowed, code = passes_ai_content_gate_v0(
+                "caption", "IDN-000036", "https://jobs.netflix.com/culture", "PER-002",
+                safety_model="gemini-3.5-flash-lite",
+            )
+
+        assert allowed is True
+        assert captured["model"] == "gemini-3.5-flash-lite"
+
+    def test_no_safety_model_override_keeps_default_none(self):
+        """safety_model 미전달(기존 호출부)은 None이 그대로 전달돼
+        check_caption_safety()가 기본 모델을 쓰게 된다 — 하위호환."""
+        captured = {}
+
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None, model=None):
+            captured["model"] = model
+            return "SAFE", "STOP"
+
+        with patch(
+            "modules.sns.caption_generator.check_caption_safety", _spy_check_caption_safety
+        ):
+            allowed, code = passes_ai_content_gate_v0(
+                "caption", "IDN-000036", "https://jobs.netflix.com/culture", "PER-002",
+            )
+
+        assert allowed is True
+        assert captured["model"] is None
 
 
 class TestResolvePublishGateBackwardCompat:
@@ -397,7 +470,7 @@ class TestResolvePublishGateBackwardCompat:
         직전 호출부와 동일 경로)."""
         captured = {}
 
-        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None):
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None, model=None):
             captured["client"] = client
             captured["throttle_fn"] = throttle_fn
             return "SAFE", "STOP"
@@ -418,3 +491,26 @@ class TestResolvePublishGateBackwardCompat:
         assert code == "PUBLISH_ALLOWED"
         assert captured["client"] is sentinel_client
         assert captured["throttle_fn"] is sentinel_throttle
+
+    def test_safety_model_passthrough_to_ai_content_gate(self):
+        """260805 회장 지시 — resolve_publish_gate()의 safety_model이
+        passes_ai_content_gate_v0()를 거쳐 check_caption_safety()까지 그대로
+        전달되는지 전체 체인으로 확인한다."""
+        captured = {}
+
+        def _spy_check_caption_safety(caption, *, client=None, throttle_fn=None, model=None):
+            captured["model"] = model
+            return "SAFE", "STOP"
+
+        with patch(
+            "modules.sns.caption_generator.check_caption_safety", _spy_check_caption_safety
+        ):
+            allowed, code = resolve_publish_gate(
+                "caption", "IDN-000036",
+                source_url="https://jobs.netflix.com/culture", persona_code="PER-002",
+                safety_model="gemini-3.5-flash-lite",
+            )
+
+        assert allowed is True
+        assert code == "PUBLISH_ALLOWED"
+        assert captured["model"] == "gemini-3.5-flash-lite"
