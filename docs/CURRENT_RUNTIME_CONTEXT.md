@@ -16,6 +16,10 @@ _기록 시각: 2026-08-05 01:33 ICT · 목적: IMPLEMENTED(코드에 존재)와
 ## 다음 실제 Blocker
 Gemini 429 Free-tier quota(위 4번) — 이게 해소(Billing 연결 또는 자연 리셋)되기 전에는 Research-to-Topic Adapter의 End-to-End 성공을 검증할 방법이 없다. 회장 승인으로 quota 회복 확인 후 Canary 정확히 1회만 재시도 예정.
 
+## 오늘(2026-08-05) 세션 종료
+- **운영 결정**: 429 확인 후 다른 Gemini 모델/타 API로의 임시 대체 테스트는 하지 않았다(코드·모델 변경 없이 quota 원인 조사만 Read-only로 수행). 오늘 추가 Producer Canary 재시도는 생략한다(회장 지시, quota 회복 확인 후 정확히 1회만 재승인).
+- **세션 종료시각**: 2026-08-05 01:47 ICT. 기준 상태: 마지막 코드 Commit `778e245`(이후 문서 전용 Commit `5c714d4` + 이 항목 추가분만 별도 Commit 예정), Working Tree clean, Push 미실행, `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED` 미설정(false) 유지.
+
 ---
 
 # 2026-08-05 00:29 ICT — Research-to-Topic Adapter(Source 재고 0건 자동보충) 구현 + Gemini Credential 완전격리, Codex 코드 로직 APPROVED / Commit·Canary 아직 HOLD

@@ -2272,3 +2272,22 @@ Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3
 3. `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그 잔존(선택, 승인 필요) — 6G에서 이 스크립트를 정식 스케줄 잡으로 대체할지 함께 결정.
 
 ---
+
+### Track B 6G Delta 3 — Research-to-Topic Adapter + Credential·모델 격리 Commit 완료, 429 quota로 E2E 미검증 세션 종료 (2026-08-05 01:47 ICT)
+
+**완료 Gate:** `e44d0fb`(Research-to-Topic Adapter 신규 — Sourcebook 3.x 소진 시 4.x/5.x 원천 URL을 Gemini Search Grounding+URL Context+Structured Output으로 자동분석해 Topic 생성 + Research/Safety/Caption/게시직전Safety 4경로 aijomoojin 전용 Gemini Credential 완전격리)와 `778e245`(같은 4경로 모델을 `gemini-3.5-flash-lite`로 고정, `*-latest` 미사용, 다른 계정 기본 모델 무변경) 둘 다 master에 Commit 완료. 관련 Target Test 합산 raw 결과 "184 passed", Clean Baseline(`git stash`) 대비 FAILED 62건·Collection ERROR 8건 SHA-256 동일 확인(신규 회귀 0건).
+
+**Runtime Canary 2회 시도, 둘 다 Research 1단계에서 중단:** 1차(모델 수정 전) — `gemini-2.5-flash-lite`/`gemini-2.5-flash` 둘 다 HTTP 404("no longer available to new users", aijomoojin 신규 Google AI Studio 프로젝트 한정 제약, Fail-closed 조합 A~G 7가지 테스트로 모델 자체 문제임을 확정). 모델 고정 Commit 후 2차 — 404는 완전 해소(요청 URL이 `gemini-3.5-flash-lite`로 정확히 확인)됐으나 HTTP 429(`RESOURCE_EXHAUSTED`)로 계약된 bounded retry(4회, 5s→20s→~72s) 소진 후 안전 종료. 두 시도 모두 Producer Lock 정상 해제·Airtable ready/uploading 신규 0건·git 추적 파일 변경 0건·Vault 신규 파일 0건 확인(Fail-closed 계약 정상 작동).
+
+**429 원인(Read-only, 신규 API 호출 없이 기존 로그·Google 공식 문서로만 조사):** 여러 모델(`gemini-2.0-flash-lite`/`gemini-2.0-flash-lite-001`/`gemini-3.5-flash-lite`)에서 반복 발생 — 모델 특정 문제(404)와 달리 프로젝트 단위 Free tier quota 제약으로 판단. 정확한 quota metric·한도 수치·리셋 주기는 UNKNOWN(대시보드 로그인 필요, 범위 밖). Google 공식 문서 확인: Billing 연결 시 Free→Tier 1 즉시 승격.
+
+**이번 세션 전체 상태변경 총계:** 코드 Commit 2건(`e44d0fb`/`778e245`) + 문서 Commit 1건(`5c714d4`, `docs/CURRENT_RUNTIME_CONTEXT.md`). Airtable Write 0건, Runtime Restart 0건, Push 0건, Producer Flag 영구 ON 0건(Canary 2회 모두 수동 프로세스에만 임시 주입, `.env` 미수정).
+
+**운영 결정:** 429 확인 후 다른 Gemini 모델/타 API로의 임시 대체 테스트는 하지 않았다. 오늘 추가 Producer Canary 재시도는 생략(quota 회복 확인 후 정확히 1회만 재승인 예정).
+
+**다음 세션 정확한 다음 단계:**
+1. `docs/CURRENT_RUNTIME_CONTEXT.md` 최상단(260805 01:33/01:47 ICT 항목) + `git status`/`git log`로 Session Start Rule 재확인 — HEAD는 이 세션 종료 시점 `5c714d4` 기준.
+2. Gemini 429 quota 회복 여부 확인(Billing 연결 여부는 회장 결정, 또는 자연 리셋 대기) 후에만 Producer Canary 재승인·재시도.
+3. Canary 성공 시(Topic→Caption→이미지→Airtable ready 1건 E2E) 그 결과로 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED` 정식 활성화 여부를 별도 논의.
+
+---
