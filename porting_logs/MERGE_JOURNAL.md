@@ -2252,3 +2252,23 @@ Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3
 **이번 문서화 범위:** `ERROR_DATABASE.md`·`FAILURE_PATTERN.md`·`INCIDENT_TIMELINE.md`·`VALIDATION_STATUS.md`·`MERGE_JOURNAL.md`만 변경. 코드/Airtable/Instagram/환경변수/서비스 상태변경 0건. Commit·Push 미실행(별도 승인 필요).
 
 ---
+
+### Track B 6F 3/3 SUCCESS 확정, 6G 회장 원칙승인·구현은 다음 세션 (2026-08-04 16:46 ICT)
+
+**최종 판정:** 6F **3/3 전부 SUCCESS**. #1/3 `ig_media_id=17976679115901401`, #2/3 `ig_media_id=18109337171018360`, #3/3(이번 세션) `ig_media_id=17895314160577781` — 3건 전부 계정 `IDN-000036`(aijomoojin), 한국어, 중복 0건.
+
+**#3/3 완료 경위(세션 인계 후 재검증→최소 상태변경 1건→자동게시):**
+- 세션 시작 시 인계 메시지("Codex 임시실행 종료, Claude Code로 복귀")를 대화 내 증거만으로 신뢰하지 않고 Runtime Evidence로 독립 재확인: `git log`(`bb4b0c6`/`b98afa1`/`09f03c0`/`44b5e1d`, 260803 16:21~20:30 ICT 4개 커밋 실존), Vault `3-6-260804-54dbc154.md`/`.png` 실존(md `status=complete`, 한국어 caption), Airtable `rechmKYrCZx4e0RGt` 직접조회(`post_status=failed`, `ig_media_id` 공란, `image_url` 이미 존재, `account_code_ref=IDN-000036`, `data_classification=production`, `canary_run_id` 공란).
+- `fetch_pending_posts()`(`airtable_repository.py:436-441`) 필터 코드 확인 결과 이 레코드는 `post_status`만 불일치하고 나머지 자동픽업 조건은 전부 이미 충족 — 신규 캡션/이미지/Record 생성 없이 **Airtable Write 1건**(`post_status: failed→ready`)만으로 기존 자동 파이프라인 재사용 가능하다고 판단, 회장 승인 받고 그 필드 1개만 변경.
+- 약 5.5분 후(기존 APScheduler `_job_insta_upload`, 5분 간격) 재조회 → 자동으로 `posted` 전이·`ig_media_id` 확보(수동 게시·수동 Meta 호출 없음). 동일 `ig_media_id`·동일 `image_url` 각 1건씩만 존재(중복 0), IDN-000036 기준 `ready`/`uploading` 0(별도 계정 IDN-000041의 무관 레코드 3건 존재 확인·구분), 오늘 이미지 사용량 1/3(추가 소모 0).
+
+**6G(정식 운영 전환):** 회장이 **원칙 승인**했으나, 이번 세션은 여기서 종료하고 **실제 설계·구현은 다음 신규 세션**에서 진행하기로 확정. 운영정책(기록만, 이번 세션 구현 착수 안 함): **매일 08:00 ICT / 하루 1건 / 실패·UNKNOWN 결과 자동재게시 금지**. 이번 세션 6G 관련 코드·설정·스케줄 변경 0건.
+
+**이번 세션 전체 상태변경 총계:** Airtable Write 1건(`post_status` 필드만, record `rechmKYrCZx4e0RGt`). 코드/환경변수/Runtime Restart/Commit/Push 0건(문서만 이번에 갱신, 별도 커밋 승인 대기).
+
+**다음 세션 정확한 다음 단계:**
+1. 이 문서(`docs/CURRENT_RUNTIME_CONTEXT.md` 최상단) + `git status`/`git log`로 Session Start Rule 재확인.
+2. 6G Design Memo부터 착수(신규 코드 바로 작성 금지) — 게시 빈도/시간대, 무인 승인 정책, 기존 Canary 최소단위 원칙과의 관계를 회장과 먼저 확정.
+3. `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그 잔존(선택, 승인 필요) — 6G에서 이 스크립트를 정식 스케줄 잡으로 대체할지 함께 결정.
+
+---

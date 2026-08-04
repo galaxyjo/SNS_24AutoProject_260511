@@ -740,7 +740,7 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 
 ---
 
-## INC-046 | aijomoojin 6F Canary — #1·#2 게시 성공, ERR-101/102 해소, #3 Provider 503로 부분상태 없이 중단 (IN PROGRESS, 2/3)
+## INC-046 | aijomoojin 6F Canary — #1·#2·#3 전부 게시 성공, ERR-101/102 해소 (RESOLVED, 3/3)
 
 **발생:** 2026-08-03 15:18:09~15:55:08 ICT.
 
@@ -752,8 +752,10 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 
 **후속 해결:** ERR-101은 Commit `b98afa1`, ERR-102는 Commit `09f03c0`으로 수정·Push·Production 적용했다. #2/3은 `content_id=3-5-260803-54c5b2e9`, Airtable `recDFi8IWZ8qXeEOz`, Instagram `18109337171018360`으로 기존 Scheduler가 1회 게시했고 중복 0건이다.
 
-**#3/3 중단(20:19:52~20:21:28):** Source 3.6(NIST AI RMF 1.0)을 추가하고 Source Target Test 10/10 PASS 후 Canary를 정확히 1회 실행했다. Gemini Caption이 HTTP 503 4/4 소진 후 `CAPTION_GENERATION_FAILED`로 fail-closed 종료했다. 예정 `content_id=3-6-260803-54dbc154`; Vault·ImgBB·Airtable·Meta 부분상태 0건, ready/uploading 0건, 이미지 사용량 2/3. 재실행·수동복구는 하지 않았다.
+**#3/3 최초 시도 중단(20:19:52~20:21:28):** Source 3.6(NIST AI RMF 1.0)을 추가하고 Source Target Test 10/10 PASS 후 Canary를 정확히 1회 실행했다. Gemini Caption이 HTTP 503 4/4 소진 후 `CAPTION_GENERATION_FAILED`로 fail-closed 종료했다. 예정 `content_id=3-6-260803-54dbc154`; Vault·ImgBB·Airtable·Meta 부분상태 0건, ready/uploading 0건, 이미지 사용량 2/3. 재실행·수동복구는 하지 않았다.
 
-**현재 해결 상태:** ERR-101/ERR-102는 RESOLVED. 6F 전체는 2/3 SUCCESS이며 #3/3만 Provider 회복 후 별도 승인된 단일 재실행이 필요하다.
+**#3/3 완료(260804, 세션 인계 후):** 인계 시점 재확인 결과 Vault md/png·ImgBB `image_url`은 이미 정상 생성돼 있었고(`content_id=3-6-260804-54dbc154`, Airtable `rechmKYrCZx4e0RGt`, `post_status=failed`), `fetch_pending_posts()` 자동픽업 조건(계정·classification·canary_run_id)은 이미 전부 충족돼 있었다. 신규 Caption·이미지·Record 생성 없이 승인된 Airtable Write 1건(`post_status: failed→ready`)만 실행 — 약 5.5분 후 기존 APScheduler(`_job_insta_upload`)가 자동 픽업해 `posted` 전이, `ig_media_id=17895314160577781` 확보. 수동 Meta 게시 0건, 동일 media_id·image_url 각 1건씩만 존재(중복 0건).
+
+**현재 해결 상태:** ERR-101/ERR-102는 RESOLVED. **6F 전체 3/3 SUCCESS로 종결**. 다음 단계는 6G(정식 운영 전환) — 회장 원칙 승인 완료, 실제 설계·구현은 별도 세션.
 
 **관련:** ERR-101, ERR-102, FP-073, FP-074

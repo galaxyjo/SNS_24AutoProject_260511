@@ -176,6 +176,8 @@ AI 도입은 성능뿐 아니라 설계·개발·사용·평가 전 과정의 �
 주의:
 NIST가 특정 제품이나 기업을 인증·보증하거나 모든 AI 위험을 제거한다는 표현은 금지한다.
 
+사용 이력: 260804 Track B 6F #3/3에서 사용, `content_id=3-6-260804-54dbc154`, Instagram 게시 완료(`ig_media_id=17895314160577781`). 참고용 기록이며 중복 방지 판정은 여전히 Vault `status: complete` 스캔이 담당한다(이 필드는 실행 로직에 영향 없음).
+
 ---
 
 ## 4. United States Community Platform Map

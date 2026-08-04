@@ -957,6 +957,8 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 
 **해소(260803):** 운영 ACL을 넓히지 않고 기존 SYSTEM Runtime을 유지했다. 공통 정책 읽기의 `OSError/PermissionError`를 typed fail-closed 오류로 변환하고, 수동 Canary의 P0/P1을 Gemini·Vault·ImgBB·Airtable보다 앞으로 이동했다. Commit `b98afa1` Push 및 Active Python 3.10 Mock 검증 완료.
 
+**Closed Gate 재확인(260804):** 6F 3/3(전체) 완료까지 이 패턴 재발 0건.
+
 ---
 
 ## FP-074 | AI 안전성 검사 함수가 Provider 장애와 콘텐츠 거부를 같은 False/blocked 결과로 접으면, transient 장애가 영구 거부 상태가 된다
@@ -970,3 +972,5 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **관련:** ERR-102, INC-046
 
 **해소(260803):** structured Safety 신호와 Provider/transport 오류를 typed status로 분리하고, transient 오류는 같은 실행 안에서 최초 포함 최대 4회로 제한했다. `UNSAFE→rejected`, `RETRY_EXHAUSTED/PERMANENT→failed`, 모든 차단·오류에서 claim/Meta 0회 계약을 Commit `09f03c0`으로 Production 적용했다. 6F #2/3에서 503×3 후 4번째 Safety 성공으로 재발 방지 계약을 Runtime 확인했다.
+
+**Closed Gate 재확인(260804):** 6F #3/3 최초 시도의 Gemini 503 4/4 소진이 `RETRY_EXHAUSTED→failed`로 정확히 분류됐다(오분류 재발 0건) — 6F 전체 3/3 SUCCESS로 종결.

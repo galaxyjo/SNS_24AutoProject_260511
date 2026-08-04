@@ -1,3 +1,31 @@
+# 2026-08-04 16:46 ICT — Track B 6F 3/3 SUCCESS 확정, 6G(정식 운영 전환) 회장 승인 — 세션 종료, 6G 구현은 다음 세션
+
+_기록 시각: 2026-08-04 16:46 ICT · 상태: **6F 3/3 전부 SUCCESS**(media_id 3건 전부 확보), 회장이 6G(정식 운영 전환)를 원칙 승인했으나 **이번 세션에서는 구현하지 않고 다음 신규 세션에서 진행**하기로 확정. 이 항목이 최신 상태이며, 아래 260803 20:26(2/3 인계) 이하는 이전 기록으로 보존._
+
+## 6F 최종 결과(3/3 전부 SUCCESS)
+- **#1/3**: `content_id=3-4-260803-b501c92f`, Airtable `recfFdfTkJoKk4biu`, `ig_media_id=17976679115901401`, `posted`.
+- **#2/3**: `content_id=3-5-260803-54c5b2e9`, Airtable `recDFi8IWZ8qXeEOz`, `ig_media_id=18109337171018360`, `posted`.
+- **#3/3**: `content_id=3-6-260804-54dbc154`, Airtable `rechmKYrCZx4e0RGt`, `ig_media_id=17895314160577781`, `posted`.
+
+## #3/3 완료 경위(이번 세션, 신규 생성 없이 기존 자산 재사용)
+- 인계 시점 상태(Codex 세션에서 260804 오전 시도, Gemini 여전히 회복 전이었을 가능성): `rechmKYrCZx4e0RGt`가 `post_status=failed`, `ig_media_id` 공란이었으나 Vault md/png와 ImgBB `image_url`은 이미 정상 생성돼 있었음(caption 한국어, `status=complete`).
+- Read-only 재검증(Runtime Evidence, 신규 생성 전혀 없이): Git HEAD·Working Tree clean 확인, Vault 파일 2개 실존 확인, Airtable 레코드 직접조회로 `account_code_ref=IDN-000036`·`data_classification=production`·`canary_run_id` 공란(=`fetch_pending_posts()` 자동픽업 조건 전부 충족, `post_status`만 불일치) 확인, 동일 `image_url` 중복 0건, IDN-000036 기준 `ready`/`uploading` 0건, 오늘 이미지 사용량 1/3(재사용 시 추가소모 0) 확인.
+- 회장 승인 하에 **Airtable Write 1건만** 실행: `post_status: failed → ready`(다른 필드·다른 레코드 무변경).
+- 약 5.5분 후(기존 APScheduler `_job_insta_upload`, 5분 간격) 재확인 → **자동으로 `posted` 전이, `ig_media_id=17895314160577781` 확보** — 수동 게시·수동 Meta 호출 없음, 100% 기존 자동 파이프라인.
+- 중복 확인: 동일 `ig_media_id`·동일 `image_url` 둘 다 1건씩만 존재(0 duplicate). 오계정 0(IDN-000036 정확). 신규 Gemini/이미지 생성 0건.
+
+## 6G(정식 운영 전환) — 회장 원칙 승인, 구현은 다음 세션
+- 회장 결정: 6G 정식 운영 전환을 승인한다. 단 **이번 세션은 여기서 종료**하고, 6G 실제 설계·구현은 **다음 신규 세션**에서 진행한다.
+- **6G 운영정책(회장 지정, 기록만·이번 세션 구현 착수 안 함)**: 매일 08:00 ICT / 하루 1건 / 실패·UNKNOWN 결과 자동재게시 금지(사람 승인 후에만 재시도).
+- 이번 세션에서 6G 관련 코드·설정·스케줄 변경은 **0건**(승인은 원칙 승인일 뿐, 구현 착수 아님).
+
+## 다음 세션 시작 시 확인할 것
+1. 이 문서(최상단) + `git status`/`git log`로 세션 간 상태 재확인(Session Start Rule 그대로 적용).
+2. 6G(정식 운영 전환) 설계 착수 — 위 확정 정책(매일 08:00 ICT/하루 1건/실패·UNKNOWN 자동재게시 금지)을 기준으로, 무인 승인 정책·Comment/DM 채널 통합 여부 등 나머지 Scope를 회장과 확정(신규 코드 바로 작성 금지, 기존 Track B 관행대로 Design Memo 우선).
+3. 오늘 세션에서 발견된 미해결 항목 재확인: `tools/_canary_260801_queue_aijomoojin_post_6f.py:36` em-dash 출력버그(ad-hoc 스크립트, 여전히 미수정) — 6G 구현 시 이 canary 스크립트 자체를 정식 스케줄 잡으로 대체할지 여부도 함께 결정.
+
+---
+
 # 2026-08-03 20:26 ICT — Track B 6F Claude Code 인계: 2/3 SUCCESS, Source 3.6 추가, #3 Gemini 503 소진 후 Fail-closed
 
 _이 항목이 Track B 6F의 최신 Runtime/Git 인계 상태다. 아래 과거 기록의 ERR-101/ERR-102 OPEN 및 #1 재개 지시는 이 항목으로 대체한다._

@@ -1952,6 +1952,8 @@ watchdog.log(같은 구간):
 
 **Status:** RESOLVED — External-First Gate로 비상승 admin Canary의 preflight 누락과 raw `PermissionError/OSError` 미변환을 분리했다. `canary_safe_mode.py`가 정책 파일 접근 오류를 typed `CanarySafeModeError`로 fail-closed 변환하고, ignored Canary는 P0 Boot Policy→P1 Account Context를 외부 상태변경 전에 수행하도록 수정했다. Active Python 3.10에서 기존 Boot Policy 테스트 20/20 및 Canary Mock EXIT 4/5/0·외부 호출 0건 PASS. tracked 2파일 Commit `b98afa178a28b3206cbbe5a327994e425b4cdb43` Push 완료. 일반 admin ACL 확대·신규 서비스·dependency 추가는 하지 않았다.
 
+**Closed Gate 재확인(260804):** 6F #3/3(`rechmKYrCZx4e0RGt`)이 이 수정이 적용된 Runtime에서 boot-policy 접근 오류 없이 정상 처리됐다 — 재발 0건.
+
 **관련:** FP-073, INC-046
 
 ---
@@ -1967,5 +1969,7 @@ watchdog.log(같은 구간):
 **Risk:** `HIGH` — transient Provider 장애가 영구적인 콘텐츠 거부 상태로 저장돼 정상 Queue가 사람의 수동 복구 없이는 멈추며, 상태값 의미와 운영 통계를 오염시킨다.
 
 **Status:** RESOLVED — 실제 Safety 신호(`promptFeedback.blockReason`, `finishReason=SAFETY`, exact text `SAFETY`)만 `UNSAFE→rejected`; 503/timeout/transport는 동일 실행 최대 4회 bounded retry 후 `RETRY_EXHAUSTED→failed`; 400/401/403·판정불능은 `PERMANENT→failed`로 분리했다. claim/Meta 이전 분기를 유지했고 직접 관련 테스트 77/77 PASS·외부 호출 0건. 코드 3파일+기존 테스트 2파일 Commit `09f03c0d05217980317c4da03e82fe7957665c00` Push 후 `SNS_Watchdog` 통제 재시작으로 Production 적용·heartbeat·HTTP 200을 확인했다. 6F #2/3 Scheduler Safety에서 503×3 후 4번째 성공으로 실제 bounded retry를 검증했다.
+
+**Closed Gate 재확인(260804):** 6F #3/3 최초 시도는 Caption 단계에서 Gemini 503이 4/4 소진돼 `RETRY_EXHAUSTED→failed`로 정확히 분류됐다(오분류 재발 0건). 이후 기존 자산 재사용(신규 Gemini 호출 없이 `post_status: failed→ready`)으로 완료해 6F 전체 3/3 SUCCESS.
 
 **관련:** FP-074, INC-046
