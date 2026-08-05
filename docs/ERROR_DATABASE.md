@@ -1973,3 +1973,19 @@ watchdog.log(같은 구간):
 **Closed Gate 재확인(260804):** 6F #3/3 최초 시도는 Caption 단계에서 Gemini 503이 4/4 소진돼 `RETRY_EXHAUSTED→failed`로 정확히 분류됐다(오분류 재발 0건). 이후 기존 자산 재사용(신규 Gemini 호출 없이 `post_status: failed→ready`)으로 완료해 6F 전체 3/3 SUCCESS.
 
 **관련:** FP-074, INC-046
+
+---
+
+## ERR-103 | Windows Sleep으로 09:00 ICT aijomoojin Producer Cron이 완전 미실행, 익일로 밀림 (MITIGATION APPLIED, 260805)
+
+**Type:** Infrastructure / Power Management — Track B 7A 배포 직후 첫 실사용(Runtime) tick에서 Confirmed
+
+**경위:** 260805 08:29 `Restart-Service SNS_Watchdog`로 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED=true` 반영·`launcher/main.py` 재기동 후, 05:00·09:00·16:00 ICT 3슬롯 중 최초 실사용 대상이던 09:00 슬롯이 **Gemini 429가 아니라 머신 자체의 Sleep으로 완전히 실행되지 못했다.** `app.log`가 08:56:03을 마지막으로 완전히 끊겼다가 09:07:26에야 재개됐고(그 사이 heartbeat·`_job_insta_upload`·`_job_fb_crawl`·DM followup 등 Producer와 무관한 모든 Job도 동시에 끊김), Windows System Event Log(`Microsoft-Windows-Kernel-Power`)에서 08:50:55 Sleep 진입(Event 506)·09:07:04 Wake(Event 507)를 직접 확인해 로그 공백과 정확히 일치시켰다. APScheduler는 09:07:31에 `_job_aijomoojin_content_producer`의 실행시각(09:00:00)을 `misfire_grace_time=60`초를 초과해 놓친 것으로 판정하고, 기존 설계(Catch-up 금지, 260804 확정)대로 재실행 없이 **다음 실행을 `2026-08-06 09:00:00`(익일)로 재등록**했다 — 오늘 09:00 슬롯의 Producer 실행은 오늘 안에 다시 발생하지 않는다.
+
+**Evidence:** `logs/summary/app.log` 08:56:03(마지막 정상 로그)~09:07:26(재개) 전 Job 공통 공백; `Get-WinEvent`(`Microsoft-Windows-Kernel-Power`) Event 506 @ 08:50:55 / Event 507 @ 09:07:04; `app.log` 09:07:31 `"_job_aijomoojin_content_producer" ... was missed by 0:07:31.405416` + `next run at: 2026-08-06 09:00:00 +07`. 부분 상태(Airtable pending/ready, Vault 파일, imgbb 업로드) 0건 — 실행 자체가 시작되지 않았으므로 발생 가능한 오염 없음.
+
+**Risk:** `HIGH` — 이 프로젝트의 최상위 전제("24시간 무단 동작", CLAUDE.md §0.1)가 이 머신의 전원 설정과 직접 충돌한다. Sleep이 반복되면 05:00/09:00/16:00 3슬롯 중 임의의 슬롯이 예측 불가능하게 누락돼 "하루 3건" 목표 자체가 전원 상태에 좌우된다. Producer뿐 아니라 DM 팔로업·댓글 폴링·FB 크롤링 등 **모든 Scheduler Job이 Sleep 구간 동안 동일하게 정지**하므로 영향 범위는 aijomoojin 1개 계정에 국한되지 않는다.
+
+**Status:** MITIGATION APPLIED(260805 10:18 ICT) — 회장이 관리자 PowerShell에서 `powercfg /hibernate off` 실행, `powercfg /a` Read-only 재확인으로 "최대 절전 모드"가 사용 불가(비활성화됨)로 전환된 것을 확인했다. 근본원인은 공식 Microsoft 문서("Adaptive Hibernate / Standby Battery Budget", 기본 5% 배터리 소모 시 Hibernate 강제 전환, 15분 유예)와 대조해 특정했다 — 이 기능은 문서상 "DC(배터리) 전용, AC엔 영향 없음"으로 명시돼 있으나, 회장이 이 머신은 상시 AC 연결임을 확인했음에도 실제로 발동한 것으로 보아 문서-실동작 불일치(타 기기에서도 보고된 알려진 현상)로 판단된다. Hibernate 비활성화로 "Sleep→Hibernate 강제 전환" 경로 자체는 차단했으나, `STANDBYIDLE`이 이미 Never였는데도 Sleep이 발생했던 점을 볼 때 **S0 Modern Standby 진입 자체가 다른 경로로 재발할 가능성은 이번 조치만으로 완전히 배제됐다고 단정할 수 없다** — RESOLVED 전환은 향후 슬롯(오늘 16:00, 내일 05·09·16 ICT)에서 Kernel-Power Event 506/507 재발 여부를 관찰한 뒤 결정한다.
+
+**관련:** `docs/CURRENT_RUNTIME_CONTEXT.md` 260805 01:33 항목의 Gemini 429 quota Blocker와는 별개 원인(그 항목은 ERR-NNN 미부여 상태), INC-047, FP-075

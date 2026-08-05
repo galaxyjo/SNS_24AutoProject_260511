@@ -1,3 +1,24 @@
+# 2026-08-05 08:32 ICT — Track B 7A DEPLOYED / E2E CANARY SKIPPED — aijomoojin Producer 완전자동화 Runtime 반영 완료(GPT Closed Gate 확정)
+
+_기록 시각: 2026-08-05 08:32 ICT · 상태: **7A(Runtime 배포)만 실행, 코드 수정·신규 설계·Canary 없음**(회장 지시 범위 그대로). 아래 260805 01:33 항목의 "Producer는 아직 실사용 미검증, 내일 05/09/16 ICT 자동실행 없음"은 **이 항목으로 대체된다** — Producer Flag가 이제 실제로 ON이며 내일부터 05/09/16 ICT 자동실행이 발생한다. 과거 기록은 소급 수정하지 않고 이 최신 항목으로 대체한다._
+
+## 배포 내용
+- `.env`에 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED=true` 1줄 추가(다른 계정·Credential·스케줄 값 변경 0건). `AIJOMOOJIN_SLOT_SCHEDULE_ENABLED=true`는 기존 유지.
+- 회장이 관리자 PowerShell에서 `Restart-Service SNS_Watchdog` 실행(08:29:07 재시작 확인, `watchdog.log`) → `launcher/main.py` 08:29:41 재기동.
+- Runtime Evidence: `_job_aijomoojin_content_producer` 3회·`_job_aijomoojin_scheduled_post` 3회 Scheduler 등록 확인(`app.log` 08:29:41). 단일 launcher(포트 5000 LISTENING PID 1개). Import/Config 신규 오류 0건(dotenv 파싱 경고 2건은 이번 변경 이전부터 있던 무관 항목).
+- E2E Canary는 실행하지 않음(`SKIPPED_BY_OWNER / Known Risk Accepted` 유지) — Gemini 429 재발 가능성은 알려진 Risk로 수용.
+- Git: `.env`는 gitignore 대상이라 이번 배포로 인한 코드 Commit·Push 없음(Working Tree는 이전 세션 그대로 clean).
+
+## GPT Closed Gate 확정
+- 승인된 배포 기준 6개(Producer/Posting Job 3+3 등록·단일 launcher·Flask 정상·Import/Config 오류 0·변경범위 Flag 1줄·다른 계정 무변경) 전부 Evidence로 충족 확인 → `7A DEPLOYED / E2E CANARY SKIPPED` Closed Gate.
+
+## 다음 세션 확인할 것
+1. 오늘(2026-08-05) 09:00 ICT Producer 첫 자동실행 결과 — Gemini 429 재발 여부, 성공 시 Topic→Caption→Image→Airtable ready 1건 E2E 최초 성공 여부.
+2. 16:00 ICT까지 3슬롯(05/09/16) 중 몇 건이 실제 `ready`를 생성했는지, 이어서 06/10/17 게시 슬롯이 그 결과를 실제 게시로 전환했는지.
+3. retry_queue dead=111·FB 크롤러 WinError 10061은 이번 Delta와 무관한 별개 HOLD 항목으로 유지(손대지 않음).
+
+---
+
 # 2026-08-05 01:33 ICT — Track B 6G Release Readiness 상태정리(중복개발 방지용, Read-only) — Producer는 아직 실사용 미검증, 내일 05/09/16 ICT 자동실행 없음
 
 _기록 시각: 2026-08-05 01:33 ICT · 목적: IMPLEMENTED(코드에 존재)와 VERIFIED(실제 동작 확인됨)와 DEPLOYED(Runtime에 반영됨)를 혼동하지 않기 위한 상태표. 아래 260805 00:29 항목("Codex 코드 로직 APPROVED")과 모순되지 않는다 — 그 항목은 코드 리뷰 통과를 의미했고, 이 항목은 그 이후 실제 Runtime Canary 결과(성공/실패)까지 반영한 갱신판이다. Read-only 확인 기준: HEAD `778e245`, Working Tree clean, `.env`의 `AIJOMOOJIN_SLOT_SCHEDULE_ENABLED=true`/`PUBLISH_TEXT_GATE_ENABLED=true`/`AIJOMOOJIN_CONTENT_PRODUCER_ENABLED`(미설정=false) 직접 확인._

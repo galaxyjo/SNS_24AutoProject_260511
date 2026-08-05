@@ -974,3 +974,15 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **해소(260803):** structured Safety 신호와 Provider/transport 오류를 typed status로 분리하고, transient 오류는 같은 실행 안에서 최초 포함 최대 4회로 제한했다. `UNSAFE→rejected`, `RETRY_EXHAUSTED/PERMANENT→failed`, 모든 차단·오류에서 claim/Meta 0회 계약을 Commit `09f03c0`으로 Production 적용했다. 6F #2/3에서 503×3 후 4번째 Safety 성공으로 재발 방지 계약을 Runtime 확인했다.
 
 **Closed Gate 재확인(260804):** 6F #3/3 최초 시도의 Gemini 503 4/4 소진이 `RETRY_EXHAUSTED→failed`로 정확히 분류됐다(오분류 재발 0건) — 6F 전체 3/3 SUCCESS로 종결.
+
+---
+
+## FP-075 | 24시간 무단 운영을 전제한 Scheduler가 머신 Sleep 구간 동안 통째로 멈추고, misfire_grace_time을 넘긴 Cron 슬롯은 그날 안에 재실행되지 않는다
+
+**설명:** APScheduler(및 그 안의 모든 Job)는 호스트 프로세스가 살아있는 동안만 동작한다 — Windows가 Sleep에 들어가면 프로세스 자체가 멈추고, Wake 후 다음 tick에서야 "몇 개 slot이 얼마나 늦었는지"를 한꺼번에 인식한다. `misfire_grace_time=60`초(260804, Catch-up 방지 설계)보다 길게 놓친 Cron Job은 그 날짜의 실행을 그냥 건너뛰고 다음 예정 시각(대개 익일)으로 재등록된다 — 이는 설계된 Fail-closed(무한 재시도 금지)가 정상 동작한 것이지 버그가 아니지만, "24시간 무단 동작"(CLAUDE.md §0.1)이라는 최상위 전제와 이 머신의 실제 전원 상태가 충돌하고 있다는 사실 자체를 드러낸다.
+
+**증상:** 260805 08:50:55~09:07:04 Windows Sleep(Kernel-Power Event 506/507) 동안 `app.log`의 heartbeat·`_job_insta_upload`·`_job_fb_crawl`·DM followup·`_job_aijomoojin_content_producer` 등 **모든** 등록 Job이 동시에 끊겼다(ERR-103). 09:00 ICT aijomoojin Producer 슬롯만 골라서 실패한 것이 아니라, 그 시각에 도는 모든 Job이 동일하게 대상이었다 — 우연히 Producer가 가장 눈에 띄었을 뿐이다.
+
+**예방:** (1) 이 머신의 전원설정(`powercfg`) Sleep/Idle timeout이 실제로 어떻게 설정돼 있는지 Read-only 확인 — 자동 Sleep이 켜져 있다면 그 자체가 "24시간 무단 동작" 전제의 근본 결함이다. (2) 향후 유사 Cron 슬롯(aijomoojin 3슬롯 등) 설계 시 misfire 발생을 Slack/Health로 관측 가능하게(현재는 로그에만 남고 별도 Alert 없음, 확인 필요) 만드는 것을 검토— 지금은 로그를 직접 찾아야만 미실행 여부를 알 수 있다.
+
+**관련:** ERR-103, INC-047

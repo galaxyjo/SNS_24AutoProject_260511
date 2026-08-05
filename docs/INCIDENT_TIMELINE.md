@@ -759,3 +759,23 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **현재 해결 상태:** ERR-101/ERR-102는 RESOLVED. **6F 전체 3/3 SUCCESS로 종결**. 다음 단계는 6G(정식 운영 전환) — 회장 원칙 승인 완료, 실제 설계·구현은 별도 세션.
 
 **관련:** ERR-101, ERR-102, FP-073, FP-074
+
+---
+
+## INC-047 | Track B 7A 배포 직후 첫 실사용 09:00 ICT aijomoojin Producer 슬롯이 머신 Sleep으로 완전 미실행 (MITIGATION APPLIED, 16:00 슬롯 재발 없음 확인)
+
+**발생:** 2026-08-05 08:50:55~09:07:04 ICT(Windows Sleep 구간), 인지 시각 09:07:31(APScheduler misfire 로그) / 09:08 회장 확인 요청.
+
+**요약:** 같은 날 08:29 `Restart-Service SNS_Watchdog`로 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED=true`를 Runtime에 반영(7A DEPLOYED)한 뒤, 첫 실사용 대상이던 09:00 ICT Producer 슬롯이 예상했던 Gemini 429가 아니라 머신이 08:50:55~09:07:04 사이 Sleep 상태였던 탓에 실행 자체가 발생하지 못했다. `misfire_grace_time=60`초를 초과해 익일(2026-08-06 09:00)로 재등록됐고, Producer뿐 아니라 그 시각 등록된 모든 Job(heartbeat/insta_upload/fb_crawl/DM followup 등)이 동일하게 정지했다.
+
+**최종 Evidence:** `app.log` 08:56:03~09:07:26 전 Job 공통 로그 공백, `Get-WinEvent`(`Microsoft-Windows-Kernel-Power`) Sleep 진입 08:50:55(Event 506)·Wake 09:07:04(Event 507), APScheduler misfire 로그(09:07:31, `was missed by 0:07:31.405416`, next run 익일 재등록). Airtable pending/ready·Vault 파일·imgbb 업로드 등 부분상태 0건(실행이 시작조차 못 해 오염 없음).
+
+**영향:** 오늘(2026-08-05) 하루 목표 3건 중 09:00 슬롯 1건 손실 확정(Catch-up 없음, 설계대로).
+
+**후속 조치:** ERR-103(현상 기록) · FP-075(반복패턴 기록) 작성 완료. 근본원인을 공식 Microsoft 문서("Adaptive Hibernate / Standby Battery Budget", DC 전용 명시되어 있으나 이 머신은 AC 상시연결 상태에서도 발동한 것으로 확인된 문서-실동작 불일치)와 대조해 특정했다. 회장이 260805 10:18 ICT 관리자 PowerShell에서 `powercfg /hibernate off` 실행, `powercfg /a` Read-only 재확인으로 Hibernate 비활성화를 확인했다.
+
+**16:00 슬롯 재검증 결과(260805 16:00~16:01 ICT):** `_job_aijomoojin_content_producer` 정각 실행(misfire 없음), 10:18 조치 이후 지금까지 `Get-WinEvent`(Kernel-Power 506/507/42) Sleep 이벤트 재발 0건 — 완화조치 유효성 1차 확인. 다만 해당 슬롯은 Gemini 429(aijomoojin 전용 quota 소진, 별개 Blocker)로 Fail-closed 종료돼 `ready` 생성에는 이르지 못함 — 오늘 3슬롯 중 실제 콘텐츠 생성 성공 0건.
+
+**Status:** Sleep 재발 방지는 1회 관측 주기 기준 유효 확인, 완전 RESOLVED 판정은 추가 관측(내일 05·09·16 ICT) 이후로 보류.
+
+**관련:** ERR-103, FP-075
