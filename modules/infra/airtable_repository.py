@@ -1763,6 +1763,10 @@ class AirtableRepository(RepositoryInterface):
     # ── 30-1. 리뷰 대기 후보 다건 조회 (그리드 일괄 리뷰용) ───────────────────
 
     def fetch_pending_candidates(self, limit: int = 50) -> list[TrainingCandidate]:
+        """260805: 정렬을 desc로 변경 — Facebook CDN image_url은 며칠 내 403으로
+        만료된다(Runtime 확인). 리뷰 적체가 큰 상태에서 asc(오래된 것부터)로 보이면
+        화면이 죽은 이미지로 가득 차므로, 최근 수집분(=URL이 살아있을 확률이 높은
+        건)부터 보여준다."""
         try:
             r = requests.get(
                 _url("Training_Review_Queue"),
@@ -1770,7 +1774,7 @@ class AirtableRepository(RepositoryInterface):
                 params={
                     "filterByFormula":    f"{{review_status}}='{ReviewStatus.PENDING.value}'",
                     "sort[0][field]":     "collected_at",
-                    "sort[0][direction]": "asc",
+                    "sort[0][direction]": "desc",
                     "maxRecords":         limit,
                 },
                 timeout=_TIMEOUT,
