@@ -1976,7 +1976,7 @@ watchdog.log(같은 구간):
 
 ---
 
-## ERR-103 | Windows Sleep으로 09:00 ICT aijomoojin Producer Cron이 완전 미실행, 익일로 밀림 (MITIGATION APPLIED, 260805)
+## ERR-103 | Windows Sleep으로 09:00 ICT aijomoojin Producer Cron이 완전 미실행, 익일로 밀림 (MITIGATION APPLIED / MONITORING, 260805)
 
 **Type:** Infrastructure / Power Management — Track B 7A 배포 직후 첫 실사용(Runtime) tick에서 Confirmed
 
@@ -1986,6 +1986,6 @@ watchdog.log(같은 구간):
 
 **Risk:** `HIGH` — 이 프로젝트의 최상위 전제("24시간 무단 동작", CLAUDE.md §0.1)가 이 머신의 전원 설정과 직접 충돌한다. Sleep이 반복되면 05:00/09:00/16:00 3슬롯 중 임의의 슬롯이 예측 불가능하게 누락돼 "하루 3건" 목표 자체가 전원 상태에 좌우된다. Producer뿐 아니라 DM 팔로업·댓글 폴링·FB 크롤링 등 **모든 Scheduler Job이 Sleep 구간 동안 동일하게 정지**하므로 영향 범위는 aijomoojin 1개 계정에 국한되지 않는다.
 
-**Status:** MITIGATION APPLIED(260805 10:18 ICT) — 회장이 관리자 PowerShell에서 `powercfg /hibernate off` 실행, `powercfg /a` Read-only 재확인으로 "최대 절전 모드"가 사용 불가(비활성화됨)로 전환된 것을 확인했다. 근본원인은 공식 Microsoft 문서("Adaptive Hibernate / Standby Battery Budget", 기본 5% 배터리 소모 시 Hibernate 강제 전환, 15분 유예)와 대조해 특정했다 — 이 기능은 문서상 "DC(배터리) 전용, AC엔 영향 없음"으로 명시돼 있으나, 회장이 이 머신은 상시 AC 연결임을 확인했음에도 실제로 발동한 것으로 보아 문서-실동작 불일치(타 기기에서도 보고된 알려진 현상)로 판단된다. Hibernate 비활성화로 "Sleep→Hibernate 강제 전환" 경로 자체는 차단했으나, `STANDBYIDLE`이 이미 Never였는데도 Sleep이 발생했던 점을 볼 때 **S0 Modern Standby 진입 자체가 다른 경로로 재발할 가능성은 이번 조치만으로 완전히 배제됐다고 단정할 수 없다** — RESOLVED 전환은 향후 슬롯(오늘 16:00, 내일 05·09·16 ICT)에서 Kernel-Power Event 506/507 재발 여부를 관찰한 뒤 결정한다.
+**Status:** MITIGATION APPLIED / MONITORING(260805 10:18 ICT) — 회장이 관리자 PowerShell에서 `powercfg /hibernate off` 실행, `powercfg /a` Read-only 재확인으로 "최대 절전 모드"가 사용 불가(비활성화됨)로 전환된 것을 확인했다. 근본원인은 공식 Microsoft 문서("Adaptive Hibernate / Standby Battery Budget", 기본 5% 배터리 소모 시 Hibernate 강제 전환, 15분 유예)와 대조해 특정했다 — 이 기능은 문서상 "DC(배터리) 전용, AC엔 영향 없음"으로 명시돼 있으나, 회장이 이 머신은 상시 AC 연결임을 확인했음에도 실제로 발동한 것으로 보아 문서-실동작 불일치(타 기기에서도 보고된 알려진 현상)로 판단된다. Hibernate 비활성화로 "Sleep→Hibernate 강제 전환" 경로 자체는 차단했으나, `STANDBYIDLE`이 이미 Never였는데도 Sleep이 발생했던 점을 볼 때 **S0 Modern Standby 진입 자체가 다른 경로로 재발할 가능성은 이번 조치만으로 완전히 배제됐다고 단정할 수 없다** — RESOLVED 전환은 향후 슬롯(오늘 16:00, 내일 05·09·16 ICT)에서 Kernel-Power Event 506/507 재발 여부를 관찰한 뒤 결정한다.
 
 **관련:** `docs/CURRENT_RUNTIME_CONTEXT.md` 260805 01:33 항목의 Gemini 429 quota Blocker와는 별개 원인(그 항목은 ERR-NNN 미부여 상태), INC-047, FP-075
