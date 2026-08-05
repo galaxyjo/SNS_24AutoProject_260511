@@ -876,13 +876,35 @@ def _job_aijomoojin_scheduled_post():
 
 
 AIJOMOOJIN_PRODUCER_ACCOUNT_CODE = "IDN-000036"
+# 260805 Track B 7B-5 — Account_Registry의 기존 credential_key 값(Instagram
+# 자격증명과 동일 키, 문서/테스트로 확인된 "AI")을 그대로 REUSE한다. 별도
+# Airtable 조회를 새로 추가하지 않고 이 함수가 이미 하드코딩해 쓰는
+# AIJOMOOJIN_PRODUCER_ACCOUNT_CODE와 동일한 스타일의 상수로 둔다.
+AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY = "AI"
+# 260805 Track B 7B-5 — 전용 Gemini Key(nguyenknv15/aijomoojin) 사용 시 고정할
+# 모델. 오늘(Commit 778e245) Runtime Evidence로 확인됨: 이 프로젝트에서
+# "gemini-2.5-flash-lite"/"gemini-2.5-flash"는 HTTP 404("no longer available
+# to new users")이고 "gemini-3.5-flash-lite"만 성공 확인됐다.
+# `research_to_topic_adapter.RESEARCH_MODEL`과 같은 값이지만, "Sourcebook
+# 소진 시 그 모듈을 아예 import하지 않는다"는 기존 불변조건(회귀 테스트로
+# 고정됨)을 지키기 위해 import하지 않고 리터럴을 그대로 둔다.
+AIJOMOOJIN_PRODUCER_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
 @handle_errors(task="aijomoojin_content_producer", notify_fn=_slack)
-def _job_aijomoojin_content_producer():
+def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
     """260804 Track B 6G — aijomoojin 전용 콘텐츠 Producer(Sourcebook Topic →
     캡션·이미지 → Vault → Airtable ready). 매일 05:00/09:00/16:00 ICT(각 게시
     슬롯 1시간 전)에 실행 — 하루 목표 3건에 맞춰 슬롯마다 1회.
+
+    260805 Track B 7B-4 — `producer_hour`(선택, 기본 None)은 Carousel Canary
+    (`modules/sns/carousel_content_builder.py`) slot_role 연결용이다. 이
+    값이 주어지고 `slot_role_for_producer_hour()`가 알려진 역할로 매핑하면
+    `create_content_package()`에 `slot_role`/`template_type`을 함께 넘겨
+    Carousel 부가 생성을 시도한다. 생략(기존 Scheduler 등록 그대로, 인자 없이
+    호출)하면 `slot_role=None`이라 Carousel 생성 자체를 시도하지 않고 기존
+    단일 caption+이미지 경로만 100% 그대로 동작한다 — 이 값을 넘기지 않는 한
+    이번 변경은 Runtime에 아무 영향이 없다.
 
     REUSE 원칙(회장 승인 필수조건 1) — 검증된 생성 경로(`create_content_package`,
     `modules/sns/source_selector.py`·`caption_generator.py`·
@@ -1013,41 +1035,65 @@ def _job_aijomoojin_content_producer():
             break
 
         if content_id is None:
-            result = create_content_package(target_language="ko")
-            if not result.success and result.error_code == "NO_SELECTABLE_TOPIC":
-                # 260804 Track B 6G Research-to-Topic Adapter — selectable 3.x
-                # Topic이 0건일 때만 호출한다(회장 승인 조건 5·6). 이 함수 자신은
-                # 대체 URL로 연속 재시도하지 않으므로(Fail-closed, 1회만) 여기서도
-                # 정확히 1회만 부르고, 성공하면 create_content_package()를
-                # injected_topic으로 다시 정확히 1회만 호출한다.
-                import modules.sns.research_to_topic_adapter as _research_adapter
-                researched_topic = _research_adapter.research_next_topic()
-                if researched_topic is None:
-                    logger.info(
-                        "[AijomoojinProducer] 선택 가능한 Topic 없음 + Research Adapter도 "
-                        "실패/대상없음 — 안전 종료"
+            from modules.sns.carousel_content_builder import (
+                DEFAULT_TEMPLATE_BY_SLOT_ROLE,
+                slot_role_for_producer_hour,
+            )
+            slot_role = (
+                slot_role_for_producer_hour(producer_hour)
+                if producer_hour is not None else None
+            )
+            template_type = DEFAULT_TEMPLATE_BY_SLOT_ROLE.get(slot_role) if slot_role else None
+
+            # 260805 Track B 7B-5 — 페르소나(nguyenknv15/aijomoojin) 전용 Gemini
+            # Key만 사용한다. 공유 corea.galaxy/전역 GEMINI_API_KEY로 자동
+            # fallback하지 않는다(Fail-closed) — account_code → credential_key
+            # → Gemini 자격증명 순서로 기존 Resolver를 REUSE한다.
+            from google import genai
+            from modules.common.credential_resolver import (
+                CredentialResolutionError,
+                resolve_gemini_credential,
+            )
+            try:
+                gemini_cred = resolve_gemini_credential(AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY)
+            except CredentialResolutionError as exc:
+                logger.error(
+                    "[AijomoojinProducer] 전용 Gemini 자격증명 없음 — 공유 Key로 "
+                    "fallback하지 않고 안전 종료 | error_code=MISSING_PERSONA_GEMINI_CREDENTIAL | %s",
+                    exc,
+                )
+                if _slack:
+                    _slack(
+                        "[알림] aijomoojin Producer — 전용 Gemini 자격증명(credential_key="
+                        f"{AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY}) 조회 실패. 공유 Key로 "
+                        "대체하지 않고 이번 실행을 중단합니다(MISSING_PERSONA_GEMINI_CREDENTIAL)."
                     )
-                    if _slack:
-                        _slack(
-                            "[알림] aijomoojin Producer — 선택 가능한 Sourcebook Topic이 없고 "
-                            "Research Adapter도 새 Topic을 만들지 못했습니다(원천 URL 접근 실패/"
-                            "근거 부족/Safety 등 Fail-closed 사유). 다음 정규 슬롯에서 재평가됩니다."
-                        )
-                    return
+                return
+            aijomoojin_gemini_client = genai.Client(api_key=gemini_cred.api_key)
+
+            result = create_content_package(
+                target_language="ko", slot_role=slot_role, template_type=template_type,
+                gemini_client=aijomoojin_gemini_client,
+                gemini_model=AIJOMOOJIN_PRODUCER_GEMINI_MODEL,
+            )
+            if not result.success and result.error_code == "NO_SELECTABLE_TOPIC":
+                # 260805 회장 지시(Sourcebook SSOT 복구) — Research-to-Topic
+                # Adapter(Google Search Grounding/URL Context) fallback을 생산
+                # 경로에서 제거했다. Sourcebook을 유일한 원천 SSOT로 유지하기
+                # 위해, 선택 가능한 Topic이 없으면 인터넷 검색 없이 그대로
+                # 안전 종료한다(scan_used_source_urls()가 "오늘 사용한 URL"만
+                # 제외하므로 내일 슬롯에서 같은 원천이 다시 선택 가능해진다).
                 logger.info(
-                    "[AijomoojinProducer] Research Adapter가 신규 Topic 생성 | "
-                    "topic_id=%s | source_url=%s", researched_topic.topic_id, researched_topic.source_url,
+                    "[AijomoojinProducer] 선택 가능한 Sourcebook Topic 없음 — 안전 종료 "
+                    "(Sourcebook 전용 SSOT, 인터넷 검색 Fallback 없음)"
                 )
-                # 260804 Codex 리뷰(P0) — Research로 찾은 Topic의 Caption 생성도
-                # aijomoojin 전용 Gemini Client/Throttle로 해야 전역 GEMINI_API_KEY
-                # (다른 계정과 공유)를 안 건드린다. injected_topic이 없는 일반
-                # 호출(위 1000행)은 이 인자들을 안 넘기므로 기존 전역 동작 그대로다.
-                result = create_content_package(
-                    target_language="ko", injected_topic=researched_topic,
-                    gemini_client=_research_adapter._get_client(),
-                    gemini_throttle=_research_adapter._throttle,
-                    gemini_model=_research_adapter.RESEARCH_MODEL,
-                )
+                if _slack:
+                    _slack(
+                        "[알림] aijomoojin Producer — 선택 가능한 Sourcebook Topic이 없습니다"
+                        "(오늘 이미 사용한 원천 제외 기준). 인터넷 검색 Fallback은 사용하지 "
+                        "않습니다 — 다음 정규 슬롯 또는 다음 날 재평가됩니다."
+                    )
+                return
 
             if not result.success:
                 logger.error(f"[AijomoojinProducer] 콘텐츠 생성 실패 | error_code={result.error_code}")

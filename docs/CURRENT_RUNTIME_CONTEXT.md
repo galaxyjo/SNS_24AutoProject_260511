@@ -1,3 +1,71 @@
+# 2026-08-05 18:03 ICT — [정정] Gemini 429 인과 메커니즘은 UNKNOWN 유지, "Billing이 근본원인" 주장은 과대 추정으로 철회 — 회장의 무료 유지 결정만 확정 사실
+
+_기록 시각: 2026-08-05 18:03 ICT · 상태: 바로 아래 260805 17:57 항목("Billing 미연결 Free tier가 근본원인으로 특정됨")은 **재검수 결과 과대 추정으로 정정한다.** 소급 수정하지 않고 이 최신 항목으로 대체하되, 무엇이 왜 틀렸는지 명시한다._
+
+## 정정 사유
+17:57 항목은 "(1) 개별 모델 quota 여유 있음 + (2) 이 프로젝트에 결제 미연결"이라는 FACT 2건으로부터 "Billing 미연결이 근본원인"이라고 결론지었다. 그러나 **Free tier 프로젝트는 정의상 전부 결제가 없다** — "결제 계정 없음" 확인은 "이 프로젝트가 Free tier다"라는 이미 알고 있던 사실의 재확인일 뿐, 429가 왜 발생하는지에 대한 새로운 인과 증거가 아니다. "Billing을 연결하면 해소된다"는 것도 실제로 연결해서 검증한 적 없는 미검증 가설이었다. 상세 정정 내용은 ERR-104(`docs/ERROR_DATABASE.md`) 260805 18:03 갱신분 참조.
+
+## 확정된 것과 확정되지 않은 것
+- **확정(FACT):** 개별 모델(Gemini 3.5 Flash Lite) RPM/TPM/RPD는 소진되지 않음. 이 프로젝트는 Billing 미연결 Free tier. 오늘 3슬롯+수동검증 2회 전부 429, 실제 `ready` 생성 0건(회귀 없음, 아래 17:14 항목 그대로).
+- **확정되지 않음(UNKNOWN 유지):** 429가 실제로 왜 발생하는지의 인과 메커니즘. Billing 연결이 실제로 이를 해소할지 여부.
+- **회장 결정(사실관계와 독립적으로 유효):** "무료로 사용하고 싶다" — Billing 연결(유료 전환) 하지 않기로 확정. 이 결정은 인과 메커니즘이 무엇으로 밝혀지든 그대로 유지된다.
+
+## Commit 상태
+5개 파일(문서 3 + 코드 1 + 테스트 1) 여전히 미커밋 — 이번 정정을 반영한 뒤 재검수 대기 중. 세션 종료 시 일괄 Commit 방침 그대로.
+
+---
+
+# 2026-08-05 17:57 ICT — Gemini 429 Root Cause 확정: 결제 미연결 Free tier, 회장 "무료 유지" 결정으로 ACCEPTED 종결(Billing 연결 안 함)
+
+_기록 시각: 2026-08-05 17:57 ICT · 상태: 아래 260805 17:14 항목(ERR-104를 UNKNOWN으로 남긴 상태)이 이 항목으로 최종 갱신된다. 회장이 Google AI Studio 콘솔에 직접 로그인해 확인한 결과를 반영._
+
+## 최종 확인 사실
+- aijomoojin이 실제 호출하는 **Gemini 3.5 Flash Lite 모델의 개별 RPM(2/15)·TPM(14/250K)·RPD(2/500)는 전혀 소진되지 않음** — "비율 제한" 콘솔 화면 직접 확인.
+- 이 프로젝트(`gen-lang-client-0031996882`)는 **Billing(결제) 미연결 Free tier** — "지출"·"결제"·"Logs and Datasets" 3개 페이지 전부 "결제 계정 없음"으로 동일하게 확인.
+- Google 429 응답 원문("please check your plan and billing details")과 종합해, **개별 모델 한도가 아니라 Billing 미연결 Free tier의 프로젝트 상위 제약**이 근본원인일 가능성이 가장 높다고 판단(콘솔 화면만으로는 Google 내부 정확한 산정 로직까지 완전 확인은 불가 — 근사 결론, 완전한 FACT는 아님).
+- Key 교체(같은 프로젝트 내)로는 해소되지 않음이 이미 260805 17:47~17:49 검증으로 확인됨 — Billing 없이는 Key를 더 바꿔도 같은 결과가 유력.
+
+## 회장 결정
+**"무료로 사용하고 싶다"** — Billing 연결(유료 전환)을 하지 않기로 명시적으로 확정. 결제수단 등록은 금전 행동이라 Claude Code가 대신 할 수 없는 영역이기도 함(항상 회장 본인 조치 필요).
+
+## 결과
+- ERR-104를 `ROOT CAUSE IDENTIFIED / ACCEPTED`로 최종 갱신 — 코드 수정·추가 조사 없이 현재 상태(간헐적 429로 콘텐츠 생성이 자주 막힘)를 알려진 제약으로 수용.
+- Observability 코드(`_extract_gemini_quota_fields`, ERR-104)는 유지 — 향후 429 발생 시에도 `status_code` 등은 계속 기록됨.
+- 오늘(2026-08-05) 3슬롯 + 수동 검증 2회 전부 429로 실제 `ready` 생성 **0건**이라는 결과는 변하지 않음(아래 260805 17:14 항목 참조) — 이 Blocker가 Free tier 특성상 앞으로도 간헐적으로 반복될 수 있음을 회장이 인지하고 수용.
+
+## 다음 세션 확인할 것
+1. Sleep 완화조치(ERR-103)는 이 Blocker와 무관하게 계속 MONITORING 유지.
+2. Free tier 상태에서 콘텐츠 생성이 성공하는 시점(quota가 우연히 여유 있을 때)이 있는지는 계속 관찰 대상 — 강제로 재시도하지 않는다.
+3. 이번 세션 코드·문서 변경 전부(연구 Adapter Observability + ERR-103/ERR-104/FP-075/FP-076 + 이 문서) 세션 종료 시 일괄 Commit 예정(회장 지시 유지).
+
+---
+
+# 2026-08-05 17:14 ICT — 7B 종료: Sleep 완화 유효 확인(재발 0건) + Gemini 429 Observability 추가(Root Cause는 UNKNOWN 확정) — 오늘 3슬롯 실제 ready 생성 0건
+
+_기록 시각: 2026-08-05 17:14 ICT · 상태: 아래 260805 08:32 항목(7A DEPLOYED) 이후 진행된 7B 전체(09:00/16:00/16:47 검증 + Sleep 완화조치 + Gemini 429 Observability 코드 추가)를 이 항목으로 정리한다. 과거 기록은 소급 수정하지 않고 이 최신 항목으로 대체한다._
+
+## 오늘(2026-08-05) 3슬롯 최종 결과
+- **05:00** — Producer Flag가 아직 OFF(08:29 재시작 전)라 대상 아님.
+- **09:00** — Windows Sleep(08:50:55~09:07:04)으로 실행 자체가 발생하지 못함(ERR-103/FP-075/INC-047).
+- **16:00** — 정각 실행(misfire 없음, Sleep 완화조치 유효 1차 확인), Gemini 429로 Fail-closed 종료.
+- **수동 검증 2회**(09:15, 16:47) — 둘 다 동일하게 Gemini 429, Caption·Image·Airtable Write 0건, `producer_lock` 정상 해제.
+- **결론:** 오늘 실제 `ready` 생성 **0건**. Sleep 문제는 완화됐으나(재발 0건, 10:18 `powercfg /hibernate off` 이후 관찰), aijomoojin 전용 Gemini quota가 하루 종일 회복되지 않아 콘텐츠 생성 자체가 막혀 있다.
+
+## Gemini 429 Observability 추가(ERR-104, 코드 변경)
+- `modules/sns/research_to_topic_adapter.py`에 `_extract_gemini_quota_fields(exc)` 신규 추가 — HTTP 429 시 `status_code`/`quota_id`/`quota_metric`/`limit`/`retry_delay` 5개 Allowlist 필드만 안전하게 구조화 로그로 기록(Secret·Prompt·전체 예외문 없음). 기존 Retry/Fail-closed 흐름은 무변경.
+- 합성 테스트 4종(`tests/test_research_to_topic_adapter.py`, 29 passed 전체)으로 추출 로직 정상 확인 후 실제 호출 1회(17:12:58~17:14:28) — `status_code=429`만 확인되고 나머지 4개 필드는 전부 `None`. 로직 결함이 아니라 **이 프로젝트의 실제 Gemini 응답 자체에 QuotaFailure/RetryInfo 구조화 상세가 없다**는 뜻으로 확정(FP-076).
+- **Root Cause 최종 판정: UNKNOWN.** PerDay/PerMinute/limit=0 구분은 Runtime Evidence만으로 불가능 — Google AI Studio 콘솔 직접 확인이 필요하며 이번 세션 범위 밖.
+
+## Git 상태
+- 코드 변경(`research_to_topic_adapter.py` +39줄, `test_research_to_topic_adapter.py` 신규 테스트) + 문서 4종(ERR-104, FP-076, 이 항목) — 이번 기록과 함께 Commit 예정. Push는 세션 종료 시 일괄 방침 유지.
+
+## 다음 세션 확인할 것
+1. 내일(2026-08-06) 05:00 ICT부터 Sleep 재발 여부 계속 관찰(ERR-103 MONITORING 유지 중).
+2. aijomoojin Gemini quota 회복 여부 — 회복되면 7B 원래 목적(Topic→Caption→Image→ready→게시→media_id E2E)을 그때 재시도.
+3. 원한다면 Google AI Studio 콘솔에서 이 프로젝트의 실제 quota/사용량을 직접 확인(코드로는 확인 불가, 로그인 필요).
+
+---
+
 # 2026-08-05 08:32 ICT — Track B 7A DEPLOYED / E2E CANARY SKIPPED — aijomoojin Producer 완전자동화 Runtime 반영 완료(GPT Closed Gate 확정)
 
 _기록 시각: 2026-08-05 08:32 ICT · 상태: **7A(Runtime 배포)만 실행, 코드 수정·신규 설계·Canary 없음**(회장 지시 범위 그대로). 아래 260805 01:33 항목의 "Producer는 아직 실사용 미검증, 내일 05/09/16 ICT 자동실행 없음"은 **이 항목으로 대체된다** — Producer Flag가 이제 실제로 ON이며 내일부터 05/09/16 ICT 자동실행이 발생한다. 과거 기록은 소급 수정하지 않고 이 최신 항목으로 대체한다._

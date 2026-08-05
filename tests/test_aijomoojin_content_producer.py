@@ -214,7 +214,7 @@ class TestSuccessPath:
         from launcher import main as launcher_main
         import modules.sns.research_to_topic_adapter as adapter
 
-        def _fake_create(target_language="ko"):
+        def _fake_create(target_language="ko", **kwargs):
             _write_fixture_package(vault_root, "new-content-1", source_url="https://new.example/a", caption="hello")
             return cpb.PackageResult(success=True, content_id="new-content-1", status="complete")
 
@@ -245,9 +245,8 @@ class TestSuccessPath:
         assert fields["channel_status"] == "queued"
 
     def test_no_selectable_topic_safe_exit_zero_partial_state(self, monkeypatch, _flag_on, vault_root):
-        """260804 Research-to-Topic Adapter 추가 후: NO_SELECTABLE_TOPIC이면
-        이제 Research Adapter를 1회 시도한다 — 이 테스트는 Adapter도 실패한
-        (원천 URL 접근 실패 등) 경우를 재현한다(둘 다 실패 → 완전 안전 종료)."""
+        """260805 Sourcebook SSOT 복구 — NO_SELECTABLE_TOPIC이면 인터넷 검색
+        Fallback(Research-to-Topic Adapter) 없이 그대로 안전 종료한다."""
         from launcher import main as launcher_main
         import modules.sns.research_to_topic_adapter as adapter
 
@@ -255,7 +254,10 @@ class TestSuccessPath:
             cpb, "create_content_package",
             lambda *a, **k: cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC"),
         )
-        monkeypatch.setattr(adapter, "research_next_topic", lambda *a, **k: None)
+        # Sourcebook 전용 SSOT — Research Adapter는 이제 절대 호출되면 안 됨.
+        monkeypatch.setattr(
+            adapter, "research_next_topic", lambda *a, **k: pytest.fail("호출되면 안 됨")
+        )
         repo, calls = _fake_repo(active_status="")
         monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
         slack_calls = []
@@ -268,88 +270,29 @@ class TestSuccessPath:
         assert len(slack_calls) == 1
 
 
-class TestResearchToTopicAdapterWiring:
-    """260804 Track B 6G Research-to-Topic Adapter — Producer 단에서의 배선
-    검증(Adapter 자체 로직은 test_research_to_topic_adapter.py에서 검증)."""
+class TestSourcebookOnlyNoSearchFallback:
+    """260805 회장 지시(Sourcebook SSOT 복구) — Research-to-Topic Adapter(Google
+    Search Grounding/URL Context) fallback을 생산 경로에서 완전히 제거했다.
+    이전 `TestResearchToTopicAdapterWiring`(fallback 배선 검증)은 제거된
+    기능을 테스트하던 것이라 삭제하고, "절대 호출되지 않는다"를 고정하는
+    회귀 테스트로 대체한다."""
 
-    def test_research_success_calls_create_content_package_exactly_once_more_with_injected_topic(
+    def test_no_selectable_topic_never_imports_or_calls_research_adapter(
         self, monkeypatch, _flag_on, vault_root
     ):
-        """Target Test 3 — 생성 Topic → 기존 Producer(create_content_package)
-        정확히 1회(재호출) 호출, 그 결과로 정상 게시 준비까지 완료된다."""
+        """NO_SELECTABLE_TOPIC이어도 create_content_package()는 정확히 1회만
+        호출되고(2차 재호출 없음), research_to_topic_adapter 모듈은 아예
+        import되지 않는다 — Search Grounding/URL Context 호출 경로 자체가
+        코드상 존재하지 않음을 증명한다."""
         from launcher import main as launcher_main
-        import modules.sns.research_to_topic_adapter as adapter
-        from modules.sns.source_selector import SourceTopic
+        import sys
 
-        researched = SourceTopic(
-            topic_id="auto-deadbeef", title="Reddit Community A", status="VERIFIED FACT",
-            source_url="https://reddit.com/r/testcommunity-a", core_message="grounded message",
-            prohibited_expression="",
-        )
-        monkeypatch.setattr(adapter, "research_next_topic", lambda *a, **k: researched)
-        # 260804 Codex 리뷰(P0) — aijomoojin 전용 Client/Throttle을 격리해서
-        # 검증(실 .env의 AIJOMOOJIN_GEMINI_API_KEY 유무에 테스트가 의존하지 않게).
-        sentinel_client = object()
-        sentinel_throttle = lambda: None  # noqa: E731
-        monkeypatch.setattr(adapter, "_get_client", lambda: sentinel_client)
-        monkeypatch.setattr(adapter, "_throttle", sentinel_throttle)
+        sys.modules.pop("modules.sns.research_to_topic_adapter", None)
 
         create_calls = []
 
-        def _fake_create(target_language="ko", injected_topic=None, gemini_client=None,
-                         gemini_throttle=None, gemini_model=None):
-            create_calls.append({
-                "injected_topic": injected_topic,
-                "gemini_client": gemini_client,
-                "gemini_throttle": gemini_throttle,
-                "gemini_model": gemini_model,
-            })
-            if injected_topic is None:
-                return cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
-            _write_fixture_package(
-                vault_root, "researched-content-1",
-                source_url=injected_topic.source_url, caption="researched caption",
-            )
-            return cpb.PackageResult(success=True, content_id="researched-content-1", status="complete")
-
-        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
-        monkeypatch.setattr(
-            "modules.sns.image_hosting.upload_local_file_to_imgbb",
-            lambda path: {"success": True, "public_url": "https://i.ibb.co/researched.jpg"},
-        )
-        repo, calls = _fake_repo(active_status="", save_record_id="recRESEARCH1")
-        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
-
-        launcher_main._job_aijomoojin_content_producer()
-
-        # 1차(기존 경로 실패, gemini_client 없음) + 2차(injected_topic +
-        # aijomoojin 전용 Client/Throttle) 정확히 1회씩.
-        assert len(create_calls) == 2
-        assert create_calls[0]["injected_topic"] is None
-        assert create_calls[0]["gemini_client"] is None
-        assert create_calls[1]["injected_topic"] is researched
-        assert create_calls[1]["gemini_client"] is sentinel_client  # 격리된 Client가 실제로 전달됨
-        assert create_calls[1]["gemini_throttle"] is sentinel_throttle
-        # 260805 회장 지시 — aijomoojin 전용 고정 모델도 함께 전달됨
-        assert create_calls[1]["gemini_model"] == adapter.RESEARCH_MODEL == "gemini-3.5-flash-lite"
-        assert len(calls["save"]) == 1
-        assert calls["save"][0]["caption"] == "researched caption"
-        assert calls["save"][0]["source_url"] == researched.source_url
-        fields = cpb.read_frontmatter("researched-content-1", vault_root)
-        assert fields["channel_status"] == "queued"
-
-    def test_research_failure_zero_caption_image_airtable_write(self, monkeypatch, _flag_on, vault_root):
-        """Target Test 5 — 원천 접근 실패/근거 부족(Adapter가 None 반환) →
-        Caption/Image/Airtable Write 0회, create_content_package도 2차 재호출 없음."""
-        from launcher import main as launcher_main
-        import modules.sns.research_to_topic_adapter as adapter
-
-        monkeypatch.setattr(adapter, "research_next_topic", lambda *a, **k: None)
-
-        create_calls = []
-
-        def _fake_create(target_language="ko", injected_topic=None):
-            create_calls.append(injected_topic)
+        def _fake_create(target_language="ko", **kwargs):
+            create_calls.append(target_language)
             return cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
 
         monkeypatch.setattr(cpb, "create_content_package", _fake_create)
@@ -362,15 +305,108 @@ class TestResearchToTopicAdapterWiring:
 
         launcher_main._job_aijomoojin_content_producer()
 
-        assert create_calls == [None]  # 2차(injected_topic) 재호출 없음 — Research 실패 시 즉시 종료
+        assert create_calls == ["ko"]  # 정확히 1회만, 2차 재호출 없음
         assert calls["save"] == []
+        assert "modules.sns.research_to_topic_adapter" not in sys.modules  # import 자체가 없었음
+
+
+class TestPersonaGeminiCredential:
+    """260805 Track B 7B-5 — nguyenknv15/aijomoojin 전용 Gemini Key 분리 배선
+    검증(credential_resolver 자체 로직은 test_credential_resolver.py에서 검증)."""
+
+    def test_uses_persona_specific_client_not_shared_key(self, monkeypatch, _flag_on, vault_root):
+        from launcher import main as launcher_main
+
+        monkeypatch.setenv("AIJOMOOJIN_GEMINI_API_KEY", "persona-only-key-value")
+        monkeypatch.setenv("AIJOMOOJIN_GEMINI_ACCOUNT_EMAIL", "nguyenknv15@gmail.com")
+        monkeypatch.setenv("GEMINI_API_KEY", "shared-corea-galaxy-key")  # 존재해도 쓰이면 안 됨
+
+        captured_api_keys = []
+
+        class _FakeGenaiClient:
+            def __init__(self, api_key=None):
+                captured_api_keys.append(api_key)
+
+        monkeypatch.setattr("google.genai.Client", _FakeGenaiClient)
+
+        create_calls = []
+
+        def _fake_create(target_language="ko", **kwargs):
+            create_calls.append(kwargs)
+            _write_fixture_package(
+                vault_root, "cred-content-1", source_url="https://cred.example/a", caption="c",
+            )
+            return cpb.PackageResult(success=True, content_id="cred-content-1", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        monkeypatch.setattr(
+            "modules.sns.image_hosting.upload_local_file_to_imgbb",
+            lambda path: {"success": True, "public_url": "https://i.ibb.co/cred.jpg"},
+        )
+        repo, calls = _fake_repo(active_status="", save_record_id="recCRED1")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        # Target Test — nguyenknv15 전용 credential 선택 / 공유 Key 미사용
+        assert captured_api_keys == ["persona-only-key-value"]
+        assert "shared-corea-galaxy-key" not in captured_api_keys
+        assert len(create_calls) == 1
+        assert isinstance(create_calls[0]["gemini_client"], _FakeGenaiClient)
+        assert create_calls[0]["gemini_model"] == "gemini-3.5-flash-lite"
+        assert len(calls["save"]) == 1  # 정상적으로 끝까지 진행됨(신뢰성 확인)
+
+    def test_missing_persona_credential_fails_closed_without_shared_fallback(
+        self, monkeypatch, _flag_on, vault_root
+    ):
+        from launcher import main as launcher_main
+
+        monkeypatch.delenv("AIJOMOOJIN_GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY", "shared-corea-galaxy-key")
+
+        monkeypatch.setattr(
+            cpb, "create_content_package",
+            lambda *a, **k: pytest.fail("호출되면 안 됨 — credential 해석 전에 이미 중단돼야 함"),
+        )
+        repo, calls = _fake_repo(active_status="")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        slack_calls = []
+        monkeypatch.setattr(launcher_main, "_slack", lambda msg: slack_calls.append(msg))
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert calls["save"] == []
+        assert len(slack_calls) == 1
+        assert "MISSING_PERSONA_GEMINI_CREDENTIAL" in slack_calls[0]
+
+    def test_error_message_never_contains_api_key_value(self, monkeypatch, _flag_on, vault_root, caplog):
+        """Secret 로그 노출 0건 — credential 실패 로그·Slack 메시지 어디에도
+        실제 Key 원문이 남지 않는다."""
+        from launcher import main as launcher_main
+
+        monkeypatch.delenv("AIJOMOOJIN_GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY", "shared-corea-galaxy-key-SECRET-VALUE")
+
+        monkeypatch.setattr(
+            cpb, "create_content_package", lambda *a, **k: pytest.fail("호출되면 안 됨"),
+        )
+        repo, calls = _fake_repo(active_status="")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        slack_calls = []
+        monkeypatch.setattr(launcher_main, "_slack", lambda msg: slack_calls.append(msg))
+
+        with caplog.at_level("ERROR"):
+            launcher_main._job_aijomoojin_content_producer()
+
+        assert "shared-corea-galaxy-key-SECRET-VALUE" not in " ".join(slack_calls)
+        assert "shared-corea-galaxy-key-SECRET-VALUE" not in caplog.text
 
 
 class TestPendingFailureNoRetry:
     def test_imgbb_failure_leaves_pending_no_retry_within_call(self, monkeypatch, _flag_on, vault_root):
         from launcher import main as launcher_main
 
-        def _fake_create(target_language="ko"):
+        def _fake_create(target_language="ko", **kwargs):
             _write_fixture_package(vault_root, "imgbb-fail-1", source_url="https://x.example/imgbb")
             return cpb.PackageResult(success=True, content_id="imgbb-fail-1", status="complete")
 
@@ -393,7 +429,7 @@ class TestPendingFailureNoRetry:
     def test_airtable_failure_leaves_pending_no_retry(self, monkeypatch, _flag_on, vault_root):
         from launcher import main as launcher_main
 
-        def _fake_create(target_language="ko"):
+        def _fake_create(target_language="ko", **kwargs):
             _write_fixture_package(vault_root, "airtable-fail-1", source_url="https://x.example/at")
             return cpb.PackageResult(success=True, content_id="airtable-fail-1", status="complete")
 
@@ -420,7 +456,7 @@ class TestPendingResumeAndStale:
 
         _write_fixture_package(vault_root, "stale-1", source_url="https://already.example/posted")
 
-        def _fake_create(target_language="ko"):
+        def _fake_create(target_language="ko", **kwargs):
             _write_fixture_package(vault_root, "brand-new-1", source_url="https://new.example/b")
             return cpb.PackageResult(success=True, content_id="brand-new-1", status="complete")
 
@@ -497,7 +533,7 @@ class TestEmptyRecordIdReadAfterWrite:
     def test_empty_record_id_confirmed_by_readback_still_marks_queued(self, monkeypatch, _flag_on, vault_root):
         from launcher import main as launcher_main
 
-        def _fake_create(target_language="ko"):
+        def _fake_create(target_language="ko", **kwargs):
             _write_fixture_package(vault_root, "emptyid-confirmed", source_url="https://x.example/confirmed")
             return cpb.PackageResult(success=True, content_id="emptyid-confirmed", status="complete")
 
@@ -522,7 +558,7 @@ class TestEmptyRecordIdReadAfterWrite:
     def test_empty_record_id_unconfirmed_leaves_pending_and_alerts(self, monkeypatch, _flag_on, vault_root):
         from launcher import main as launcher_main
 
-        def _fake_create(target_language="ko"):
+        def _fake_create(target_language="ko", **kwargs):
             _write_fixture_package(vault_root, "emptyid-unconfirmed", source_url="https://x.example/unconfirmed")
             return cpb.PackageResult(success=True, content_id="emptyid-unconfirmed", status="complete")
 

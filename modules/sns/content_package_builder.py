@@ -32,8 +32,12 @@ from datetime import datetime
 from pathlib import Path
 
 from modules.sns.caption_generator import generate_hook_caption
+from modules.sns.carousel_content_builder import (
+    generate_carousel_content,
+    scan_existing_fingerprints,
+)
 from modules.sns.image_provider_cloudflare import generate_image
-from modules.sns.source_selector import select_next_topic
+from modules.sns.source_selector import parse_sourcebook, select_next_topic
 from modules.sns.visual_brief import build_image_prompt, build_visual_brief
 
 DEFAULT_VAULT_ROOT = Path(__file__).resolve().parents[2] / "vault"
@@ -52,6 +56,13 @@ class PackageResult:
     content_id: str = ""
     status: str = ""
     error_code: str = ""
+    # 260805 Track B 7B-3 Carousel Canary — 선택적 부가 출력. `slot_role`/
+    # `template_type`을 호출자가 넘길 때만 채워진다(기본 None, 기존 호출부·
+    # 기존 테스트는 100% 무변화). 이 필드가 비어 있어도 위 4개 필드 기반의
+    # 기존 파이프라인(단일 caption+이미지+Vault)은 그대로 동작한다 —
+    # Instagram 게시·Airtable 저장 경로는 이 필드를 아직 읽지 않는다
+    # (Runtime 미연결, 별도 승인 후 연결).
+    carousel: "object | None" = None
 
 
 def _make_content_id(topic_id: str, source_url: str, today: str) -> str:
@@ -97,7 +108,18 @@ def _parse_frontmatter(text: str) -> "dict | None":
 
 
 def scan_used_source_urls(vault_root: "Path | None" = None) -> set:
-    """Vault content/*.md 중 status: complete인 항목의 source_url만 '사용완료'로 인정한다.
+    """Vault content/*.md 중 status: complete이고 오늘(로컬 날짜) 생성된 항목의
+    source_url만 '오늘 사용완료'로 인정한다.
+
+    260805 회장 지시(Sourcebook SSOT 복구) — 기존에는 한 번이라도 complete된
+    source_url이 영구히 재선택 대상에서 빠졌다. Sourcebook 원천이 한정적이라
+    "URL당 평생 1회"로는 며칠 안에 소진돼 지속 활용이 불가능해지므로, "URL당
+    하루 1회"로 재정의한다 — 같은 원천을 다른 날 다시 골라 새 콘텐츠(같은
+    core_message라도 매 호출 새로 생성되는 캡션)를 만들 수 있다. 같은 날 안에서는
+    여전히 제외되므로 같은 슬롯 회차 안에서의 중복 선택은 막힌다. 완전한 동일
+    콘텐츠 재생성 방지는 `create_content_package()`의 기존 `DUPLICATE_CONTENT_ID`
+    검사(topic_id+오늘 날짜+source_url 해시로 결정적 content_id 생성)가 그대로
+    담당한다 — 이 함수는 "오늘 이미 만들었는지"만 판단한다.
 
     frontmatter 파싱이 안 되는 파일을 만나면 조용히 건너뛰지 않고 VaultScanError를
     발생시킨다 — 반쯤 깨진 Vault 상태에서 중복 콘텐츠가 조용히 생성되는 것을 막는다.
@@ -108,14 +130,76 @@ def scan_used_source_urls(vault_root: "Path | None" = None) -> set:
     if not content_dir.exists():
         return used
 
+    today = datetime.now().strftime("%Y-%m-%d")
     for md_file in sorted(content_dir.glob("*.md")):
         text = md_file.read_text(encoding="utf-8")
         fields = _parse_frontmatter(text)
         if fields is None:
             raise VaultScanError(f"unparseable frontmatter: {md_file.name}")
-        if fields.get("status") == "complete" and fields.get("source_url"):
+        created_at = fields.get("created_at") or ""
+        if (
+            fields.get("status") == "complete"
+            and fields.get("source_url")
+            and created_at.startswith(today)
+        ):
             used.add(fields["source_url"])
     return used
+
+
+def scan_source_url_last_used(vault_root: "Path | None" = None) -> dict:
+    """260805 회장 지시(Sourcebook 전체 항목 순환 보완) — Vault 전체(오늘 제한
+    없음)에서 source_url별 가장 최근 `created_at`(ISO 문자열)을 반환한다. 한
+    번도 안 쓰인 URL은 키 자체가 없다(호출자가 `.get(url, "")`로 처리 — 빈
+    문자열은 문자열 비교상 항상 가장 먼저 정렬돼 "한 번도 안 쓴 것 우선"이
+    자연히 성립한다).
+
+    `scan_used_source_urls()`(오늘만 집계, 같은 날 중복선택 방지용)와는 목적이
+    다르다 — 이 함수는 날짜 제한 없이 "가장 오래전에 썼거나 아예 안 쓴 원천"을
+    찾아 Sourcebook 전체를 순환시키는 정렬 기준으로만 쓰인다(회전 우선순위,
+    차단 목적 아님).
+    """
+    root = vault_root or DEFAULT_VAULT_ROOT
+    content_dir = root / "content"
+    history: dict = {}
+    if not content_dir.exists():
+        return history
+
+    for md_file in sorted(content_dir.glob("*.md")):
+        text = md_file.read_text(encoding="utf-8")
+        fields = _parse_frontmatter(text)
+        if fields is None:
+            raise VaultScanError(f"unparseable frontmatter: {md_file.name}")
+        if fields.get("status") != "complete" or not fields.get("source_url"):
+            continue
+        url = fields["source_url"]
+        created_at = fields.get("created_at") or ""
+        if created_at > history.get(url, ""):
+            history[url] = created_at
+    return history
+
+
+def scan_captions_for_source_url(source_url: str, vault_root: "Path | None" = None) -> set:
+    """260805 회장 지시(콘텐츠 지문 기반 중복방지 보완) — 같은 `source_url`로
+    이미 생성된 모든 caption 텍스트(공백만 strip, 그 외 정규화 없음)를
+    반환한다. `create_content_package()`가 새로 생성한 caption이 이 집합에
+    포함되면 완전히 동일한 문장이 재생성된 것으로 판정해 저장을 막는다
+    (원천+콘텐츠 지문 조합의 최소 구현 — 신규 유사도 엔진 없이 정확 일치만
+    본다, 근사 유사도 검사는 이번 범위 밖).
+    """
+    root = vault_root or DEFAULT_VAULT_ROOT
+    content_dir = root / "content"
+    captions: set = set()
+    if not content_dir.exists():
+        return captions
+
+    for md_file in sorted(content_dir.glob("*.md")):
+        text = md_file.read_text(encoding="utf-8")
+        fields = _parse_frontmatter(text)
+        if fields is None:
+            raise VaultScanError(f"unparseable frontmatter: {md_file.name}")
+        if fields.get("source_url") == source_url and fields.get("caption"):
+            captions.add(fields["caption"].strip())
+    return captions
 
 
 def read_frontmatter(content_id: str, vault_root: "Path | None" = None) -> "dict | None":
@@ -208,6 +292,8 @@ def create_content_package(
     gemini_client=None,
     gemini_throttle=None,
     gemini_model=None,
+    slot_role: "str | None" = None,
+    template_type: "str | None" = None,
 ) -> PackageResult:
     """260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
     Adapter(`modules/sns/research_to_topic_adapter.py`)가 이미 선정·검증한
@@ -228,7 +314,18 @@ def create_content_package(
     260805 회장 지시 — `gemini_model`도 같은 이유로 선택 인자다. 생략하면
     `generate_hook_caption()`이 기본 모델(`"gemini-2.5-flash-lite"`)을 그대로
     쓴다(기존 동작 100% 유지). aijomoojin 전용 호출부만
-    `research_to_topic_adapter.RESEARCH_MODEL`을 명시 전달한다."""
+    `research_to_topic_adapter.RESEARCH_MODEL`을 명시 전달한다.
+
+    260805 Track B 7B-3 Carousel Canary — `slot_role`/`template_type`도
+    선택 인자다(둘 다 기본 None). 생략하면(기존 모든 호출부 그대로) 8-Slide
+    카드뉴스 생성은 전혀 시도되지 않고, 반환되는 `PackageResult.carousel`은
+    `None`이며 나머지 동작(단일 caption+이미지+Vault 저장)은 100% 이전과
+    동일하다. 둘 다 주어지면 기존 단일 caption 파이프라인은 그대로 진행하되,
+    `carousel_content_builder.generate_carousel_content()`를 부가로 1회 호출해
+    성공 시 `PackageResult.carousel`과 frontmatter의 `content_fingerprint`
+    필드를 채운다 — 실패해도 기존 파이프라인 성공 여부에는 영향을 주지
+    않는다(Best-effort 부가 출력, Instagram 게시·Airtable 저장 경로는 아직
+    이 필드를 읽지 않는다 — Runtime 미연결)."""
     root = vault_root or DEFAULT_VAULT_ROOT
     (root / "content").mkdir(parents=True, exist_ok=True)
     (root / "images").mkdir(parents=True, exist_ok=True)
@@ -238,10 +335,18 @@ def create_content_package(
     else:
         try:
             used_source_urls = scan_used_source_urls(root)
+            last_used = scan_source_url_last_used(root)
         except VaultScanError:
             return PackageResult(success=False, error_code="VAULT_SCAN_ERROR")
 
-        topic = select_next_topic(used_source_urls)
+        # 260805 회장 지시(Sourcebook 전체 항목 순환 보완) — 파싱 순서 그대로면
+        # "오늘 사용 안 됨" 조건을 만족하는 첫 항목(대개 3.1)이 매일 반복
+        # 선택돼 뒤쪽 항목이 영영 선택되지 않는다. 후보를 "가장 오래전에
+        # 썼거나 아예 안 쓴" 순으로 정렬한 뒤 select_next_topic()에 넘겨,
+        # 그 함수의 기존 로직("주어진 순서에서 첫 미사용 항목 선택")은 그대로
+        # 두고 순서만 바꿔 전체 Sourcebook이 돌아가게 한다.
+        ordered_topics = sorted(parse_sourcebook(), key=lambda t: last_used.get(t.source_url, ""))
+        topic = select_next_topic(used_source_urls, ordered_topics)
         if topic is None:
             return PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
 
@@ -258,6 +363,16 @@ def create_content_package(
     if not caption:
         return PackageResult(success=False, error_code="CAPTION_GENERATION_FAILED")
 
+    # 260805 회장 지시(콘텐츠 지문 기반 중복방지 보완) — 원천 재사용을 허용한
+    # 만큼, 같은 원천에서 이전과 완전히 동일한 caption 문장이 다시 나오면
+    # 저장하지 않는다(정확 일치만 검사, 신규 유사도 엔진 없음).
+    try:
+        existing_captions = scan_captions_for_source_url(topic.source_url, root)
+    except VaultScanError:
+        return PackageResult(success=False, error_code="VAULT_SCAN_ERROR")
+    if caption.strip() in existing_captions:
+        return PackageResult(success=False, error_code="DUPLICATE_CAPTION_TEXT")
+
     brief = build_visual_brief(
         topic.topic_id, topic.core_message, topic.title, topic.prohibited_expression, tone_style
     )
@@ -268,6 +383,23 @@ def create_content_package(
     image_result = generate_image(image_prompt.prompt_text, image_prompt.negative_prompt)
     if not image_result.success:
         return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
+
+    # 260805 Track B 7B-3 Carousel Canary — 선택적 부가 생성. slot_role/
+    # template_type 둘 다 없으면 이 블록 전체를 건너뛴다(기존 호출부는
+    # carousel=None 그대로, Gemini 추가 호출 0회).
+    carousel = None
+    if slot_role is not None and template_type is not None:
+        try:
+            existing_fingerprints = scan_existing_fingerprints(root)
+        except VaultScanError:
+            existing_fingerprints = set()
+        carousel_result = generate_carousel_content(
+            topic, slot_role, template_type,
+            client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
+            existing_fingerprints=existing_fingerprints,
+        )
+        if carousel_result.success:
+            carousel = carousel_result.content
 
     frontmatter = {
         "content_id": content_id,
@@ -282,6 +414,10 @@ def create_content_package(
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "channel_status": "pending",
     }
+    if carousel is not None:
+        frontmatter["content_fingerprint"] = carousel.content_fingerprint
+        frontmatter["slot_role"] = carousel.slot_role
+        frontmatter["template_type"] = carousel.template_type
     md_text = _render_frontmatter(frontmatter) + f"\n{caption}\n"
 
     tmp_suffix = uuid.uuid4().hex[:8]
@@ -303,4 +439,4 @@ def create_content_package(
             _cleanup(img_path)
         return PackageResult(success=False, error_code="ATOMIC_WRITE_FAILED", content_id=content_id)
 
-    return PackageResult(success=True, content_id=content_id, status="complete")
+    return PackageResult(success=True, content_id=content_id, status="complete", carousel=carousel)

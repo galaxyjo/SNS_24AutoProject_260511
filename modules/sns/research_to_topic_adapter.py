@@ -184,6 +184,37 @@ def _build_prompt(candidate: SourceTopic) -> str:
     )
 
 
+def _extract_gemini_quota_fields(exc: Exception) -> dict:
+    """260805 Gemini 429 Observability 최소수정 — HTTP 429 예외에서 Allowlist
+    필드(status_code/quota_id/quota_metric/limit/retry_delay)만 최선노력으로
+    추출한다. API Key·Prompt·전체 예외문·요청/응답 본문은 다루지 않는다 — 없는
+    필드는 None. `_extract_retry_after_seconds()`(caption_generator.py)와 동일하게
+    `exc.details["error"]["details"]` 구조를 REUSE로 읽는다."""
+    fields = {
+        "status_code": getattr(exc, "code", None),
+        "quota_id": None,
+        "quota_metric": None,
+        "limit": None,
+        "retry_delay": None,
+    }
+    details = getattr(exc, "details", None)
+    error_details = details.get("error", {}).get("details") if isinstance(details, dict) else None
+    if isinstance(error_details, list):
+        for item in error_details:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("@type", "")
+            if item_type.endswith("QuotaFailure"):
+                violations = item.get("violations") or []
+                if violations and isinstance(violations[0], dict):
+                    fields["quota_metric"] = violations[0].get("quotaMetric")
+                    fields["quota_id"] = violations[0].get("quotaId")
+                    fields["limit"] = violations[0].get("quotaValue")
+            elif item_type.endswith("RetryInfo"):
+                fields["retry_delay"] = item.get("retryDelay")
+    return fields
+
+
 def research_next_topic(
     sourcebook_path: "str | None" = None,
     vault_root=None,
@@ -221,6 +252,14 @@ def research_next_topic(
                 "[ResearchAdapter] Gemini 호출 실패 | attempt=%s/%s | category=%s | url=%s",
                 attempt, _MAX_ATTEMPTS, category, candidate.source_url,
             )
+            if category.startswith("provider_http_429"):
+                quota = _extract_gemini_quota_fields(exc)
+                logger.warning(
+                    "[ResearchAdapter] Gemini 429 한도 정보 | status_code=%s | quota_id=%s | "
+                    "quota_metric=%s | limit=%s | retry_delay=%s",
+                    quota["status_code"], quota["quota_id"], quota["quota_metric"],
+                    quota["limit"], quota["retry_delay"],
+                )
             if retryable and attempt < _MAX_ATTEMPTS:
                 time.sleep(_next_retry_delay(attempt - 1, exc))
                 continue

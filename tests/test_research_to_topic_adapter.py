@@ -10,6 +10,7 @@ mock으로 교체한다(test_generate_hook_caption.py와 동일 패턴).
 import json
 
 import pytest
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 import modules.sns.caption_generator as caption_generator
@@ -422,3 +423,114 @@ class TestMaskEmail:
         (기존 구현은 visible=local[:2]로 2자 전체가 그대로 노출됐음)."""
         masked = adapter._mask_email("ab@example.com")
         assert masked == "a*@example.com"
+
+
+class TestExtractGeminiQuotaFields:
+    """260805 7B — Gemini 429 Observability 최소수정. 실제 Gemini 예외 형태
+    (google.genai.errors.ClientError, exc.code + exc.details['error']['details'])를
+    합성해 Allowlist 필드(status_code/quota_id/quota_metric/limit/retry_delay)만
+    안전하게 뽑히는지 확인한다."""
+
+    def test_extracts_all_fields_from_quota_exceeded_429(self):
+        exc = genai_errors.ClientError(
+            429,
+            {
+                "error": {
+                    "code": 429,
+                    "message": "You exceeded your current quota.",
+                    "status": "RESOURCE_EXHAUSTED",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                            "violations": [
+                                {
+                                    "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+                                    "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+                                    "quotaValue": "0",
+                                }
+                            ],
+                        },
+                        {
+                            "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                            "retryDelay": "38s",
+                        },
+                    ],
+                }
+            },
+        )
+
+        fields = adapter._extract_gemini_quota_fields(exc)
+
+        assert fields == {
+            "status_code": 429,
+            "quota_id": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+            "quota_metric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+            "limit": "0",
+            "retry_delay": "38s",
+        }
+
+    def test_missing_details_returns_all_none_except_status_code(self):
+        exc = genai_errors.ClientError(
+            429, {"error": {"code": 429, "message": "rate limited", "status": "RESOURCE_EXHAUSTED"}}
+        )
+
+        fields = adapter._extract_gemini_quota_fields(exc)
+
+        assert fields["status_code"] == 429
+        assert fields["quota_id"] is None
+        assert fields["quota_metric"] is None
+        assert fields["limit"] is None
+        assert fields["retry_delay"] is None
+
+    def test_non_api_exception_returns_all_none(self):
+        fields = adapter._extract_gemini_quota_fields(RuntimeError("not a Gemini error"))
+
+        assert fields == {
+            "status_code": None,
+            "quota_id": None,
+            "quota_metric": None,
+            "limit": None,
+            "retry_delay": None,
+        }
+
+    def test_429_warning_logs_quota_fields_without_full_exception_body(
+        self, sourcebook_path, vault_root, monkeypatch, caplog
+    ):
+        """실제 재시도 루프 경로(research_next_topic)에서 429 발생 시 이 함수가
+        실제로 호출·로그되는지 확인 — Secret/Prompt/전체 예외문은 로그에 없어야 한다."""
+        exc = genai_errors.ClientError(
+            429,
+            {
+                "error": {
+                    "code": 429,
+                    "message": "You exceeded your current quota, secret-looking-token-should-not-leak",
+                    "status": "RESOURCE_EXHAUSTED",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                            "violations": [
+                                {
+                                    "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+                                    "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+                                    "quotaValue": "0",
+                                }
+                            ],
+                        },
+                        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "1s"},
+                    ],
+                }
+            },
+        )
+        models = _FakeModels(raise_exc=exc)
+        _patch_gemini(monkeypatch, models)
+        monkeypatch.setattr(adapter.time, "sleep", lambda s: None)
+
+        with caplog.at_level("WARNING"):
+            result = research_next_topic(sourcebook_path, vault_root)
+
+        assert result is None
+        quota_logs = [r.message for r in caplog.records if "Gemini 429 한도 정보" in r.message]
+        assert len(quota_logs) >= 1
+        assert "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in quota_logs[0]
+        assert "retry_delay=1s" in quota_logs[0]
+        assert "secret-looking-token" not in quota_logs[0]
