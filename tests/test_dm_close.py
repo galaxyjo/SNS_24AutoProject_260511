@@ -18,6 +18,18 @@ lead_closer = pytest.importorskip(
 mark_lead_closed = lead_closer.mark_lead_closed
 
 
+# ── 운영 DB 격리 ──────────────────────────────────────────────────────────────
+# 260805: mark_lead_closed() 실패 경로(lead_closer.py 39-46행)가 진짜
+# get_retry_queue() 싱글턴을 호출해 실제 db/retry_queue.db에 rec_001 태스크를
+# enqueue하던 결함 발견(31건 dead row, 실제 Airtable 404 유발). 파일 전체
+# autouse로 격리해 앞으로의 테스트 실행이 운영 DB를 건드리지 않도록 한다.
+@pytest.fixture(autouse=True)
+def _isolate_retry_queue(monkeypatch):
+    fake_rq = MagicMock()
+    monkeypatch.setattr("modules.common.retry_queue.get_retry_queue", lambda: fake_rq)
+    yield
+
+
 # ── 공통 헬퍼 ─────────────────────────────────────────────────────────────────
 
 def _resp(ok: bool = True, status: int = 200) -> MagicMock:
