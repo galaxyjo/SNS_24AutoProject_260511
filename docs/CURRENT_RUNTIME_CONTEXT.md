@@ -1,3 +1,47 @@
+# 2026-08-05 22:42 ICT — 세션 종료: 7B-1~7B-6 CLOSED, Live E2E SUCCESS(media_id=18114764641935575), 운영규칙 16개 신규 고정
+
+_기록 시각: 2026-08-05 22:42 ICT · 상태: 오늘 하루(08:32 7A 배포 이후) 진행된 7B 전체 단계를 이 항목으로 종합 정리하고 세션을 종료한다. 이하는 세션 종료 기록이며, 개별 단계의 상세 경과는 그 시각의 원본 항목(아래 260805 08:32/17:14/17:57/18:03 등)을 소급 수정하지 않고 그대로 유지한다._
+
+## 오늘 세션 최종 상태 요약 (Stage Status)
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 6F | 3/3 완료 | SUCCESS / CLOSED |
+| 6G | 완료 | SUCCESS / CLOSED |
+| 7A | aijomoojin Producer Runtime 배포 | SUCCESS / CLOSED |
+| 7B-1 | Sourcebook 이탈 여부 Read-only 조사 | 조사 완료(Sourcebook 이탈 Confirmed) |
+| 7B-2 | Sourcebook SSOT 복구(fallback 제거 + 영구소진 버그 수정 + fingerprint 중복방지) | SUCCESS / CLOSED |
+| 7B-3 | Carousel(8슬라이드) Canary 모듈 | **module_verified만 — production_verified 아님**(실사용 이미지 렌더링·실게시 미실행) |
+| 7B-5 | 페르소나별 Gemini Credential 분리(`resolve_gemini_credential`) | SUCCESS / CLOSED |
+| 7B-6 | Live E2E Canary(Sourcebook→Gemini→Airtable→Instagram 실게시) | **SUCCESS** |
+
+## 7B-6 Live E2E 최종 증거(FACT)
+
+- `media_id=18114764641935575`
+- Airtable 레코드: `recU69xVNl66DDRaT` (`post_status=posted`)
+- 게시 시각: 2026-08-05 22:31:05 ICT
+- 최초 `media_publish` 호출 HTTP 400 → 컨테이너 상태 Read-only 확인(`status_code=FINISHED`) → 동일 `creation_id`로 `media_publish` 1회만 재호출 → HTTP 200 + 위 `media_id` 확보 → Graph API 재조회로 실게시 확인.
+- 중복 게시 0건(재게시 전 계정 최근 게시물 직접 확인), `producer_lock` 정상 해제.
+- 사용 Credential: `AIJOMOOJIN_GEMINI_API_KEY`(전용, 공유 `GEMINI_API_KEY` 미사용 — Runtime Evidence로 확인).
+- 사용 모델: `gemini-3.5-flash-lite`(aijomoojin 전용 프로젝트에서 유일하게 동작 확인된 모델).
+
+## 근본원인 A~I 및 AI 판단오류 6건
+
+상세 판정(Confirmed/Hypothesis/UNKNOWN/Not Applicable/OPEN)은 `docs/ERROR_DATABASE.md`의 `ERR-105`에 통합 기록됨 — 요지만 기록: A~F, H는 Confirmed(코드 수정 완료), **G(최초 Live Canary ACL 중단 원인)는 UNKNOWN 유지**, **I(Meta 400 응답 본문 미저장)는 OPEN/DEFER 유지**(오늘 SUCCESS 판정을 되돌리지 않음). AI 판단오류 6건(SSOT 미확인 후 요금제부터 의심, 과거 404 Evidence 미확인 후 2.5 롤백 검토, Credential 분리 미선반영, 429 원인 반복 오판, Instagram/Gemini Credential 혼동, 재발방지 신규규칙)도 같은 `ERR-105`에 기록됨.
+
+## Git 상태
+
+코드/테스트 변경은 이미 Commit `2d7ed9d`로 Push 완료(branch=master, origin과 0/0 동기화 확인됨). 이번 항목을 포함한 문서 5종(`docs/CURRENT_RUNTIME_CONTEXT.md`, `docs/WORKFLOW_ARCHITECTURE_STATUS.md`, `docs/VALIDATION_STATUS.md`, `porting_logs/MERGE_JOURNAL.md`, `docs/ERROR_DATABASE.md`) + `CLAUDE.md` 고정규칙 16개는 별도의 단일 Closure Commit으로 이 기록 직후 처리한다(코드 변경 없음, 문서 전용).
+
+## 다음 세션 확인할 것
+
+1. 7B-3 Carousel은 여전히 `module_verified`뿐 — 실제 이미지 렌더링·실게시 경로 연결은 별도 승인 후 진행.
+2. Root Cause G(ACL) 원인규명은 필요 시 별도 조사 단계로 승격.
+3. Root Cause I(Meta 400 본문 미저장) 관측성 보완은 별도 승인 대상.
+4. CLAUDE.md 신규 고정 운영규칙 16개는 최고 우선순위로 다음 세션부터 즉시 적용.
+
+---
+
 # 2026-08-05 18:03 ICT — [정정] Gemini 429 인과 메커니즘은 UNKNOWN 유지, "Billing이 근본원인" 주장은 과대 추정으로 철회 — 회장의 무료 유지 결정만 확정 사실
 
 _기록 시각: 2026-08-05 18:03 ICT · 상태: 바로 아래 260805 17:57 항목("Billing 미연결 Free tier가 근본원인으로 특정됨")은 **재검수 결과 과대 추정으로 정정한다.** 소급 수정하지 않고 이 최신 항목으로 대체하되, 무엇이 왜 틀렸는지 명시한다._

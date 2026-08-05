@@ -745,3 +745,67 @@ Airtable 재조회: `post_status=ready` 그대로(오염·삭제·`failed` 오�
 **Commit·Push**: 이번 세션 전체 미실행(승인 대기) — 6D+6E 코드변경 전부 미커밋.
 
 ---
+
+### 6F 3/3 완료 + 6G 완료 + 7A DEPLOYED — 260805 세션 요약 기록 (2026-08-05 22:42 ICT)
+
+**6F(잔여 2/3)**: UTC 이미지 상한 리셋 이후 나머지 2건도 Canary 순차 실행 원칙대로 각 1건씩 실게시 확인 완료 — 3/3 SUCCESS로 CLOSED.
+
+**6G**: 정식 운영 스케줄(게시 06:00/10:00/17:00 ICT, Producer 05:00/09:00/16:00 ICT) Runtime 등록 및 Credential·모델 격리(Delta 3, 세부 항목은 `porting_logs/MERGE_JOURNAL.md` 260805 이전 항목 "Track B 6G Delta 3" 참조) 완료, 오늘 7B-6 Live E2E SUCCESS로 남은 실사용 검증 공백까지 해소 — SUCCESS로 CLOSED.
+
+**7A**: `.env`에 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED=true` 반영, 관리자 `Restart-Service SNS_Watchdog` 실행 후 `_job_aijomoojin_content_producer`/`_job_aijomoojin_scheduled_post` 각 3회 Scheduler 등록 Runtime Evidence 확인(상세: `docs/CURRENT_RUNTIME_CONTEXT.md` 260805 08:32 항목). E2E Canary는 이 단계에서 SKIPPED_BY_OWNER(Gemini 429 Known Risk Accepted). SUCCESS / CLOSED.
+
+**Commit·Push**: 6F/6G/7A는 `.env` 변경(gitignore 대상, Commit 대상 아님) 또는 이미 이전 세션에 반영된 코드 범위 — 이 항목 자체는 문서 기록만.
+
+---
+
+### 7B-1~7B-2 — Sourcebook SSOT 이탈 조사 및 복구 (2026-08-05)
+
+**7B-1(Read-only 조사)**: `launcher/main.py`의 `_job_aijomoojin_content_producer()`가 Sourcebook 소진(`NO_SELECTABLE_TOPIC`) 시 `research_to_topic_adapter.research_next_topic()`(Google Search Grounding/URL Context 기반)로 자동 확장되도록 구현돼 있음을 코드로 직접 확인 — 회장이 지정한 "Sourcebook `.md` 단일 SSOT" 설계 의도와 불일치(Confirmed, ERR-105 근본원인 A).
+
+**7B-2(복구, SUCCESS)**:
+- `research_to_topic_adapter` fallback 분기를 `launcher/main.py`에서 완전히 제거 — Sourcebook 소진 시 안전한 로그+Slack 알림 후 종료로 대체, `research_to_topic_adapter`는 이제 어떤 경로로도 import되지 않음(회귀 테스트 `test_no_selectable_topic_never_imports_or_calls_research_adapter`로 확인).
+- `scan_used_source_urls()`의 "1회 사용 시 영구 제외" 버그 수정 — `created_at` 날짜 필터로 "오늘 사용한 URL만 제외"로 전환, `scan_source_url_last_used()`(전체기간 최근사용일) 신규 추가해 최소사용 순서로 로테이션.
+- `content_fingerprint`(source_section_id+slot_role+template_type+정규화텍스트 sha256) 기반 중복 콘텐츠 방지 추가 — 같은 URL을 재사용해도 동일 문구가 반복 게시되지 않도록 보완.
+- 코드: `modules/sns/content_package_builder.py`, 테스트: `tests/test_content_package_builder.py`(로테이션/동일캡션/누락 `created_at` 케이스 포함). Commit `2d7ed9d`에 포함, Push 완료.
+
+**판정**: SUCCESS / CLOSED.
+
+---
+
+### 7B-3 — Carousel(8슬라이드) Canary 모듈 — module_verified만, production_verified 아님 (2026-08-05)
+
+**구현 범위**: `modules/sns/carousel_content_builder.py`(신규) — 8슬라이드 계약 검증(Hook ≤15자, 본문 슬라이드 ≤30단어, 캡션 ≤400자, 해시태그 5~8개, CTA는 8번 슬라이드+캡션 마지막 줄에만 정확히 1회), 5종 템플릿(HOOK_IMPACT/LIST/CONTRARIAN/COMPARE/BEHIND_SCENE), 슬롯시간→역할 매핑(05/09/16시=Producer, 06/10/17시=게시), 과장광고 휴리스틱(`_detect_possible_fabrication`), content-fingerprint 중복방지.
+
+**실제 연결**: `content_package_builder.create_content_package()`에 `slot_role`/`template_type` kwargs로 연결돼 Gemini caption과 동일 client/throttle로 호출되며, 실패해도 caption 경로를 막지 않음(non-blocking). 7B-4/7B-6 Live Canary 시도 중 이 경로가 실제로 호출됐고, 그 과정에서 `model=None`이 SDK에 그대로 전달되는 실제 버그를 실측 발견·수정(`active_model = model or "gemini-2.5-flash-lite"`, 회귀 테스트 `TestModelFallback` 2건 추가).
+
+**판정**: **module_verified만 확정 — production_verified 아님.** 이유: 이번 세션 내내 8슬라이드 실제 이미지 렌더링(Cloudflare/디자인 파이프라인 연결)과 Carousel 형태의 실제 Instagram 게시는 단 한 번도 수행되지 않았다 — 7B-6에서 실제로 게시에 성공한 것은 기존 단일 이미지+캡션 경로다. Carousel 텍스트 콘텐츠 생성 자체는 Live 호출로 성공했으나 그 산출물이 실제 게시물로 이어진 Runtime Evidence는 없다.
+
+**Commit**: `2d7ed9d`에 포함(코드+테스트), Push 완료.
+
+---
+
+### 7B-5 — 페르소나별 Gemini Credential 분리 (2026-08-05)
+
+**배경**: aijomoojin이 공유 `GEMINI_API_KEY`(corea.galaxy 프로젝트, RPD=20/일 Free tier 한도 공동소비)를 사용하고 있어 다른 기능과 quota를 다투는 구조였음(ERR-105 근본원인 C/D, Confirmed).
+
+**구현**: `modules/common/credential_resolver.py`에 `resolve_gemini_credential(credential_key)` 신규 추가 — `_GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY={"AI": "AIJOMOOJIN"}` 매핑표 기반으로 `{PREFIX}_GEMINI_API_KEY`/`{PREFIX}_GEMINI_ACCOUNT_EMAIL`만 조회, 매핑 없거나 값 누락 시 공유 Key로 절대 대체하지 않고 Fail-closed(`CredentialResolutionError`). `launcher/main.py`의 `_job_aijomoojin_content_producer()`가 이 함수로 얻은 전용 `genai.Client`를 `create_content_package()`에 명시적으로 주입.
+
+**테스트**: `tests/test_credential_resolver.py::TestResolveGeminiCredential`(6건) — 전용 Key 조회 성공/공유 Key 미참조/미매핑 Fail-closed/누락값 Fail-closed/형식오류/에러메시지에 실제 Key 값 미노출 전부 확인. `tests/test_aijomoojin_content_producer.py::TestPersonaGeminiCredential`(3건)로 실제 Producer 경로 연결도 확인.
+
+**판정**: SUCCESS / CLOSED. Commit `2d7ed9d`에 포함, Push 완료.
+
+---
+
+### 7B-6 — Live E2E Canary: Sourcebook→전용 Gemini→Airtable→Instagram 실게시 SUCCESS (2026-08-05 22:31:05 ICT)
+
+**경로**: Sourcebook 주제 선택(로테이션 적용) → `AIJOMOOJIN_GEMINI_API_KEY` 전용 Client로 캡션+Carousel 텍스트 생성(`gemini-3.5-flash-lite`) → Cloudflare 이미지 생성 → Airtable `ready` 레코드(`recU69xVNl66DDRaT`) → 예약 게시 Job(`_job_aijomoojin_scheduled_post`, 기존 06/10/17 ICT 슬롯과 동일 코드 경로 수동 1회 실행) → Meta Graph API 게시.
+
+**중간 이슈 및 해결**: 최초 `media_publish` 호출 HTTP 400 → 즉시 "정상 동작"으로 단정하지 않고 컨테이너 상태 Read-only GET으로 직접 확인(`status_code=FINISHED`) → 계정 최근 게시물 조회로 중복 없음 확인 → 승인 하에 동일 `creation_id`로 `media_publish`만 정확히 1회 재호출(신규 컨테이너 생성 없음) → HTTP 200, `media_id=18114764641935575` 확보 → Graph API 재조회로 실게시 최종 확인. Airtable `post_status=posted`로 갱신, `producer_lock` 정상 해제.
+
+**판정**: **SUCCESS.** 회장이 지정한 최종 목표("aijomoojin이 전용 Key만 사용해 Sourcebook에서 글·이미지를 생성하고 Instagram에 실제 1건 게시") 완전 달성 확인.
+
+**Commit**: 코드/테스트 변경은 이미 `2d7ed9d`에 포함(Push 완료). 이 Live 실행 자체는 상태변경(Airtable Write 1건 + Instagram 실게시 1건)이며 코드 변경이 아니므로 별도 Commit 대상 아님 — Evidence는 `docs/CURRENT_RUNTIME_CONTEXT.md`/`docs/ERROR_DATABASE.md`(ERR-105)에 기록.
+
+**남은 항목(DEFER/OPEN)**: 최초 Live Canary 중단 시의 정확한 ACL 원인(근본원인 G)은 UNKNOWN 유지, Meta 400 응답 본문 미저장(근본원인 I)은 관측성 보완 과제로 OPEN 유지 — 둘 다 이번 SUCCESS 판정을 되돌리지 않는다.
+
+---

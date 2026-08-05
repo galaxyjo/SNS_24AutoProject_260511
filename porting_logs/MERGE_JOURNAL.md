@@ -2291,3 +2291,31 @@ Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3
 3. Canary 성공 시(Topic→Caption→이미지→Airtable ready 1건 E2E) 그 결과로 `AIJOMOOJIN_CONTENT_PRODUCER_ENABLED` 정식 활성화 여부를 별도 논의.
 
 ---
+
+### Track B 7B-1~7B-6 — Sourcebook SSOT 복구 / Persona Gemini Credential 분리 / Live E2E 성공 / 운영규칙 고정 (2026-08-05 22:42 ICT)
+
+**완료 Gate:** 위 260805 01:47 ICT 항목("429 quota로 E2E 미검증 세션 종료")의 후속 세션. Commit `2d7ed9d`(Sourcebook SSOT 복구 + Carousel Canary + Persona Gemini Credential 분리, 코드+테스트) master에 Push 완료(`cba1cc2..2d7ed9d`). 이번 문서 항목은 그 뒤에 진행된 Live E2E 실행 결과와 세션 종료 기록을 다룬다.
+
+**7B-1(Read-only 조사):** `launcher/main.py`가 Sourcebook 소진 시 `research_to_topic_adapter.research_next_topic()`(Google Search Grounding)로 자동 확장되던 것이 회장이 지정한 "Sourcebook `.md` 단일 SSOT" 원칙 이탈임을 코드로 직접 확인.
+
+**7B-2(SSOT 복구):** 위 fallback 분기 완전 제거(`research_to_topic_adapter` 어떤 경로로도 import 안 됨, 회귀 테스트로 확인) + `scan_used_source_urls()` "영구 제외" 버그를 "오늘 사용분만 제외"로 수정 + `scan_source_url_last_used()`(최소사용 순서 로테이션) + `content_fingerprint`(sha256) 기반 중복 콘텐츠 방지 신규 추가.
+
+**7B-3(Carousel Canary):** `modules/sns/carousel_content_builder.py` 신규(8슬라이드 계약검증+5템플릿+fingerprint 중복방지+과장광고 휴리스틱), `create_content_package()`에 non-blocking으로 연결. Live 연결 첫 시도(7B-4)에서 `model=None`이 SDK에 그대로 전달돼 요청 URL에 `{model}` 리터럴이 들어가는 실제 버그를 실측 발견·즉시 수정(`active_model = model or "gemini-2.5-flash-lite"`, 회귀 테스트 2건 추가). **`module_verified`로만 확정 — 실제 8슬라이드 이미지 렌더링·Carousel 형태 실게시는 이번 세션에 한 번도 수행되지 않아 `production_verified`가 아니다(명시).**
+
+**7B-5(Persona Gemini Credential 분리):** `modules/common/credential_resolver.py::resolve_gemini_credential()` 신규(`{PREFIX}_GEMINI_API_KEY` 매핑 조회, 매핑없음·값누락 시 공유 `GEMINI_API_KEY`로 절대 대체하지 않고 Fail-closed) + `launcher/main.py`의 aijomoojin Producer가 전용 Client를 명시 주입하도록 배선. 신규 테스트(`TestResolveGeminiCredential` 6건 + `TestPersonaGeminiCredential` 3건) 전부 PASS, 에러메시지에 실제 Key 값 미노출 확인.
+
+**7B-6(Live E2E Canary, SUCCESS):** Sourcebook 주제 선택(로테이션) → 전용 `AIJOMOOJIN_GEMINI_API_KEY`로 `gemini-3.5-flash-lite` 캡션 생성 → Cloudflare 이미지 생성 → Airtable `ready`(`recU69xVNl66DDRaT`) → `_job_aijomoojin_scheduled_post()` 수동 1회 실행(기존 06/10/17 ICT 슬롯과 동일 코드 경로). 최초 `media_publish` HTTP 400을 "정상 동작"으로 즉시 단정하지 않고 컨테이너 상태 Read-only GET으로 직접 확인(`status_code=FINISHED`) + 계정 최근 게시물로 중복 없음 확인 → 회장 승인 하 동일 `creation_id`로 `media_publish` 1회만 재호출(신규 컨테이너 생성 없음) → HTTP 200, `media_id=18114764641935575` 확보(2026-08-05 22:31:05 ICT), Graph API 재조회로 실게시 최종 확인. Airtable `post_status=posted` 갱신, `producer_lock` 정상 해제, 중복게시 0건.
+
+**근본원인 A~I 통합 판정(상세는 `docs/ERROR_DATABASE.md` ERR-105):** A(Sourcebook 이탈)·B(URL 영구소진 버그)·C(Credential 분리 미강제)·D(공유 프로젝트 RPD 20/일 공동소비)·E(신규 프로젝트 모델 제약)·F(Carousel model=None 버그)·H(Meta 400+재호출 성공) = **Confirmed**. **G(최초 Live Canary ACL 중단 정확한 원인) = UNKNOWN 유지.** **I(Meta 400 응답 본문 미저장, 관측성 공백) = OPEN/DEFER 유지**(둘 다 오늘 SUCCESS 판정을 되돌리지 않음). AI(Claude Code) 판단오류 6건(SSOT 미확인 후 요금제부터 의심 / 과거 404 Evidence 미확인 후 2.5 롤백 검토 / Credential 분리 미선반영 / 429 원인 반복 오판 / Instagram·Gemini Credential 혼동 / 재발방지 신규규칙)도 같은 항목에 기록.
+
+**CLAUDE.md 갱신:** 신규 고정 운영규칙 16개를 최고 우선순위 섹션으로 추가(회장 확정, 재발방지 목적).
+
+**이번 세션 전체 상태변경 총계:** 코드/테스트 Commit 1건(`2d7ed9d`, Push 완료). Airtable Write 1건(production, `recU69xVNl66DDRaT`). Instagram 실게시 1건(`media_id=18114764641935575`). 문서 5종(`docs/CURRENT_RUNTIME_CONTEXT.md`/`docs/WORKFLOW_ARCHITECTURE_STATUS.md`/`docs/VALIDATION_STATUS.md`/`porting_logs/MERGE_JOURNAL.md`/`docs/ERROR_DATABASE.md`) + `CLAUDE.md`는 이 기록 직후 별도의 단일 Closure Commit으로 처리 예정(코드 변경 없음, 문서 전용).
+
+**다음 세션 정확한 다음 단계:**
+1. 이 문서 최상단(`docs/CURRENT_RUNTIME_CONTEXT.md`) + `git status`/`git log`로 Session Start Rule 재확인 — HEAD는 이 Closure Commit 기준.
+2. 7B-3 Carousel을 실제 이미지 렌더링·게시 경로에 연결할지는 별도 승인 대상(현재 `module_verified`만).
+3. Root Cause G(ACL 원인) 필요 시 별도 조사 단계로 승격, Root Cause I(Meta 400 본문 미저장) 관측성 보완은 별도 승인 대상.
+4. CLAUDE.md 신규 고정 운영규칙 16개는 다음 세션부터 최고 우선순위로 적용.
+
+---

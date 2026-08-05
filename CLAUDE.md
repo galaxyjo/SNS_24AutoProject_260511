@@ -1129,3 +1129,28 @@ Rollback 없이 변경하지 않는다.
 ### FINAL RULE
 
 **이 프로젝트의 성공은 코드량이 아니라, 실제 Runtime 안정성·데이터 정확성·복구 가능성·운영비·계정 확장성·실제 매출로 판정한다.** 항상 날짜+시간을 기록하고, 세션에서 답변할 때(=출력할 때)는 날짜+시간을 항상 출력한다.
+
+---
+
+## [260805 세션 종료 — 고정 운영규칙 16개 추가, 최고 우선순위]
+
+> 근거: 260805 Track B 7B-1~7B-6 세션(Sourcebook SSOT 이탈 발견·복구, 페르소나별 Gemini Credential 분리, Live E2E SUCCESS `media_id=18114764641935575`) 종료 시 회장이 "같은 설계 이탈·Credential 혼용·잘못된 원인판정이 재발하지 않도록" 명시적으로 확정한 16개 규칙이다. 이 섹션 이전의 모든 규칙(Runtime Governance/Silicon Valley Execution Standard 등)과 충돌하지 않으며, 이번 세션에서 실제로 발생한 이탈·오판 사례에서 도출된 재발방지 규칙이므로 **최고 우선순위**로 적용한다. 근본원인 A~I 및 AI 판단오류 6건의 상세 판정은 `docs/ERROR_DATABASE.md`의 `ERR-105`를 참조한다.
+
+1. aijomoojin의 콘텐츠 원천은 `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`만 허용한다.
+2. 회장 명시 승인 없이는 Google Search Grounding·URL Context·전체 인터넷 검색을 생산 경로에 추가하지 않는다.
+3. Sourcebook에서 유효한 내용을 선택하지 못하면 외부 검색하지 말고 Fail-closed한다.
+4. Sourcebook는 사용 횟수·최근 사용일 기준으로 순환하며 앞 항목만 반복 선택하지 않는다.
+5. 같은 원천의 재사용은 허용하되 동일 Caption·동일 fingerprint 콘텐츠는 차단한다.
+6. 모든 콘텐츠에 source section ID·title·URL을 보존한다.
+7. `account_code → credential_key → persona-specific Gemini credential`을 강제한다.
+8. 각 페르소나는 별도 Google Project와 API Key를 사용하며 중앙 계정은 관리자 역할만 수행한다.
+9. 페르소나 전용 Key가 없거나 실패하면 공유 `GEMINI_API_KEY`로 fallback하지 않고 Fail-closed한다.
+10. aijomoojin은 `AIJOMOOJIN_GEMINI_API_KEY`와 검증된 `gemini-3.5-flash-lite`만 사용한다.
+11. Source·Credential·Model·Fallback을 변경하려면 회장 명시 승인과 Target Test가 필요하다.
+12. 새 기능 구현 전 실제 Runtime Caller·SSOT·Credential Binding을 먼저 확인한다.
+13. `module_verified / e2e_verified / production_verified`를 분리하며 실제 게시 Evidence 없이 완료 선언하지 않는다.
+14. Meta 게시 결과불명 시 새 컨테이너를 만들거나 자동 재게시하지 않는다.
+15. 동일 creation_id 재호출도 컨테이너 FINISHED·실제 미게시·중복 없음 확인과 회장 승인 후 정확히 1회만 허용한다.
+16. Closed Gate는 새로운 Runtime Evidence가 기존 판정을 뒤집는 경우가 아니면 재검증하지 않는다.
+
+**7B-3(Carousel Content Contract) 명시 판정**: `module_verified`로만 확정한다 — 실제 8슬라이드 이미지 렌더링과 Carousel 형태의 실제 게시는 이번 세션에 한 번도 수행되지 않았으므로 `production_verified`로 과장하지 않는다(규칙 13 직접 적용 사례).

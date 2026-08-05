@@ -2029,3 +2029,36 @@ watchdog.log(같은 구간):
 **최종 결론:** 이 Blocker는 "quota가 소진돼서 기다리면 풀리는 문제"가 아니라 **"Free tier 요금제에 Search Grounding 사용 권한 자체가 없다"는 구조적 제약**이다(GPT 판정 그대로 채택, Root Cause를 `PROJECT-SCOPED 429 CONFIRMED / MECHANISM UNKNOWN`에서 **`FREE TIER PLAN RESTRICTION CONFIRMED`**로 최종 격상). 회장의 "무료 유지" 결정 하에서는, Research Adapter가 Search Grounding을 계속 쓰는 한 이 429는 시간이 지나도 자연 해소되지 않는다. 코드 변경(Search Grounding을 생산 경로에서 제거하고 기존 수집자료를 직접 공급하는 구조 등)은 GPT가 제안했으나 이번 세션에서 실행하지 않았다 — 별도 승인 필요.
 
 **관련:** `docs/CURRENT_RUNTIME_CONTEXT.md` 260805 01:33 항목(Gemini 429 quota Blocker 최초 기록), ERR-103(별개 원인 — Sleep), FP-076
+
+---
+
+## ERR-105 | aijomoojin Sourcebook SSOT 이탈 + Credential 미분리 + 반복된 원인오판 — 근본원인 A~I 통합기록 (RESOLVED, 260805)
+
+**Type:** Design Deviation / Credential Isolation / Root-Cause Misjudgment — Track B 7B-1~7B-6 전체 세션에서 Confirmed
+
+**경위:** 260805 하루 동안 aijomoojin(IDN-000036) 콘텐츠 파이프라인이 회장이 애초에 지정한 SSOT(`docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`)에서 이탈해 있었던 사실과, 페르소나별 Gemini Credential 분리가 Runtime에 강제되지 않았던 사실이 순차적으로 발견·수정됐다. 이 항목은 그 근본원인 9건(A~I)과, 그 원인을 찾는 과정에서 반복됐던 AI(Claude Code) 판단오류 6건을 한 곳에 통합 기록한다 — 개별 세부 코드수정 Evidence는 각각 ERR-103(Sleep)·ERR-104(Free tier Search Grounding)와 `docs/CURRENT_RUNTIME_CONTEXT.md`/`porting_logs/MERGE_JOURNAL.md`의 260805 항목을 참조하고, 여기서는 재발방지를 위한 근본원인 판정만 다룬다.
+
+### 근본원인(Root Cause) A~I — Evidence 등급 구분
+
+- **A. Sourcebook SSOT 이탈(Confirmed)** — 회장이 최초 지정한 유일 원천(Sourcebook `.md`)이 있었음에도, Sourcebook 3.x 소진(`NO_SELECTABLE_TOPIC`) 시 `research_to_topic_adapter.py`를 통해 Google Search Grounding/URL Context로 확장되도록 구현돼 있었다. Evidence: 260805 세션 중 `launcher/main.py`에서 해당 fallback 분기를 직접 코드로 확인·제거(Commit `2d7ed9d` 이전 작업).
+- **B. Sourcebook URL 영구소진 규칙(Confirmed)** — `scan_used_source_urls()`가 "한 번이라도 complete되면 영구 제외" 방식이라, 6개뿐인 3.x 원천이 며칠 안에 전부 소진돼 SSOT를 지속 활용할 수 없었다. Evidence: 원래 구현 코드 직접 확인, "URL당 하루 1회"로 수정(오늘 날짜 필터 + 최근사용일 기준 순환)한 Diff.
+- **C. 1페르소나=1메일=1프로젝트 요구의 Runtime 미강제(Confirmed)** — 회장이 반복 명시한 계정별 Gemini 격리 원칙이 `account_code → credential_key → Gemini credential` Binding으로 코드에 강제돼 있지 않아, aijomoojin Producer가 공유 `GEMINI_API_KEY`(corea.galaxy 계정)를 계속 사용했다. Evidence: 7B-5 이전 `create_content_package()` 호출부에 `gemini_client` 미주입 상태를 코드로 확인.
+- **D. 공유 프로젝트(`24autoprogram`) 무료한도 공동소비(Confirmed)** — Google AI Studio 콘솔 "비율 제한" 페이지 직접 확인 — `Gemini 2.5 Flash Lite` RPD 한도 20/일, 8/2~8/5 추세 그래프상 반복적으로 20을 초과. 이 Key를 aijomoojin 포함 여러 기능(DM 자동응답·dome_export 등)이 공유해 429가 반복됐다.
+- **E. 신규 페르소나 프로젝트의 모델 제약(Confirmed)** — aijomoojin 전용 프로젝트에서 `gemini-2.5-flash-lite`/`gemini-2.5-flash`는 HTTP 404("no longer available to new users"), `gemini-3.5-flash-lite`만 성공. Evidence: Commit `778e245`의 Runtime Canary 기록 + 오늘 재검증(같은 404 재현, `docs/CURRENT_RUNTIME_CONTEXT.md` 참조).
+- **F. Carousel 모듈-Caller 분리 및 `model=None` 버그(Confirmed)** — `carousel_content_builder.py`가 처음에는 실제 Caller(`launcher/main.py`)와 연결되지 않은 Canary 상태였고, 실제로 연결(7B-4)한 첫 Live 시도에서 `model=None`을 SDK에 그대로 전달해 요청 URL에 `{model}` 리터럴이 들어가는 404 버그를 실측으로 발견·즉시 수정(`active_model = model or "gemini-2.5-flash-lite"` fallback 추가, 회귀 테스트 2건 추가).
+- **G. 최초 Live Canary 중단의 정확한 ACL 원인(UNKNOWN)** — 첫 Live Canary(7B-4, 비상승 세션에서 직접 실행)가 "Runtime Boot Policy 상태 확인 실패"로 Airtable Write 전에 중단됐다. 관리자 권한 세션에서는 이후 시도가 통과했으나, 이것이 정확히 어떤 ACL·권한 계층 때문인지는 이번 세션의 Evidence로 완전히 특정되지 않았다 — **UNKNOWN으로 유지**(과거 `runtime_boot_policy.json`/ProgramData ACL 이슈와 같은 계열로 추정되나 이번 건에 대한 직접적인 원인규명 Evidence는 없음).
+- **H. Instagram `media_publish` 최초 400 + 재호출 성공(Confirmed)** — 7B-6 Live Canary에서 `media_publish`가 최초 HTTP 400을 반환했고, Meta 컨테이너 상태를 Read-only GET으로 직접 확인한 결과 `status_code=FINISHED`(정상)였다. 실제 계정 최근 게시물을 조회해 중복이 없음을 확인한 뒤 **동일 `creation_id`로 `media_publish`만 정확히 1회 재호출**(신규 컨테이너 생성 없음)해 `HTTP 200`+`media_id=18114764641935575`를 확보, 재조회로 실제 게시 확인. 260801 Step 6C와 동일한 패턴.
+- **I. Meta 400 응답 본문 미저장(OPEN/DEFER)** — `publish_single()`이 4xx/5xx 실패 시 HTTP 상태 코드만 로그에 남기고 Meta의 실제 오류 메시지 본문을 저장하지 않는다(관측성 공백, Confirmed as a gap). 오늘 H번 성공으로 이 세션의 Live E2E Gate 판정 자체는 재개방하지 않는다 — 이 관측성 공백 보완은 별도 승인 대상으로 OPEN 유지.
+
+### AI(Claude Code) 판단오류 기록 — 재발방지용
+
+1. 사용자가 지정한 Sourcebook SSOT을 먼저 확인하지 않고 Google 검색·요금제(Billing/Free tier) 문제를 먼저 근본원인으로 단정하려 했던 오류.
+2. 기존 Runtime Evidence(Commit `778e245`의 2.5 계열 404 기록)를 먼저 확인하지 않고 Gemini 2.5 롤백을 해결책 후보로 검토했던 오류 — 재검증 결과 동일 404 재현으로 반증됨.
+3. 회장이 반복 명시한 페르소나별 Credential 분리 정책을 Runtime 강제조건(코드 계약)으로 먼저 반영하지 않았던 오류.
+4. 429 원인을 "프로젝트 전체 소진" / "Billing 문제" / "Free Tier 전체 불가"로 충분한 Evidence 없이 번갈아 확정하려 했던 오류 — 실제로는 (a) 공유 Key는 RPD 20/일 소진, (b) aijomoojin 전용 Key는 Search Grounding 자체가 Free tier 미지원, 서로 다른 두 원인이었다.
+5. Account_Registry의 Instagram `credential_key` 연결과 실제 Gemini Runtime Credential Binding을 같은 것으로 간주했던 오류 — Instagram 자격증명이 연결돼 있어도 Gemini 자격증명은 전혀 별개로 미연결 상태였다.
+6. **재발방지 규칙(신규 확정):** 앞으로는 사용자가 이미 확정한 SSOT·Credential·Fallback 계약을 코드로 직접 확인하기 전에는, 외부 서비스(Google 요금제·Billing 등) 원인이나 신규 설계 변경을 먼저 제안하지 않는다. 아래 `CLAUDE.md` 고정 운영규칙 11~12번으로 승격 반영.
+
+**Status:** RESOLVED — A~F, H는 오늘 세션 내 코드 수정 및 Live Runtime Evidence로 해결 확인(Commit `2d7ed9d`, 실제 Instagram 게시 `media_id=18114764641935575`). G는 UNKNOWN, I는 OPEN/DEFER로 명시 유지(이 둘의 미해결이 오늘의 SUCCESS 판정 자체를 되돌리지 않는다).
+
+**관련:** ERR-103, ERR-104, `docs/CURRENT_RUNTIME_CONTEXT.md`(260805 전체), `porting_logs/MERGE_JOURNAL.md`(260805 Closure 항목), `CLAUDE.md`(고정 운영규칙 신규 섹션)
