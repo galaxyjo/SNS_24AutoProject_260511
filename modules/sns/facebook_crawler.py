@@ -435,7 +435,12 @@ def save_to_airtable(
 
 def save_to_training_queue(image_url, source_url, text, target_id_ref):
     """학습 데이터 리뷰 큐(Training_Review_Queue)에 저장 — Instagram_Posts와 완전히 분리된 경로.
-    imgbb 재호스팅 없음(원본 URL 그대로), content_filter 판정 없음 — 사람이 원본을 보고 PASS/BLOCK 판정한다.
+    content_filter 판정 없음 — 사람이 원본을 보고 PASS/BLOCK 판정한다.
+
+    260805: Facebook CDN 원본 URL은 짧으면 수일 내 서명 만료(oe= 파라미터)로 403이 되어,
+    리뷰가 크롤보다 늦어지면 화면이 깨진 이미지로 채워지는 문제(Runtime 확인)가 있었다.
+    저장 직전 imgbb로 재호스팅해 만료되지 않는 URL로 바꾼다. imgbb 실패 시에도 후보
+    자체를 잃지 않도록 원본 URL로 폴백 저장한다(Fail-open — 사람 판정 기회를 보존).
     """
     if not image_url:
         logger.info("[Training] 이미지 URL 없음 - 저장 생략")
@@ -450,19 +455,31 @@ def save_to_training_queue(image_url, source_url, text, target_id_ref):
     if repo.exists_candidate_by_hash(image_hash):
         logger.info(f"[Training] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return False
+
+    stored_image_url = image_url
+    try:
+        _r = upload_to_imgbb(image_url)
+        if _r.get("success"):
+            stored_image_url = _r["public_url"]
+            logger.info("[Training][ImgBB] 재호스팅 성공 | " + stored_image_url[:80])
+        else:
+            logger.warning("[Training][ImgBB] 재호스팅 실패, 원본 URL로 저장 | " + str(_r.get("error")))
+    except Exception as _e:
+        logger.warning(f"[Training][ImgBB] 예외, 원본 URL로 저장 | {_e}")
+
     try:
         repo.insert_training_candidate({
             "source_platform":  "facebook",
             "search_query":     target_id_ref,
             "source_url":       source_url,
-            "image_url":        image_url,
+            "image_url":        stored_image_url,
             "text_content":     text,
             "image_hash":       image_hash,
             "target_id_ref":    target_id_ref,
             "collected_at":     datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "permission_status": "unknown",
         })
-        logger.info(f"[Training] 저장 완료: {image_url[:80]}...")
+        logger.info(f"[Training] 저장 완료: {stored_image_url[:80]}...")
         return True
     except Exception as exc:
         logger.error(f"[Training] 저장 요청 실패 | {type(exc).__name__}: {exc}")
