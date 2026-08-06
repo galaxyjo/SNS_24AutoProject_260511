@@ -2319,3 +2319,24 @@ Track B 순서 4(자동 품질검수) — Design Memo부터 시작. Canary #2/#3
 4. CLAUDE.md 신규 고정 운영규칙 16개는 다음 세션부터 최고 우선순위로 적용.
 
 ---
+
+### 학습 검토 그리드 이미지 소실(ERR-106/FP-077/INC-048) — 원인 확정 및 데이터 정리 (2026-08-06 13:xx ICT)
+
+회장이 학습 검토(Training_Review_Queue) 그리드에서 모든 후보 이미지가 빈 회색 박스로 보이는 스크린샷을 제시, read-only 조사 진행.
+
+**조사 결과:** 브라우저 콘솔에서 `scontent.fbcdn.net` 이미지 URL 전부 `403 Forbidden` 확인. 같은 URL을 서버(Python `requests.get()`)로 직접 재요청해도 동일 403 — 브라우저 hotlink 차단이 아니라 Facebook 서명(`oe=`)이 실제로 만료된 것을 확인. `git log` 확인 결과 imgbb 재호스팅 수정은 이미 커밋 `cba1cc2`(2026-08-05 16:37)로 존재 — 처음 "새로 고치겠다"고 제안했다가 git log로 기존 수정을 뒤늦게 발견해 중복작업을 피함. Airtable 직접 조회로 PENDING 55건 전수가 `collected_at=2026-07-30`(재호스팅 수정보다 6일 이전)임을 확정 — 리뷰 그리드가 오래된 순으로 후보를 보여주는 구조상, 이 죽은 이미지들이 항상 큐 맨 앞을 차지해 판단이 불가능한 채로 계속 남아있었던 것으로 확정.
+
+**백필 시도 및 결론:** 표본 URL을 서버에서 직접 재요청해 403 재현 확인 — imgbb 업로드 함수도 원본을 받아올 수 없어 재호스팅(복구) 자체가 불가능함을 확정. 회장에게 A(BLOCK 일괄처리)/B(삭제)/C(그대로 유지) 3가지 선택지 제시, 회장이 **B(삭제)** 선택.
+
+**실행:** Airtable MCP로 PENDING 55건 전량 조회 후 번호 나열로 개수 재확인(55건 일치) → `delete_records_for_table` 2회 호출(50+5)로 전량 삭제 → API 응답 55/55 `"deleted":true` 확인 → 재조회로 PENDING 0건 확인.
+
+**검증:** 이후 새 크롤로 수집된 후보가 정상 이미지로 그리드에 표시되는 것을 회장이 직접 스크린샷으로 재확인 — imgbb 재호스팅 경로가 실사용 기준으로도 정상 동작함을 실증.
+
+**기록:** `docs/ERROR_DATABASE.md`(ERR-106) / `docs/FAILURE_PATTERN.md`(FP-077) / `docs/INCIDENT_TIMELINE.md`(INC-048) / `docs/VALIDATION_STATUS.md` 신규 추가.
+
+**상태변경 총계:** Airtable 삭제 55건(회장 승인). 코드 변경 0건. Commit/push는 이 문서 기록과 별도 승인 대상.
+
+commit: 이 기록과 함께 커밋 예정(승인 시)
+push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식)
+
+---

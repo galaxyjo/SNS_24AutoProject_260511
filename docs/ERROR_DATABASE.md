@@ -2061,4 +2061,25 @@ watchdog.log(같은 구간):
 
 **Status:** RESOLVED — A~F, H는 오늘 세션 내 코드 수정 및 Live Runtime Evidence로 해결 확인(Commit `2d7ed9d`, 실제 Instagram 게시 `media_id=18114764641935575`). G는 UNKNOWN, I는 OPEN/DEFER로 명시 유지(이 둘의 미해결이 오늘의 SUCCESS 판정 자체를 되돌리지 않는다).
 
+---
+
+## ERR-106 | Training_Review_Queue 기존 PENDING 후보의 Facebook CDN 이미지 URL 서명 만료로 리뷰 그리드 이미지 전체 소실 — 재호스팅 수정 이전 수집분 55건 복구불가 확정, 삭제로 정리 (RESOLVED, 260806)
+
+**발견 경위:** 260806 회장이 학습 검토(Training_Review_Queue) 그리드의 모든 후보 이미지가 빈 회색 박스로 표시되는 것을 스크린샷으로 보고.
+
+**Raw:**
+- 브라우저 콘솔 직접 확인: 해당 `scontent.fbcdn.net` 이미지 URL 전부 `403 Forbidden` — 실제 HTTP 응답.
+- 동일 URL을 서버(Python `requests.get()`)로 직접 재요청해도 **동일하게 403** — 브라우저 hotlink 차단이 아니라 Facebook 서명(`oe=` 파라미터) 자체가 만료된 진짜 죽은 URL임을 확인.
+- `git log -- modules/sns/facebook_crawler.py` 확인 결과, 이미지 재호스팅(imgbb) 수정이 **이미 커밋 `cba1cc2`(2026-08-05 16:37:02 +0700)로 존재**함을 확인 — 이번 세션에서 새로 만들 필요가 없었던 것을 뒤늦게 발견(최초 "재사용으로 고치겠다" 제안 중 git log 확인으로 중복작업 회피).
+- Airtable(`Training_Review_Queue`) 직접 조회: PENDING 55건 전수가 `collected_at=2026-07-30T01:3x~01:5x`(재호스팅 수정보다 6일 이전 수집) — 전부 수정 적용 이전 데이터로 확정.
+- 백필(재업로드) 시도: 55건 중 표본 URL로 서버측 재요청 → 위와 동일 403 재현 → `upload_to_imgbb()`도 원본을 받아올 수 없어 재호스팅 자체가 불가능함을 확인, 복구불가 확정.
+
+**Root Cause:** `save_to_training_queue()`가 imgbb 재호스팅 없이 Facebook CDN 원본 URL을 그대로 저장하던 구간(260805 이전)에 수집된 후보는, Facebook CDN 서명(`oe=`)이 며칠 내 만료되면 원본 이미지에 영구 접근 불가능해진다. 리뷰 그리드(`fetch_pending_candidates`)가 `collected_at` 오래된 순으로 후보를 가져오므로, 죽은 이미지 55건이 항상 큐 맨 앞을 차지해 사람이 판단(PASS/BLOCK)을 내릴 수 없는 상태로 남아있었다.
+
+**Fix:** 코드 수정 없음(재호스팅 수정은 이미 260805에 배포·정상 동작 중이었음). Airtable에서 복구불가 확정된 PENDING 55건을 회장 승인(선택지 B: 삭제) 하 `delete_records_for_table` 2회 호출로 전량 삭제 — API 응답 55/55 `"deleted":true` 확인, 재조회로 PENDING 0건 확인. 이후 신규 크롤 결과 이미지가 정상 표시됨을 회장이 스크린샷으로 직접 재확인.
+
+**Prevention:** FP-077 참조.
+
+**관련:** FP-077, INC-048, 커밋 `cba1cc2`
+
 **관련:** ERR-103, ERR-104, `docs/CURRENT_RUNTIME_CONTEXT.md`(260805 전체), `porting_logs/MERGE_JOURNAL.md`(260805 Closure 항목), `CLAUDE.md`(고정 운영규칙 신규 섹션)
