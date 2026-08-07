@@ -4,8 +4,9 @@
 
 - Document Purpose: SNS(Instagram 등) AI·창업자 대상 콘텐츠 제작을 위한 검증된 원천데이터 SSOT
 - Source of Truth Scope: 실리콘밸리 업무방식 자료 5건 + 미국 AI·1인기업·스타트업 커뮤니티 정보(플랫폼 3종 + 세부 커뮤니티 5개)
+- Source of Truth Scope 확장(260807): 직원 1~20인 제조·무역·유통·온라인판매·전문서비스 대표 대상, 요일별 운영자동화 자료 6건 추가(섹션 12 참조)
 - Created Date: 2026-07-23
-- Last Evidence Review: 2026-07-23
+- Last Evidence Review: 2026-07-23(섹션 1~11 원본) / 2026-08-07(섹션 12 신규분)
 - Active Project: SNS_24AutoProject_260511
 - Status: ACTIVE CONTENT REFERENCE
 - Runtime Evidence Document: NO
@@ -529,8 +530,116 @@ User:
 
 ---
 
+## 12. SME Operations Automation Resources (제조·무역·유통·온라인판매·전문서비스 대표 대상)
+
+Added Date: 2026-08-07. 직원 1~20인 제조·무역·유통·온라인판매·전문서비스 대표를 대상으로 한 요일별 콘텐츠 주제(월 업무자동화 / 화 인스타DM·고객문의 / 수 SNS콘텐츠·OSMU / 목 상품등록·쇼핑몰자동화 / 금 무역업무 / 토 기업AI도입)에 대응하는 원천을 등록한다. 각 URL은 260807 WebFetch로 실제 내용을 확인한 뒤 등록했다(추정·미확인 URL 없음).
+
+금(무역업무) 항목은 260807 GPT 검수에서 유일한 후보(SaleAI)가 자사 홍보성 블로그로 판정돼 `VERIFIED FACT` 기준 미달로 제거했다 — 확실한 공식·1차 출처가 확보되기 전까지 이 요일은 원천 미배정(UNKNOWN) 상태다. 추측성 대체 원천을 채워넣지 않는다.
+
+### 12.1 Zapier Business Process Automation Examples (월 — 업무자동화)
+
+상태: VERIFIED FACT
+
+공식 URL: https://zapier.com/blog/business-process-automation-examples/
+
+검증된 설명:
+- Zapier(자동화 소프트웨어 기업)가 자사 공식 블로그에 실제 고객사 5곳의 업무 자동화 사례를 공개한다.
+- 사례에는 부동산·마케팅 대행사·HR·IT·고객지원 등 서로 다른 업종의 반복업무를 자동화 흐름(트리거→처리→기록)으로 재구성한 구조가 포함된다.
+- 각 사례는 자동화 전후 변화를 구체적 수치로 함께 제시한다(예: 특정 회사의 티켓 자동해결 비율, 검토시간 단축률 등).
+- Zapier 자체는 이 사례들을 "워크플로우 자동화"의 예시로 정의하며, 모든 업종에 동일 결과를 보장한다고 서술하지 않는다.
+
+SNS 콘텐츠 핵심 메시지:
+반복되는 업무 하나를 자동화 흐름(트리거→처리→기록)으로 바꾸면, 사람이 매번 손으로 하던 일을 시스템이 대신 처리하게 만들 수 있다.
+
+주의:
+Zapier 사례에 등장하는 특정 회사의 수치(예: 티켓 감소율·처리시간 단축률)를 우리 사업이나 일반 SME에도 동일하게 적용된다고 표현하지 않는다.
+
+---
+
+### 12.2 Meta Instagram Business Messaging Documentation (화 — 인스타DM·고객문의)
+
+상태: VERIFIED FACT
+
+공식 URL: https://developers.facebook.com/documentation/business-messaging/instagram-messaging
+
+검증된 설명:
+- Meta가 개발자 공식 문서(Meta for Developers)로 Instagram Business Messaging API를 공개한다.
+- 이 API는 Instagram 비즈니스·크리에이터 계정이 DM을 템플릿·빠른응답·대화 라우팅·상담원 이관 등 구조화된 방식으로 처리할 수 있게 하는 기능을 제공한다고 문서에 명시돼 있다.
+- 사용을 위해서는 Instagram 비즈니스 또는 크리에이터 계정이 Facebook 페이지와 연결돼 있어야 한다는 요건이 있다.
+
+SNS 콘텐츠 핵심 메시지:
+인스타그램 DM 문의는 감으로 대응하는 영역이 아니라, Meta가 공식적으로 구조화된 자동응답·라우팅 기능을 제공하는 영역이다.
+
+주의:
+이 API의 존재가 곧 특정 상담원 이관·자동응답 결과를 보장한다는 식으로 표현하지 않는다.
+
+---
+
+### 12.3 Buffer Content Repurposing Guide (수 — SNS콘텐츠·OSMU)
+
+상태: VERIFIED FACT
+
+공식 URL: https://buffer.com/resources/repurposing-content-guide/
+
+검증된 설명:
+- 소셜미디어 관리 도구 기업 Buffer가 공식 자료로 콘텐츠 재활용(Repurposing) 가이드를 공개한다(2026-01-20 게시, 저자 Rochi Zalani).
+- 크로스포스팅·리포스팅·리퍼포징을 서로 다른 개념으로 구분해 설명한다.
+- 장문 콘텐츠 1개당 최소 5개의 소셜 포스트를 만들 것을 권장하며, 블로그→SNS 스니펫/인포그래픽/영상, 긴 영상→숏폼/블로그/팟캐스트 등 구체적 변환 방향을 제시한다.
+- 모든 채널에 다 뿌리기보다 실제 활동 중인 채널에만 집중할 것을 강조한다.
+
+SNS 콘텐츠 핵심 메시지:
+콘텐츠 하나를 만든 뒤 여러 형식으로 나눠 재활용하면, 매번 새로 기획하지 않아도 여러 채널에 꾸준히 올릴 콘텐츠를 확보할 수 있다.
+
+주의:
+"5개 포스트 권장"이라는 Buffer의 일반 가이드라인을 모든 계정에 그대로 적용해야 하는 규칙처럼 표현하지 않는다.
+
+---
+
+### 12.4 Amazon Selling Partner API — Listings Items API (목 — 상품등록·쇼핑몰자동화)
+
+상태: VERIFIED FACT
+
+공식 URL: https://developer-docs.amazon/sp-api/docs/listings-items-api
+
+검증된 설명:
+- Amazon 공식 개발자 문서(developer-docs.amazon)가 Selling Partner API의 Listings Items API를 공개한다.
+- `putListingsItem`으로 신규 상품 등록(또는 기존 상품 전체 교체), `patchListingsItem`으로 특정 항목만 부분 수정, `mergeListingsItem`으로 재고·판매조건 필드만 업데이트하는 별도 방식을 제공한다고 문서에 명시돼 있다.
+- API는 한 번에 하나씩만 업데이트를 허용하며, 대량 등록은 별도의 Feeds API(JSON_LISTINGS_FEED)를 쓰도록 안내한다.
+- 이 API를 쓰려면 Inventory and Order Tracking 또는 Product Listing 권한 중 최소 하나가 필요하다.
+- 문서는 모든 Amazon 상품 유형을 이 API가 완전히 지원하지는 않는다고 명시한다.
+
+SNS 콘텐츠 핵심 메시지:
+여러 쇼핑몰에 상품을 하나씩 손으로 등록하는 대신, 등록·수정을 프로그램으로 처리하는 공식 구조가 이미 존재한다.
+
+주의:
+이 API가 모든 쇼핑몰·모든 상품 유형에 동일하게 적용된다고 표현하지 않는다(Amazon 한정, 상품 유형별 제약 있음).
+
+---
+
+### 12.6 MIT Sloan AI Implementation Strategies (토 — 기업 AI 도입)
+
+상태: VERIFIED FACT
+
+공식 URL: https://mitsloan.mit.edu/ideas-made-to-matter/ai-implementation-strategies-4-insights-mit-sloan-management-review
+
+검증된 설명:
+- MIT Sloan 공식 사이트(Ideas Made to Matter)가 MIT Sloan Management Review의 AI 도입 관련 인사이트 4가지를 정리해 공개한다(2025-10-06, Brian Eastwood).
+- 핵심 인사이트는 (1) 산업·포트폴리오 수준에서 AI 영향을 먼저 평가, (2) 개념증명(PoC) 단계에서 가치를 먼저 확인한 뒤 확장, (3) 리더가 데이터를 직접 탐색해 의사결정 속도를 높임, (4) 인간과 AI·자동화의 역할을 모드별로 구분하는 협업 구조다.
+- Michelin·Cengage·Yahoo·Apollo 등 실제 기업 사례가 함께 인용된다.
+
+SNS 콘텐츠 핵심 메시지:
+기업의 AI 도입은 도구를 들여오는 순간이 아니라, 작은 범위에서 가치를 먼저 검증한 뒤 사람과 AI의 역할을 구분해 확장하는 과정에서 성과로 이어진다.
+
+주의:
+기사에 인용된 특정 기업의 성과 수치(비용절감률·ROI 등)를 우리 사업이나 일반 SME에도 동일하게 적용된다고 표현하지 않는다.
+
+---
+
 ## 변경 이력
 
 | 날짜 | 내용 |
 |---|---|
 | 260723 | 최초 작성 — 260722~260723 세션의 실리콘밸리 자료 5건·미국 커뮤니티 8건(플랫폼 3+세부 5) 검증 결과를 SSOT로 고정. |
+| 260807 | 섹션 12 신규 추가 — 제조·무역·유통·온라인판매·전문서비스(1~20인) 대상 요일별 운영자동화 자료 6건(Zapier/Meta/Buffer/Shopify/Flexport/MIT Sloan) WebFetch 검증 후 등록. Claude Code가 회장 명시 승인(AskUserQuestion 응답)에 따라 직접 웹검색·검증을 수행함 — 기존 3~5 섹션은 수정하지 않음. |
+| 260807 | GPT 검수 결과 12.4(Shopify)·12.5(Flexport)가 "공식 URL 접근 가능"은 맞으나 지정 주제(상품등록/무역 Follow-up)와 불일치 판정(FAIL) — 12.4를 Amazon SP-API Listings Items API로, 12.5를 SaleAI Quotation Follow-Up Automation으로 교체. 12.1~12.3·12.6은 PASS로 유지, 수정 없음. |
+| 260807 | 2차 GPT 검수 결과 12.5(SaleAI)가 주제는 일치하나 자사 홍보성 블로그로 `VERIFIED FACT` Evidence 등급 미달 판정(FAIL) — 대체 원천을 찾아 채우지 않고 12.5 섹션 자체를 삭제. 금(무역업무) 요일은 확실한 원천이 확보될 때까지 미배정 상태로 남긴다. 12.1~12.4·12.6은 무수정. |
