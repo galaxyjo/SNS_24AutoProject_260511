@@ -135,6 +135,24 @@ def test_generate_image_fails_closed_on_missing_image_field(monkeypatch):
     assert result.error_code == "NO_IMAGE_IN_RESPONSE"
 
 
+def test_generate_image_never_sends_negative_prompt_in_payload(monkeypatch):
+    """260807 — Cloudflare가 `/negative_prompt`를 스키마 위반(HTTP 400)으로 거부함을
+    Runtime Evidence로 확인. FLUX.1-schnell이 지원하지 않는 이 필드는 인자로 받아도
+    실제 요청 payload에는 절대 포함되면 안 된다."""
+    captured = {}
+
+    def _spy(url, headers=None, json=None, timeout=None):
+        captured["payload"] = json
+        return _fake_success_response()
+
+    monkeypatch.setattr(provider.requests, "post", _spy)
+
+    result = provider.generate_image("a conceptual illustration", negative_prompt="text, logo")
+
+    assert result.success is True
+    assert "negative_prompt" not in captured["payload"]
+
+
 def test_credential_check_happens_before_any_request(monkeypatch):
     calls = {"post": 0}
 

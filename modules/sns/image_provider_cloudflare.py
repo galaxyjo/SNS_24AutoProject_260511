@@ -108,9 +108,11 @@ def generate_image(
             return ProviderResult(success=False, error_code="EMPTY_PROMPT")
 
         url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{MODEL_NAME}"
+        # negative_prompt는 이 모델(FLUX.1-schnell) 스키마에 없는 속성이라 포함 시
+        # Cloudflare가 요청 전체를 HTTP 400으로 거부한다(260807 Runtime Evidence:
+        # "Additional or unevaluated properties '/negative_prompt' at '/' not allowed").
+        # 파라미터는 하위호환을 위해 계속 받되 payload에는 절대 넣지 않는다.
         payload = {"prompt": prompt_text, "steps": max(1, min(steps, 8))}
-        if negative_prompt:
-            payload["negative_prompt"] = negative_prompt
 
         try:
             resp = requests.post(
