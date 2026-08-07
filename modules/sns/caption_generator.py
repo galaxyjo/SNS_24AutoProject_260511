@@ -1,6 +1,8 @@
 import os
 import random
+import re
 import time
+from pathlib import Path
 from typing import Literal
 
 import httpx
@@ -9,6 +11,28 @@ from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 _client = None
+
+# 260807 Content Playbook 연결 — 구조 규칙은 이 파일에 옮겨적지 않는다. 이
+# 파일(docs/design/CONTENT_PLAYBOOK_260807.md)이 유일한 SSOT이고, 아래
+# load_generation_contract()가 매 호출마다 그 파일을 다시 읽는다.
+_PLAYBOOK_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "design" / "CONTENT_PLAYBOOK_260807.md"
+)
+_CONTRACT_SECTION_RE = re.compile(
+    r"^## Generation Contract\n(.*?)(?:\n## |\Z)", re.MULTILINE | re.DOTALL
+)
+
+
+def load_generation_contract(path: "Path | None" = None) -> str:
+    """Content Playbook의 'Generation Contract' 섹션 원문을 그대로 반환한다.
+    파일이 없거나 섹션을 찾지 못하면 빈 문자열(Fail-open) — 호출자는 빈 문자열이면
+    이 블록 없이 기존 프롬프트만 사용해 100% 이전과 동일하게 동작한다."""
+    target = Path(path) if path else _PLAYBOOK_PATH
+    if not target.exists():
+        return ""
+    text = target.read_text(encoding="utf-8")
+    m = _CONTRACT_SECTION_RE.search(text)
+    return m.group(1).strip() if m else ""
 
 # 호출 간 최소 간격 (초) — free tier 30 RPM 기준 안전 마진 확보
 _CALL_INTERVAL = 4.0
@@ -156,12 +180,29 @@ def generate_caption(text: str) -> tuple[str, str]:
             )
             print(f"[CAPTION] Gemini 호출 완료 | attempt={attempt}/{_MAX_ATTEMPTS} | {time.time() - _call_started:.1f}초")
             raw = response.text.strip()
-            caption, hashtags = "", ""
+            # 260807 GPT 검수로 generate_hook_caption()에서 확정된 동일 Root
+            # Cause를 여기에도 적용 — Gemini가 "CAPTION:" 다음 줄부터 문장을
+            # 나눠 응답할 수 있다(Raw Evidence 확인됨). 이전 로직은 "CAPTION:"
+            # 으로 시작하는 그 줄 하나만 취하고 접두사 없는 다음 줄들을 조용히
+            # 버렸다 — 이제 "CAPTION:" 다음부터 "HASHTAGS:" 전까지의 모든
+            # 비어있지 않은 줄을 그대로 이어붙인다.
+            caption_lines: list[str] = []
+            hashtags = ""
+            collecting = False
             for line in raw.splitlines():
                 if line.startswith("CAPTION:"):
-                    caption = line[len("CAPTION:"):].strip()
-                elif line.startswith("HASHTAGS:"):
+                    collecting = True
+                    first = line[len("CAPTION:"):].strip()
+                    if first:
+                        caption_lines.append(first)
+                    continue
+                if line.startswith("HASHTAGS:"):
                     hashtags = line[len("HASHTAGS:"):].strip()
+                    collecting = False
+                    continue
+                if collecting and line.strip():
+                    caption_lines.append(line.strip())
+            caption = "\n".join(caption_lines)
             return caption, hashtags
 
         except Exception as e:
@@ -219,6 +260,22 @@ def generate_hook_caption(
     if not core_message or not core_message.strip():
         return "", ""
 
+    # 260807 Codex 리뷰 지적 — Playbook Generation Contract는 "Evidence/계약이
+    # 없으면 생성하지 말고 HOLD한다"는 그 문서 자신의 규칙 대상이기도 하다.
+    # 파일 삭제·경로 오류·섹션 파싱 실패로 계약을 못 읽으면 구조 규칙 없이
+    # 캡션을 만들어버리는 대신 즉시 HOLD한다(Fail-closed). 호출자
+    # `content_package_builder.create_content_package()`는 caption이 빈
+    # 문자열이면 이미 `CAPTION_GENERATION_FAILED`로 안전 종료하는 기존
+    # 계약을 갖고 있어 이 함수만 수정하면 된다(신규 에러코드 불필요).
+    contract_text = load_generation_contract()
+    if not contract_text:
+        print(
+            f"[HookCaption] Content Playbook Generation Contract 로딩 실패 — "
+            f"HOLD(캡션 생성 안 함) | path={_PLAYBOOK_PATH}"
+        )
+        return "", ""
+    contract_block = f"Required structure (Content Playbook Generation Contract):\n{contract_text}\n\n"
+
     tone_line = f"- Tone: {tone_style}\n" if tone_style else ""
     prohibited_line = (
         f"- Do NOT use this expression or anything similar to it: {prohibited_expression}\n"
@@ -230,6 +287,7 @@ def generate_hook_caption(
         "Do not add any statistic, feature, or claim that is not explicitly stated here.\n\n"
         f"Topic: {title}\n"
         f"Verified core message: {core_message}\n\n"
+        f"{contract_block}"
         "Rules:\n"
         "- Start with a hook (question or bold statement), 3-5 short sentences total\n"
         "- End with a soft call-to-action inviting comments or saves\n"
@@ -256,12 +314,30 @@ def generate_hook_caption(
             )
             print(f"[HookCaption] Gemini 호출 완료 | attempt={attempt}/{_MAX_ATTEMPTS} | {time.time() - _call_started:.1f}초")
             raw = response.text.strip()
-            caption, hashtags = "", ""
+            # 260807 GPT 검수로 확정된 Root Cause 수정 — Playbook 8단계 구조는
+            # Gemini가 "CAPTION:" 다음 줄부터 단계별로 줄바꿈해 응답하는 경우가
+            # 있다(Raw Evidence 확인됨). 이전 로직은 "CAPTION:"으로 시작하는
+            # 그 줄 하나만 취하고 접두사 없는 다음 줄들을 조용히 버렸다 — 이제
+            # "CAPTION:" 다음부터 "HASHTAGS:" 전까지의 모든 비어있지 않은 줄을
+            # 그대로(모델이 만든 개행 유지) 이어붙인다. generate_caption()도
+            # 동일 결함이 확인돼 같은 방식으로 함께 수정했다(아래 참조).
+            caption_lines: list[str] = []
+            hashtags = ""
+            collecting = False
             for line in raw.splitlines():
                 if line.startswith("CAPTION:"):
-                    caption = line[len("CAPTION:"):].strip()
-                elif line.startswith("HASHTAGS:"):
+                    collecting = True
+                    first = line[len("CAPTION:"):].strip()
+                    if first:
+                        caption_lines.append(first)
+                    continue
+                if line.startswith("HASHTAGS:"):
                     hashtags = line[len("HASHTAGS:"):].strip()
+                    collecting = False
+                    continue
+                if collecting and line.strip():
+                    caption_lines.append(line.strip())
+            caption = "\n".join(caption_lines)
             return caption, hashtags
 
         except Exception as e:

@@ -366,6 +366,41 @@ def test_generate_caption_retries_on_503_then_succeeds(monkeypatch):
     assert models.calls == 2
 
 
+def test_generate_caption_preserves_multiline_caption(monkeypatch):
+    """260807 GPT 지시 — generate_hook_caption()에서 확정된 동일 Root Cause를
+    generate_caption()에도 적용한 최소수정 확인. 'CAPTION:' 다음 줄부터
+    'HASHTAGS:' 전까지 여러 줄로 응답해도 첫 줄만 남기고 버리지 않아야 한다."""
+    fake_text = (
+        "CAPTION: New arrivals are here this week!\n"
+        "So many colors and sizes to choose from.\n"
+        "DM us with any questions!\n"
+        "HASHTAGS: #koreanfashion #newarrivals"
+    )
+    models = _FakeModels(text=fake_text)
+    _patch_client(monkeypatch, models)
+
+    caption, hashtags = caption_generator.generate_caption("some FB post text")
+
+    assert caption == (
+        "New arrivals are here this week!\n"
+        "So many colors and sizes to choose from.\n"
+        "DM us with any questions!"
+    )
+    assert hashtags == "#koreanfashion #newarrivals"
+
+
+def test_generate_caption_single_line_caption_unchanged(monkeypatch):
+    """회귀 확인 — 기존처럼 CAPTION이 한 줄로 오는 경우는 이전과 100% 동일하게 동작한다."""
+    fake_text = "CAPTION: New arrivals are here! 🎉\nHASHTAGS: #koreanfashion #newarrivals"
+    models = _FakeModels(text=fake_text)
+    _patch_client(monkeypatch, models)
+
+    caption, hashtags = caption_generator.generate_caption("some FB post text")
+
+    assert caption == "New arrivals are here! 🎉"
+    assert hashtags == "#koreanfashion #newarrivals"
+
+
 def test_generate_hook_caption_uses_injected_client_not_global(monkeypatch):
     """260804 Track B 6G — client 인자를 넘기면 전역 _get_client()를 아예
     호출하지 않는다(다른 계정 전용 Client 격리 지원, generate_hook_caption()
@@ -428,6 +463,152 @@ def test_generate_hook_caption_uses_injected_model_not_default(monkeypatch):
     generate_hook_caption("Title", "core message", model="gemini-3.5-flash-lite")
 
     assert captured["model"] == "gemini-3.5-flash-lite"
+
+
+# --- 260807 Content Playbook 연결 Target Test ---
+
+
+_FAKE_PLAYBOOK = """# Content Playbook
+
+## 1. Document Control
+
+irrelevant preamble text
+
+---
+
+## Generation Contract
+
+구조(8단계, 반드시 이 순서로 구성한다):
+1. 고객문장 Hook
+8. CTA 1개 — 게시물당 정확히 1개의 행동 유도 문구로 마무리한다.
+
+필수 규칙:
+- 출처(Evidence)에 없는 수치·성과·사례를 새로 만들지 않는다.
+- CTA는 게시물당 1개만 포함한다(2개 이상 금지).
+
+---
+
+## 변경 이력
+"""
+
+
+def test_load_generation_contract_extracts_section_only(tmp_path):
+    playbook = tmp_path / "playbook.md"
+    playbook.write_text(_FAKE_PLAYBOOK, encoding="utf-8")
+
+    contract = caption_generator.load_generation_contract(playbook)
+
+    assert "고객문장 Hook" in contract
+    assert "CTA는 게시물당 1개만 포함한다" in contract
+    assert "irrelevant preamble text" not in contract
+    assert "변경 이력" not in contract
+
+
+def test_load_generation_contract_returns_empty_when_file_missing(tmp_path):
+    missing = tmp_path / "does_not_exist.md"
+
+    assert caption_generator.load_generation_contract(missing) == ""
+
+
+def test_prompt_includes_playbook_contract_when_file_exists(tmp_path, monkeypatch):
+    playbook = tmp_path / "playbook.md"
+    playbook.write_text(_FAKE_PLAYBOOK, encoding="utf-8")
+    monkeypatch.setattr(caption_generator, "_PLAYBOOK_PATH", playbook)
+
+    captured = {}
+
+    class _CapturingModels(_FakeModels):
+        def generate_content(self, model, contents):
+            captured["contents"] = contents
+            return super().generate_content(model, contents)
+
+    models = _CapturingModels(text="CAPTION: c\nHASHTAGS: #h")
+    _patch_client(monkeypatch, models)
+
+    generate_hook_caption("Title", "core message")
+
+    prompt = captured["contents"]
+    assert "Required structure (Content Playbook Generation Contract):" in prompt
+    assert "고객문장 Hook" in prompt
+    assert "CTA는 게시물당 1개만 포함한다" in prompt
+    assert "출처(Evidence)에 없는 수치·성과·사례를 새로 만들지 않는다" in prompt
+
+
+def test_generate_hook_caption_fails_closed_when_playbook_missing(tmp_path, monkeypatch):
+    """260807 GPT 검수 — Playbook을 못 읽으면(파일 없음) 구조 규칙 없이 캡션을
+    만드는 대신 즉시 HOLD한다(Fail-closed). Gemini 호출 자체가 발생하면 안 된다
+    (core_message 공란 케이스와 동일한 안전계약)."""
+    monkeypatch.setattr(caption_generator, "_PLAYBOOK_PATH", tmp_path / "missing.md")
+    models = _FakeModels(text="CAPTION: x\nHASHTAGS: #x")
+    _patch_client(monkeypatch, models)
+
+    caption, hashtags = generate_hook_caption("Title", "core message")
+
+    assert (caption, hashtags) == ("", "")
+    assert models.calls == 0
+
+
+def test_generate_hook_caption_fails_closed_when_contract_section_empty(tmp_path, monkeypatch):
+    """Playbook 파일은 존재하지만 'Generation Contract' 섹션이 없거나 빈 경우도
+    동일하게 HOLD해야 한다 — 파일 존재 여부만으로 안전을 오판하지 않는다."""
+    broken_playbook = tmp_path / "playbook.md"
+    broken_playbook.write_text("# Content Playbook\n\n## 1. Document Control\n\n내용만 있고 계약 섹션 없음\n", encoding="utf-8")
+    monkeypatch.setattr(caption_generator, "_PLAYBOOK_PATH", broken_playbook)
+    models = _FakeModels(text="CAPTION: x\nHASHTAGS: #x")
+    _patch_client(monkeypatch, models)
+
+    caption, hashtags = generate_hook_caption("Title", "core message")
+
+    assert (caption, hashtags) == ("", "")
+    assert models.calls == 0
+
+
+def test_generate_hook_caption_preserves_multiline_caption(monkeypatch):
+    """260807 GPT 검수로 확정된 Root Cause 수정 확인 — Gemini가 'CAPTION:' 다음부터
+    단계별로 줄바꿈해 응답해도(Raw Evidence로 실제 관찰된 형태), 첫 줄만 남기고
+    나머지를 버리지 않고 'HASHTAGS:' 전까지 전부 보존해야 한다."""
+    fake_text = (
+        "CAPTION: 매번 똑같은 일 처리하느라 하루가 다 갔네.\n"
+        "반복되는 업무를 계속 직접 손으로 처리하고 있다.\n"
+        "입력 → 자동화 → 기록.\n"
+        "이 자동화 흐름을 적용해 보자.\n"
+        "\n"
+        "HASHTAGS: #업무자동화 #재퍼"
+    )
+    models = _FakeModels(text=fake_text)
+    _patch_client(monkeypatch, models)
+
+    caption, hashtags = generate_hook_caption("Title", "core message")
+
+    assert caption == (
+        "매번 똑같은 일 처리하느라 하루가 다 갔네.\n"
+        "반복되는 업무를 계속 직접 손으로 처리하고 있다.\n"
+        "입력 → 자동화 → 기록.\n"
+        "이 자동화 흐름을 적용해 보자."
+    )
+    assert hashtags == "#업무자동화 #재퍼"
+
+
+def test_generate_hook_caption_single_line_caption_unchanged(monkeypatch):
+    """회귀 확인 — 기존처럼 CAPTION이 한 줄로 오는 경우는 이전과 100% 동일하게 동작한다."""
+    fake_text = "CAPTION: Netflix trusts people over process. Do you?\nHASHTAGS: #startup #culture #netflix"
+    models = _FakeModels(text=fake_text)
+    _patch_client(monkeypatch, models)
+
+    caption, hashtags = generate_hook_caption("Title", "core message")
+
+    assert caption == "Netflix trusts people over process. Do you?"
+    assert hashtags == "#startup #culture #netflix"
+
+
+def test_real_playbook_file_loads_full_contract():
+    """실제 docs/design/CONTENT_PLAYBOOK_260807.md가 존재하고 8단계·CTA 1개
+    규칙을 담고 있는지 확인하는 Smoke Test(임시파일이 아닌 실제 Active 파일)."""
+    contract = caption_generator.load_generation_contract()
+
+    assert contract != ""
+    assert "CTA 1개" in contract
+    assert "입력 → 자동화 → 결과" in contract
 
 
 def test_generate_hook_caption_without_model_override_keeps_default(monkeypatch):
