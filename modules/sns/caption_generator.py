@@ -34,6 +34,86 @@ def load_generation_contract(path: "Path | None" = None) -> str:
     m = _CONTRACT_SECTION_RE.search(text)
     return m.group(1).strip() if m else ""
 
+
+# 260808 회장 지시 — Threads 공식 게시물 글자수 제한(500자, Meta 공식 문서
+# developers.facebook.com/documentation/threads/posts)에 맞춰 aijomoojin
+# 캡션을 미리 압축한다. 이 숫자는 docs/design/CONTENT_PLAYBOOK_260807.md의
+# "필수 규칙"에도 기록돼 있다(SSOT는 그 문서, 여기 상수는 Runtime 강제용).
+# 현재 Runtime에는 Threads 게시 경로 자체가 없다(Read-only 확인 — modules/
+# 전체에 Threads 연동 코드 0건, Instagram_Posts 스키마에도 Threads 필드
+# 없음) — 이 제한은 향후 연결 대비 + 캡션 압축 품질 기준으로 선제 적용한다.
+#
+# 260808 회장 지시(3차) — 350자 하한 HOLD는 제거한다. 350~450자는 프롬프트의
+# 권장 목표(Soft Target)로만 유지하고, 코드가 강제하는 필수 조건은 8요소
+# 전부 포함·CTA 정확히 1개·최종 500자 이하 3가지뿐이다(2차 지시로 잠시
+# 추가했던 하한 HOLD는 승인 범위 조정으로 되돌림).
+_MAX_FINAL_PAYLOAD_CHARS = 500
+_REQUIRED_ELEMENT_LABELS = (
+    "HOOK", "PATTERN", "LOSS", "CAUSE", "EVIDENCE", "WORKFLOW", "RESULT", "CTA",
+)
+
+# 260808 회장 지시(5차) — EVIDENCE 어휘중복 검증(4차)을 폐기하고 더 단순하고
+# 확실한 방식으로 교체한다: 모델이 만든 EVIDENCE는 아예 신뢰하지 않고 버리며,
+# 최종 EVIDENCE는 항상 호출자가 전달한 verified core_message 원문을 그대로
+# 쓴다(문자 단위로 동일). core_message는 Sourcebook에서 이미 검증된 텍스트라
+# 이 값 자체가 곧 Evidence이며, 모델이 이를 다르게 표현하다 사실과 어긋날
+# 위험이 구조적으로 제거된다. core_message가 비어있으면 이 함수 이전에
+# generate_hook_caption()의 기존 가드(`if not core_message: return "", ""`)가
+# 이미 처리하므로 별도 처리가 필요 없다.
+
+
+def _parse_structured_caption_response(raw: str) -> "tuple[dict[str, str], int, str]":
+    """8-Element 구조화 응답(HOOK/PATTERN/LOSS/CAUSE/EVIDENCE/WORKFLOW/RESULT/CTA)과
+    HASHTAGS를 줄 단위로 파싱한다. 각 라벨 다음, 다음 라벨이 나오기 전까지의 모든
+    비어있지 않은 줄을 그 요소에 이어붙인다(260807 다중 줄 보존 원칙과 동일).
+    CTA 라벨이 몇 번 등장했는지 별도로 센다 — 값 존재 여부만으로는 "CTA 2개"
+    (같은 라벨이 두 번 나오는 경우)를 판정할 수 없기 때문이다."""
+    known_labels = _REQUIRED_ELEMENT_LABELS + ("HASHTAGS",)
+    collected: "dict[str, list[str]]" = {label: [] for label in known_labels}
+    cta_count = 0
+    current: "str | None" = None
+    for line in raw.splitlines():
+        matched = next((label for label in known_labels if line.startswith(f"{label}:")), None)
+        if matched:
+            current = matched
+            if matched == "CTA":
+                cta_count += 1
+            value = line[len(matched) + 1:].strip()
+            if value:
+                collected[matched].append(value)
+            continue
+        if current and line.strip():
+            collected[current].append(line.strip())
+
+    fields = {label: "\n".join(parts).strip() for label, parts in collected.items()}
+    hashtags = fields.pop("HASHTAGS", "")
+    return fields, cta_count, hashtags
+
+
+def _assemble_structured_caption(
+    fields: "dict[str, str]", cta_count: int, hashtags: str, core_message: str
+) -> "tuple[str, str, str]":
+    """8요소 Validator — 하나라도 실패하면 (\"\", \"\", HOLD사유)를 반환한다(Fail-closed,
+    임의 절단·자동 재게시 없음). EVIDENCE는 모델 응답을 신뢰하지 않고 항상
+    verified core_message 원문으로 대체한다(260808 5차 지시). 검사 순서: 요소
+    누락(EVIDENCE 대체 후 기준) → CTA 개수≠1 → 최종 길이가
+    _MAX_FINAL_PAYLOAD_CHARS 초과. 350~450자는 프롬프트 권장 목표일 뿐 여기서
+    하한으로 강제하지 않는다(260808 3차 지시로 하한 HOLD 제거). 전부 통과하면
+    8요소를 줄바꿈으로 이어붙여 최종 캡션을 조립해 반환한다."""
+    fields = {**fields, "EVIDENCE": core_message}
+    missing = [label for label in _REQUIRED_ELEMENT_LABELS if not fields.get(label)]
+    if missing:
+        return "", "", f"MISSING_ELEMENTS:{','.join(missing)}"
+    if cta_count != 1:
+        return "", "", f"CTA_COUNT_INVALID:{cta_count}"
+
+    caption = "\n".join(fields[label] for label in _REQUIRED_ELEMENT_LABELS)
+    final_payload = f"{caption}\n{hashtags}" if hashtags else caption
+    if len(final_payload) > _MAX_FINAL_PAYLOAD_CHARS:
+        return "", "", f"PAYLOAD_TOO_LONG:{len(final_payload)}"
+
+    return caption, hashtags, ""
+
 # 호출 간 최소 간격 (초) — free tier 30 RPM 기준 안전 마진 확보
 _CALL_INTERVAL = 4.0
 _last_call_ts  = 0.0
@@ -283,20 +363,42 @@ def generate_hook_caption(
     )
 
     prompt = (
-        "Write a hooking Instagram caption based ONLY on the verified fact below. "
+        "Write a hooking Instagram caption based ONLY on the verified fact below, "
+        "broken into 8 required elements. "
         "Do not add any statistic, feature, or claim that is not explicitly stated here.\n\n"
         f"Topic: {title}\n"
         f"Verified core message: {core_message}\n\n"
         f"{contract_block}"
         "Rules:\n"
-        "- Start with a hook (question or bold statement), 3-5 short sentences total\n"
-        "- End with a soft call-to-action inviting comments or saves\n"
+        "- Fill in ALL 8 fields below — do not skip or merge any of them\n"
+        "- Each field must be a complete, natural sentence with real content — not a "
+        "one-or-two-word fragment. Add concrete detail drawn from the verified fact "
+        "where it helps (a specific action, a specific number if the fact contains "
+        "one, a specific screen or step) instead of the shortest possible phrasing\n"
+        "- As a rough guide, aim for about 35-55 characters per field from HOOK "
+        "through CTA so the fields add up naturally\n"
+        "- Include EXACTLY ONE CTA field — never zero, never more than one\n"
+        "- HARD LENGTH REQUIREMENT: the combined total of all 8 fields plus hashtags "
+        "(including spaces and line breaks) MUST be between 350 and 450 characters. "
+        "Being under 350 is just as non-compliant as going over 450 — if your first "
+        "draft is under 350 characters, rewrite it with more detail before answering, "
+        "do not submit a short draft\n"
         f"- Write in {target_language} only\n"
         f"{tone_line}"
         f"{prohibited_line}"
         "- Hashtags: 5-10 relevant keywords with #, separated by spaces\n"
-        "- Response format (use exactly this format):\n"
-        "CAPTION: <caption text>\n"
+        "- Response format (use exactly this format, one field per line, no extra "
+        "commentary before or after):\n"
+        "HOOK: <a short sentence in the target customer's own words>\n"
+        "PATTERN: <the recurring situation, one short sentence>\n"
+        "LOSS: <the concrete loss it causes, one short sentence>\n"
+        "CAUSE: <the unexpected root cause, one short sentence>\n"
+        "EVIDENCE: <a specific fact stated directly in the verified core message "
+        "above — do NOT claim a screenshot, live demo, or runtime result unless "
+        "the verified core message itself describes one>\n"
+        "WORKFLOW: <the fix expressed as Input -> Automation -> Result>\n"
+        "RESULT: <the concrete outcome, one short sentence>\n"
+        "CTA: <exactly one call to action>\n"
         "HASHTAGS: <hashtags>"
     )
 
@@ -314,30 +416,20 @@ def generate_hook_caption(
             )
             print(f"[HookCaption] Gemini 호출 완료 | attempt={attempt}/{_MAX_ATTEMPTS} | {time.time() - _call_started:.1f}초")
             raw = response.text.strip()
-            # 260807 GPT 검수로 확정된 Root Cause 수정 — Playbook 8단계 구조는
-            # Gemini가 "CAPTION:" 다음 줄부터 단계별로 줄바꿈해 응답하는 경우가
-            # 있다(Raw Evidence 확인됨). 이전 로직은 "CAPTION:"으로 시작하는
-            # 그 줄 하나만 취하고 접두사 없는 다음 줄들을 조용히 버렸다 — 이제
-            # "CAPTION:" 다음부터 "HASHTAGS:" 전까지의 모든 비어있지 않은 줄을
-            # 그대로(모델이 만든 개행 유지) 이어붙인다. generate_caption()도
-            # 동일 결함이 확인돼 같은 방식으로 함께 수정했다(아래 참조).
-            caption_lines: list[str] = []
-            hashtags = ""
-            collecting = False
-            for line in raw.splitlines():
-                if line.startswith("CAPTION:"):
-                    collecting = True
-                    first = line[len("CAPTION:"):].strip()
-                    if first:
-                        caption_lines.append(first)
-                    continue
-                if line.startswith("HASHTAGS:"):
-                    hashtags = line[len("HASHTAGS:"):].strip()
-                    collecting = False
-                    continue
-                if collecting and line.strip():
-                    caption_lines.append(line.strip())
-            caption = "\n".join(caption_lines)
+            # 260808 회장 지시 — 8요소(HOOK/PATTERN/LOSS/CAUSE/EVIDENCE/WORKFLOW/
+            # RESULT/CTA) 응답을 각 필드별로 파싱하고(260807 다중 줄 보존 원칙을
+            # 필드 단위로 일반화), Validator로 요소 누락·CTA 복수·500자 초과를
+            # 확인한다(EVIDENCE는 모델 응답 대신 core_message로 대체됨, 260808
+            # 5차 지시). 하나라도 실패하면 임의로 자르거나 재게시하지 않고 즉시
+            # HOLD한다 — 기존 core_message 공란/Playbook 로딩 실패와 동일한
+            # Fail-closed 계약.
+            fields, cta_count, hashtags = _parse_structured_caption_response(raw)
+            caption, hashtags, hold_reason = _assemble_structured_caption(
+                fields, cta_count, hashtags, core_message
+            )
+            if hold_reason:
+                print(f"[HookCaption] 8요소 Validator HOLD | reason={hold_reason}")
+                return "", ""
             return caption, hashtags
 
         except Exception as e:
