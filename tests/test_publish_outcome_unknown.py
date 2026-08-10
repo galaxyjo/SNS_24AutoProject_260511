@@ -35,11 +35,19 @@ class _Resp:
 
 
 _MEDIA_OK = _Resp(200, {"id": "creation123"})
+_STATUS_FINISHED = _Resp(200, {"status_code": "FINISHED"})
 
 
 # ── 1~7. publish_single() Phase A/B 분류 ──────────────────────────────────
 
 class TestPublishSinglePhaseHandling:
+    @pytest.fixture(autouse=True)
+    def _mock_container_status_finished(self, monkeypatch):
+        """ERR-107/FP-078 — Phase A/B 사이 컨테이너 상태 polling(신규)이 기존
+        Phase A/B 분류 테스트를 방해하지 않도록 기본값을 FINISHED로 고정한다.
+        polling 자체의 동작(ERROR/EXPIRED/timeout)은 별도 테스트 클래스에서 검증."""
+        monkeypatch.setattr("requests.get", lambda *a, **k: _STATUS_FINISHED)
+
     def test_media_creation_read_timeout_then_retry_success(self):
         """/media ReadTimeout 후 재시도 성공 — /media만 추가 호출, /media_publish는 컨테이너 확보 후 1회."""
         with patch(
@@ -173,6 +181,113 @@ class TestPublishSinglePhaseHandling:
 
         assert result == {"ok": True, "ig_media_id": "mediaFB"}
         assert all("graph.facebook.com" in c.args[0] for c in mock_post.call_args_list)
+
+
+# ── 7.5. publish_single() 컨테이너 FINISHED 대기 (ERR-107/FP-078, 260810) ──
+
+class TestPublishSingleContainerFinishedWait:
+    @pytest.fixture(autouse=True)
+    def _skip_image_preprocess(self, monkeypatch):
+        """_preprocess_image()가 내부적으로 자체 requests.get()을 호출해 이 클래스의
+        컨테이너 상태조회 call_count 검증과 섞이므로, 대상 밖 기능이라 identity로 우회한다."""
+        monkeypatch.setattr(launcher_main, "_preprocess_image", lambda url: url)
+
+    def test_status_in_progress_then_finished_proceeds_to_publish(self):
+        """IN_PROGRESS로 1회 조회된 뒤 FINISHED로 전환되면 정상적으로 Phase B까지 진행한다."""
+        with patch("requests.post", side_effect=[_MEDIA_OK, _Resp(200, {"id": "mediaOK"})]), \
+             patch(
+                "requests.get",
+                side_effect=[_Resp(200, {"status_code": "IN_PROGRESS"}), _STATUS_FINISHED],
+            ) as mock_get, \
+             patch("time.sleep") as mock_sleep:
+            result = launcher_main.publish_single("r12", "http://img", "cap", "tok", "iguser")
+
+        assert result == {"ok": True, "ig_media_id": "mediaOK"}
+        assert mock_get.call_count == 2
+        assert mock_sleep.call_count == 1
+
+    def test_status_error_stops_before_publish_not_outcome_unknown(self):
+        """컨테이너가 ERROR면 Phase B(발행)를 시도하지 않고 확정 실패로 반환한다
+        (outcome_unknown이 아님 — 발행 시도 자체를 안 했다는 사실이 확실하므로)."""
+        with patch("requests.post", side_effect=[_MEDIA_OK]) as mock_post, \
+             patch("requests.get", return_value=_Resp(200, {"status_code": "ERROR"})), \
+             patch("time.sleep"):
+            result = launcher_main.publish_single("r13", "http://img", "cap", "tok", "iguser")
+
+        assert result == {"ok": False, "error": "container_error", "creation_id": "creation123"}
+        assert "outcome_unknown" not in result
+        assert mock_post.call_count == 1  # /media만 호출, /media_publish 호출 안 됨
+
+    def test_status_expired_stops_before_publish(self):
+        with patch("requests.post", side_effect=[_MEDIA_OK]) as mock_post, \
+             patch("requests.get", return_value=_Resp(200, {"status_code": "EXPIRED"})), \
+             patch("time.sleep"):
+            result = launcher_main.publish_single("r14", "http://img", "cap", "tok", "iguser")
+
+        assert result == {"ok": False, "error": "container_expired", "creation_id": "creation123"}
+        assert mock_post.call_count == 1
+
+    def test_status_never_finishes_times_out_within_deadline_without_publish(self):
+        """30초 예산 내내 IN_PROGRESS면 시간초과로 확정 실패, /media_publish는 호출 안 됨.
+        Codex 리뷰(260810) P1 — 가짜 시계(monotonic+sleep 연동)로 실제 wall-clock을
+        기다리지 않고 검증하며, 총 경과시간이 예산(30초)을 넘지 않는지도 함께 확인한다."""
+        clock = {"t": 0.0}
+
+        with patch("requests.post", side_effect=[_MEDIA_OK]) as mock_post, \
+             patch("requests.get", return_value=_Resp(200, {"status_code": "IN_PROGRESS"})) as mock_get, \
+             patch("time.monotonic", side_effect=lambda: clock["t"]), \
+             patch("time.sleep", side_effect=lambda s: clock.__setitem__("t", clock["t"] + s)):
+            result = launcher_main.publish_single("r15", "http://img", "cap", "tok", "iguser")
+
+        assert result == {"ok": False, "error": "container_finished_timeout", "creation_id": "creation123"}
+        assert mock_post.call_count == 1
+        assert mock_get.call_count == 10  # 30초 예산 / 3초 간격
+        assert clock["t"] <= 30  # 예산을 넘겨 sleep하지 않음(Codex P1)
+
+    def test_slow_status_check_bounds_total_wait_to_deadline(self):
+        """Codex 리뷰(260810) P1 — 개별 GET 자체가 느려도(예: 25초) 전체 대기가
+        고정 10회 × 30초(최대 330초)로 누적되지 않고 30초 예산 안에서 끝난다."""
+        clock = {"t": 0.0}
+
+        def _slow_get(*a, **k):
+            clock["t"] += 25
+            return _Resp(200, {"status_code": "IN_PROGRESS"})
+
+        with patch("requests.post", side_effect=[_MEDIA_OK]) as mock_post, \
+             patch("requests.get", side_effect=_slow_get) as mock_get, \
+             patch("time.monotonic", side_effect=lambda: clock["t"]), \
+             patch("time.sleep", side_effect=lambda s: clock.__setitem__("t", clock["t"] + s)):
+            result = launcher_main.publish_single("r17", "http://img", "cap", "tok", "iguser")
+
+        assert result == {"ok": False, "error": "container_finished_timeout", "creation_id": "creation123"}
+        assert mock_post.call_count == 1
+        assert mock_get.call_count <= 2  # 25초짜리 GET 2회(50초)만 되어도 이미 예산 초과
+
+    def test_status_code_missing_is_distinct_confirmed_failure(self):
+        """Codex 리뷰(260810) P2 — status_code 필드 자체가 없는 응답은 IN_PROGRESS와
+        뭉개지지 않고(재시도 없이) 별도 확정 실패로 즉시 반환된다(운영 진단 목적)."""
+        with patch("requests.post", side_effect=[_MEDIA_OK]) as mock_post, \
+             patch("requests.get", return_value=_Resp(200, {})) as mock_get, \
+             patch("time.sleep") as mock_sleep:
+            result = launcher_main.publish_single("r18", "http://img", "cap", "tok", "iguser")
+
+        assert result == {"ok": False, "error": "container_status_missing", "creation_id": "creation123"}
+        assert mock_post.call_count == 1
+        assert mock_get.call_count == 1  # 즉시 반환 — 재시도 없음
+        assert mock_sleep.call_count == 0
+
+    def test_status_check_transient_error_retries_and_recovers(self):
+        """상태조회 자체가 일시 실패해도(네트워크 예외) 재시도해 FINISHED를 확인하면 정상 진행."""
+        with patch("requests.post", side_effect=[_MEDIA_OK, _Resp(200, {"id": "mediaOK2"})]), \
+             patch(
+                "requests.get",
+                side_effect=[requests.exceptions.ReadTimeout("t"), _STATUS_FINISHED],
+            ) as mock_get, \
+             patch("time.sleep"):
+            result = launcher_main.publish_single("r16", "http://img", "cap", "tok", "iguser")
+
+        assert result == {"ok": True, "ig_media_id": "mediaOK2"}
+        assert mock_get.call_count == 2
 
 
 # ── 8. Job 레벨 — outcome_unknown 격리 ─────────────────────────────────────

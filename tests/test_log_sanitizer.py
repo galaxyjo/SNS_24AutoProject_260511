@@ -138,6 +138,15 @@ def test_publish_single_success_path_unaffected(monkeypatch):
         def json(self):
             return {"id": "creation123"}
 
+    class _FinishedStatusResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"status_code": "FINISHED"}
+
     calls = []
 
     def _fake_post(url, params=None, timeout=None):
@@ -145,12 +154,13 @@ def test_publish_single_success_path_unaffected(monkeypatch):
         return _OkResp()
 
     monkeypatch.setattr(real_requests, "post", _fake_post)
+    monkeypatch.setattr(real_requests, "get", lambda url, params=None, timeout=None: _FinishedStatusResp())
     monkeypatch.setattr(launcher_main, "_preprocess_image", lambda url: url)
 
     result = launcher_main.publish_single("rid2", "http://img", "caption", FAKE, "iguser")
 
     assert result == {"ok": True, "ig_media_id": "creation123"}
-    assert len(calls) == 2  # media 생성 + media_publish 2회 호출 그대로
+    assert len(calls) == 2  # media 생성 + media_publish 2회 호출 그대로(컨테이너 상태조회는 get이라 별도)
 
 
 # ── 3. engagement_tracker.py _fetch_metrics 회귀 테스트 (Step 2) ─────────

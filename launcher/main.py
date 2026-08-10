@@ -321,8 +321,22 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
     (ReadTimeout/ConnectionError/5xx/파싱실패 등)는 재시도하지 않고
     outcome_unknown=True로 즉시 반환한다 — 호출자는 이를 실패로 치환하지
     말고 uploading 상태로 격리한 뒤 수동 확인을 받아야 한다.
+
+    Phase A와 Phase B 사이에 컨테이너 status_code=FINISHED를 확인한다
+    (ERR-107/FP-078, 260810) — Phase A 성공 직후 컨테이너가 아직
+    IN_PROGRESS인 상태에서 Phase B를 호출해 HTTP 400(outcome_unknown)이
+    반복 발생함을 Read-only 사후 조회로 확인함(같은 creation_id가 몇 분
+    뒤 조회 시 FINISHED로 나타남). 이 대기 단계는 Phase B 호출 전이므로
+    여기서 끝나는 실패는 "게시 여부 불명"이 아니라 "발행 시도 자체를
+    안 함"이 확실하다 — outcome_unknown이 아닌 확정 실패로 반환한다.
+    대기는 time.monotonic() 기반 전체 deadline(기본 30초)으로 제한한다 —
+    Codex 리뷰(260810) P1: 개별 GET timeout을 고정 30초 × 최대 10회로
+    두면 누적 최대 330초까지 걸려 5분 주기·max_instances=1 스케줄러의
+    다음 실행을 막을 수 있으므로, 매 GET의 timeout도 남은 예산 이내로
+    제한한다.
     """
     import requests as _req
+    import time as _time
 
     if not image_url:
         logger.error(f"[publish_single] image_url 없음 | rid={rid}")
@@ -348,6 +362,70 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             if attempt == 3:
                 logger.error(f"[publish_single] 3회 실패 최종(media 생성) | rid={rid}")
                 return {"ok": False, "error": str(e)}
+
+    # ── Phase A.5: 컨테이너 처리 완료 대기 (status_code=FINISHED) — 아직 Phase B(발행)를
+    # 호출하지 않았으므로 여기서 반환하는 실패는 확정 실패다(outcome_unknown 아님).
+    # Codex 리뷰(260810) P1/P2 반영: 전체 대기를 monotonic 기반 deadline으로 제한하고,
+    # 개별 GET timeout도 남은 예산 이내로 제한하며, 예산이 없으면 sleep하지 않는다 ──
+    _CONTAINER_WAIT_DEADLINE_SECONDS = 30
+    _CONTAINER_POLL_INTERVAL_SECONDS = 3
+    deadline = _time.monotonic() + _CONTAINER_WAIT_DEADLINE_SECONDS
+    container_ready = False
+    poll_attempt = 0
+    while True:
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            break
+        poll_attempt += 1
+        try:
+            r_status = _req.get(
+                f"https://{api_host}/v21.0/{creation_id}",
+                params={"fields": "status_code", "access_token": access_token},
+                timeout=min(_CONTAINER_WAIT_DEADLINE_SECONDS, remaining),
+            )
+            r_status.raise_for_status()
+            status_code = r_status.json().get("status_code")
+        except Exception as e:
+            logger.warning(
+                f"[publish_single] 컨테이너 상태 조회 시도 {poll_attempt} 실패 | "
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}"
+            )
+            remaining = deadline - _time.monotonic()
+            if remaining > 0:
+                _time.sleep(min(_CONTAINER_POLL_INTERVAL_SECONDS, remaining))
+            continue
+
+        if status_code == "FINISHED":
+            container_ready = True
+            break
+        if status_code in ("ERROR", "EXPIRED"):
+            logger.error(
+                f"[publish_single] 컨테이너 처리 실패(status_code={status_code}) — 발행 시도 안 함 | "
+                f"rid={rid} | creation_id={creation_id}"
+            )
+            return {"ok": False, "error": f"container_{status_code.lower()}", "creation_id": creation_id}
+        if status_code is None:
+            # Codex P2 — status_code 필드 자체가 없는 응답은 IN_PROGRESS와 다른 신호다.
+            # 재시도로 해소될 성질이 아니므로(필드명 변경/버전 변경 가능성) 운영 진단이
+            # 가능하도록 별도 확정 실패로 즉시 반환한다.
+            logger.error(
+                f"[publish_single] 컨테이너 상태 응답에 status_code 없음 — 발행 시도 안 함 | "
+                f"rid={rid} | creation_id={creation_id}"
+            )
+            return {"ok": False, "error": "container_status_missing", "creation_id": creation_id}
+
+        # status_code == "IN_PROGRESS"(또는 문서화되지 않은 그 외 값) — 남은 예산 안에서만 대기
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            break
+        _time.sleep(min(_CONTAINER_POLL_INTERVAL_SECONDS, remaining))
+
+    if not container_ready:
+        logger.error(
+            f"[publish_single] 컨테이너 FINISHED 대기 시간초과({_CONTAINER_WAIT_DEADLINE_SECONDS}초) — 발행 시도 안 함 | "
+            f"rid={rid} | creation_id={creation_id}"
+        )
+        return {"ok": False, "error": "container_finished_timeout", "creation_id": creation_id}
 
     # ── Phase B: 발행 (/media_publish) — creation_id 확보 후 새 컨테이너 생성 절대 금지 ──
     for attempt in range(1, 4):
