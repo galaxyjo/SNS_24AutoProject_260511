@@ -744,13 +744,13 @@ AIJOMOOJIN_SLOT_ACCOUNT_CODE = "IDN-000036"
 
 @handle_errors(task="aijomoojin_slot_post", notify_fn=_slack)
 def _job_aijomoojin_scheduled_post():
-    """260804 Track B 6G — aijomoojin 전용 3슬롯(06:00/10:00/17:00 ICT) 게시.
+    """260804 Track B 6G — aijomoojin 전용 슬롯 게시(260810부터 5슬롯
+    06:00/09:00/12:00/15:00/18:00 ICT, 이전 3슬롯 06:00/10:00/17:00에서 확대).
 
     다른 계정 경로는 전혀 건드리지 않는다. `_job_insta_upload()`에는 260804
     Codex 리뷰(P0) 수정으로 "Flag ON이면 IDN-000036 skip" 조건 1개만 추가됐다
     — 이 조건은 account_code_ref=="IDN-000036"일 때만 평가되므로 다른 계정의
-    동작은 완전히 무변화다(Blast Radius: 이 함수 + 그 조건 1개 + 신규 Cron
-    등록 3줄).
+    동작은 완전히 무변화다.
 
     슬롯당 최대 1건은 이 함수가 아니라 APScheduler 계약이 보장한다 — 각 슬롯은
     독립된 CronTrigger 1개(하루 1회만 fire)이고 `max_instances=1`로 겹침
@@ -972,8 +972,9 @@ AIJOMOOJIN_PRODUCER_GEMINI_MODEL = "gemini-3.5-flash-lite"
 @handle_errors(task="aijomoojin_content_producer", notify_fn=_slack)
 def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
     """260804 Track B 6G — aijomoojin 전용 콘텐츠 Producer(Sourcebook Topic →
-    캡션·이미지 → Vault → Airtable ready). 매일 05:00/09:00/16:00 ICT(각 게시
-    슬롯 1시간 전)에 실행 — 하루 목표 3건에 맞춰 슬롯마다 1회.
+    캡션·이미지 → Vault → Airtable ready). 매일 05:00/08:00/11:00/14:00/17:00
+    ICT(각 게시 슬롯 1시간 전, 260810부터 5슬롯으로 확대)에 실행 — 하루 목표
+    5건에 맞춰 슬롯마다 1회.
 
     260805 Track B 7B-4 — `producer_hour`(선택, 기본 None)은 Carousel Canary
     (`modules/sns/carousel_content_builder.py`) slot_role 연결용이다. 이
@@ -1325,8 +1326,10 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     # 시각을 60초 넘게 놓치면 그 회차는 Skip(Catch-up 없음), 60초 이내 지연은
     # Scheduler Jitter로만 허용한다("Catch-up 0건"이 아니라 "60초 초과만 Skip"
     # 이 정확한 표현 — 이전 300초 값·표현 둘 다 부정확했음).
+    # 260810 회장 지시 — 하루 3슬롯(06/10/17)에서 5슬롯(06/09/12/15/18, 3시간
+    # 간격)으로 확대. Producer 슬롯도 각각 1시간 전으로 짝 유지(아래 참조).
     if os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() == "true":
-        for _slot_hour in (6, 10, 17):
+        for _slot_hour in (6, 9, 12, 15, 18):
             sched.add_job(
                 _job_aijomoojin_scheduled_post, "cron",
                 hour=_slot_hour, minute=0, timezone="Asia/Bangkok",
@@ -1354,11 +1357,13 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     #      (다음 슬롯을 기다리거나 수동으로 상태 확인).
     #   3) 0건 확인 후에만 AIJOMOOJIN_SLOT_SCHEDULE_ENABLED도 false로 바꾸고
     #      재시작한다.
+    # 260810 회장 지시 — 게시 5슬롯(06/09/12/15/18)에 맞춰 Producer도 각 슬롯
+    # 1시간 전(05/08/11/14/17)으로 확대.
     if (
         os.getenv("AIJOMOOJIN_CONTENT_PRODUCER_ENABLED", "false").strip().lower() == "true"
         and os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() == "true"
     ):
-        for _producer_hour in (5, 9, 16):
+        for _producer_hour in (5, 8, 11, 14, 17):
             sched.add_job(
                 _job_aijomoojin_content_producer, "cron",
                 hour=_producer_hour, minute=0, timezone="Asia/Bangkok",

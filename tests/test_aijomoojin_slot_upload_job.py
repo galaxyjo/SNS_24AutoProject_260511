@@ -103,16 +103,21 @@ class TestSchedulerRegistration:
         job_ids = {j.id for j in sched.get_jobs()}
         assert not any(jid.startswith("aijomoojin_slot_") for jid in job_ids)
 
-    def test_flag_on_registers_exactly_3_slot_jobs(self, monkeypatch):
+    def test_flag_on_registers_exactly_5_slot_jobs(self, monkeypatch):
+        """260810 회장 지시로 3슬롯(06/10/17)에서 5슬롯(06/09/12/15/18)으로 확대."""
         monkeypatch.setenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "true")
         from launcher import main as launcher_main
 
         sched = launcher_main._build_scheduler()
         slot_job_ids = {j.id for j in sched.get_jobs() if j.id.startswith("aijomoojin_slot_")}
-        assert slot_job_ids == {"aijomoojin_slot_0600", "aijomoojin_slot_1000", "aijomoojin_slot_1700"}
+        assert slot_job_ids == {
+            "aijomoojin_slot_0600", "aijomoojin_slot_0900", "aijomoojin_slot_1200",
+            "aijomoojin_slot_1500", "aijomoojin_slot_1800",
+        }
 
     @pytest.mark.parametrize("job_id,hour", [
-        ("aijomoojin_slot_0600", 6), ("aijomoojin_slot_1000", 10), ("aijomoojin_slot_1700", 17),
+        ("aijomoojin_slot_0600", 6), ("aijomoojin_slot_0900", 9), ("aijomoojin_slot_1200", 12),
+        ("aijomoojin_slot_1500", 15), ("aijomoojin_slot_1800", 18),
     ])
     def test_each_slot_has_safety_params_and_fires_at_correct_ict_hour(self, monkeypatch, job_id, hour):
         monkeypatch.setenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "true")

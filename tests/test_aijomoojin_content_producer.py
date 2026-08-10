@@ -37,14 +37,18 @@ class TestSchedulerRegistration:
         job_ids = {j.id for j in sched.get_jobs()}
         assert not any(jid.startswith("aijomoojin_producer_") for jid in job_ids)
 
-    def test_flag_on_registers_exactly_3_producer_jobs(self, monkeypatch):
+    def test_flag_on_registers_exactly_5_producer_jobs(self, monkeypatch):
+        """260810 회장 지시로 3슬롯(05/09/16)에서 5슬롯(05/08/11/14/17)으로 확대."""
         monkeypatch.setenv("AIJOMOOJIN_CONTENT_PRODUCER_ENABLED", "true")
         monkeypatch.setenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "true")
         from launcher import main as launcher_main
 
         sched = launcher_main._build_scheduler()
         producer_job_ids = {j.id for j in sched.get_jobs() if j.id.startswith("aijomoojin_producer_")}
-        assert producer_job_ids == {"aijomoojin_producer_0500", "aijomoojin_producer_0900", "aijomoojin_producer_1600"}
+        assert producer_job_ids == {
+            "aijomoojin_producer_0500", "aijomoojin_producer_0800", "aijomoojin_producer_1100",
+            "aijomoojin_producer_1400", "aijomoojin_producer_1700",
+        }
 
     @pytest.mark.parametrize("producer_flag,slot_flag", [("true", "false"), ("false", "true"), ("false", "false")])
     def test_mismatched_flag_combo_registers_no_producer_jobs(self, monkeypatch, producer_flag, slot_flag):
@@ -60,7 +64,8 @@ class TestSchedulerRegistration:
         assert producer_job_ids == set()
 
     @pytest.mark.parametrize("job_id,hour", [
-        ("aijomoojin_producer_0500", 5), ("aijomoojin_producer_0900", 9), ("aijomoojin_producer_1600", 16),
+        ("aijomoojin_producer_0500", 5), ("aijomoojin_producer_0800", 8), ("aijomoojin_producer_1100", 11),
+        ("aijomoojin_producer_1400", 14), ("aijomoojin_producer_1700", 17),
     ])
     def test_each_producer_job_safety_params_and_ict_hour(self, monkeypatch, job_id, hour):
         from datetime import datetime, timedelta
@@ -98,7 +103,10 @@ class TestSchedulerRegistration:
 
         sched = launcher_main._build_scheduler()
         slot_ids = {j.id for j in sched.get_jobs() if j.id.startswith("aijomoojin_slot_")}
-        assert slot_ids == {"aijomoojin_slot_0600", "aijomoojin_slot_1000", "aijomoojin_slot_1700"}
+        assert slot_ids == {
+            "aijomoojin_slot_0600", "aijomoojin_slot_0900", "aijomoojin_slot_1200",
+            "aijomoojin_slot_1500", "aijomoojin_slot_1800",
+        }
         insta_upload_job = next(j for j in sched.get_jobs() if j.id == "insta_upload")
         assert insta_upload_job.func is launcher_main._job_insta_upload
 

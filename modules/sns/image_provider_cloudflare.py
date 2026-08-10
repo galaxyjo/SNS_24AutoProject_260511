@@ -1,8 +1,14 @@
 """image_provider_cloudflare.py — Track B-4 Provider Adapter: Cloudflare Workers AI (FLUX.1-schnell).
 
 Cloudflare Workers AI 공식 REST API로 신규 이미지를 생성한다(@cf/black-forest-labs/flux-1-schnell).
-무료 티어 10,000 neurons/일(공식 문서 확인, 260731) — 이 프로젝트 하루 3장 사용은 여유 충분하나,
+무료 티어 10,000 neurons/일(공식 문서 확인, 260731) — 이 프로젝트 사용량은 여유 충분하나,
 DAILY_IMAGE_CAP은 별개의 프로젝트 자체 안전장치(Fail-closed)로 SQLite에 영속 기록한다.
+
+260810 회장 지시 — 게시 슬롯이 하루 3건에서 5건으로 늘어나면서 기존 하루 3장
+한도(원래도 "안전장치"였을 뿐 Cloudflare 실제 한도가 아니었음)를 사실상
+해제한다(50으로 상향, 무한대신 폭주 버그에 대한 최소 방어선만 유지). "운영이
+안정되고 트래픽이 나오면 그때 다시 정한다"는 회장 코멘트 — 필요시
+DAILY_IMAGE_CAP 값만 다시 낮추면 된다(로직 변경 불필요).
 
 Provider 무관 로직(Visual Brief/Image Prompt)은 modules.sns.visual_brief에 분리돼 있다.
 """
@@ -22,7 +28,7 @@ logger = get_logger(__name__)
 
 PROVIDER_NAME = "cloudflare_workers_ai"
 MODEL_NAME = "@cf/black-forest-labs/flux-1-schnell"
-DAILY_IMAGE_CAP = 3
+DAILY_IMAGE_CAP = 50
 REQUEST_TIMEOUT = 30
 
 _DB_PATH = Path(__file__).resolve().parents[2] / "db" / "image_gen_quota.db"
