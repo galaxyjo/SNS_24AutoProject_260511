@@ -1,6 +1,13 @@
 """Track B-3 — caption_generator.generate_hook_caption() 단위 테스트.
 
 실제 Gemini API 호출 없음 — _get_client()를 mock으로 교체한다.
+
+260810 전면 개정 — 이전 8요소(HOOK/PATTERN/LOSS/CAUSE/EVIDENCE/WORKFLOW/
+RESULT/CTA) 구조를 회장이 직접 승인한 신규 9요소 구조(HOOK_EMPATHY/
+HOOK_QUESTION/HOOK_REVEAL/HOW_POINT1/HOW_POINT2/DETAIL_TITLE/DETAIL_BODY/
+CORE_POINT/MOTTO + 고정 CTA)로 교체함에 따라 이 파일 전체를 새 구조에
+맞춰 재작성한다(상세 배경: docs/design/CONTENT_PLAYBOOK_260807.md 260810
+변경 이력, porting_logs/MERGE_JOURNAL.md 260810 기록).
 """
 
 import httpx
@@ -39,47 +46,47 @@ def _patch_client(monkeypatch, models):
     monkeypatch.setattr(caption_generator, "_throttle", lambda: None)
 
 
-# 260808 8-Element 구조화 응답 Fixture — generate_hook_caption()이 이제
-# HOOK/PATTERN/LOSS/CAUSE/EVIDENCE/WORKFLOW/RESULT/CTA 8개 필드 응답을
-# 요구하므로, 재시도·주입 등 캡션 "내용"과 무관한 테스트들도 이 최소 유효
-# 응답을 재사용한다(Validator를 통과해야 caption이 빈 문자열이 아니게 된다).
-# 260808 2차 — 350자 하한 Validator 추가 이후, 기본값도 350자를 넘도록
-# 충분히 길게 잡는다(재시도/주입 테스트가 필드 1개만 override해도 전체
-# 합계가 하한 밑으로 떨어지지 않게). 정확한 글자수 경계 테스트는 이 기본값을
-# 쓰지 않고 별도로 직접 필드를 구성한다.
-# 260808 5차 — EVIDENCE는 이제 모델 응답을 신뢰하지 않고 항상 호출자가 전달한
-# core_message로 대체된다. 그래서 `_structured_text()`의 evidence 인자는 실제로
-# 무시되므로 아무 기본값이나 무방하지만, `_expected_caption()`의 evidence
-# 기본값은 이 파일이 압도적으로 많이 쓰는 core_message 리터럴("core message")과
-# 정확히 일치해야 한다 — 그래야 실제 Runtime 치환 결과와 기대값이 맞는다.
-# core_message가 다른 소수 테스트는 evidence를 그 실제 core_message 값으로 override한다.
-_DEFAULT_FIELD = "가" * 45
-_DEFAULT_CTA = "다" * 45
-_DEFAULT_HASHTAGS = "#" + ("나" * 50)
-_DEFAULT_CORE_MESSAGE = "core message"
+# 260810 9-Element 구조화 응답 Fixture — generate_hook_caption()이 이제
+# HOOK_EMPATHY/HOOK_QUESTION/HOOK_REVEAL/HOW_POINT1/HOW_POINT2/DETAIL_TITLE/
+# DETAIL_BODY/CORE_POINT/MOTTO 9개 필드 응답을 요구하므로, 재시도·주입 등
+# 캡션 "내용"과 무관한 테스트들도 이 최소 유효 응답을 재사용한다(Validator를
+# 통과해야 caption이 빈 문자열이 아니게 된다). CTA는 모델 응답에 없다 —
+# Validator가 항상 caption_generator._FIXED_CTA_LINE을 붙인다.
+_DEFAULT_FIELD = "가" * 20
+_DEFAULT_HASHTAGS = "#" + ("나" * 30)
 
 
 def _structured_text(
-    hook=_DEFAULT_FIELD, pattern=_DEFAULT_FIELD, loss=_DEFAULT_FIELD, cause=_DEFAULT_FIELD,
-    evidence=_DEFAULT_FIELD, workflow=_DEFAULT_FIELD, result=_DEFAULT_FIELD, cta=_DEFAULT_CTA,
+    hook_empathy=_DEFAULT_FIELD, hook_question=_DEFAULT_FIELD, hook_reveal=_DEFAULT_FIELD,
+    how1=_DEFAULT_FIELD, how2=_DEFAULT_FIELD,
+    detail_title=_DEFAULT_FIELD, detail_body=_DEFAULT_FIELD,
+    core_point=_DEFAULT_FIELD, motto=_DEFAULT_FIELD,
     hashtags=_DEFAULT_HASHTAGS,
 ):
-    """evidence 인자는 260808 5차 지시 이후 실제로는 무시된다(모델 EVIDENCE는
-    항상 core_message로 대체됨) — 응답 포맷 자체는 그대로 두기 위해 남겨둔다."""
     return (
-        f"HOOK: {hook}\nPATTERN: {pattern}\nLOSS: {loss}\nCAUSE: {cause}\n"
-        f"EVIDENCE: {evidence}\nWORKFLOW: {workflow}\nRESULT: {result}\nCTA: {cta}\n"
-        f"HASHTAGS: {hashtags}"
+        f"HOOK_EMPATHY: {hook_empathy}\nHOOK_QUESTION: {hook_question}\n"
+        f"HOOK_REVEAL: {hook_reveal}\nHOW_POINT1: {how1}\nHOW_POINT2: {how2}\n"
+        f"DETAIL_TITLE: {detail_title}\nDETAIL_BODY: {detail_body}\n"
+        f"CORE_POINT: {core_point}\nMOTTO: {motto}\nHASHTAGS: {hashtags}"
     )
 
 
 def _expected_caption(
-    hook=_DEFAULT_FIELD, pattern=_DEFAULT_FIELD, loss=_DEFAULT_FIELD, cause=_DEFAULT_FIELD,
-    evidence=_DEFAULT_CORE_MESSAGE, workflow=_DEFAULT_FIELD, result=_DEFAULT_FIELD, cta=_DEFAULT_CTA,
+    hook_empathy=_DEFAULT_FIELD, hook_question=_DEFAULT_FIELD, hook_reveal=_DEFAULT_FIELD,
+    how1=_DEFAULT_FIELD, how2=_DEFAULT_FIELD,
+    detail_title=_DEFAULT_FIELD, detail_body=_DEFAULT_FIELD,
+    core_point=_DEFAULT_FIELD, motto=_DEFAULT_FIELD,
 ):
-    """evidence 기본값은 실제 Runtime에서 EVIDENCE 자리에 들어갈 core_message와
-    일치해야 한다(260808 5차 지시 — EVIDENCE는 항상 core_message로 대체됨)."""
-    return "\n".join([hook, pattern, loss, cause, evidence, workflow, result, cta])
+    """실제 Runtime이 조립하는 고정 시각 템플릿(번호·불릿·인용부호·CTA는 모델
+    응답이 아니라 코드가 항상 동일하게 붙인다)과 정확히 같은 구조로 조립한다."""
+    return (
+        f"{hook_empathy}\n{hook_question}\n{hook_reveal}\n\n"
+        f"1.How?\n• {how1}\n• {how2}\n\n"
+        f"2.{detail_title}\n: {detail_body}\n\n"
+        f"3.핵심은?\n: {core_point}\n\n"
+        f"\"{motto}\"\n\n"
+        f"{caption_generator._FIXED_CTA_LINE}"
+    )
 
 
 def test_empty_core_message_returns_empty_without_calling_gemini(monkeypatch):
@@ -94,12 +101,8 @@ def test_empty_core_message_returns_empty_without_calling_gemini(monkeypatch):
 
 def test_generates_caption_and_hashtags_from_core_message(monkeypatch):
     core_message = "Netflix는 규칙을 늘리는 대신 뛰어난 사람에게 맥락과 책임을 준다."
-    # 260808 5차 지시 확인 — 모델이 다른 내용을 EVIDENCE로 만들어도(여기서는
-    # 일부러 core_message와 무관한 문구를 줌) 최종 EVIDENCE는 core_message로
-    # 대체돼야 한다.
     fake_text = _structured_text(
-        hook="Netflix trusts people over process. Do you?",
-        evidence="이것은 모델이 지어낸, core_message와 무관한 가짜 근거입니다",
+        hook_empathy="맥락 없이 규칙만 늘어나는 이 느낌....",
         hashtags="#startup #culture #netflix",
     )
     models = _FakeModels(text=fake_text)
@@ -107,11 +110,11 @@ def test_generates_caption_and_hashtags_from_core_message(monkeypatch):
 
     caption, hashtags = generate_hook_caption("Netflix Culture Memo", core_message)
 
-    assert caption == _expected_caption(
-        hook="Netflix trusts people over process. Do you?", evidence=core_message
-    )
+    assert caption == _expected_caption(hook_empathy="맥락 없이 규칙만 늘어나는 이 느낌....")
     assert hashtags == "#startup #culture #netflix"
     assert models.calls == 1
+    # 고정 CTA는 항상 마지막 줄에 그대로 등장해야 한다(모델이 CTA를 안 만들어도).
+    assert caption.splitlines()[-1] == caption_generator._FIXED_CTA_LINE
 
 
 def test_prompt_includes_prohibited_expression_when_provided(monkeypatch):
@@ -151,17 +154,36 @@ def test_prompt_never_omits_core_message_constraint(monkeypatch):
     assert "Do not add any statistic" in captured["contents"]
 
 
+def test_prompt_instructs_model_not_to_write_cta(monkeypatch):
+    """260810 신규 — CTA는 고정 문구로 코드가 붙이므로, 모델에게 CTA 필드를
+    쓰지 말라고 명시해야 한다(과거 "프로필 링크 클릭" CTA가 실재하지 않는
+    프로필 링크를 안내했던 문제 재발 방지)."""
+    captured = {}
+
+    class _CapturingModels(_FakeModels):
+        def generate_content(self, model, contents):
+            captured["contents"] = contents
+            return super().generate_content(model, contents)
+
+    models = _CapturingModels(text="CAPTION: c\nHASHTAGS: #h")
+    _patch_client(monkeypatch, models)
+
+    generate_hook_caption("Title", "core message")
+
+    assert "Do NOT write a call-to-action field" in captured["contents"]
+
+
 def test_retries_on_429_then_succeeds(monkeypatch):
     monkeypatch.setattr(caption_generator.time, "sleep", lambda s: None)
     models = _FakeModels(
-        text=_structured_text(hook="recovered"),
+        text=_structured_text(hook_empathy="recovered"),
         raise_on_first=Exception("429 rate limited"),
     )
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(hook="recovered")
+    assert caption == _expected_caption(hook_empathy="recovered")
     assert models.calls == 2
 
 
@@ -219,34 +241,34 @@ def _winerror_10054():
 
 def test_retries_on_503_then_succeeds(monkeypatch):
     monkeypatch.setattr(caption_generator.time, "sleep", lambda s: None)
-    models = _FlakyModels([_server_error(503)], text=_structured_text(hook="ok"))
+    models = _FlakyModels([_server_error(503)], text=_structured_text(hook_empathy="ok"))
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(hook="ok")
+    assert caption == _expected_caption(hook_empathy="ok")
     assert models.calls == 2
 
 
 def test_retries_on_winerror_10054_then_succeeds(monkeypatch):
     monkeypatch.setattr(caption_generator.time, "sleep", lambda s: None)
-    models = _FlakyModels([_winerror_10054()], text=_structured_text(hook="ok"))
+    models = _FlakyModels([_winerror_10054()], text=_structured_text(hook_empathy="ok"))
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(hook="ok")
+    assert caption == _expected_caption(hook_empathy="ok")
     assert models.calls == 2
 
 
 def test_retries_on_timeout_then_succeeds(monkeypatch):
     monkeypatch.setattr(caption_generator.time, "sleep", lambda s: None)
-    models = _FlakyModels([httpx.ReadTimeout("timeout")], text=_structured_text(hook="ok"))
+    models = _FlakyModels([httpx.ReadTimeout("timeout")], text=_structured_text(hook_empathy="ok"))
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(hook="ok")
+    assert caption == _expected_caption(hook_empathy="ok")
     assert models.calls == 2
 
 
@@ -254,12 +276,12 @@ def test_retries_on_client_error_429_then_succeeds(monkeypatch):
     """string 기반 하위호환(test_retries_on_429_then_succeeds, 위)과 별개로,
     실제 SDK가 던지는 genai_errors.ClientError(429)도 재시도되는지 확인한다."""
     monkeypatch.setattr(caption_generator.time, "sleep", lambda s: None)
-    models = _FlakyModels([_client_error(429)], text=_structured_text(hook="ok"))
+    models = _FlakyModels([_client_error(429)], text=_structured_text(hook_empathy="ok"))
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(hook="ok")
+    assert caption == _expected_caption(hook_empathy="ok")
     assert models.calls == 2
 
 
@@ -457,14 +479,14 @@ def test_generate_hook_caption_uses_injected_client_not_global(monkeypatch):
         caption_generator, "_get_client",
         lambda: pytest.fail("전역 _get_client()가 호출되면 안 됨(client 인자를 줬으므로)"),
     )
-    injected_models = _FakeModels(text=_structured_text(hook="injected"))
+    injected_models = _FakeModels(text=_structured_text(hook_empathy="injected"))
     injected_client = _FakeClient(injected_models)
 
     caption, hashtags = generate_hook_caption(
         "Title", "core message", client=injected_client,
     )
 
-    assert caption == _expected_caption(hook="injected")
+    assert caption == _expected_caption(hook_empathy="injected")
     assert injected_models.calls == 1
 
 
@@ -484,12 +506,12 @@ def test_generate_hook_caption_uses_injected_throttle_not_global(monkeypatch):
 
 def test_generate_hook_caption_without_override_keeps_existing_behavior(monkeypatch):
     """client/throttle_fn을 생략한 기존 호출부는 100% 이전과 동일(회귀 없음)."""
-    models = _FakeModels(text=_structured_text(hook="default"))
+    models = _FakeModels(text=_structured_text(hook_empathy="default"))
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(hook="default")
+    assert caption == _expected_caption(hook_empathy="default")
     assert models.calls == 1
 
 
@@ -525,13 +547,11 @@ irrelevant preamble text
 
 ## Generation Contract
 
-구조(8단계, 반드시 이 순서로 구성한다):
-1. 고객문장 Hook
-8. CTA 1개 — 게시물당 정확히 1개의 행동 유도 문구로 마무리한다.
-
+구조(9개 필드 + 고정 CTA):
+1. 공감 도입 3줄
 필수 규칙:
-- 출처(Evidence)에 없는 수치·성과·사례를 새로 만들지 않는다.
-- CTA는 게시물당 1개만 포함한다(2개 이상 금지).
+- 출처(원천)에 없는 수치·성과·사례를 새로 만들지 않는다.
+- CTA는 모델이 생성하지 않고 코드가 고정 문구를 붙인다.
 
 ---
 
@@ -545,8 +565,8 @@ def test_load_generation_contract_extracts_section_only(tmp_path):
 
     contract = caption_generator.load_generation_contract(playbook)
 
-    assert "고객문장 Hook" in contract
-    assert "CTA는 게시물당 1개만 포함한다" in contract
+    assert "공감 도입 3줄" in contract
+    assert "CTA는 모델이 생성하지 않고" in contract
     assert "irrelevant preamble text" not in contract
     assert "변경 이력" not in contract
 
@@ -576,9 +596,9 @@ def test_prompt_includes_playbook_contract_when_file_exists(tmp_path, monkeypatc
 
     prompt = captured["contents"]
     assert "Required structure (Content Playbook Generation Contract):" in prompt
-    assert "고객문장 Hook" in prompt
-    assert "CTA는 게시물당 1개만 포함한다" in prompt
-    assert "출처(Evidence)에 없는 수치·성과·사례를 새로 만들지 않는다" in prompt
+    assert "공감 도입 3줄" in prompt
+    assert "CTA는 모델이 생성하지 않고" in prompt
+    assert "출처(원천)에 없는 수치·성과·사례를 새로 만들지 않는다" in prompt
 
 
 def test_generate_hook_caption_fails_closed_when_playbook_missing(tmp_path, monkeypatch):
@@ -611,60 +631,72 @@ def test_generate_hook_caption_fails_closed_when_contract_section_empty(tmp_path
 
 
 def test_generate_hook_caption_preserves_multiline_within_a_field(monkeypatch):
-    """260807 확정된 Root Cause 수정을 8-Element 필드 단위로 일반화 — Gemini가
+    """260807 확정된 Root Cause 수정을 9-Element 필드 단위로 일반화 — Gemini가
     한 필드 안에서 줄바꿈해 응답해도, 다음 라벨이 나오기 전까지의 모든 줄을 그
-    필드에 이어붙여야 한다(첫 줄만 남기고 버리지 않음). 260808 5차 지시로
-    EVIDENCE는 항상 core_message로 대체되므로, 이 검증은 여전히 모델 응답을
-    그대로 쓰는 다른 필드(WORKFLOW)로 확인한다."""
-    multiline_workflow = "반복 업무 입력\n자동화 흐름 실행\n결과 기록"
-    fake_text = _structured_text(workflow=multiline_workflow)
+    필드에 이어붙여야 한다(첫 줄만 남기고 버리지 않음). DETAIL_BODY로 확인한다."""
+    multiline_detail_body = "블로그 → SNS 스니펫\n긴 영상 → 숏폼\n긴 영상 → 팟캐스트"
+    fake_text = _structured_text(detail_body=multiline_detail_body)
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(workflow=multiline_workflow)
+    assert caption == _expected_caption(detail_body=multiline_detail_body)
     assert hashtags == _DEFAULT_HASHTAGS
 
 
 def test_generate_hook_caption_single_line_fields_unchanged(monkeypatch):
     """회귀 확인 — 모든 필드가 한 줄씩으로 오는 기본 케이스는 정상 조립된다."""
-    fake_text = _structured_text(hook="Netflix trusts people over process. Do you?", hashtags="#startup #culture #netflix")
+    fake_text = _structured_text(
+        hook_empathy="콘텐츠 하나 만드는 데도 매번 진 다 빠지는 이 느낌....",
+        hashtags="#startup #culture #netflix",
+    )
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)
 
     caption, hashtags = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(hook="Netflix trusts people over process. Do you?")
+    assert caption == _expected_caption(
+        hook_empathy="콘텐츠 하나 만드는 데도 매번 진 다 빠지는 이 느낌...."
+    )
     assert hashtags == "#startup #culture #netflix"
 
 
-# --- 260808 4차 지시 Target Test: EVIDENCE Source 정합성 검증 ---
-
-
-# --- 260808 5차 지시 Target Test: EVIDENCE = verified core_message 강제치환 ---
-
-
-def test_generate_hook_caption_evidence_always_equals_core_message(monkeypatch):
-    """모델이 만든 EVIDENCE가 무엇이든(여기서는 core_message와 전혀 무관한
-    내용) 최종 EVIDENCE는 항상 verified core_message 원문과 문자 단위로
-    정확히 일치해야 한다."""
-    core_message = "반복되는 업무 하나를 자동화 흐름(트리거→처리→기록)으로 바꾸면 시스템이 대신 처리한다."
-    fake_text = _structured_text(evidence="이것은 모델이 지어낸, Source와 전혀 무관한 허위 근거입니다")
+def test_generate_hook_caption_cta_line_is_always_the_fixed_signature(monkeypatch):
+    """260810 신규 — CTA는 어떤 core_message·주제로 호출하든 항상 동일한 고정
+    문구여야 한다(프로필 링크가 실제로 없음을 확인한 뒤, DM을 유일한 실제
+    작동 채널로 고정한 결정)."""
+    fake_text = _structured_text()
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)
 
-    caption, hashtags = generate_hook_caption("Title", core_message)
+    caption, _ = generate_hook_caption("Title", "core message")
 
-    assert caption == _expected_caption(evidence=core_message)
-    # EVIDENCE 자리 문장이 정확히 core_message와 일치하는지 직접 재확인(문자 단위).
-    assert core_message in caption.splitlines()
-    assert hashtags == _DEFAULT_HASHTAGS
+    assert caption.endswith(caption_generator._FIXED_CTA_LINE)
+    assert "프로필 링크" not in caption
+
+
+def test_generate_hook_caption_ignores_stray_cta_label_from_model(monkeypatch):
+    """모델이 프롬프트 지시를 무시하고 CTA 라벨을 추가로 써도(더 이상 인식되는
+    라벨이 아니므로) 파싱이 깨지지 않고, 최종 캡션에는 여전히 고정 CTA 한 줄만
+    남아야 한다."""
+    fake_text = (
+        _structured_text() + "\nCTA: 프로필 링크를 클릭하세요"
+    )
+    models = _FakeModels(text=fake_text)
+    _patch_client(monkeypatch, models)
+
+    caption, _ = generate_hook_caption("Title", "core message")
+
+    # 모델이 만든 낯선 "CTA:" 줄은 HASHTAGS 필드에 이어붙는 잔여 텍스트가 될 뿐,
+    # 고정 CTA 문구 자체를 훼손하거나 중복시키지 않는다.
+    assert caption_generator._FIXED_CTA_LINE in caption
+    assert caption.count(caption_generator._FIXED_CTA_LINE) == 1
 
 
 def test_generate_hook_caption_holds_when_core_message_empty(monkeypatch):
-    """260808 5차 지시 Target Test — verified core_message가 비어있으면
-    Gemini를 호출하지도 않고 즉시 HOLD한다(기존 가드 재확인)."""
+    """verified core_message가 비어있으면 Gemini를 호출하지도 않고 즉시
+    HOLD한다(기존 가드 재확인)."""
     models = _FakeModels(text=_structured_text())
     _patch_client(monkeypatch, models)
 
@@ -675,28 +707,13 @@ def test_generate_hook_caption_holds_when_core_message_empty(monkeypatch):
 
 
 def test_generate_hook_caption_holds_when_element_missing(monkeypatch):
-    """260808 회장 지시 Target Test — 8요소 중 1개(WORKFLOW)가 누락되면 HOLD해야
-    한다. 나머지가 다 있어도 예외 없이 빈 문자열을 반환하고 Gemini 응답을
-    그대로 게시하지 않는다. EVIDENCE는 260808 5차 지시로 항상 core_message로
-    강제 대체되므로(누락 여부와 무관하게 항상 채워짐) 이 테스트의 누락 대상은
-    EVIDENCE가 아닌 다른 요소여야 한다."""
+    """260810 신규 구조 Target Test — 9요소 중 1개(DETAIL_BODY)가 누락되면
+    HOLD해야 한다. 나머지가 다 있어도 예외 없이 빈 문자열을 반환하고 Gemini
+    응답을 그대로 게시하지 않는다."""
     fake_text = (
-        "HOOK: h\nPATTERN: p\nLOSS: l\nCAUSE: c\n"
-        "EVIDENCE: e\nRESULT: r\nCTA: cta\nHASHTAGS: #a #b"
-    )
-    models = _FakeModels(text=fake_text)
-    _patch_client(monkeypatch, models)
-
-    caption, hashtags = generate_hook_caption("Title", "core message")
-
-    assert (caption, hashtags) == ("", "")
-
-
-def test_generate_hook_caption_holds_when_cta_duplicated(monkeypatch):
-    """260808 회장 지시 Target Test — CTA 라벨이 2번 나오면(요소는 다 있어도) HOLD한다."""
-    fake_text = (
-        "HOOK: h\nPATTERN: p\nLOSS: l\nCAUSE: c\nEVIDENCE: e\nWORKFLOW: w\nRESULT: r\n"
-        "CTA: first cta\nCTA: second cta\nHASHTAGS: #a #b"
+        "HOOK_EMPATHY: h1\nHOOK_QUESTION: h2\nHOOK_REVEAL: h3\n"
+        "HOW_POINT1: p1\nHOW_POINT2: p2\nDETAIL_TITLE: t\n"
+        "CORE_POINT: c\nMOTTO: m\nHASHTAGS: #a #b"
     )
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)
@@ -707,76 +724,78 @@ def test_generate_hook_caption_holds_when_cta_duplicated(monkeypatch):
 
 
 def test_generate_hook_caption_passes_at_exactly_500_chars(monkeypatch):
-    """260808 회장 지시 Target Test — 한글·공백·해시태그 포함 최종 500자는 PASS.
-    260808 5차 지시 이후 EVIDENCE는 항상 core_message로 대체되므로, EVIDENCE
-    길이는 fields 딕셔너리가 아니라 core_message 인자의 길이로 제어한다."""
-    long_field = "가" * 60
-    fields = dict(hook=long_field, pattern=long_field, loss=long_field, cause=long_field,
-                  workflow=long_field, result=long_field)
-    cta = "다" * 11
-    core_message = "가" * 60  # 이 값이 곧 최종 EVIDENCE 텍스트가 된다
-    caption_only = _expected_caption(cta=cta, evidence=core_message, **fields)
-    hashtags = "#" + ("나" * 60)
-    # 아래 assert가 실제 조립 길이를 런타임에 재검증한다(수기 계산 대신 자기검증).
+    """260810 신규 구조 Target Test — 한글·공백·고정 CTA·해시태그 포함 최종
+    500자는 PASS. 고정 시각 템플릿(번호·불릿·인용부호·CTA)의 실제 오버헤드를
+    _expected_caption()으로 런타임에 그대로 조립해 자기검증한다(수기 계산 대신)."""
+    long_field = "가" * 30
+    fields = dict(
+        hook_empathy=long_field, hook_question=long_field, hook_reveal=long_field,
+        how1=long_field, how2=long_field, detail_title=long_field, detail_body=long_field,
+        core_point=long_field, motto=long_field,
+    )
+    caption_only = _expected_caption(**fields)
+    hashtags = "#" + ("나" * 162)
     assert len(caption_only) + 1 + len(hashtags) == 500
-    fake_text = _structured_text(hashtags=hashtags, cta=cta, **fields)  # evidence 생략(어차피 무시됨)
+    fake_text = _structured_text(hashtags=hashtags, **fields)
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)
 
-    caption, returned_hashtags = generate_hook_caption("Title", core_message)
+    caption, returned_hashtags = generate_hook_caption("Title", "core message")
 
     assert caption == caption_only
     assert returned_hashtags == hashtags
 
 
 def test_generate_hook_caption_holds_at_501_chars(monkeypatch):
-    """260808 회장 지시 Target Test — 501자는 HOLD."""
-    long_field = "가" * 60
-    fields = dict(hook=long_field, pattern=long_field, loss=long_field, cause=long_field,
-                  workflow=long_field, result=long_field)
-    cta = "다" * 11
-    core_message = "가" * 60
-    hashtags = "#" + ("나" * 61)  # 위 PASS 케이스보다 해시태그 1자 더 길게 -> 501자
-    fake_text = _structured_text(hashtags=hashtags, cta=cta, **fields)
+    """260810 신규 구조 Target Test — 501자는 HOLD."""
+    long_field = "가" * 30
+    fields = dict(
+        hook_empathy=long_field, hook_question=long_field, hook_reveal=long_field,
+        how1=long_field, how2=long_field, detail_title=long_field, detail_body=long_field,
+        core_point=long_field, motto=long_field,
+    )
+    caption_only = _expected_caption(**fields)
+    hashtags = "#" + ("나" * 163)  # 위 PASS 케이스보다 해시태그 1자 더 길게 -> 501자
+    assert len(caption_only) + 1 + len(hashtags) == 501
+    fake_text = _structured_text(hashtags=hashtags, **fields)
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)
 
-    caption, returned_hashtags = generate_hook_caption("Title", core_message)
+    caption, returned_hashtags = generate_hook_caption("Title", "core message")
 
     assert (caption, returned_hashtags) == ("", "")
 
 
-def test_generate_hook_caption_passes_at_349_chars_when_otherwise_valid(monkeypatch):
-    """260808 3차 지시 Target Test — 350자 하한 HOLD를 제거했으므로, 349자여도
-    8요소·CTA 1개·500자 이내 등 필수 조건만 충족하면 PASS해야 한다(길이 미달만으로
-    HOLD하지 않음 — 2차 지시로 잠시 있었던 하한 HOLD를 되돌린 것의 직접 확인)."""
-    short_field = "가" * 30
-    fields = dict(hook=short_field, pattern=short_field, loss=short_field, cause=short_field,
-                  workflow=short_field, result=short_field)
-    cta = "다" * 10
-    core_message = "가" * 30
-    caption_only = _expected_caption(cta=cta, evidence=core_message, **fields)
-    hashtags = "#" + ("나" * 120)
-    # 아래 assert가 실제 조립 길이를 런타임에 재검증한다(수기 계산 대신 자기검증).
-    assert len(caption_only) + 1 + len(hashtags) == 349
-    fake_text = _structured_text(hashtags=hashtags, cta=cta, **fields)
+def test_generate_hook_caption_passes_with_short_fields(monkeypatch):
+    """신규 구조에는 하한(soft target 미만 HOLD) 규칙이 없다 — 짧은 필드라도
+    9요소가 전부 있고 500자 이내면 PASS해야 한다."""
+    short_field = "가" * 15
+    fields = dict(
+        hook_empathy=short_field, hook_question=short_field, hook_reveal=short_field,
+        how1=short_field, how2=short_field, detail_title=short_field, detail_body=short_field,
+        core_point=short_field, motto=short_field,
+    )
+    caption_only = _expected_caption(**fields)
+    hashtags = "#" + ("나" * 30)
+    fake_text = _structured_text(hashtags=hashtags, **fields)
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)
 
-    caption, returned_hashtags = generate_hook_caption("Title", core_message)
+    caption, returned_hashtags = generate_hook_caption("Title", "core message")
 
     assert caption == caption_only
     assert returned_hashtags == hashtags
 
 
 def test_real_playbook_file_loads_full_contract():
-    """실제 docs/design/CONTENT_PLAYBOOK_260807.md가 존재하고 8단계·CTA 1개
-    규칙을 담고 있는지 확인하는 Smoke Test(임시파일이 아닌 실제 Active 파일)."""
+    """실제 docs/design/CONTENT_PLAYBOOK_260807.md가 존재하고 신규 9요소 구조·
+    고정 CTA 규칙을 담고 있는지 확인하는 Smoke Test(임시파일이 아닌 실제
+    Active 파일)."""
     contract = caption_generator.load_generation_contract()
 
     assert contract != ""
-    assert "CTA 1개" in contract
-    assert "입력 → 자동화 → 결과" in contract
+    assert "고정 CTA" in contract
+    assert "더 나누고싶은건 댓글, 더 궁금하면 DM ^_~" in contract
 
 
 def test_generate_hook_caption_without_model_override_keeps_default(monkeypatch):
