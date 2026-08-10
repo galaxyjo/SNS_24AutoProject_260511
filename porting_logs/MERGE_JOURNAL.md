@@ -2340,3 +2340,100 @@ commit: 이 기록과 함께 커밋 예정(승인 시)
 push: 미실행 — 세션 종료 시 일괄 push([[feedback_push_cadence]] 방식)
 
 ---
+
+### 학습 검토 그리드 — "재검수"(PASS/BLOCK 다시 불러와 재판정) 기능 + Codex 2라운드 리뷰 (2026-08-06)
+
+회장 요청: "PASS된것만 다시 불러와서 PASS/BLOCK 다시 재검수할수 있는거 추가하자" — 467건 합격 처리분을 다시 검토하고 싶다는 요구.
+
+**구현(4 files, +82/-11):**
+- `modules/infra/repository_interface.py` — `RepositoryInterface`(ABC)에 신규 `@abstractmethod fetch_candidates_by_status(status, limit=50)` 추가. Repository Interface 변경 = CLAUDE.md Multi-AI Review Policy상 High-Risk(Codex 필수 리뷰 대상), 기존 batch API 작업과 동일 카테고리.
+- `modules/infra/airtable_repository.py` — 기존 `fetch_pending_candidates()`를 `fetch_candidates_by_status(PENDING, limit)` 위임으로 리팩터, 신규 메서드가 기존 GET 로직(URL/filterByFormula/정렬/필드매핑)을 그대로 수행하며 `status`만 파라미터화. 저장소 내 직접 구현체는 이 클래스 1개뿐(grep 확인), 다른 Fake/Mock은 duck typing이라 신규 abstractmethod 영향 없음.
+- `modules/infra/review_batch_committer.py` — `undo_batch_with_verification()`에 `revert_to: str = "PENDING"` 신규 파라미터(맨 뒤 추가, 하위호환 유지). 실행취소가 PENDING이 아니라 배치가 원래 있던 상태로 되돌아가도록 내부 하드코딩 `"PENDING"` 리터럴을 `revert_to`로 치환.
+- `modules/infra/review_grid_ui.py` — 상단 "리뷰 모드"(PENDING/PASS/BLOCK) selectbox 추가. 재검수 모드는 체크박스 기본값이 현재 `review_status` 반영(BLOCK 후보는 처음부터 체크), undo 시 `revert_to`를 payload에 함께 저장해 원래 상태로 정확히 복원.
+- 신규 테스트 `tests/test_review_grid_ui_re_review.py`.
+
+**Codex 1차 리뷰 (CHANGES REQUESTED):**
+- [P1] `fetch_candidates_by_status()`가 `status`를 검증 없이 Airtable `filterByFormula`에 직접 삽입 — 현재 UI 선택지는 고정값이라 즉시 노출되진 않으나 저장소 경계에서 `ReviewStatus(status)`로 PENDING/PASS/BLOCK만 허용해야 함.
+- [P1] `undo_batch_with_verification()`의 `revert_to`도 동일 사유로 쓰기 시작 전 검증 필요 — 손상된 SQLite payload가 임의 상태를 기록하거나 수식을 깨뜨리는 것을 방지.
+- [P2] 신규 undo 테스트가 제출 직후 같은 Streamlit 세션에서 취소해 `grid_undo_revert_to`(session_state)만으로 통과 — SQLite payload의 `revert_to` 저장·새 세션(새로고침) 복원이 실제로 검증되지 않음.
+- Codex 확인 4가지: (1) abstractmethod 추가 설계 적절(구현체 1개뿐, duck-typed 테스트 대역 무영향) (2) `revert_to` 위치인자 회귀 없음(기존 호출 2인자 또는 `sleep_fn=` 키워드, UI는 `revert_to=` 키워드) (3) UI 경로는 injection 없으나 저장소/undo API 경계는 검증 필요 (4) undo payload 추가 필드는 JSON 자유형식+기존 payload PENDING 폴백으로 하위호환 유지.
+
+**수정 반영:**
+- `airtable_repository.py::fetch_candidates_by_status()` 시작부에 `status = ReviewStatus(status).value` 검증(실패 시 기존 `RepositoryValidationError` 재사용, Airtable 요청 자체를 시작하지 않음).
+- `review_batch_committer.py`에 `from modules.infra.repository_interface import ReviewStatus` 추가(순수 Enum 모듈이라 파일의 "Airtable/Streamlit import 금지" 원칙과 무관), `payloads` 조립(쓰기 시작) 이전에 `revert_to` 검증 — 실패 시 예외 대신 기존 `UndoResult(committed=False, failed_id=..., failed_error=...)` 패턴 재사용(UI의 기존 `if result.failed_id:` 노출 경로를 그대로 활용).
+- 신규 테스트 4건: 새 `AppTest` 세션 + 같은 DB 파일을 가리키는 새 `UndoStateStore` 인스턴스로 재오픈(브라우저 새로고침 시뮬레이션) 후 undo — PASS/BLOCK 각각 SQLite payload만으로 원래 상태 복원 확인(`test_review_grid_ui.py`의 기존 PENDING 모드 새로고침 패턴과 동일 구조). 검증 자체 확인 테스트 2건(`revert_to="DROP TABLE"` 등 비정상 입력 시 `repo.save_calls == []`로 "쓰기 시작 전 차단" 직접 증명, `AirtableRepository().fetch_candidates_by_status("DROP TABLE")` 호출 시 `RepositoryValidationError` 확인).
+- 2차 리뷰 패키지(diff+요약+테스트 파일) 회장 경유 Codex 전달, **회신 대기 중**.
+
+**회귀 검증(A/B 비교, assertion 아닌 실측):** 신규 기능 단독 18/18 passed(1차 14 + 수정 반영 4). 관련 스위트 통합(6 files) 154/154 passed. 전체 프로젝트: 변경 적용 `62 failed, 1108 passed, 3 xfailed, 8 errors` vs `git stash -u` 클린 상태(commit `98adb6a`) `62 failed, 1090 passed, 3 xfailed, 8 errors` — failed/errors 완전 동일, passed 차이(+18)는 정확히 신규 테스트 파일 자체. `git diff --check` 통과.
+
+**라이브 UI 검증(운영 중인 실제 대시보드, PID 34500):** 코드 저장만으로 Streamlit이 자동 리로드해 신규 UI 즉시 반영(재시작 없음) 확인. "✅ 합격 재검수" 모드 전환 → 실제 Airtable PASS 467건 중 50건 정상 로드, 페이로드 미리보기 "0 BLOCK / 50 PASS"(체크박스 기본값 전부 미체크=PASS 유지, 기대와 일치). 실제 제출(Write)은 미실행 — Canary 승인 없이 실 데이터 변경 안 함 원칙에 따름. 확인 후 PENDING 모드로 원상복귀, 기존에 있던 실제 leftover undo(6건)는 미접촉. BLOCK 모드는 브라우저 자동화(BaseWeb Select 컴포넌트 특성)로 라이브 클릭 확인은 생략, 동일 코드경로의 자동화 테스트(`test_block_mode_candidates_default_checked` 등)로 커버됨.
+
+**상태변경 총계:** 코드 변경 4파일(미커밋, 워킹트리 상태). Airtable Write 0건(read-only 조회만 발생, 제출 버튼 미클릭). Commit/Push는 Codex 2차 회신 확인 후 별도 승인 대상.
+
+commit: 미실행 — Codex 2차 회신 대기
+push: 미실행
+
+---
+
+## 260808 — Content Playbook 8요소화 + EVIDENCE=core_message 강제치환 + 정보형 이미지 템플릿 착수 + 실게시 HTTP 400 근본원인 확인
+
+**배경:** 전날(260807) 구축한 Content Playbook(8단계 Generation Contract)을 회장·GPT 다회 검수를 거쳐 실제 Runtime 규칙으로 강화하고, "장식용 AI 이미지 폐기 → 정보형 이미지" 설계를 실제 코드로 착수, 실제 Instagram 계정에 신규 캡션+신규 이미지를 함께 게시하는 Live Test를 진행하며 발행 경로의 실제 결함을 발견·복구했다.
+
+**1) Cloudflare `negative_prompt` 스키마 오류 수정 (commit `eaf1444`):** FLUX.1-schnell이 `negative_prompt`를 스키마 미지원 필드로 거부(HTTP 400)해 09시 Producer가 막히던 문제 — `image_provider_cloudflare.py`에서 해당 필드 payload 전송 제거. 신규 Target Test 1건, `git diff --check` 통과.
+
+**2) Sourcebook SME 섹션 추가/정정 (commit `c0af70e`):** 제조·무역·유통·온라인판매·전문서비스(1~20인) 대상 요일별 원천 6건을 WebFetch로 실제 검증 후 섹션 12 신규 등록. GPT 검수 2라운드에서 주제 불일치(12.4/12.5) 및 Evidence 등급 미달(12.5, SaleAI 홍보성 블로그) 지적 반영 — 12.4는 Amazon SP-API로 교체, 12.5(무역업무)는 확실한 원천을 못 찾아 **삭제(추측성 대체 금지, 미배정으로 정직하게 남김)**. 최종 12.1/12.2/12.3/12.4/12.6 5건 등록.
+
+**3) Content Playbook Runtime 연결 (commit `1fe2650`):** `docs/design/CONTENT_PLAYBOOK_260807.md`(8단계 Generation Contract) 신규, `caption_generator.generate_hook_caption()`이 매 호출마다 이 파일을 다시 읽어 프롬프트에 포함(Drift 방지, 코드에 구조 재서술 안 함). Playbook 로딩 실패 시 Fail-closed(HOLD) 추가. 부수적으로 발견된 기존 결함(`generate_hook_caption()`/`generate_caption()` 둘 다 "CAPTION:" 첫 줄만 보존하고 이후 줄을 버리던 파서 버그)을 Raw-vs-반환값 비교로 확정·수정 — Gemini는 8단계를 전부 응답했으나 코드가 첫 줄만 반환하고 있었음.
+
+**4) 8요소 구조화 + EVIDENCE=core_message 강제치환 + 500자 상한 (commit `5cf00ca`, `d0cfe23`):** 회장 다회 지시로 설계가 여러 차례 조정됨 —
+   - 1차: `HOOK/PATTERN/LOSS/CAUSE/EVIDENCE/WORKFLOW/RESULT/CTA` 8필드 응답 강제 + Validator(요소누락/CTA≠1/500자초과 HOLD) 신설(Threads 공식 500자 제한 대응, Meta 공식문서 근거).
+   - 2차: 350~450자 목표 달성 안 됨(실측 301~316자) → 프롬프트 강화(각 필드 구체적 디테일 요구) → 실측 개선(383/332자).
+   - 3차: 350자 미만 HOLD 추가 → 실측 3/3 목표대역 안착.
+   - 4차: 회장 재지시로 350자 하한 HOLD **제거**(Soft Target로 되돌림, 필수조건은 8요소·CTA 1개·500자 상한 3가지로 확정).
+   - 5차: EVIDENCE 어휘중복 검증 방식(4차 설계, 폐기)을 더 단순하고 확실한 방식으로 교체 — **모델이 만든 EVIDENCE는 신뢰하지 않고 항상 verified core_message 원문으로 강제 치환**(문자 단위 동일). 근본 이유: 이 함수는 화면·Runtime 데이터를 입력받는 채널이 없는데도 Playbook 문구가 "실제 화면·Runtime 결과"를 증거로 예시해 모델이 이를 실제로 주장하는 결함을 유발했음(Dry-run 실측으로 확인) — Playbook 문서 자체를 정정하고, 코드는 core_message 치환으로 구조적으로 차단.
+   - 관련 Target Test 최종 42개, 직접 호출부 회귀(`content_package_builder`/`carousel_content_builder`/`research_to_topic_adapter`) 81개, 전부 PASS. `git diff --check` 통과.
+
+**5) 정보형 이미지 템플릿 시스템 설계 → 구현 착수 (미커밋):**
+   - 설계(Read-only): 현재 이미지 경로 Evidence 확인 — Cloudflare FLUX.1-schnell은 공식 문서상 `width/height/aspect_ratio` 파라미터 자체가 없고(prompt/steps만 지원) 기본 512×512, `ImagePrompt.aspect_ratio="1:1"` 필드는 코드 어디서도 실제 전달 안 되는 Dead Field임을 확인. 외부 후보 3종(Playwright/resvg/Bannerbear)을 공식 문서·GitHub 근거로 비교 후 **Pillow REUSE 권장**(이미 `requirements.txt`에 있는 내부 자산, 신규 의존성 0).
+   - GPT 검수로 자동 선택 규칙 결함 발견(WORKFLOW 필드가 항상 "→"를 포함해 모든 콘텐츠가 WORKFLOW로만 분류되던 설계 오류) → `Visual Type` Sourcebook 명시 필드 방식으로 수정, 미지정 시 SOURCE_CARD Fail-safe로 재설계. 기본 배경도 Flux 재사용(장식용 AI 이미지 폐기 목표와 충돌) 대신 결정론적 그라데이션으로 교체.
+   - 폰트: Pretendard Regular+ExtraBold(SIL OFL 1.1, 공식 GitHub `orioncactus/pretendard`) 다운로드·검증(`assets/fonts/pretendard/`, 회장 승인 후 유지 확정). 조사 중 2건 오류 정정(Naver 나눔고딕 링크가 실제로는 코딩체 저장소였음, Pillow가 Variable Font weight를 `set_variation_by_axes()`로 동적 변경 가능한데 "불가능"으로 잘못 설명).
+   - 구현: `modules/sns/image_template_renderer.py`(신규, 미커밋) — WORKFLOW/BEFORE_AFTER/SOURCE_CARD 3템플릿, 1080×1350, Pillow만 사용(Cloudflare 호출 0건). `tests/test_image_template_renderer.py` 11 passed(캔버스 크기·3템플릿·필수값 누락 HOLD·긴 한글 줄바꿈 포함).
+
+**6) 실제 Live Test 게시 + 발행 경로 결함 발견·복구 (Airtable Write 2건, Instagram 실게시 1건):**
+   - 회장 승인 하 Sourcebook 12.4(Amazon, 미사용 원천)로 신규 8요소 캡션 + 신규 Pillow WORKFLOW 카드 이미지를 실제로 생성해 `_job_aijomoojin_scheduled_post()`(Runtime과 완전 동일 코드경로) 통해 게시 시도.
+   - Airtable `save_instagram_post()`가 `canary_safe_mode.py`의 `runtime_boot_policy.json` 권한 오류로 최초 세션에서 차단(정상 설계 — 비인가 프로세스의 우회게시 방지) → 회장이 관리자 권한 PowerShell로 직접 재실행해 통과.
+   - 발행(`/media_publish`)이 **HTTP 400 결과불명**으로 종료(`OUTCOME_UNKNOWN`, 자동재게시 없음) — 같은 날 16시 정규 슬롯(`recSkFb90PoylqjuB`)에서도 동일 패턴 재현된 뒤였음(ERR-107/FP-078/INC-049 신규 기록). Read-only로 두 `creation_id`의 Meta 컨테이너 상태를 GET 조회 → 둘 다 `FINISHED` 확인. 회장 승인 하 `recTePQZJw0qYu2du`(신규 테스트분)만 신규 컨테이너 생성 없이 기존 `creation_id`로 **정확히 1회** 재발행 → HTTP 200, `ig_media_id=18014747315923229` 확보 → `mark_post_result()`로 Airtable 갱신 → 회장이 Instagram에서 실제 게시 확인.
+   - `recSkFb90PoylqjuB`(16시 정규분)는 회장 결정으로 재발행 범위에서 제외, **미해결로 남음**(다음 세션 승계 필요).
+
+**상태변경 총계:** Commit 5건(`eaf1444`/`c0af70e`/`1fe2650`/`5cf00ca`/`d0cfe23`, 전부 Push 완료). 미커밋 신규 파일: `modules/sns/image_template_renderer.py`, `tests/test_image_template_renderer.py`, `assets/fonts/pretendard/*`(회장 유지 승인만 받음, Commit 별도 승인 필요). Airtable Write: `save_instagram_post()` 1건 + `mark_post_result()` 1건. Instagram 실게시 1건(`ig_media_id=18014747315923229`, 신규 캡션+신규 이미지 최초 실사례).
+
+**잔여 과제(회장 명시, 다음 세션):** (1) 캡션 톤을 더 친밀감 있는 한국어로 다듬기, (2) 이미지 템플릿 디자인 추가 다듬기, (3) `recSkFb90PoylqjuB` 미해결 상태 처리, (4) Phase A/B 사이 컨테이너 FINISHED 대기 로직 추가 여부 결정(ERR-107/FP-078) — **260810 완료, 아래 참조**, (5) `Visual Type` Sourcebook 필드 실제 wiring(설계만 완료, 코드 미착수), (6) 이미지 템플릿 신규 파일 3종 Commit 여부.
+
+---
+
+## 260810 — ERR-107 근본 코드수정(Codex 리뷰 반영) + `recQhGqxUdCHT1W90` 실게시 복구
+
+**배경:** 노트북 재가동 후(260809 미가동으로 자동 3슬롯 미발생 확인) 회장 승인 하 수동 테스트 게시 1건을 시도하는 과정에서 ERR-107이 3번째 재현(`rid=recQhGqxUdCHT1W90`, `creation_id=17946146448257522`, 07:57 ICT). 이번엔 즉시 재발행 대신 근본 코드수정을 진행했다.
+
+**1) 근본 코드수정 (미커밋):** `launcher/main.py`의 `publish_single()`에 Phase A(컨테이너 생성)와 Phase B(발행) 사이 "Phase A.5"를 추가 — `status_code=FINISHED`를 확인할 때까지 대기 후에만 Phase B를 호출한다. `ERROR`/`EXPIRED`/`status_code` 누락은 Phase B를 호출하지 않고 확정 실패로 즉시 반환(outcome_unknown 아님).
+
+**2) Codex 리뷰(조건부 보류 → 반영):** 복붙용 리뷰 요청서를 작성해 회장이 Codex에 전달, 3건 지적 전부 반영 —
+   - P1(치명): 고정 `10회×30초` 폴링이 최악의 경우 누적 최대 330초까지 걸려 5분 주기·`max_instances=1` 스케줄러의 다음 실행을 막을 수 있음 → `time.monotonic()` 기반 전체 30초 deadline으로 교체, 개별 GET timeout도 남은 예산 이내로 제한.
+   - P2-a: 예산 소진 직전 불필요한 trailing sleep 제거.
+   - P2-b: `status_code` 누락이 `IN_PROGRESS`와 뭉개져 진단이 어려웠던 문제 → `container_status_missing`으로 분리.
+   - Codex는 인라인 유지를 "허용 가능"하다고 판단(헬퍼 분리는 선택사항으로 유보), pytest는 이 세션 Python 환경(`.venv` 부재) 문제로 직접 실행하지 못함(설계 검토만 수행).
+
+**3) Target Test:** `tests/test_publish_outcome_unknown.py` 기존 13개(회귀 없음, autouse fixture로 상태조회 FINISHED 고정) + 신규 8개(FINISHED 진행/ERROR·EXPIRED 확정실패/상태조회 일시실패 후 복구/30초 deadline 내 시간초과/느린 GET이어도 예산 안에서 중단/status_code 누락 확정실패) 전부 PASS. `tests/test_log_sanitizer.py` 기존 2개 PASS. `git diff --check` 통과. 전체 스위트 재실행 시 실패 63건은 전부 이 세션 환경의 기존 `runtime_boot_policy.json` PermissionError(무관, git stash로 baseline과 동일 실패셋 확인)로 확인 — 신규 실패 없음.
+
+**4) `recQhGqxUdCHT1W90` 실게시 복구 (Airtable Write 1건, Instagram 실게시 1건):** Sourcebook 전체 확인 결과 미사용 신규 원천이 없어(Series A 6개·section 12 5개 전부 posted/uploading) 신규 콘텐츠 생성 대신 이 stuck 레코드를 완료 처리하기로 결정. 발행 직전 컨테이너 상태를 Read-only로 재확인(`FINISHED`) 후 기존 `creation_id`로 **정확히 1회** `media_publish` 재호출(새 컨테이너 생성 없음) → HTTP 200, `ig_media_id=18329237491273482` → `mark_post_result()`로 Airtable `post_status=posted` 갱신 → 회장이 Instagram에서 실제 게시 확인(스크린샷 제공).
+
+**Evidence 등급 정정(중요):** 이 복구는 신규 Phase A.5 코드 경로 자체를 실행한 것이 아니라, 기존 `creation_id`를 재사용하는 별도 스크립트(상태 재확인 → `media_publish` 직접 호출)로 처리했다. "처리완료 전 발행 금지" 설계 원칙은 실게시로 검증됐으나(`production_verified`), `publish_single()` 내부 신규 코드 자체는 Target Test로만 검증된 상태(`module_verified`)이며 신규 컨테이너 생성부터 시작하는 완전한 end-to-end 실게시는 아직 미검증(다음 세션 과제 — Sourcebook에 신규 원천 확보 필요).
+
+**상태변경 총계:** Commit 0건(코드수정·테스트 전부 미커밋, 회장 승인 대기). Airtable Write: `mark_post_result()` 1건. Instagram 실게시 1건(`ig_media_id=18329237491273482`).
+
+**잔여 과제(다음 세션):** (1) 이번 코드수정 Commit 여부 결정, (2) `recSkFb90PoylqjuB` 여전히 미해결, (3) 신규 Phase A.5 코드의 완전한 end-to-end(신규 컨테이너부터) 실게시 검증 — Sourcebook 신규 원천 확보 필요, (4) 260808 잔여과제 (1)(2)(5)(6) 그대로 승계.
+
+commit: 5건 완료(위 목록), 신규 이미지 템플릿 3파일은 미실행
+push: 완료(commit된 5건 기준)
+
+---

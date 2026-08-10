@@ -2083,3 +2083,31 @@ watchdog.log(같은 구간):
 **관련:** FP-077, INC-048, 커밋 `cba1cc2`
 
 **관련:** ERR-103, ERR-104, `docs/CURRENT_RUNTIME_CONTEXT.md`(260805 전체), `porting_logs/MERGE_JOURNAL.md`(260805 Closure 항목), `CLAUDE.md`(고정 운영규칙 신규 섹션)
+
+## ERR-107 | aijomoojin Instagram 발행이 컨테이너 처리완료(FINISHED) 확인 없이 즉시 호출돼 HTTP 400 OUTCOME_UNKNOWN 반복 재현 (PARTIAL — 1건 수동 복구, 근본 코드수정 미착수, 260808)
+
+**발견 경위:** 260808 16:00 정규 슬롯(`_job_aijomoojin_scheduled_post`)이 `media_publish` 단계에서 HTTP 400 결과불명으로 종료(`rid=recSkFb90PoylqjuB`, `creation_id=17945860479257522`). 회장이 Instagram 직접 확인 결과 실제 미게시 확정. 같은 날 18:04 회장 승인 하 수동 테스트 게시(신규 8요소 캡션 + 신규 Pillow 이미지 템플릿, `rid=recTePQZJw0qYu2du`, `creation_id=17945867439257522`)에서 동일 HTTP 400이 재현, 역시 회장이 Instagram에서 실제 미게시 확인.
+
+**Raw:**
+- `publish_single()` 로그(두 건 동일 패턴): `[publish_single] media_publish 결과 불명(HTTP 400) — 재시도 중단` → `[AijomoojinSlot] OUTCOME_UNKNOWN — 자동재게시 금지, 수동확인 필요`.
+- 코드 확인(`launcher/main.py` Phase A/B): 컨테이너 생성(`/media`) 성공 직후 처리 상태(`status_code`) 확인 없이 곧바로 발행(`/media_publish`) 호출 — 대기/폴링 로직 없음.
+- Read-only 진단(Meta Graph API `GET /{creation_id}?fields=status_code,status`, 재발행 호출 없음): 두 `creation_id` 모두 조회 시점(발행 시도 후 수 분 경과)에 `"status_code":"FINISHED"` 확인.
+- 회장 승인 하 `recTePQZJw0qYu2du`의 `creation_id`만 신규 컨테이너 생성 없이 **정확히 1회** 재호출 → HTTP 200, `ig_media_id=18014747315923229` 수신 → Airtable `mark_post_result()`로 `post_status=posted` 갱신 → 회장이 Instagram에서 실제 게시 확인.
+
+**Root Cause(강한 근거, 완전 확정 아님):** `/media_publish` 응답 본문이 로그에 남지 않아(상태코드만 기록) Meta의 정확한 거부 사유는 직접 확인 불가. 다만 (1) 발행 시도 직후엔 실패했다가 (2) 이후 컨테이너가 FINISHED 상태로 전환됐고 (3) 그 FINISHED 상태에서 재시도하니 즉시 성공한 점을 근거로, **컨테이너가 아직 처리 중(IN_PROGRESS)일 때 발행을 시도해 Meta가 거부했을 가능성**이 유력하다. Phase A→B 사이에 상태 대기 절차가 없는 기존 코드 구조가 이를 뒷받침한다.
+
+**Fix(부분):** 코드 수정 없음(오늘 범위는 Read-only 진단 + 승인된 1건 수동 재발행까지). `recTePQZJw0qYu2du`만 복구됨 — `recSkFb90PoylqjuB`(16:00 정규 슬롯분)는 회장이 재발행 범위에서 제외해 **여전히 `post_status=uploading`으로 미해결 상태**.
+
+**Prevention:** FP-078 참조 — Phase A/B 사이 `status_code=FINISHED` 대기(폴링) 로직 추가와, `/media_publish` 실패 시 응답 본문 로깅 추가가 후보 조치이나 둘 다 별도 승인 필요(미착수).
+
+**관련:** FP-078, INC-049, 260801 6D 선례(코드 주석 기준 동일 패턴 재현 — media_id 17900221041544868/18021773060855830 관련 사고)
+
+**260810 후속 — 3번째 재현 후 근본 코드수정 완료(Codex 리뷰 반영):**
+- 260810 07:57 회장 승인 하 수동 테스트(`rid=recQhGqxUdCHT1W90`, `creation_id=17946146448257522`)에서 동일 HTTP 400 3번째 재현 — 같은 Read-only 진단(사후 GET)으로 재차 `FINISHED` 확인, 즉시 재발행은 보류하고 근본 코드수정을 먼저 진행.
+- 회장 승인 하 `launcher/main.py`의 `publish_single()`에 Phase A(컨테이너 생성)와 Phase B(발행) 사이 "Phase A.5" 추가 — `status_code=FINISHED`를 확인할 때까지 대기 후에만 Phase B 호출. `status_code`가 `ERROR`/`EXPIRED`/누락(`None`)이면 Phase B를 호출하지 않고 확정 실패로 반환(outcome_unknown 아님 — 발행 시도 자체를 안 했다는 사실이 확실하므로).
+- Codex 리뷰(조건부 보류 → 반영 후 승인 대기) 3건 지적·전부 반영: (P1) 고정 `10회×30초` 폴링이 최악의 경우 최대 330초까지 걸려 5분 주기·`max_instances=1` 스케줄러의 다음 실행을 막을 수 있음 → `time.monotonic()` 기반 전체 30초 deadline으로 교체(개별 GET timeout도 남은 예산 이내로 제한). (P2-a) 예산 소진 직전의 불필요한 trailing sleep 제거. (P2-b) `status_code` 누락이 `IN_PROGRESS`와 뭉개져 `container_finished_timeout`으로만 보이던 문제 → `container_status_missing`으로 분리해 운영 진단 가능하게 함.
+- Target Test: `tests/test_publish_outcome_unknown.py` 기존 13개(회귀 없음) + 신규 8개(FINISHED 진행/ERROR·EXPIRED 확정실패/상태조회 일시실패 후 복구/deadline 내 시간초과/느린 GET이어도 예산 안에서 중단/status_code 누락 확정실패) 전부 PASS. `tests/test_log_sanitizer.py` 기존 2개 PASS. 전체 스위트 재실행 시 발생한 실패 63건은 전부 이 세션 환경의 기존 `runtime_boot_policy.json` PermissionError(무관, git stash로 baseline과 동일 실패셋 확인)로 확인 — 이번 수정이 만든 신규 실패 없음.
+- `recQhGqxUdCHT1W90`은 발행 직전 Read-only 재확인으로 `FINISHED` 재확인 후 기존 `creation_id`로 **정확히 1회** `media_publish` 재호출(새 컨테이너 생성 없음) → HTTP 200, `ig_media_id=18329237491273482` → `mark_post_result()`로 `post_status=posted` 갱신 → 회장이 Instagram에서 실제 게시 확인(스크린샷 제공).
+- **Evidence 등급 정정(중요):** 위 `recQhGqxUdCHT1W90` 복구는 새로 작성된 `publish_single()`의 Phase A.5 코드 경로 자체를 실행한 것이 **아니다** — 기존에 이미 생성된 `creation_id`를 재사용하는 별도 스크립트(상태 재확인 → `media_publish` 직접 호출)로 처리했다. 즉 "처리완료 전 발행 시도 금지"라는 **설계 원칙**은 실게시로 검증됐으나(`production_verified`), `publish_single()` 내부의 신규 Phase A.5 코드 자체는 아직 **Target Test로만 검증된 상태**(`module_verified`)이며, 신규 컨테이너 생성부터 시작하는 완전한 end-to-end 실게시로는 아직 검증되지 않았다(현재 Sourcebook에 미사용 신규 원천이 없어 즉시 시도 불가 — 다음 세션 과제).
+- 이 코드수정은 아직 **Commit 미실행**(회장 승인 대기 중).
+- **상태: PARTIAL → 근본 코드수정 자체는 완료(Codex 반영 포함, Commit 대기), `recQhGqxUdCHT1W90` 복구 완료. `recSkFb90PoylqjuB`는 여전히 미해결(회장이 범위에서 제외). 신규 코드의 완전한 end-to-end 실게시 검증은 미완료.**

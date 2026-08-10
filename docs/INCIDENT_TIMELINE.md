@@ -795,3 +795,19 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **관련:** ERR-106, FP-077
 
 **관련:** ERR-103, FP-075
+
+## INC-049 | aijomoojin 발행 HTTP 400 OUTCOME_UNKNOWN 하루 2회 재현 — 1건 수동 복구, 1건 미해결 잔존 (PARTIAL, 260808)
+
+**발생:** 2026-08-08 17:00:27 ICT(16:00 정규 슬롯, `rid=recSkFb90PoylqjuB`)와 18:04:05 ICT(회장 승인 수동 테스트, `rid=recTePQZJw0qYu2du`) 두 차례, `publish_single()`의 `/media_publish` 호출이 HTTP 400을 반환해 `OUTCOME_UNKNOWN`으로 격리됐다.
+
+**영향:** 두 건 모두 회장이 Instagram에서 직접 확인해 실제 미게시 확정. 정규 슬롯 1건(`recSkFb90PoylqjuB`)은 재발행 범위에서 제외돼 오늘 예정된 3건 중 1건이 게시되지 못한 채 남아있다(`post_status=uploading`, 미해결).
+
+**진행 상황:** Read-only 진단(Meta Graph API 컨테이너 상태 조회)으로 두 `creation_id` 모두 이후 `FINISHED` 확인 → 회장 승인 하 `recTePQZJw0qYu2du`만 기존 `creation_id`로 정확히 1회 재발행 시도 → HTTP 200, `ig_media_id=18014747315923229` 수신 → Airtable 갱신 → 회장이 Instagram에서 실제 게시 확인(RESOLVED, 이 건만).
+
+**해결:** 부분 해결 — `recTePQZJw0qYu2du`는 복구 완료. `recSkFb90PoylqjuB`는 회장이 "테스트 1건만" 재발행하기로 결정해 그대로 미해결 상태(추가 조치 보류, 다음 세션 승계 필요).
+
+**재발 방지:** FP-078 참조 — Phase A/B 사이 상태 확인 로직 추가는 별도 승인 필요(오늘 범위 밖, 미착수).
+
+**260810 후속:** 같은 패턴이 07:57 ICT 회장 승인 수동 테스트(`rid=recQhGqxUdCHT1W90`, `creation_id=17946146448257522`)에서 3번째 재현. 이번엔 즉시 재발행 대신 근본 코드수정(ERR-107 참조, Codex 리뷰 P1/P2 반영)을 먼저 진행 — `publish_single()`에 Phase A/B 사이 `status_code=FINISHED` 대기 추가, Commit은 회장 승인 대기 중. `recQhGqxUdCHT1W90`은 발행 직전 Read-only 재확인 후 기존 `creation_id`로 1회 재발행 → HTTP 200, `ig_media_id=18329237491273482` → 회장이 Instagram에서 실제 게시 확인(RESOLVED, 이 건도 복구 완료). `recSkFb90PoylqjuB`는 여전히 미해결.
+
+**관련:** ERR-107, FP-078
