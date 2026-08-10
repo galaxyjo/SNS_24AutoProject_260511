@@ -810,4 +810,20 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 
 **260810 후속:** 같은 패턴이 07:57 ICT 회장 승인 수동 테스트(`rid=recQhGqxUdCHT1W90`, `creation_id=17946146448257522`)에서 3번째 재현. 이번엔 즉시 재발행 대신 근본 코드수정(ERR-107 참조, Codex 리뷰 P1/P2 반영)을 먼저 진행 — `publish_single()`에 Phase A/B 사이 `status_code=FINISHED` 대기 추가, Commit은 회장 승인 대기 중. `recQhGqxUdCHT1W90`은 발행 직전 Read-only 재확인 후 기존 `creation_id`로 1회 재발행 → HTTP 200, `ig_media_id=18329237491273482` → 회장이 Instagram에서 실제 게시 확인(RESOLVED, 이 건도 복구 완료). `recSkFb90PoylqjuB`는 여전히 미해결.
 
-**관련:** ERR-107, FP-078
+**260810 최종 종결:** 코드수정 Commit(`98e7a6c`/`38ac9fc`) Push 완료. `recSkFb90PoylqjuB` 재발행 시도는 새로운 오류(ERR-108, "media file not found")로 실패 확정 — 영구 미게시로 판단, 회장 승인 하 `post_status=failed`로 종결(더 이상 미해결 상태로 남기지 않음, 다만 이 콘텐츠 자체는 결국 게시되지 못함). 이후 관리자 권한으로 Producer→게시 파이프라인을 신규 컨테이너부터 재실행해 `recmTa6kVDyrBdNSK`(`ig_media_id=18102250937459027`) 실게시 성공 — Phase A.5 신규 코드의 최초 end-to-end 실증 완료(상세 INC-050).
+
+**관련:** ERR-107, ERR-108, FP-078, FP-079, INC-050
+
+## INC-050 | `recSkFb90PoylqjuB`(260808 정규 슬롯 콘텐츠) 영구 미게시 확정 + Phase A.5 신규 코드 최초 production_verified 실증 (RESOLVED, 260810)
+
+**발생:** INC-049에서 미해결로 남아있던 `recSkFb90PoylqjuB`가 260810 세션 내내 `post_status=uploading`으로 잔존하며, `_job_aijomoojin_content_producer`의 안전장치("uploading 레코드 있으면 신규 생성 안 함")를 매 실행(09:00 포함)마다 트리거해 신규 콘텐츠 생성 자체를 계속 막고 있었음이 확인됨.
+
+**영향:** (1) 260808 16:00 정규 슬롯에 예정됐던 콘텐츠(Buffer/12.3 원천) 1건이 최종적으로 게시되지 못하고 영구 종결됨. (2) 이 레코드가 uploading으로 남아있던 기간(260808~260810) 동안 aijomoojin Producer의 신규 콘텐츠 생성이 사실상 전부 막혀 있었음(Sourcebook 소진 문제로 오인됐던 것의 실제 원인).
+
+**진행 상황:** 회장 승인 하 기존 `creation_id`로 재발행 시도 → ERR-108(신규 발견, "media file not found") → 복구 불가 확정 → 회장 승인 하 `post_status=failed`로 전환해 HOLD 해제. 이후 Producer 수동 트리거(관리자 권한)로 신규 원천(12.6 MIT Sloan) 콘텐츠 생성·Airtable 저장 성공(`recmTa6kVDyrBdNSK`) → 게시 잡도 관리자 권한으로 재실행해 신규 컨테이너 기준 Phase A→A.5→B 전 구간 성공(`ig_media_id=18102250937459027`).
+
+**해결:** 완전 해결 — HOLD 게이트 해제 확인(계정 `uploading` 0건), 신규 콘텐츠 정상 게시 확인. `recSkFb90PoylqjuB` 자체의 콘텐츠는 복구되지 않았으나(영구 손실, ERR-108), 시스템 상태는 정상으로 복귀했고 ERR-107 Phase A.5 수정도 이 과정에서 최초로 production_verified 확인됨(부가 성과).
+
+**재발 방지:** (1) FP-079 — 오래 방치된 미디어 컨테이너는 상태조회가 FINISHED라도 재사용을 신뢰하지 않는다. (2) "uploading 레코드가 HOLD를 유발한다"는 안전장치 자체는 의도된 설계이나, 이번처럼 그 레코드가 장기간(2일 이상) 방치되면 Producer 전체가 막힌다는 사실이 이번에 드러남 — uploading 상태가 일정 시간 이상 지속되면 능동 알림(Slack 등)을 강화하는 방안은 별도 승인 대상(이번 세션 범위 밖, 미착수).
+
+**관련:** ERR-107, ERR-108, FP-078, FP-079, INC-049

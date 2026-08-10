@@ -2437,3 +2437,30 @@ commit: 5건 완료(위 목록), 신규 이미지 템플릿 3파일은 미실행
 push: 완료(commit된 5건 기준)
 
 ---
+
+## 260810 (계속) — `recSkFb90PoylqjuB` 종결(ERR-108 신규) + Phase A.5 신규 코드 최초 production_verified 실증
+
+**배경:** 위 항목(260810 오전) 종료 시점 기준 코드수정은 이미 Commit(`98e7a6c`/`38ac9fc`) Push 완료 상태였다(문서 서술의 "Commit 미실행"은 그 이전 시점 기준). 이번 세션은 회장 지시(우선순위 1~6)에 따라 Sourcebook 소진 문제부터 재검증하며 시작했다.
+
+**1) Sourcebook 재검증(Read-only):** `scan_used_source_urls()`(Vault 기준, "오늘만" 제외)를 직접 호출한 결과 260810 Vault 신규 파일 0건 — 즉 실제로는 미사용 원천이 남아있었다(`select_next_topic()` 시뮬레이션 결과 12.4 Amazon이 최우선). 앞선 세션의 "미사용 신규 원천 없음" 판단은 Airtable 영구 이력 기준이었고, 260805에 이미 코드로 구현된 "Vault 일자 기준 재사용 정책"(CLAUDE.md 260805 규칙 #4/#5)과는 다른 기준이었음을 확인.
+
+**2) 진짜 원인 특정(Read-only):** 앱 로그 직접 확인 — 260810 09:00:01 정규 Producer 실행이 `[AijomoojinProducer] uploading 레코드 발견 — HOLD, 신규 생성 안 함`으로 스킵됨. `recSkFb90PoylqjuB`가 여전히 `post_status=uploading`으로 남아있어 이 HOLD 게이트가 매 실행마다 신규 콘텐츠 생성 자체를 막고 있었다 — Sourcebook 소진이 아니라 이 stuck 레코드 하나가 근본 원인이었다.
+
+**3) `recSkFb90PoylqjuB` 재발행 시도 → 신규 오류 발견(ERR-108):** 회장 승인 하 재발행 시도. 발행 직전 Read-only GET으로 `status_code=FINISHED`(HTTP 200) 재확인했음에도, `media_publish` 호출은 **HTTP 400 `"media file not found"`(`code=24, error_subcode=2207006`)**로 거부됨 — ERR-107(처리 중 상태에서 거부)과는 다른 새로운 패턴. 소스 이미지 HEAD 요청으로 정상 접근 확인(원인 아님), 계정 최근 게시물 10건 대조로 중복게시 아님 확인. 컨테이너 생성 후 약 42시간 경과 — "상태조회는 FINISHED를 반환해도 오래된 컨테이너는 실제 발행이 거부될 수 있다"는 신규 패턴으로 ERR-108/FP-079 기록.
+
+**4) `recSkFb90PoylqjuB` 종결 (Airtable Write 1건):** 회장 승인 하 `post_status`를 `uploading`→`failed`로 전환. 재조회로 해당 계정 `uploading` 0건 확인 — Producer HOLD 게이트 해제.
+
+**5) Producer 수동 트리거 — 권한 문제 재확인 + 신규 콘텐츠 생성 (Airtable Write 1건):** `tools/run_aijomoojin_producer_manual.py`(기존 Git-tracked 공식 도구, REUSE) 실행. 비관리자 프로세스로는 콘텐츠 생성(Gemini 캡션+Cloudflare 이미지)은 성공했으나(`content_id=12-4-260810-cc0839dd`) Airtable 저장이 `Runtime Boot Policy 상태 확인 실패`로 차단(260808 선례와 동일 패턴, 이번에 코드 추적으로 근본 경로까지 특정 — `canary_classification.py`의 `validate_post_classification()`이 `canary_safe_mode.get_canary_safe_mode_state()`를 호출하며 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` 존재 확인조차 권한 부족으로 실패). 회장이 관리자 PowerShell에서 동일 명령 재실행 → `12-4`는 260808 별도 스크립트로 이미 그 `source_url`이 Airtable에 존재해 stale로 자동 스킵되고, 다음 순번인 **12.6(MIT Sloan AI Implementation Strategies)** 원천으로 신규 패키지 생성 + Airtable 저장 성공(`record_id=recmTa6kVDyrBdNSK`, `post_status=ready`).
+
+**6) 게시 — Phase A.5 신규 코드 최초 end-to-end 실증 (Instagram 실게시 1건):** 게시 잡(`_job_aijomoojin_scheduled_post`)을 비관리자 프로세스로 먼저 시도 → 동일한 Runtime Boot Policy 게이트(`validate_publication_candidate()`)에서 안전하게 차단(Airtable 상태 변화 없음 확인). 회장이 관리자 PowerShell에서 동일 스크립트 재실행 → **신규 컨테이너 생성(Phase A) → `status_code=FINISHED` 대기(Phase A.5, 최초 조회에서 재시도 없이 즉시 통과) → 발행(Phase B) 전부 성공**. Runtime 로그: `2026-08-10 11:30:46 [INFO] launcher.main - [publish_single] 성공 | rid=recmTa6kVDyrBdNSK | ig_media_id=18102250937459027`. Airtable 재조회로 `post_status=posted`/`ig_media_id` 일치 확인.
+
+**Evidence 등급 최종 격상:** 앞선 두 복구(`recTePQZJw0qYu2du`, `recQhGqxUdCHT1W90`)는 전부 기존 `creation_id`를 재사용하는 별도 스크립트였다. 이번(`recmTa6kVDyrBdNSK`)은 **Phase A(신규 컨테이너 생성)부터 실제 `publish_single()` 코드가 실행**됐다 — ERR-107 Phase A.5 수정이 `module_verified`에서 **`production_verified`**로 최초 격상.
+
+**상태변경 총계:** Airtable Write 2건(`recSkFb90PoylqjuB` 실패처리, `recmTa6kVDyrBdNSK` 신규 생성 — `mark_post_result()`의 posted 갱신 포함 시 3건). Instagram 실게시 1건(`ig_media_id=18102250937459027`). 문서 갱신: `docs/ERROR_DATABASE.md`(ERR-107 이어쓰기 + ERR-108 신규), `docs/FAILURE_PATTERN.md`(FP-078 갱신 + FP-079 신규), `docs/INCIDENT_TIMELINE.md`(INC-049 이어쓰기 + INC-050 신규), `docs/VALIDATION_STATUS.md`(신규 3행), 이 항목. Commit·Push는 이 문서 기록과 별도로 승인 대기.
+
+**잔여 과제(다음 세션):** (1) 이번 문서 기록 5종 Commit 여부 결정, (2) 항목 4(image_template_renderer.py 등 신규파일 3종) Commit 여부, (3) 항목 5(`modules/infra/*` 4개 파일, Training_Review_Queue 재검수 기능) Codex 2차 리뷰 회신 확인, (4) 260808 잔여과제 (1)(2)(5) 계속 승계(캡션 톤 다듬기/이미지 디자인 다듬기/`Visual Type` wiring), (5, 신규) Runtime Boot Policy 권한 요구사항 자체는 의도된 설계이나 매번 관리자 PowerShell 수동 개입이 필요한 운영 부담은 별도 개선 검토 대상(이번 세션 범위 밖).
+
+commit: 0건(이번 세션 상태변경은 Airtable Write·Instagram 게시뿐, 코드 변경 없음, 문서 갱신은 이 기록과 함께 별도 승인 대상)
+push: 해당 없음(Commit 없음)
+
+---

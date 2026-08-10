@@ -2111,3 +2111,35 @@ watchdog.log(같은 구간):
 - **Evidence 등급 정정(중요):** 위 `recQhGqxUdCHT1W90` 복구는 새로 작성된 `publish_single()`의 Phase A.5 코드 경로 자체를 실행한 것이 **아니다** — 기존에 이미 생성된 `creation_id`를 재사용하는 별도 스크립트(상태 재확인 → `media_publish` 직접 호출)로 처리했다. 즉 "처리완료 전 발행 시도 금지"라는 **설계 원칙**은 실게시로 검증됐으나(`production_verified`), `publish_single()` 내부의 신규 Phase A.5 코드 자체는 아직 **Target Test로만 검증된 상태**(`module_verified`)이며, 신규 컨테이너 생성부터 시작하는 완전한 end-to-end 실게시로는 아직 검증되지 않았다(현재 Sourcebook에 미사용 신규 원천이 없어 즉시 시도 불가 — 다음 세션 과제).
 - 이 코드수정은 아직 **Commit 미실행**(회장 승인 대기 중).
 - **상태: PARTIAL → 근본 코드수정 자체는 완료(Codex 반영 포함, Commit 대기), `recQhGqxUdCHT1W90` 복구 완료. `recSkFb90PoylqjuB`는 여전히 미해결(회장이 범위에서 제외). 신규 코드의 완전한 end-to-end 실게시 검증은 미완료.**
+
+**260810 (계속) — Commit 완료 + Phase A.5 신규 코드 최초 end-to-end 실증(production_verified):**
+- 코드수정 Commit 완료: `98e7a6c`(코드+테스트), `38ac9fc`(문서) — 둘 다 Push 완료(위 "Commit 미실행" 서술은 그 시점 기준이며 이후 갱신됨).
+- Sourcebook 재검증: `scan_used_source_urls()`가 "오늘(Vault 기준) 사용분만" 제외하는 재사용 정책(260805 코드수정)이 이미 있음을 재확인 — 260810 Vault에 신규 파일 0건이라 실제로는 미사용 원천이 남아있었다. "미사용 신규 원천 없음"(위 260810 07:57 기록)은 Airtable 영구 이력 기준 판단이었고, Vault 일자 기준 재사용 정책과는 다른 기준이었음을 확인.
+- **진짜 원인 특정:** 260810 09:00:01 정규 Producer 실행 로그 `[AijomoojinProducer] uploading 레코드 발견 — HOLD, 신규 생성 안 함` — Sourcebook 소진이 아니라 `recSkFb90PoylqjuB`가 여전히 `post_status=uploading`으로 남아있어 Producer의 HOLD 게이트가 매 실행마다 신규 생성을 막고 있었다.
+- `recSkFb90PoylqjuB` 재발행 시도(회장 승인) — 기존 `creation_id=17945860479257522`를 Read-only GET으로 재확인하니 `status_code=FINISHED`(HTTP 200)였음에도, 실제 `media_publish` 호출은 **HTTP 400 `"media file not found"`(`code=24, error_subcode=2207006`)**로 거부됨 — ERR-107 원래 패턴(처리 중 상태에서 거부)과 다른 새로운 오류 패턴. 소스 이미지(`i.ibb.co`) 자체는 직접 HEAD 요청으로 정상 접근 가능 확인(이미지 만료 아님). 컨테이너 생성 후 약 42시간 경과 — 상세는 신규 ERR-108 참조.
+- 회장 승인 하 `recSkFb90PoylqjuB`를 Airtable Write로 `post_status=failed`로 전환 — HOLD 게이트 해제 확인(재조회로 해당 계정 `uploading` 0건).
+- Producer 수동 트리거(`tools/run_aijomoojin_producer_manual.py`, 기존 Git-tracked 공식 도구 REUSE) — 비관리자 프로세스로 최초 실행 시 콘텐츠 생성(Gemini+Cloudflare)은 성공했으나(`content_id=12-4-260810-cc0839dd`) Airtable 저장이 `Runtime Boot Policy 상태 확인 실패`로 차단됨(권한 문제, 아래 참조). 관리자 PowerShell 재실행 시 `12-4`는 260808 별도 스크립트로 이미 그 `source_url`이 Airtable에 존재해 stale로 자동 스킵되고, 다음 순번인 **12.6(MIT Sloan)** 원천으로 신규 패키지 생성 및 Airtable 저장 성공(`record_id=recmTa6kVDyrBdNSK`, `post_status=ready`).
+- **게시(Phase A.5 최초 실증):** 비관리자 프로세스로 게시 잡(`_job_aijomoojin_scheduled_post`) 실행 시 동일하게 `Runtime Boot Policy 상태 확인 실패`로 차단(`canary_classification.py`의 `validate_publication_candidate()`가 `canary_safe_mode.get_canary_safe_mode_state()`를 호출하며 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` 존재 확인조차 권한 부족으로 실패 — Root Cause 코드 경로까지 이번에 특정함). 관리자 PowerShell로 재실행 → **신규 컨테이너 생성(Phase A) → `status_code=FINISHED` 대기(Phase A.5, 재시도 로그 없이 최초 조회에서 즉시 통과) → 발행(Phase B) 전부 성공** — 로그 `2026-08-10 11:30:46 [INFO] launcher.main - [publish_single] 성공 | rid=recmTa6kVDyrBdNSK | ig_media_id=18102250937459027`, Airtable 재조회로 `post_status=posted`/`ig_media_id` 일치 확인.
+- **Evidence 등급 최종 격상:** 위 260810 07:57 기록의 "신규 Phase A.5 코드는 아직 신규 컨테이너로 검증되지 않음(`module_verified`만)"이 이 실증으로 해소됨 — `publish_single()`의 Phase A.5 코드 자체가 신규 컨테이너 생성부터 발행까지 전 구간에서 처음으로 **`production_verified`** 확인됨.
+- **상태: RESOLVED** — 근본 코드수정 Commit·Push 완료, Codex 리뷰 반영 완료, 신규 컨테이너 기준 end-to-end 실게시 검증 완료. 단 `recSkFb90PoylqjuB`(원본 16:00 정규 슬롯분)는 영구 미게시로 `failed` 확정 종결(복구 안 됨 — ERR-108 참조), 관리자 권한 요구사항(Runtime Boot Policy)은 별도 운영 제약으로 잔존(코드 결함 아님, 설계된 안전장치).
+
+**관련(260810 추가):** ERR-108
+
+## ERR-108 | Meta 미디어 컨테이너가 상태조회(`status_code=FINISHED`)에는 응답하면서도 발행(`/media_publish`)은 "media file not found"로 거부 — 40여시간 경과 컨테이너 복구 실패 확정 (UNKNOWN ROOT CAUSE / ACCEPTED, 260810)
+
+**발견 경위:** ERR-107 계열 stuck 레코드 `recSkFb90PoylqjuB`(260808 16:00 정규 슬롯 생성, `creation_id=17945860479257522`)를 회장 승인 하 재발행 시도하는 과정에서 발견. 재발행 직전 Read-only GET으로 상태를 재확인했을 때는 정상적으로 `status_code=FINISHED`(HTTP 200)를 반환했으나, 그 직후 `media_publish`를 호출하니 거부됨.
+
+**Raw:**
+- GET `https://graph.instagram.com/v21.0/17945860479257522?fields=status_code` → HTTP 200, `{"status_code":"FINISHED","id":"17945860479257522"}`.
+- 곧이어 POST `.../media_publish?creation_id=17945860479257522` → **HTTP 400**, `{"error":{"message":"The requested resource does not exist","type":"OAuthException","code":24,"error_subcode":2207006,"error_user_title":"Không tìm thấy file phương tiện","error_user_msg":"Không tìm thấy được file phương tiện có 17.945.860.479.257.522."}}`.
+- 소스 이미지(`https://i.ibb.co/mCYRgQWR/12-3-260808-745c8809.jpg`) 직접 HEAD 요청 → HTTP 200 정상 응답(이미지 만료·삭제 아님, 원인에서 배제).
+- 계정 최근 게시물 10건 직접 조회 → 이 콘텐츠의 캡션과 일치하는 게시물 없음(중복게시 아님, 상태변화 안전하게 확인).
+- 컨테이너 생성 시각(2026-08-08 16:00경) 기준 재발행 시도 시각(2026-08-10 09:50경)까지 경과 약 42시간.
+
+**Root Cause(UNKNOWN — 가설만):** Meta 공식문서상 미디어 컨테이너는 생성 후 24시간 뒤 만료된다고 알려져 있다. 이 케이스는 상태조회(`GET .../{creation_id}?fields=status_code`)는 만료 이후에도 계속 `FINISHED`를 반환하면서, 실제 발행 가능 여부는 별도로 이미 소멸했을 가능성이 있다 — 즉 **"상태조회 API의 `status_code=FINISHED` 응답이 컨테이너의 실제 발행 가능 여부를 항상 보장하지는 않을 수 있다"**는 가설. Meta가 이 케이스에서 `status_code=EXPIRED`를 반환하지 않고 계속 `FINISHED`로 응답한 이유는 확인 불가(Meta 내부 동작, 공식 문서에 명시 없음) — 완전히 확정된 Root Cause 아님, UNKNOWN 유지.
+
+**Fix:** 없음 — 이 컨테이너는 발행 불가능 확정, 복구 시도하지 않음(같은 `creation_id` 재호출은 CLAUDE.md 규칙상 1회만 허용되며 이미 소진됨). 회장 승인 하 `recSkFb90PoylqjuB`를 Airtable Write로 `post_status=failed`로 전환해 종결 — 이 콘텐츠(Buffer/12.3 원천)는 영구 미게시로 확정.
+
+**Prevention:** FP-079 참조 — `publish_single()`의 Phase A.5(ERR-107)는 "컨테이너 생성 직후" 처리완료를 기다리는 용도로 설계됐고 이 케이스(생성 후 42시간 뒤 재발행)와는 시나리오가 다르다(Phase A.5 자체의 결함이 아님). "생성 후 오래 지난 미발행 컨테이너"를 다루는 별도 정책(예: 일정 시간 경과 시 자동으로 `failed` 처리하거나 재생성 유도)은 이번 세션 범위 밖 — 향후 필요 시 별도 승인 대상.
+
+**관련:** ERR-107, FP-079, INC-050
