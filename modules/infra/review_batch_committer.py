@@ -64,6 +64,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Protocol, runtime_checkable
 
 from modules.infra.review_batch import build_review_payloads
+from modules.infra.repository_interface import ReviewStatus
 
 _MAX_RETRIES = 3
 _BACKOFF_BASE_SECONDS = 1.0
@@ -418,11 +419,30 @@ def undo_batch_with_verification(
     repo,
     record_ids: list[str],
     sleep_fn: SleepFn = time.sleep,
+    revert_to: str = "PENDING",
 ) -> UndoResult:
-    """record_ids 전원을 PENDING으로 되돌리고 GET으로 재검증. 하나라도 되돌리기 실패하면 즉시 중단.
+    """record_ids 전원을 revert_to(기본 PENDING)로 되돌리고 GET으로 재검증. 하나라도
+    되돌리기 실패하면 즉시 중단.
 
-    repo가 배치 메서드를 노출하면 청크(최대 10건) 단위로 묶어서 호출한다."""
-    payloads = [{"record_id": rid, "review_status": "PENDING"} for rid in record_ids]
+    revert_to는 260806 재검수(PASS/BLOCK 다시 불러와서 재판정) 기능 지원용 — 원래
+    PENDING이 아니었던 배치(예: 이미 PASS였던 후보를 재검수한 배치)를 실행취소하면
+    PENDING이 아니라 그 배치가 원래 있던 상태로 돌아가야 한다. 기존 PENDING 워크플로우는
+    기본값 그대로라 동작이 전혀 바뀌지 않는다.
+
+    repo가 배치 메서드를 노출하면 청크(최대 10건) 단위로 묶어서 호출한다.
+
+    revert_to는 쓰기 시작 전에 PENDING/PASS/BLOCK인지 검증한다(260806 Codex 리뷰 지적) —
+    이 값은 undo_store(SQLite)에서 복원될 수 있어, 손상된 payload가 임의 문자열을
+    review_status로 그대로 기록하는 것을 막는다."""
+    try:
+        revert_to = ReviewStatus(revert_to).value
+    except ValueError:
+        return UndoResult(
+            committed=False,
+            failed_id="__invalid_revert_to__",
+            failed_error=f"revert_to는 PENDING/PASS/BLOCK 중 하나여야 합니다: {revert_to!r}",
+        )
+    payloads = [{"record_id": rid, "review_status": revert_to} for rid in record_ids]
 
     save_outcome = _save_all(repo, payloads, sleep_fn)
     if save_outcome.failed_id is not None:
@@ -442,7 +462,7 @@ def undo_batch_with_verification(
         )
     reverted = save_outcome.saved_ids
 
-    expected = {rid: "PENDING" for rid in record_ids}
+    expected = {rid: revert_to for rid in record_ids}
     mismatched, verification_errors = _verify_all(repo, expected, sleep_fn)
 
     if mismatched or verification_errors:

@@ -513,6 +513,12 @@ class RepositoryInterface(ABC):
         """review_status='PENDING' 인 후보 최대 limit건 반환 (collected_at 오래된 순) — 그리드 일괄 리뷰용."""
 
     @abstractmethod
+    def fetch_candidates_by_status(self, status: str, limit: int = 50) -> list[TrainingCandidate]:
+        """review_status가 지정된 값(PASS/BLOCK/PENDING)인 후보 최대 limit건 반환
+        (collected_at 최근순) — 그리드 재검수용. fetch_pending_candidates()는 이 메서드의
+        PENDING 특수 케이스와 동등하다."""
+
+    @abstractmethod
     def save_review_decision(self, record_id: str, decision: str, other_note: str = "") -> None:
         """사람의 PASS/BLOCK 판정(+선택적 기타 메모)을 후보 레코드에 기록. review_status, reviewed_at 갱신."""
 

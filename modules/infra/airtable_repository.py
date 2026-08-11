@@ -1766,13 +1766,24 @@ class AirtableRepository(RepositoryInterface):
         """260805: 정렬을 desc로 변경 — Facebook CDN image_url은 며칠 내 403으로
         만료된다(Runtime 확인). 리뷰 적체가 큰 상태에서 asc(오래된 것부터)로 보이면
         화면이 죽은 이미지로 가득 차므로, 최근 수집분(=URL이 살아있을 확률이 높은
-        건)부터 보여준다."""
+        건)부터 보여준다. fetch_candidates_by_status()의 PENDING 특수 케이스."""
+        return self.fetch_candidates_by_status(ReviewStatus.PENDING.value, limit)
+
+    # ── 30-2. 상태별 후보 다건 조회 (재검수용, PASS/BLOCK도 다시 불러올 수 있음) ──
+
+    def fetch_candidates_by_status(self, status: str, limit: int = 50) -> list[TrainingCandidate]:
+        try:
+            status = ReviewStatus(status).value
+        except ValueError:
+            raise RepositoryValidationError(
+                f"status는 PENDING/PASS/BLOCK 중 하나여야 합니다: {status!r}"
+            )
         try:
             r = requests.get(
                 _url("Training_Review_Queue"),
                 headers=_headers(),
                 params={
-                    "filterByFormula":    f"{{review_status}}='{ReviewStatus.PENDING.value}'",
+                    "filterByFormula":    f"{{review_status}}='{status}'",
                     "sort[0][field]":     "collected_at",
                     "sort[0][direction]": "desc",
                     "maxRecords":         limit,

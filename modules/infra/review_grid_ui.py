@@ -11,6 +11,13 @@ committed=False(저장 중 실패, 또는 저장 후 GET 재검증 불일치)면
 undo_store(선택)를 주입하면 "직전 배치 실행취소" 상태를 SQLite에 영구 저장한다 — 없으면
 기존처럼 st.session_state에만 남아 새로고침 시 사라진다(260712 INC 재발 방지, undo_store가
 없을 때는 이전 동작과 완전히 동일하게 유지).
+
+260806 재검수 기능: 상단 "리뷰 모드" 선택으로 PENDING(신규 검토) 외에 PASS/BLOCK도 다시
+불러와 재판정할 수 있다. 체크박스=BLOCK 규칙은 그대로이되, 재검수 모드에서는 후보의
+현재 review_status를 반영해 체크 초기값을 세팅한다(이미 BLOCK인 후보는 처음부터
+체크됨 — 그대로 두면 BLOCK 유지, 해제하면 PASS로 변경). 실행취소는 그 배치가 원래
+어떤 상태였는지(revert_to)를 함께 저장해, PENDING이 아니었던 배치를 취소하면 PENDING이
+아니라 원래 상태로 정확히 되돌아간다.
 """
 from __future__ import annotations
 
@@ -88,16 +95,46 @@ def render_review_grid(repo, undo_store=None) -> None:
         if _persisted:
             st.session_state["grid_undo_ids"] = [p["record_id"] for p in _persisted["payload"]]
             st.session_state["grid_undo_batch_id"] = _persisted["batch_id"]
+            st.session_state["grid_undo_revert_to"] = (
+                _persisted["payload"][0].get("revert_to", "PENDING") if _persisted["payload"] else "PENDING"
+            )
+
+    # ── 리뷰 모드 선택 — PENDING(신규 검토) 외에 PASS/BLOCK 재검수 지원(260806) ──
+    _MODE_LABELS = {
+        "PENDING": "\U0001f195 신규 검토 (대기)",
+        "PASS": "✅ 합격 재검수",
+        "BLOCK": "❌ 불합격 재검수",
+    }
+
+    def _on_mode_change():
+        # 모드가 바뀌면 이전 모드의 배치를 버리고 새 모드로 다시 조회한다.
+        st.session_state.grid_batch = None
+
+    st.selectbox(
+        "리뷰 모드",
+        options=list(_MODE_LABELS.keys()),
+        format_func=lambda s: _MODE_LABELS[s],
+        key="grid_review_mode",
+        on_change=_on_mode_change,
+    )
+    mode = st.session_state.get("grid_review_mode", "PENDING")
 
     if not st.session_state.grid_batch:
         try:
-            st.session_state.grid_batch = repo.fetch_pending_candidates(limit=50)
+            if mode == "PENDING":
+                st.session_state.grid_batch = repo.fetch_pending_candidates(limit=50)
+            else:
+                st.session_state.grid_batch = repo.fetch_candidates_by_status(mode, limit=50)
             # 새 배치를 받을 때마다 전체선택/개별선택 상태를 초기화 —
             # 이전 배치의 선택 상태가 화면에 남아 실제 선택 집합과 어긋나는 사고 방지.
             st.session_state["grid_master_select"] = False
             st.session_state["grid_verification_blocked"] = False
             for c in st.session_state.grid_batch:
-                st.session_state[f"grid_chk_{c['record_id']}"] = False
+                # 재검수 모드에서는 현재 판정을 체크 초기값에 반영한다 — 이미 BLOCK인
+                # 후보는 처음부터 체크된 채로 보여서, 그대로 두면 BLOCK 유지·해제하면
+                # PASS로 바뀌는 것을 화면만 보고 알 수 있게 한다. PENDING 모드는
+                # review_status가 항상 'PENDING'이라 기존과 동일하게 전부 미체크(PASS).
+                st.session_state[f"grid_chk_{c['record_id']}"] = (c.get("review_status") == "BLOCK")
         except Exception as e:
             st.error(f"후보 조회 실패: {e}")
             st.session_state.grid_batch = []
@@ -105,9 +142,14 @@ def render_review_grid(repo, undo_store=None) -> None:
     # ── 방금 처리한 배치 실행취소 (시간 제한 없음 — 다음 배치 제출 전까지 유지) ─────
     _undo_ids = st.session_state.get("grid_undo_ids") or []
     if _undo_ids:
-        if st.button(f"\U000021a9️ 방금 배치 실행취소 ({len(_undo_ids)}건)", key="grid_undo_btn"):
+        _undo_revert_to = st.session_state.get("grid_undo_revert_to", "PENDING")
+        _undo_label = (
+            f"\U000021a9️ 방금 배치 실행취소 ({len(_undo_ids)}건)" if _undo_revert_to == "PENDING"
+            else f"\U000021a9️ 방금 재검수 실행취소 → {_undo_revert_to}로 복원 ({len(_undo_ids)}건)"
+        )
+        if st.button(_undo_label, key="grid_undo_btn"):
             with st.spinner("되돌리는 중..."):
-                result = undo_batch_with_verification(repo, _undo_ids)
+                result = undo_batch_with_verification(repo, _undo_ids, revert_to=_undo_revert_to)
             if not result.committed:
                 if result.failed_id:
                     st.error(
@@ -145,6 +187,7 @@ def render_review_grid(repo, undo_store=None) -> None:
                             return
                 st.session_state["grid_undo_ids"] = []
                 st.session_state["grid_undo_batch_id"] = None
+                st.session_state["grid_undo_revert_to"] = None
                 st.session_state.grid_batch = None
                 st.rerun()
         st.divider()
@@ -152,7 +195,12 @@ def render_review_grid(repo, undo_store=None) -> None:
     batch = st.session_state.grid_batch
 
     if not batch:
-        st.success("\U0001f389 리뷰할 후보가 없습니다 — 전부 처리했거나 아직 수집된 게 없습니다.")
+        _empty_msgs = {
+            "PENDING": "\U0001f389 리뷰할 후보가 없습니다 — 전부 처리했거나 아직 수집된 게 없습니다.",
+            "PASS": "\U0001f389 합격 처리된 후보가 없습니다.",
+            "BLOCK": "\U0001f389 불합격 처리된 후보가 없습니다.",
+        }
+        st.success(_empty_msgs.get(mode, _empty_msgs["PENDING"]))
         return
 
     # 체크 = 버릴(불합격) 사진, 기본값은 전부 PASS.
@@ -165,11 +213,15 @@ def render_review_grid(repo, undo_store=None) -> None:
 
         # PATCH를 시작하기 전에 먼저 영구 저장 — 이 기록이 실패하면 Airtable 쓰기 자체를
         # 시작하지 않는다(SQLite 쓰기 실패 시 Airtable PATCH 시작 금지).
+        # revert_to를 payload에 함께 심어둔다 — 실제 저장(commit_batch_with_verification)에는
+        # review_batch 자체의 build_review_payloads()를 그대로 다시 쓰므로 영향 없고,
+        # 오직 undo_store에 남기는 기록에만 "이 배치가 원래 어떤 상태였는지"를 붙인다.
+        _undo_payload = [{**p, "revert_to": mode} for p in payload]
         _bid = None
         if undo_store is not None:
             _bid = str(uuid.uuid4())
             try:
-                undo_store.prepare_batch(_bid, payload)
+                undo_store.prepare_batch(_bid, _undo_payload)
             except Exception as e:
                 st.error(f"실행취소 기록 준비 실패 — 저장을 시작하지 않았습니다: {e}")
                 return False
@@ -220,6 +272,7 @@ def render_review_grid(repo, undo_store=None) -> None:
         for rid in batch_ids:
             st.session_state.pop(f"grid_chk_{rid}", None)
         st.session_state["grid_undo_ids"] = batch_ids
+        st.session_state["grid_undo_revert_to"] = mode
         st.session_state.grid_batch = None
 
         _bookkeeping_ok = True
