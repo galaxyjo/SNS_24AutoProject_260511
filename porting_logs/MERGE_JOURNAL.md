@@ -2464,3 +2464,26 @@ commit: 0건(이번 세션 상태변경은 Airtable Write·Instagram 게시뿐, 
 push: 해당 없음(Commit 없음)
 
 ---
+
+## 260811 — Live 프로세스 stale-code 근본원인(ERR-109) 관측기능 + Sourcebook 넥플릭스 삭제 + 히어로카드 템플릿 실제 코드 반영
+
+**배경:** 260811 08:36 ICT 회장 보고("오늘오전 자동안올라갔어 정검해봐")로 시작. 조사 중 260810 세션의 "production_verified" 보고가 실제 Live 스케줄러 프로세스가 아닌 단독 스크립트 검증에 기반했음을 발견 — Live 프로세스(`launcher/main.py`, 05:56:43 기동)는 20:02:54까지 재시작되지 않아 하루 종일 ERR-107 수정 이전 구코드로 동작했고, 17:00:33 정규 슬롯에서 동일 증상이 4번째로 재현됐다(ERR-109/FP-080/INC-051 신규 기록).
+
+**1) 코드-신선도 관측 기능 (BUILD, `modules/common/health_monitor.py`+`launcher/main.py`):** `record_boot_commit()`(프로세스 기동 시 `git rev-parse HEAD`를 `db/launcher_boot_state.json`에 기록, Fail-open)과 `get_code_freshness_status()`(기동 커밋 vs 현재 `git HEAD` 비교, fresh/stale/unknown 판정)를 신규 추가하고 `launcher/main.py::main()` 최상단에서 호출 연결, `print_health()`에 "재시작 필요" 안내를 추가했다. `tests/test_health_monitor_code_freshness.py` 신규 7건(ERR-109 재현 시나리오 포함) 전부 PASS. **명시적 한계 — `launcher/main.py` 자체 최상위 코드만 커버, 지연 import되는 하위 모듈의 신선도 불일치는 감지하지 않는다.**
+
+**2) 관리자 재시작 + Live E2E 재확인:** 관측 기능 반영 후 회장 승인 하 관리자 PowerShell로 프로세스 재시작 → 이후 정규 슬롯에서 신규 컨테이너 기준 Phase A→A.5→B 전 구간이 실제로 실행돼 성공(`ig_media_id=18090013187127904`, `17954648910230969`). ERR-107 Phase A.5 수정의 `production_verified` 상태를 재확인.
+
+**3) Sourcebook 넥플릭스 섹션 삭제 (`docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`):** 회장 지시("넥플릭스는 제외하자")로 `### 3.1 Netflix Culture Memo` 섹션 전체, `## 6. Safe Claims`의 관련 bullet 2개, `## 7. Forbidden or Unsafe Claims`의 관련 bullet 1개, `Series A` 백로그의 관련 항목 1개를 삭제(기존 12.5 삭제 선례와 동일하게 번호는 재부여하지 않음). `source_selector.parse_sourcebook()` 재검증 결과 선택 가능 주제 11개→10개, 파싱 오류 없음. 문서 자체 changelog에 260811 삭제 기록 반영됨(원본 파일 자체 changelog, 별도 governance 문서 아님).
+
+**4) 히어로카드 템플릿 실제 코드 반영 (`modules/sns/image_template_renderer.py`):** 회장이 여러 라운드에 걸쳐 승인한 "AI배경(텍스트 없음)+Pillow 텍스트 오버레이" 하이브리드 디자인(Flux가 한글 텍스트를 렌더링하지 못함을 실증 확인 후 확정)을 스크래치 스크립트에서 실제 프로덕션 파일로 이식(회장 지시: "좋아 이대로 진행 반영하라"). `HeroBlock`/`HeroCardContent` dataclass, `render_hero_card()`(Fail-closed 검증 8종), `_hero_fit_font_one_line()`(긴 텍스트도 줄바꿈 없이 폰트 크기 축소로 한 줄 유지), 5종 벡터 아이콘(로켓→체크마크로 교체, 회장이 "A로 보인다" 지적) 신규 추가. 스크래치 스크립트 승인본과 픽셀 단위 동일 출력 스모크테스트로 확인. `tests/test_image_template_renderer.py` 신규 13건(총 23건) 전부 PASS. 전체 회귀 `62 failed, 1168 passed, 3 xfailed, 8 errors`(기존 baseline과 원인 동일 — `write_budget_idempotency`/`provider_routing`/`publish_outcome_unknown`/`retry_handler_eager_registration`/`runtime_boot_policy.json` PermissionError 계열, 신규 회귀 0건). **module_verified만 — `content_package_builder.py` 자동 파이프라인 미배선(격리됨, blast radius 없음), per-post AI배경 프롬프트 동적생성·9필드 캡션→4블록 콘텐츠 도출 설계는 별도 승인 필요한 다음 세션 과제로 명시 DEFER.**
+
+**문서 갱신:** `docs/ERROR_DATABASE.md`(ERR-109 신규), `docs/FAILURE_PATTERN.md`(FP-080 신규), `docs/INCIDENT_TIMELINE.md`(INC-051 신규), `docs/VALIDATION_STATUS.md`(신규 2행), 이 항목.
+
+**상태변경 총계:** 코드 변경 3건(health_monitor.py+launcher/main.py, image_template_renderer.py+테스트, Sourcebook .md) — 각각 회장 승인 하 별도 Commit 진행("각각커밋"). Airtable Write·Instagram 게시는 이 항목 범위에 없음(항목 2의 게시는 기존 Producer/게시 파이프라인의 정상 자동 실행 결과이며 이 세션에서 별도 Write API를 직접 호출하지 않음).
+
+**잔여 과제(다음 세션):** (1) `render_hero_card()`를 `content_package_builder.py` 자동 파이프라인에 배선(AI배경 프롬프트를 post 주제별로 동적 생성하는 설계, 9필드 캡션에서 4블록 콘텐츠를 도출하는 규칙 필요), (2) `modules/infra/*` 4개 파일(Training_Review_Queue 재검수 기능) Codex 2차 리뷰 회신 대기 계속, (3) Founder Secret Architecture 분리 실제 착수 여부(Read-only 감사만 완료, 메모리 기록됨), (4) 신규 계정(단순 실루엣+캡션 스타일) 생성 여부(기획만, 메모리 기록됨).
+
+commit: 3건 예정(각각 별도 승인·별도 커밋 — health_monitor 신선도 기능, 히어로카드 템플릿, Sourcebook 넥플릭스 삭제)
+push: 세션 종료 시 일괄 승인 대상(관행 유지)
+
+---

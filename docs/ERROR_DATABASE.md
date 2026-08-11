@@ -2143,3 +2143,19 @@ watchdog.log(같은 구간):
 **Prevention:** FP-079 참조 — `publish_single()`의 Phase A.5(ERR-107)는 "컨테이너 생성 직후" 처리완료를 기다리는 용도로 설계됐고 이 케이스(생성 후 42시간 뒤 재발행)와는 시나리오가 다르다(Phase A.5 자체의 결함이 아님). "생성 후 오래 지난 미발행 컨테이너"를 다루는 별도 정책(예: 일정 시간 경과 시 자동으로 `failed` 처리하거나 재생성 유도)은 이번 세션 범위 밖 — 향후 필요 시 별도 승인 대상.
 
 **관련:** ERR-107, FP-079, INC-050
+
+---
+
+## ERR-109 | `launcher/main.py` 실행 프로세스가 재시작 없이는 자체 코드 변경사항을 반영하지 않아, ERR-107 Phase A.5 수정이 커밋된 이후에도 실 프로세스는 구코드로 계속 동작 (RESOLVED — 관측 기능 추가, 260811)
+
+**발견 경위:** 260811 08:36 ICT "오늘오전 자동 안올라갔어" 회장 보고로 조사 시작. 260810 세션에서 이미 "production_verified"로 보고했던 ERR-107 Phase A.5 수정이 실제로는 스크립트 단독실행(`tools/run_aijomoojin_producer_manual.py` 등)으로만 검증된 것이었고, watchdog.log 타임라인 대조 결과 실제 Live 스케줄러 프로세스(`launcher/main.py`, 260810 05:56:43 기동)는 그날 20:02:54 재시작 전까지 하루 종일 Phase A.5 이전 구코드로 계속 동작 중이었음을 확인.
+
+**Raw:** watchdog.log 기동 타임스탬프 `2026-08-10 05:56:43`(마지막 재시작), 이후 `20:02:54`까지 재시작 기록 없음. 이 구간 중 `17:00:33`에 ERR-107과 동일한 HTTP 400 OUTCOME_UNKNOWN 패턴이 4번째로 재현됨(Phase A.5 코드가 아직 그 프로세스 메모리에 로드되지 않았으므로).
+
+**Root Cause:** Python은 `import`된 모듈의 최상위 코드(함수 정의 포함)를 프로세스 최초 로드 시점에 한 번만 실행하고 `sys.modules`에 캐시한다. 파일을 수정(`git commit` 포함)해도 이미 실행 중인 프로세스는 그 변경을 전혀 인식하지 못하며, 오직 프로세스 재시작만이 새 코드를 적용한다. `launcher/main.py`의 `publish_single()` 자체가 이 최상위 코드에 해당해, "코드 커밋 완료"와 "실제 Runtime 반영"이 분리되는 구조적 위험이 있었다(CLAUDE.md 24. 반복 금지 오류 패턴 #18 "Runtime Restart 없이 코드 반영 완료 주장"에 해당하는 실제 재발 사례).
+
+**Fix:** `modules/common/health_monitor.py`에 `record_boot_commit()`(프로세스 기동 시 `git rev-parse HEAD`를 `db/launcher_boot_state.json`에 기록, Fail-open) + `get_code_freshness_status()`(기동 당시 커밋과 현재 `git HEAD`를 비교해 `fresh`/`stale`/`unknown` 판정) 신규 추가, `launcher/main.py::main()` 최상단에서 `record_boot_commit()` 호출, `print_health()`에 신선도 상태와 "재시작 필요" 안내 출력 추가. `tests/test_health_monitor_code_freshness.py` 7건(ERR-109 재현 시나리오 포함) 전부 PASS.
+
+**Prevention:** FP-080 참조. **명시적 한계 — 이 기능은 `launcher/main.py` 자체의 최상위 코드만 커버하며, 그 안에서 지연 import(`import` 문이 함수 내부에 있는 경우)되는 다른 모듈은 해당 프로세스 수명 중 처음 import되는 시점의 디스크 코드를 그때 반영하므로, 여러 모듈이 서로 다른 시점의 코드를 실행 중일 수 있는 불일치 가능성은 이 기능으로 감지되지 않는다.** 프로세스 재시작 자동화(코드 변경 감지 시 자동 재기동)는 이번 범위 밖 — 사람이 `get_health()`/`print_health()`로 `stale` 여부를 확인 후 수동 재시작하는 것을 전제로 한다.
+
+**관련:** ERR-107, FP-080, INC-051

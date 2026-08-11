@@ -46,7 +46,7 @@ from modules.common.canary_safe_mode import (
     get_canary_safe_mode_state,
     mask_canary_run_id,
 )
-from modules.common.health_monitor import get_health, print_health
+from modules.common.health_monitor import get_health, print_health, record_boot_commit
 from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 from modules.infra.airtable_usage_logger import log_api_call
 from modules.common.log_sanitizer import redact_sensitive
@@ -1435,6 +1435,13 @@ def _start_background_services(canary_safe_mode: bool):
 
 
 def main():
+    # 260811 ERR-109 — 이 프로세스가 지금 어떤 커밋을 실행 중인지 기록한다
+    # (health_monitor.get_code_freshness_status()가 이후 git HEAD와 비교해
+    # "재시작 필요" 여부를 판정하는 데 쓴다). 다른 모든 로직보다 먼저 기록해
+    # 이후 어떤 단계에서 실패하더라도 "이 프로세스가 언제·어느 커밋으로
+    # 떴는지"는 항상 남는다.
+    record_boot_commit()
+
     # W1: 모든 실제 Runtime은 영속 Boot Policy 없이는 Production으로
     # fallback하지 않는다. Safe Policy의 armed→active 전환도 worker 전이다.
     safe_mode_state = get_canary_safe_mode_state(

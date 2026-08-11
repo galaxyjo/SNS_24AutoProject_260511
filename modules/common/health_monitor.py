@@ -14,6 +14,7 @@ health_monitor.py — 시스템 상태 수집기
     # }
 """
 
+import json
 import sqlite3
 import subprocess
 from datetime import datetime, timedelta
@@ -31,6 +32,7 @@ _ROOT        = Path(__file__).resolve().parents[2]
 _ERROR_LOG   = _ROOT / "logs" / "error" / "error.log"
 _RQ_DB       = _ROOT / "db" / "retry_queue.db"
 _WATCHDOG_LOG = _ROOT / "logs" / "watchdog.log"
+_BOOT_STATE_PATH = _ROOT / "db" / "launcher_boot_state.json"
 
 # ── 엔드포인트 ────────────────────────────────────────────────────────────────
 _FLASK_URL      = "http://localhost:5000/health"
@@ -134,6 +136,78 @@ def _check_watchdog() -> dict:
         return {"status": "unknown", "last_heartbeat": None, "elapsed_sec": None}
 
 
+# ── 260811 ERR-109 대응: Runtime 진입점 코드 신선도 확인 ──────────────────────
+# 배경: launcher/main.py는 프로세스 시작 시점에 메모리에 고정된다 — 그 안의
+# publish_single() 같은 최상위 함수는 이후 파일을 아무리 고쳐도 프로세스를
+# 재시작하기 전까지 옛 코드로 계속 동작한다. 260810 Phase A.5 수정을 09:01
+# 커밋했지만 프로세스가 05:56부터 떠 있었고 20:02까지 재시작이 없어, 그 사이
+# 17:00 자동 슬롯이 옛(버그 있는) publish_single()로 다시 실패했다 — 이걸
+# "실제로 반영됐는지" 확인할 방법이 없어서 그날 낮에는 아무도 몰랐다.
+# (주의) 함수 내부에서 지역 import되는 다른 모듈(예: content_package_builder,
+# caption_generator)은 이 프로세스 생애주기 중 "그 모듈이 처음 import되는
+# 시점"의 디스크 상태를 따른다 — launcher/main.py 자체의 최상위 코드와는
+# 신선도가 다를 수 있다(같은 프로세스 안에서도 모듈별로 엇갈릴 수 있음, 알려진
+# 한계). 이 체크는 launcher/main.py 자기 자신의 신선도만 보장한다.
+
+
+def record_boot_commit() -> None:
+    """launcher/main.py의 main() 시작 시 1회 호출 — 그 시점의 git HEAD 커밋을
+    db/launcher_boot_state.json에 기록한다. git 명령 실패(예: git 미설치 환경)
+    시에도 조용히 넘어간다(Fail-open) — 이 기록 실패가 실제 서비스 기동을
+    막으면 안 된다."""
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=_ROOT, stderr=subprocess.DEVNULL, text=True, timeout=5,
+        ).strip()
+    except Exception:
+        commit = ""
+    try:
+        _BOOT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _BOOT_STATE_PATH.write_text(
+            json.dumps({
+                "commit": commit,
+                "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _check_code_freshness() -> dict:
+    if not _BOOT_STATE_PATH.exists():
+        return {"status": "unknown", "boot_commit": None, "head_commit": None, "started_at": None}
+    try:
+        boot_state = json.loads(_BOOT_STATE_PATH.read_text(encoding="utf-8"))
+        boot_commit = boot_state.get("commit") or ""
+        head_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=_ROOT, stderr=subprocess.DEVNULL, text=True, timeout=5,
+        ).strip()
+        if not boot_commit or not head_commit:
+            return {
+                "status": "unknown", "boot_commit": boot_commit or None,
+                "head_commit": head_commit or None, "started_at": boot_state.get("started_at"),
+            }
+        status = "fresh" if boot_commit == head_commit else "stale"
+        return {
+            "status": status, "boot_commit": boot_commit, "head_commit": head_commit,
+            "started_at": boot_state.get("started_at"),
+        }
+    except Exception:
+        return {"status": "unknown", "boot_commit": None, "head_commit": None, "started_at": None}
+
+
+def get_code_freshness_status() -> dict[str, Any]:
+    """launcher/main.py 프로세스가 기동 당시 커밋 그대로인지("fresh"), 그 이후
+    새 커밋이 생겼는지("stale") 반환한다. get_watchdog_status()와 별개 축이다
+    — watchdog은 "프로세스가 살아있는가", 이건 "그 프로세스가 최신 코드를
+    실행 중인가". "stale"이면 재시작이 필요하다는 뜻(주의: launcher/main.py
+    자기 자신 기준, 위 모듈 설명 참조)."""
+    return _check_code_freshness()
+
+
 # ── 통합 헬스 스냅샷 ──────────────────────────────────────────────────────────
 
 def get_health() -> dict[str, Any]:
@@ -192,6 +266,14 @@ def print_health() -> None:
     for name, status in s["services"].items():
         icon = "✓" if status == "ok" else ("!" if status == "degraded" else "✗")
         print(f"  [{icon}] {name:<20} {status}")
+    freshness = get_code_freshness_status()
+    fresh_icon = "✓" if freshness["status"] == "fresh" else ("!" if freshness["status"] == "stale" else "?")
+    print(f"  [{fresh_icon}] {'code_freshness':<20} {freshness['status']}"
+          f"{' — 재시작 필요' if freshness['status'] == 'stale' else ''}")
+    if freshness["status"] == "stale":
+        print(f"      boot={freshness['boot_commit'][:8] if freshness['boot_commit'] else '?'}"
+              f" head={freshness['head_commit'][:8] if freshness['head_commit'] else '?'}"
+              f" started_at={freshness['started_at']}")
     rq = s["retry_queue"]
     if rq:
         print(f"\n  retry_queue  pending={rq.get('pending',0)}  done={rq.get('done',0)}  dead={rq.get('dead',0)}")
