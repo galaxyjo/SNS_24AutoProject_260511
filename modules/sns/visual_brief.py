@@ -128,17 +128,30 @@ def build_background_only_prompt(brief: VisualBrief) -> "ImagePrompt | None":
         if brief.title else ""
     )
 
+    # 260811 실측 강화 — "no text" 지시를 프롬프트 맨 앞에 먼저 배치(반복+선두
+    # 배치가 순응도를 높인다는 실무 관찰)하고, "banner"/"isometric 3D
+    # device"류(문서·화면·패널을 연상시켜 라벨·UI텍스트를 유발하는 경향이
+    # 실측됨 — 260811 4회 생성 중 3회 유령글자 재현) 대신 순수 추상 형상
+    # (빛 궤적·기하학적 도형·결정체) 위주로 전환한다. 완전제거는 보장할 수
+    # 없다(Flux는 negative_prompt 미지원, positive 지시도 항상 지키지 않음 —
+    # render_hero_card()의 왼쪽 컬럼 오버레이가 최종 방어선).
     prompt_text = (
-        "A modern high-tech isometric 3D business banner background, deep navy "
-        "blue and neon cyan aesthetic, symbolic imagery representing the "
-        "following idea: "
+        "No text, no letters, no writing, no captions, no labels, no signage, "
+        "no UI panels, no screens displaying text, no book or document pages "
+        "anywhere in this image, in any language. "
+        "A modern high-tech abstract 3D business artwork, deep navy blue and "
+        "neon cyan aesthetic, symbolic imagery representing the following "
+        "idea: "
         f"\"{brief.core_message.strip()}\"{tone_clause}. "
-        "Dramatic lighting, layered depth, premium and futuristic in feel, "
-        "glowing circuit-board pattern accents."
+        "Glowing abstract geometric shapes, flowing light trails, particle "
+        "effects, crystalline forms, subtle circuit-board pattern accents. "
+        "Dramatic lighting, layered depth, premium and futuristic in feel."
         f"{brand_clause} "
-        "Absolutely no text, letters, or writing in any language anywhere in the "
-        "image. No logos, no watermarks, no real or recognizable human faces, no "
-        "invented statistics or numbers. Abstract and symbolic only."
+        "Absolutely no text, letters, numerals, or writing in any language "
+        "anywhere in the image. No logos, no watermarks, no real or "
+        "recognizable human faces, no invented statistics or numbers. Purely "
+        "abstract and symbolic — no screens, devices, or surfaces with any "
+        "readable markings."
     )
     negative_prompt = ", ".join(brief.forbidden_elements)
 

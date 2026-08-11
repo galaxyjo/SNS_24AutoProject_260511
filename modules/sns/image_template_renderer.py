@@ -272,30 +272,35 @@ def render_hero_card(content: HeroCardContent) -> bytes:
     # 260811 ERR-109 계열 재현 대응 — AI 배경이 "no text" 지시를 무시하고 글자 비슷한
     # 형상을 그려 넣는 경우가 실측 확인됐다(Flux는 negative_prompt 미지원, positive
     # prompt 지시도 항상 지키지 않음 — visual_brief.py 기존 주석과 동일 근본원인).
-    # 헤드라인/서브헤드라인이 배경 위에 바로 얹히면 그 잔상과 겹쳐 보일 수 있어,
-    # 실제 텍스트 높이를 계산해 그 구간만 거의 불투명한 별도 밴드로 덮는다 —
-    # 왼쪽 전체 그라데이션(4블록/태그라인 가독성용)과는 별개, 헤드라인 구간에서만
-    # 추가로 덧씌운다.
-    measure_draw = ImageDraw.Draw(canvas)
-    title_font = _hero_fit_font_one_line(measure_draw, content.headline, _FONT_EXTRABOLD, _HERO_FULL_W, 88)
-    sub_font = _hero_fit_font_one_line(measure_draw, content.subheadline, _FONT_REGULAR, _HERO_FULL_W, 44)
-    headline_top = 240 - 40
-    headline_bottom = 240 + title_font.size + 25 + sub_font.size + 60
+    # 최초 수정(헤드라인 구간만 별도 불투명 밴드)은 헤드라인은 해결했지만, 같은
+    # 실측에서 블록 영역(헤드라인 밴드 밖, 옛 그라데이션이 x~500부터 급격히
+    # 옅어지던 구간) 배경에서도 동일한 유령글자가 재현됨 — 실제 Pillow 텍스트가
+    # 그려지는 왼쪽 전체 컬럼(헤드라인부터 태그라인 박스까지, x<~680)을 위아래
+    # 전체 높이에 걸쳐 균일하게 거의 불투명 처리하고, 그 뒤로는 짧게 페이드아웃해
+    # 오른쪽 그래픽 영역(텍스트 없음)만 원본 그대로 보이게 한다 — 개별 구간별
+    # 밴드 계산 대신 "텍스트가 그려질 수 있는 컬럼 전체"를 한 번에 방어한다.
+    _TEXT_COLUMN_SOLID_W = 680
+    _TEXT_COLUMN_FADE_W = 100
 
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay)
-    # 왼쪽 텍스트 영역 가독성 확보용 다크 오버레이(좌측이 진하고 우측으로 갈수록 옅어짐).
-    for x in range(620):
-        alpha = int(190 * (1 - x / 620)) if x < 500 else int(190 * 0.2)
-        odraw.line([(x, 0), (x, CANVAS_SIZE[1])], fill=(5, 8, 25, min(alpha + 40, 235)))
-    # 헤드라인·서브헤드라인 구간은 전체 폭에 걸쳐 거의 불투명하게 추가로 덮는다.
-    odraw.rectangle([0, headline_top, CANVAS_SIZE[0], headline_bottom], fill=(5, 8, 25, 255))
+    fade_end = _TEXT_COLUMN_SOLID_W + _TEXT_COLUMN_FADE_W
+    for x in range(fade_end):
+        if x < _TEXT_COLUMN_SOLID_W:
+            alpha = 250
+        else:
+            progress = (x - _TEXT_COLUMN_SOLID_W) / _TEXT_COLUMN_FADE_W
+            alpha = int(250 * (1 - progress))
+        odraw.line([(x, 0), (x, CANVAS_SIZE[1])], fill=(5, 8, 25, alpha))
     canvas = Image.alpha_composite(canvas, overlay)
     draw = ImageDraw.Draw(canvas)
 
     block_title_font = _load_font(_FONT_EXTRABOLD, 34)
     block_desc_font = _load_font(_FONT_REGULAR, 26)
     footer_font = _load_font(_FONT_REGULAR, 22)
+
+    title_font = _hero_fit_font_one_line(draw, content.headline, _FONT_EXTRABOLD, _HERO_FULL_W, 88)
+    sub_font = _hero_fit_font_one_line(draw, content.subheadline, _FONT_REGULAR, _HERO_FULL_W, 44)
 
     y = 240
     draw.text((_HERO_MARGIN, y), content.headline, font=title_font, fill=_HERO_WHITE)
