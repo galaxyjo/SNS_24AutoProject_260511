@@ -150,18 +150,38 @@ def _check_watchdog() -> dict:
 # 한계). 이 체크는 launcher/main.py 자기 자신의 신선도만 보장한다.
 
 
+def _read_git_head_commit() -> str:
+    """`git rev-parse HEAD`와 동일한 값을 git 실행파일 없이 `.git` 내부
+    파일만 읽어서 구한다(subprocess 미사용). 260811 ERR-111 — NSSM 서비스
+    계정 하에서 `subprocess.check_output(["git", ...])`가 조용히 실패해(PATH에
+    git 없음으로 추정, 서비스 컨텍스트에서만 재현) `record_boot_commit()`이
+    빈 문자열을 기록하는 문제가 실제 재시작 검증 중 발견됐다 — git 실행 자체를
+    없애 이 클래스의 실패를 구조적으로 제거한다. 실패 시(예: `.git` 손상)
+    빈 문자열(Fail-open, 기존과 동일 계약)."""
+    try:
+        head_path = _ROOT / ".git" / "HEAD"
+        head_text = head_path.read_text(encoding="utf-8").strip()
+        if not head_text.startswith("ref:"):
+            return head_text  # detached HEAD — 이미 SHA
+        ref = head_text.split(":", 1)[1].strip()
+        ref_path = _ROOT / ".git" / ref
+        if ref_path.exists():
+            return ref_path.read_text(encoding="utf-8").strip()
+        packed_refs = _ROOT / ".git" / "packed-refs"
+        if packed_refs.exists():
+            for line in packed_refs.read_text(encoding="utf-8").splitlines():
+                if line.endswith(f" {ref}"):
+                    return line.split(" ", 1)[0].strip()
+        return ""
+    except Exception:
+        return ""
+
+
 def record_boot_commit() -> None:
     """launcher/main.py의 main() 시작 시 1회 호출 — 그 시점의 git HEAD 커밋을
-    db/launcher_boot_state.json에 기록한다. git 명령 실패(예: git 미설치 환경)
-    시에도 조용히 넘어간다(Fail-open) — 이 기록 실패가 실제 서비스 기동을
-    막으면 안 된다."""
-    try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=_ROOT, stderr=subprocess.DEVNULL, text=True, timeout=5,
-        ).strip()
-    except Exception:
-        commit = ""
+    db/launcher_boot_state.json에 기록한다. 읽기 실패 시에도 조용히 넘어간다
+    (Fail-open) — 이 기록 실패가 실제 서비스 기동을 막으면 안 된다."""
+    commit = _read_git_head_commit()
     try:
         _BOOT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         _BOOT_STATE_PATH.write_text(
@@ -181,10 +201,7 @@ def _check_code_freshness() -> dict:
     try:
         boot_state = json.loads(_BOOT_STATE_PATH.read_text(encoding="utf-8"))
         boot_commit = boot_state.get("commit") or ""
-        head_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=_ROOT, stderr=subprocess.DEVNULL, text=True, timeout=5,
-        ).strip()
+        head_commit = _read_git_head_commit()
         if not boot_commit or not head_commit:
             return {
                 "status": "unknown", "boot_commit": boot_commit or None,
