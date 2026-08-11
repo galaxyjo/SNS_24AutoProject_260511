@@ -9,11 +9,46 @@ import io
 import pytest
 from PIL import Image
 
-from modules.sns.image_template_renderer import CANVAS_SIZE, CardContent, render_card
+from modules.sns.image_template_renderer import (
+    CANVAS_SIZE,
+    CardContent,
+    HeroBlock,
+    HeroCardContent,
+    render_card,
+    render_hero_card,
+)
 
 
 def _decode(png_bytes: bytes) -> Image.Image:
     return Image.open(io.BytesIO(png_bytes))
+
+
+def _fake_ai_background() -> bytes:
+    """render_hero_card() 테스트용 최소 유효 PNG bytes(실제 Cloudflare 호출
+    없음) — 순수 단색 이미지면 충분하다, 실제 배경 품질은 이 함수 책임이
+    아니다(image_provider_cloudflare.generate_image()의 책임)."""
+    img = Image.new("RGB", (1024, 1024), (10, 10, 40))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _hero_content(**overrides) -> HeroCardContent:
+    defaults = dict(
+        headline="스타트업 성장 프레임워크",
+        subheadline="검증된 자료로 사업을 검증하고, 만들고, 키운다",
+        blocks=(
+            HeroBlock("target", "아이디어 발굴", "검증된 기회를 찾는다"),
+            HeroBlock("search", "고객 검증", "진짜 시장 문제를 확인한다"),
+            HeroBlock("gear", "제품 개발", "시행착오 없이 MVP를 만든다"),
+            HeroBlock("graph", "확장과 성장", "체계적으로 사업을 키운다"),
+        ),
+        tagline="시행착오 없이, 체계적인 사업 성장.",
+        source_label="The Startup Owner's Manual (Steve Blank)",
+        ai_background=_fake_ai_background(),
+    )
+    defaults.update(overrides)
+    return HeroCardContent(**defaults)
 
 
 def test_render_workflow_card_produces_correct_canvas_size():
@@ -160,3 +195,88 @@ def test_default_brand_is_aijomoojin_handle():
     )
 
     assert content.brand == "@aijomoojin"
+
+
+# ── 260811 신규 — render_hero_card() (AI 배경 + Pillow 텍스트 하이브리드) ────
+
+
+def test_render_hero_card_produces_correct_canvas_size():
+    png_bytes = render_hero_card(_hero_content())
+    img = _decode(png_bytes)
+
+    assert img.size == CANVAS_SIZE
+    assert img.format == "PNG"
+
+
+def test_hero_card_default_brand_is_aijomoojin_handle():
+    assert _hero_content().brand == "@aijomoojin"
+
+
+@pytest.mark.parametrize("field", ["headline", "subheadline", "tagline", "source_label"])
+def test_hero_card_fails_closed_on_missing_required_text_field(field):
+    with pytest.raises(ValueError):
+        render_hero_card(_hero_content(**{field: ""}))
+
+
+def test_hero_card_fails_closed_on_missing_ai_background():
+    with pytest.raises(ValueError):
+        render_hero_card(_hero_content(ai_background=b""))
+
+
+def test_hero_card_fails_closed_when_blocks_count_is_not_four():
+    only_two = (
+        HeroBlock("target", "아이디어 발굴", "검증된 기회를 찾는다"),
+        HeroBlock("search", "고객 검증", "진짜 시장 문제를 확인한다"),
+    )
+
+    with pytest.raises(ValueError):
+        render_hero_card(_hero_content(blocks=only_two))
+
+
+def test_hero_card_fails_closed_on_empty_block_title_or_desc():
+    blocks = (
+        HeroBlock("target", "", "검증된 기회를 찾는다"),
+        HeroBlock("search", "고객 검증", "진짜 시장 문제를 확인한다"),
+        HeroBlock("gear", "제품 개발", "시행착오 없이 MVP를 만든다"),
+        HeroBlock("graph", "확장과 성장", "체계적으로 사업을 키운다"),
+    )
+
+    with pytest.raises(ValueError):
+        render_hero_card(_hero_content(blocks=blocks))
+
+
+def test_hero_card_fails_closed_on_unknown_block_icon():
+    blocks = (
+        HeroBlock("rocket_ship", "아이디어 발굴", "검증된 기회를 찾는다"),
+        HeroBlock("search", "고객 검증", "진짜 시장 문제를 확인한다"),
+        HeroBlock("gear", "제품 개발", "시행착오 없이 MVP를 만든다"),
+        HeroBlock("graph", "확장과 성장", "체계적으로 사업을 키운다"),
+    )
+
+    with pytest.raises(ValueError):
+        render_hero_card(_hero_content(blocks=blocks))
+
+
+def test_hero_card_long_headline_shrinks_to_fit_one_line_without_crashing():
+    """260811 회장 지시 — 헤드라인은 줄바꿈되지 않고 한 줄에 들어가야 한다.
+    아주 긴 헤드라인도 예외 없이 렌더링되고(폰트 크기를 줄여서 한 줄 유지),
+    캔버스 크기를 벗어나지 않아야 한다."""
+    long_headline = "매우 길고 긴 헤드라인 텍스트가 한 줄에 다 들어가야 하는 극단적인 경우의 테스트 문구입니다"
+
+    png_bytes = render_hero_card(_hero_content(headline=long_headline))
+    img = _decode(png_bytes)
+
+    assert img.size == CANVAS_SIZE
+
+
+def test_hero_card_accepts_ai_background_in_different_aspect_ratio():
+    """image_provider_cloudflare가 만드는 실제 배경은 정사각형(1024x1024)에
+    가깝다 — 4:5 캔버스와 비율이 달라도 예외 없이 리사이즈·크롭돼야 한다."""
+    square_bg = Image.new("RGB", (768, 768), (20, 20, 60))
+    buf = io.BytesIO()
+    square_bg.save(buf, format="PNG")
+
+    png_bytes = render_hero_card(_hero_content(ai_background=buf.getvalue()))
+    img = _decode(png_bytes)
+
+    assert img.size == CANVAS_SIZE
