@@ -603,6 +603,109 @@ SNS 콘텐츠 핵심 메시지:
 
 ---
 
+## 13. AI Persona-Driven Business Playbooks (Beauty·Commerce·Marketing·Sales·Growth)
+
+Added Date: 2026-08-11. 회장 지시로 Sourcebook 콘텐츠 비중을 "AI 창업자 대상 실리콘밸리 업무 정석" 중심에서 "AI 기술이 실제 업무에 적용된 사례" 중심으로 확대한다 — 기존 3.x/12.x 섹션은 그대로 유지하고, 아래 5개 페르소나 축(Beauty/Commerce/Marketing/Sales/Growth)을 새 섹션으로 추가한다. 각 URL은 260811 WebSearch로 실제 공식 출처를 확인한 뒤 등록했다(추정·미확인 URL 없음). 5개 페르소나의 계정 배정(단일 계정 순환 vs 계정별 분리)은 이번 추가 범위에 포함하지 않는다 — 방향(콘텐츠 원천)만 먼저 확정하고 배정은 별도 결정 대상이다.
+
+### 13.1 L'Oréal Paris Beauty Genius (AI Beauty Founder)
+
+상태: VERIFIED FACT
+
+공식 URL: https://www.loreal.com/en/articles/science-and-technology/loreal-paris-beauty-genius/
+
+검증된 설명:
+- L'Oréal 공식 사이트(loreal.com)가 생성형 AI와 증강현실(AR) 기반 개인 뷰티 어시스턴트 "Beauty Genius"를 소개한다.
+- 미국에서 120만 건 이상의 소비자 대화가 이뤄졌다고 명시한다.
+- 2026년 초부터 Meta와 협업해 WhatsApp에서도 이용 가능하도록 확장한다고 밝힌다.
+- 개인화된 스킨케어 추천과 성분 관련 질의응답을 에이전틱 AI 방식으로 제공한다고 설명한다.
+
+SNS 콘텐츠 핵심 메시지:
+뷰티 브랜드는 이제 감으로 응대하는 대신, AI가 실시간으로 소비자 개인별 맞춤 추천을 제공하는 구조를 실제로 운영하고 있다.
+
+주의:
+L'Oréal의 특정 대화 건수·성과 수치를 다른 뷰티 브랜드나 우리 사업에도 동일하게 적용된다고 표현하지 않는다.
+
+---
+
+### 13.2 Google·Shopify Universal Commerce Protocol (AI Commerce Architect)
+
+상태: VERIFIED FACT
+
+공식 URL: https://developers.googleblog.com/under-the-hood-universal-commerce-protocol-ucp/
+
+검증된 설명:
+- Google 공식 개발자 블로그(developers.googleblog.com)가 Shopify와 공동 개발한 오픈 표준 "Universal Commerce Protocol(UCP)"을 공개한다.
+- AI 에이전트가 상품 탐색부터 결제·주문 후 지원까지 전체 쇼핑 여정을 처리할 수 있도록 정의한 단일 개방형 표준이라고 설명한다.
+- Amazon·American Express·Etsy·Mastercard·Meta·Microsoft·Salesforce·Stripe·Target·Walmart·Visa 등이 함께 참여한다고 명시한다.
+- 명세는 GitHub에 Apache License 2.0으로 공개된다고 밝힌다.
+
+SNS 콘텐츠 핵심 메시지:
+커머스 자동화는 이제 개별 도구를 이어붙이는 수준을 넘어, AI 에이전트가 발견부터 결제까지 전 과정을 처리하는 업계 공통 표준으로 이동하고 있다.
+
+주의:
+UCP가 모든 쇼핑몰·모든 결제망에 이미 완전히 적용됐다고 표현하지 않는다(2026년 발표된 신규 표준, 확산은 진행 중).
+
+---
+
+### 13.3 HubSpot Loop Marketing (AI Marketing Director)
+
+상태: VERIFIED FACT
+
+공식 URL: https://www.hubspot.com/loop-marketing
+
+검증된 설명:
+- HubSpot 공식 사이트(hubspot.com)가 AI 시대 마케팅을 위한 4단계 플레이북 "Loop Marketing"을 공개한다.
+- 4단계는 Express(브랜드 톤 정의)→Tailor(AI로 메시지 개인화)→Amplify(여러 채널로 확산)→Evolve(AI로 실시간 측정·조정)로 구성된다고 설명한다.
+- HubSpot의 2026 State of Marketing 리포트를 인용해 조직의 64% 이상이 이미 AI를 마케팅에 사용 중이라고 밝힌다.
+
+SNS 콘텐츠 핵심 메시지:
+AI 마케팅은 콘텐츠를 AI에게 통째로 맡기는 것이 아니라, 브랜드 톤을 먼저 정하고 그 위에 AI로 개인화·확산·측정을 반복하는 구조다.
+
+주의:
+"조직 64% 이상 AI 사용중"이라는 HubSpot 자체 설문 수치를 모든 업종·모든 규모 기업에 동일하게 적용된다고 표현하지 않는다.
+
+---
+
+### 13.4 Intercom Fin for Sales (AI Sales Director)
+
+상태: VERIFIED FACT
+
+공식 URL: https://www.intercom.com/help/en/articles/13927072-fin-for-sales-explained
+
+검증된 설명:
+- Intercom 공식 고객지원 문서(intercom.com/help)가 자사 AI SDR(영업개발담당) 제품 "Fin for Sales"를 설명한다.
+- 12,000개 이상의 기업이 신뢰하는 것으로 알려진 고객서비스용 AI 엔진(Fin AI Agent)과 동일한 엔진으로 동작한다고 명시한다.
+- 잠재고객에게 능동적으로 연락하고, 요구사항·예산·일정을 질문으로 파악(Qualification)하며, 미팅을 예약하고 CRM에 자동 동기화한다고 설명한다.
+- 이메일·채팅(웹/iOS/Android)·WhatsApp·Social(Facebook·Instagram)·SMS 등 여러 채널을 지원한다고 명시한다.
+
+SNS 콘텐츠 핵심 메시지:
+영업 DM 응대는 더 이상 사람이 매번 직접 질문을 던지고 CRM에 옮겨 적는 일이 아니라, AI가 자격을 판별하고 미팅까지 예약하는 구조로 이미 운영되고 있다.
+
+주의:
+"12,000개 이상 기업이 신뢰"라는 Intercom 자체 발표 수치를 우리 사업의 예상 성과처럼 표현하지 않는다.
+
+---
+
+### 13.5 a16z 16 Startup Metrics (AI Growth)
+
+상태: VERIFIED FACT
+
+공식 URL: https://a16z.com/16-startup-metrics/
+
+검증된 설명:
+- Andreessen Horowitz(a16z) 공식 사이트(a16z.com)가 스타트업이 추적해야 할 16개 핵심 지표 프레임워크를 공개한다.
+- CAC(고객획득비용)·LTV(고객생애가치)·MRR/ARR·Gross Margin·Churn 등을 표준화된 방식으로 정의한다고 설명한다.
+- 서로 다른 스타트업이 각기 다른 방식으로 CAC를 계산하는 문제를 지적하며, Gross Margin 조정 등 비교 가능한 표준 계산법을 제시한다.
+- LTV:CAC 비율을 2:1에서 3:1로 개선하면 기업가치가 거의 3배가 될 수 있다는 자사 분석을 인용한다.
+
+SNS 콘텐츠 핵심 메시지:
+성장은 매출이 늘었다는 느낌이 아니라, CAC·LTV 같은 표준화된 지표로 측정하고 비교할 때 실제 방향을 판단할 수 있다.
+
+주의:
+a16z가 제시한 "LTV:CAC 3배 개선 시 가치 3배" 수치를 우리 사업이나 특정 스타트업에 그대로 적용되는 보장처럼 표현하지 않는다.
+
+---
+
 ## 변경 이력
 
 | 날짜 | 내용 |
@@ -612,3 +715,4 @@ SNS 콘텐츠 핵심 메시지:
 | 260807 | GPT 검수 결과 12.4(Shopify)·12.5(Flexport)가 "공식 URL 접근 가능"은 맞으나 지정 주제(상품등록/무역 Follow-up)와 불일치 판정(FAIL) — 12.4를 Amazon SP-API Listings Items API로, 12.5를 SaleAI Quotation Follow-Up Automation으로 교체. 12.1~12.3·12.6은 PASS로 유지, 수정 없음. |
 | 260807 | 2차 GPT 검수 결과 12.5(SaleAI)가 주제는 일치하나 자사 홍보성 블로그로 `VERIFIED FACT` Evidence 등급 미달 판정(FAIL) — 대체 원천을 찾아 채우지 않고 12.5 섹션 자체를 삭제. 금(무역업무) 요일은 확실한 원천이 확보될 때까지 미배정 상태로 남긴다. 12.1~12.4·12.6은 무수정. |
 | 260811 | 회장 지시로 3.1(Netflix Culture Memo) 섹션 및 관련 언급(Safe Claims 2건, Forbidden Claims 1건, Content Series Backlog 1건) 전량 삭제 — 대체 원천 없이 제거(12.5 삭제 선례와 동일 처리, 번호 재배열 없음). 3.2~3.6은 무수정. |
+| 260811 | 섹션 13 신규 추가 — 회장 지시로 콘텐츠 비중을 "AI 기술 실제 적용 사례" 중심으로 확대. 5개 페르소나 축(Beauty/Commerce/Marketing/Sales/Growth) 원천 각 1건씩 WebSearch로 공식 출처 확인 후 등록(L'Oréal Beauty Genius / Google·Shopify UCP / HubSpot Loop Marketing / Intercom Fin for Sales / a16z 16 Startup Metrics). 기존 3.x/12.x는 무수정. 페르소나별 계정 배정은 별도 결정 대상으로 이번 범위 밖. |
