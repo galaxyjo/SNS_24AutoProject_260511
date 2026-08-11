@@ -1150,10 +1150,21 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
                 return
             aijomoojin_gemini_client = genai.Client(api_key=gemini_cred.api_key)
 
+            # 260811 Visual Type Wiring — 기본 false(off), 켜지면 원본 Flux
+            # 단일 이미지 대신 AI배경+Pillow텍스트 하이브리드 히어로카드를 쓴다
+            # (ERR-110/FP-081 완화 조치까지 반영된 상태). carousel(slot_role=
+            # "REACH", 05시 슬롯)과 동시에 켜져도 히어로카드 fingerprint는
+            # frontmatter에 쓰이지 않아(P2, 의도적 보류) carousel의 기존 dedup과
+            # 충돌하지 않는다 — content_id 결정성/캡션 정확일치 dedup/일일
+            # source_url 제한은 hero_card_enabled 여부와 무관하게 그대로 유지.
+            hero_card_enabled = (
+                os.getenv("AIJOMOOJIN_HERO_CARD_ENABLED", "false").strip().lower() == "true"
+            )
             result = create_content_package(
                 target_language="ko", slot_role=slot_role, template_type=template_type,
                 gemini_client=aijomoojin_gemini_client,
                 gemini_model=AIJOMOOJIN_PRODUCER_GEMINI_MODEL,
+                hero_card_enabled=hero_card_enabled,
             )
             if not result.success and result.error_code == "NO_SELECTABLE_TOPIC":
                 # 260805 회장 지시(Sourcebook SSOT 복구) — Research-to-Topic

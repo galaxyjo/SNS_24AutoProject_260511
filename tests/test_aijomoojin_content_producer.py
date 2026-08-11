@@ -410,6 +410,94 @@ class TestPersonaGeminiCredential:
         assert "shared-corea-galaxy-key-SECRET-VALUE" not in caplog.text
 
 
+class TestHeroCardFlagWiring:
+    """260811 Visual Type Wiring — `AIJOMOOJIN_HERO_CARD_ENABLED` 배선 검증
+    (실제 이미지 생성 로직 자체는 test_content_package_builder.py에서 검증됨,
+    여기서는 Producer Job이 env 값을 그대로 create_content_package()에
+    전달하는지만 확인)."""
+
+    def test_flag_unset_defaults_to_false(self, monkeypatch, _flag_on, vault_root):
+        from launcher import main as launcher_main
+
+        monkeypatch.delenv("AIJOMOOJIN_HERO_CARD_ENABLED", raising=False)
+        create_calls = []
+
+        def _fake_create(target_language="ko", **kwargs):
+            create_calls.append(kwargs)
+            _write_fixture_package(
+                vault_root, "hero-flag-1", source_url="https://hero.example/a", caption="c",
+            )
+            return cpb.PackageResult(success=True, content_id="hero-flag-1", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        monkeypatch.setattr(
+            "modules.sns.image_hosting.upload_local_file_to_imgbb",
+            lambda path: {"success": True, "public_url": "https://i.ibb.co/hero.jpg"},
+        )
+        repo, calls = _fake_repo(active_status="", save_record_id="recHERO1")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert len(create_calls) == 1
+        assert create_calls[0]["hero_card_enabled"] is False
+
+    def test_flag_true_is_forwarded(self, monkeypatch, _flag_on, vault_root):
+        from launcher import main as launcher_main
+
+        monkeypatch.setenv("AIJOMOOJIN_HERO_CARD_ENABLED", "true")
+        create_calls = []
+
+        def _fake_create(target_language="ko", **kwargs):
+            create_calls.append(kwargs)
+            _write_fixture_package(
+                vault_root, "hero-flag-2", source_url="https://hero.example/b", caption="c",
+            )
+            return cpb.PackageResult(success=True, content_id="hero-flag-2", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        monkeypatch.setattr(
+            "modules.sns.image_hosting.upload_local_file_to_imgbb",
+            lambda path: {"success": True, "public_url": "https://i.ibb.co/hero.jpg"},
+        )
+        repo, calls = _fake_repo(active_status="", save_record_id="recHERO2")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert len(create_calls) == 1
+        assert create_calls[0]["hero_card_enabled"] is True
+
+    @pytest.mark.parametrize("raw_value", ["false", "False", "FALSE", "", "0", "no"])
+    def test_flag_only_exact_true_string_enables(self, monkeypatch, _flag_on, vault_root, raw_value):
+        """기존 다른 aijomoojin Flag와 동일한 파싱 계약 — 정확히 "true"(대소문자
+        무관)만 활성화, 그 외 값은 전부 off로 취급한다(모호한 값으로 실수로
+        켜지는 것 방지)."""
+        from launcher import main as launcher_main
+
+        monkeypatch.setenv("AIJOMOOJIN_HERO_CARD_ENABLED", raw_value)
+        create_calls = []
+
+        def _fake_create(target_language="ko", **kwargs):
+            create_calls.append(kwargs)
+            _write_fixture_package(
+                vault_root, "hero-flag-3", source_url="https://hero.example/c", caption="c",
+            )
+            return cpb.PackageResult(success=True, content_id="hero-flag-3", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        monkeypatch.setattr(
+            "modules.sns.image_hosting.upload_local_file_to_imgbb",
+            lambda path: {"success": True, "public_url": "https://i.ibb.co/hero.jpg"},
+        )
+        repo, calls = _fake_repo(active_status="", save_record_id="recHERO3")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert create_calls[0]["hero_card_enabled"] is False
+
+
 class TestPendingFailureNoRetry:
     def test_imgbb_failure_leaves_pending_no_retry_within_call(self, monkeypatch, _flag_on, vault_root):
         from launcher import main as launcher_main
