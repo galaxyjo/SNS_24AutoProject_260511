@@ -35,34 +35,6 @@
 
 ## 3. Silicon Valley Operating Resources
 
-### 3.1 Netflix Culture Memo
-
-상태: VERIFIED FACT
-
-정확한 명칭: Netflix Culture Memo
-
-공식 URL: https://jobs.netflix.com/culture
-
-PDF: https://jobs.netflix.com/netflix-culture.pdf
-
-검증된 설명:
-- Netflix는 자사 문화 원칙을 공식 채용 사이트에 공개한다.
-- 과거 Culture Deck의 "Freedom and Responsibility" 정신은 현재 Culture Memo에 계승되어 있다.
-- 2024년 개정판은 다음 4대 원칙으로 구성된다.
-  - The Dream Team
-  - People Over Process
-  - Uncomfortably Exciting
-  - Great and Always Better
-- 최신 콘텐츠에서는 "자유와 책임"만 단독으로 설명하지 않고 `People Over Process`와 함께 설명한다.
-
-SNS 콘텐츠 핵심 메시지:
-Netflix는 규칙을 늘리는 대신 뛰어난 사람에게 맥락과 책임을 주는 조직 운영 원칙을 공개해 왔다.
-
-주의:
-"실리콘밸리 조직문화의 절대적인 바이블" 또는 순위 표현은 사용하지 않는다.
-
----
-
 ### 3.2 The Startup Owner's Manual
 
 상태: VERIFIED FACT
@@ -379,8 +351,6 @@ UNKNOWN:
 
 ## 6. Safe Claims
 
-- Netflix는 공식 Culture Memo를 공개하고 있다.
-- Netflix의 현재 Culture Memo는 과거 Freedom and Responsibility 정신을 확장한 원칙을 제시한다.
 - Steve Blank의 Customer Development는 고객 문제 검증을 제품 개발 전후에 반복하도록 설계된 방법론이다.
 - 《기업 창업가 매뉴얼》은 Customer Development의 단계별 실행절차를 다룬다.
 - Radical Candor의 한국어판 제목은 《실리콘밸리의 팀장들》이다.
@@ -403,7 +373,6 @@ UNKNOWN:
 - r/AI_Agents 회원 수를 확인되지 않은 숫자로 표기
 - `레디 피플`
 - Sequoia 또는 YC가 사용자 프로젝트를 승인했다
-- Netflix의 현재 문화를 과거 "자유와 책임" 한 문장으로만 설명
 - 실제 측정하지 않은 매출·성과·시간 절감 수치
 
 ---
@@ -412,8 +381,7 @@ UNKNOWN:
 
 ### Series A — 실리콘밸리 업무 정석
 
-1. Netflix는 왜 규칙보다 사람을 선택했을까
-2. 고객 없이 제품부터 만들면 실패하는 이유
+1. 고객 없이 제품부터 만들면 실패하는 이유
 3. Steve Blank의 Customer Development 4단계
 4. 좋은 팀장은 왜 불편한 말을 피하지 않을까
 5. Radical Candor를 잘못 적용하면 독설이 되는 이유
@@ -643,3 +611,4 @@ SNS 콘텐츠 핵심 메시지:
 | 260807 | 섹션 12 신규 추가 — 제조·무역·유통·온라인판매·전문서비스(1~20인) 대상 요일별 운영자동화 자료 6건(Zapier/Meta/Buffer/Shopify/Flexport/MIT Sloan) WebFetch 검증 후 등록. Claude Code가 회장 명시 승인(AskUserQuestion 응답)에 따라 직접 웹검색·검증을 수행함 — 기존 3~5 섹션은 수정하지 않음. |
 | 260807 | GPT 검수 결과 12.4(Shopify)·12.5(Flexport)가 "공식 URL 접근 가능"은 맞으나 지정 주제(상품등록/무역 Follow-up)와 불일치 판정(FAIL) — 12.4를 Amazon SP-API Listings Items API로, 12.5를 SaleAI Quotation Follow-Up Automation으로 교체. 12.1~12.3·12.6은 PASS로 유지, 수정 없음. |
 | 260807 | 2차 GPT 검수 결과 12.5(SaleAI)가 주제는 일치하나 자사 홍보성 블로그로 `VERIFIED FACT` Evidence 등급 미달 판정(FAIL) — 대체 원천을 찾아 채우지 않고 12.5 섹션 자체를 삭제. 금(무역업무) 요일은 확실한 원천이 확보될 때까지 미배정 상태로 남긴다. 12.1~12.4·12.6은 무수정. |
+| 260811 | 회장 지시로 3.1(Netflix Culture Memo) 섹션 및 관련 언급(Safe Claims 2건, Forbidden Claims 1건, Content Series Backlog 1건) 전량 삭제 — 대체 원천 없이 제거(12.5 삭제 선례와 동일 처리, 번호 재배열 없음). 3.2~3.6은 무수정. |
