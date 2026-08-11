@@ -36,9 +36,13 @@ from modules.sns.carousel_content_builder import (
     generate_carousel_content,
     scan_existing_fingerprints,
 )
+from modules.sns.hero_card_content_builder import generate_hero_card_content
 from modules.sns.image_provider_cloudflare import generate_image
+from modules.sns.image_template_renderer import HeroBlock, HeroCardContent, render_hero_card
 from modules.sns.source_selector import parse_sourcebook, select_next_topic
-from modules.sns.visual_brief import build_image_prompt, build_visual_brief
+from modules.sns.visual_brief import build_background_only_prompt, build_image_prompt, build_visual_brief
+
+_HERO_ICON_SEQUENCE = ("target", "search", "gear", "graph")
 
 DEFAULT_VAULT_ROOT = Path(__file__).resolve().parents[2] / "vault"
 
@@ -283,6 +287,49 @@ def _cleanup(*paths: Path) -> None:
             pass
 
 
+def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model=None) -> "bytes | None":
+    """260811 Visual Type Wiring — 텍스트 생성(hero_card_content_builder)+
+    텍스트없는 AI배경(visual_brief.build_background_only_prompt+generate_image)+
+    Pillow 렌더링(render_hero_card)을 순서대로 실행한다. 어느 단계든 실패하면
+    None을 반환한다(호출자가 IMAGE_GENERATION_FAILED로 Fail-closed, 원본 Flux
+    이미지로 조용히 폴백하지 않는다)."""
+    text_result = generate_hero_card_content(topic, client=client, throttle_fn=throttle_fn, model=model)
+    if not text_result.success:
+        return None
+
+    bg_prompt = build_background_only_prompt(brief)
+    if bg_prompt is None:
+        return None
+    bg_result = generate_image(bg_prompt.prompt_text, bg_prompt.negative_prompt)
+    if not bg_result.success:
+        return None
+
+    text_content = text_result.content
+    blocks = tuple(
+        HeroBlock(icon, b.title, b.desc)
+        for icon, b in zip(_HERO_ICON_SEQUENCE, text_content.blocks)
+    )
+    hero_content = HeroCardContent(
+        headline=text_content.headline,
+        subheadline=text_content.subheadline,
+        blocks=blocks,
+        tagline=text_content.tagline,
+        source_label=topic.title,
+        ai_background=bg_result.image_bytes,
+    )
+    try:
+        return render_hero_card(hero_content)
+    except (ValueError, OSError):
+        # 260811 Codex 리뷰(P1) — ValueError는 render_hero_card() 자체의 필드
+        # 검증 실패지만, generate_image()가 success=True를 반환해도 손상된
+        # 이미지 bytes를 줄 수 있다. 그 경우 PIL.Image.open()이 손상된
+        # 이미지에서 UnidentifiedImageError(OSError 하위클래스)를 낸다 — 이걸
+        # 잡지 않으면 예외가 create_content_package() 밖 자동 파이프라인까지
+        # 전파돼 Job 전체가 죽는다. 두 예외 모두 동일하게 Fail-closed(None
+        # 반환 → 호출자가 IMAGE_GENERATION_FAILED로 안전하게 종료).
+        return None
+
+
 def create_content_package(
     tone_style: str = "",
     target_language: str = "EN",
@@ -294,6 +341,7 @@ def create_content_package(
     gemini_model=None,
     slot_role: "str | None" = None,
     template_type: "str | None" = None,
+    hero_card_enabled: bool = False,
 ) -> PackageResult:
     """260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
     Adapter(`modules/sns/research_to_topic_adapter.py`)가 이미 선정·검증한
@@ -325,7 +373,18 @@ def create_content_package(
     성공 시 `PackageResult.carousel`과 frontmatter의 `content_fingerprint`
     필드를 채운다 — 실패해도 기존 파이프라인 성공 여부에는 영향을 주지
     않는다(Best-effort 부가 출력, Instagram 게시·Airtable 저장 경로는 아직
-    이 필드를 읽지 않는다 — Runtime 미연결)."""
+    이 필드를 읽지 않는다 — Runtime 미연결).
+
+    260811 Visual Type Wiring — `hero_card_enabled`도 선택 인자다(기본
+    False). 생략하거나 False면(기존 모든 호출부 그대로) 이미지 생성은 기존과
+    100% 동일하게 `build_image_prompt()`+`generate_image()`(원본 Flux 단일
+    이미지)로 진행한다. True면 대신 `hero_card_content_builder.
+    generate_hero_card_content()`(이미지 전용 구조화 텍스트)+
+    `build_background_only_prompt()`+`generate_image()`(텍스트없는 AI배경)+
+    `render_hero_card()`(Pillow로 실제 텍스트 렌더링)로 대체한다. 이 경로가
+    실패하면(텍스트 생성 실패/배경 생성 실패/렌더 검증 실패 어느 단계든)
+    원본 Flux로 조용히 폴백하지 않고 기존과 동일한 `IMAGE_GENERATION_FAILED`로
+    Fail-closed한다(실패를 숨기지 않는다, CLAUDE.md 9.1)."""
     root = vault_root or DEFAULT_VAULT_ROOT
     (root / "content").mkdir(parents=True, exist_ok=True)
     (root / "images").mkdir(parents=True, exist_ok=True)
@@ -376,13 +435,32 @@ def create_content_package(
     brief = build_visual_brief(
         topic.topic_id, topic.core_message, topic.title, topic.prohibited_expression, tone_style
     )
-    image_prompt = build_image_prompt(brief)
-    if image_prompt is None:
-        return PackageResult(success=False, error_code="IMAGE_PROMPT_UNAVAILABLE")
 
-    image_result = generate_image(image_prompt.prompt_text, image_prompt.negative_prompt)
-    if not image_result.success:
-        return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
+    if hero_card_enabled:
+        # 260811 Codex 리뷰(P2, 알려진 범위 밖) — hero_card_content_builder의
+        # content_fingerprint는 계산만 되고 여기서는 아직 쓰이지 않는다.
+        # scan_existing_fingerprints()는 carousel과 같은 frontmatter 필드
+        # (`content_fingerprint`)를 읽으므로, 두 기능이 같은 호출에서 동시에
+        # 켜지면(carousel용 slot_role/template_type + hero_card_enabled 동시
+        # 사용) 어느 한쪽이 그 필드를 덮어써 나머지 dedup이 무력화될 수 있다
+        # — 별도 필드명 설계가 필요해 이번 범위에서는 의도적으로 보류한다.
+        # 지금은 수동 Canary 1건 검증이 목적이라 중복게시 위험이 낮다(운영자가
+        # 직접 트리거·확인). 자동 슬롯 반영 전 별도 승인·설계 필요.
+        image_bytes = _build_hero_card_image(
+            topic, brief,
+            client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
+        )
+        if image_bytes is None:
+            return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
+    else:
+        image_prompt = build_image_prompt(brief)
+        if image_prompt is None:
+            return PackageResult(success=False, error_code="IMAGE_PROMPT_UNAVAILABLE")
+
+        image_result = generate_image(image_prompt.prompt_text, image_prompt.negative_prompt)
+        if not image_result.success:
+            return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
+        image_bytes = image_result.image_bytes
 
     # 260805 Track B 7B-3 Carousel Canary — 선택적 부가 생성. slot_role/
     # template_type 둘 다 없으면 이 블록 전체를 건너뛴다(기존 호출부는
@@ -426,7 +504,7 @@ def create_content_package(
 
     try:
         tmp_md.write_text(md_text, encoding="utf-8")
-        tmp_img.write_bytes(image_result.image_bytes)
+        tmp_img.write_bytes(image_bytes)
         os.replace(tmp_md, md_path)
         os.replace(tmp_img, img_path)
     except Exception:

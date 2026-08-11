@@ -628,3 +628,196 @@ def test_only_slot_role_given_without_template_type_skips_carousel(tmp_path, mon
     assert result.success is True
     assert result.carousel is None
     assert calls == []
+
+
+# ── 260811 Visual Type Wiring — hero_card_enabled(기본 False, opt-in) ─────
+
+class _FakeHeroBlockText:
+    def __init__(self, title, desc):
+        self.title = title
+        self.desc = desc
+
+
+class _FakeHeroTextContent:
+    def __init__(self):
+        self.headline = "VC 투자 검토 구조"
+        self.subheadline = "유명 VC의 실제 투자 검토 구조를 배울 수 있다."
+        self.blocks = (
+            _FakeHeroBlockText("검토 기준", "실제 투자 검토용"),
+            _FakeHeroBlockText("사업계획", "실제 구조 확인"),
+            _FakeHeroBlockText("공개 자료", "누구나 학습 가능"),
+            _FakeHeroBlockText("활용 방법", "내 사업에 적용"),
+        )
+        self.tagline = "실제 VC의 투자 검토법을 확인하세요."
+
+
+class _FakeHeroTextResult:
+    def __init__(self, success, content=None, error_code=""):
+        self.success = success
+        self.content = content
+        self.error_code = error_code
+
+
+def test_hero_card_disabled_by_default_uses_original_image_path(tmp_path, monkeypatch):
+    """hero_card_enabled를 생략한 기존 모든 호출부는 100% 이전과 동일하게
+    동작한다 — generate_hero_card_content()는 아예 호출되지 않는다."""
+    calls = []
+    monkeypatch.setattr(
+        builder, "generate_hero_card_content",
+        lambda *a, **k: calls.append((a, k)) or pytest.fail("호출되면 안 됨"),
+    )
+
+    result = builder.create_content_package(vault_root=tmp_path)
+
+    assert result.success is True
+    assert calls == []
+    img_files = _image_files(tmp_path)
+    assert img_files[0].read_bytes() == b"fake-png-bytes"  # 기존 mock 그대로
+
+
+def test_hero_card_enabled_true_uses_hero_card_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        builder, "generate_hero_card_content",
+        lambda *a, **k: _FakeHeroTextResult(success=True, content=_FakeHeroTextContent()),
+    )
+    monkeypatch.setattr(builder, "build_background_only_prompt", lambda brief: _fake_image_prompt())
+    monkeypatch.setattr(
+        builder, "render_hero_card", lambda content: b"fake-hero-card-png-bytes",
+    )
+
+    result = builder.create_content_package(vault_root=tmp_path, hero_card_enabled=True)
+
+    assert result.success is True
+    img_files = _image_files(tmp_path)
+    assert img_files[0].read_bytes() == b"fake-hero-card-png-bytes"
+
+
+def test_hero_card_text_generation_failure_fails_closed_no_fallback(tmp_path, monkeypatch):
+    """텍스트 생성이 실패하면 원본 Flux 이미지로 조용히 폴백하지 않고
+    IMAGE_GENERATION_FAILED로 종료한다(파일 0건)."""
+    monkeypatch.setattr(
+        builder, "generate_hero_card_content",
+        lambda *a, **k: _FakeHeroTextResult(success=False, error_code="POSSIBLE_FABRICATION"),
+    )
+    generate_image_calls = []
+    monkeypatch.setattr(
+        builder, "generate_image",
+        lambda *a, **k: generate_image_calls.append(1) or pytest.fail("배경 생성은 호출되면 안 됨"),
+    )
+
+    result = builder.create_content_package(vault_root=tmp_path, hero_card_enabled=True)
+
+    assert result.success is False
+    assert result.error_code == "IMAGE_GENERATION_FAILED"
+    assert generate_image_calls == []
+    assert _content_files(tmp_path) == []
+    assert _image_files(tmp_path) == []
+
+
+def test_hero_card_background_generation_failure_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        builder, "generate_hero_card_content",
+        lambda *a, **k: _FakeHeroTextResult(success=True, content=_FakeHeroTextContent()),
+    )
+    monkeypatch.setattr(builder, "build_background_only_prompt", lambda brief: _fake_image_prompt())
+    monkeypatch.setattr(
+        builder, "generate_image",
+        lambda *a, **k: ProviderResult(success=False, error_code="DAILY_IMAGE_CAP_EXCEEDED"),
+    )
+
+    result = builder.create_content_package(vault_root=tmp_path, hero_card_enabled=True)
+
+    assert result.success is False
+    assert result.error_code == "IMAGE_GENERATION_FAILED"
+    assert _content_files(tmp_path) == []
+    assert _image_files(tmp_path) == []
+
+
+def test_hero_card_corrupted_background_bytes_fails_closed_not_crash(tmp_path, monkeypatch):
+    """260811 Codex 리뷰(P1) — generate_image()가 success=True를 반환해도 손상된
+    bytes를 줄 수 있다. render_hero_card()는 실제 코드 그대로 실행해(mock 안 함)
+    PIL.Image.open()이 진짜 UnidentifiedImageError(OSError 하위클래스)를 내는지,
+    그게 예외 전파 없이 IMAGE_GENERATION_FAILED로 안전하게 끝나는지 확인한다."""
+    monkeypatch.setattr(
+        builder, "generate_hero_card_content",
+        lambda *a, **k: _FakeHeroTextResult(success=True, content=_FakeHeroTextContent()),
+    )
+    monkeypatch.setattr(builder, "build_background_only_prompt", lambda brief: _fake_image_prompt())
+    monkeypatch.setattr(
+        builder, "generate_image",
+        lambda *a, **k: ProviderResult(success=True, image_bytes=b"not-an-image"),
+    )
+    # render_hero_card는 mock하지 않는다 — 실제 PIL 예외 경로를 검증해야 한다.
+
+    result = builder.create_content_package(vault_root=tmp_path, hero_card_enabled=True)
+
+    assert result.success is False
+    assert result.error_code == "IMAGE_GENERATION_FAILED"
+    assert _content_files(tmp_path) == []
+    assert _image_files(tmp_path) == []
+
+
+def test_hero_card_render_validation_failure_fails_closed(tmp_path, monkeypatch):
+    """render_hero_card()의 Fail-closed 검증(ValueError)도 IMAGE_GENERATION_FAILED로
+    승격된다 — 빈 카드로 채우지 않는다."""
+    monkeypatch.setattr(
+        builder, "generate_hero_card_content",
+        lambda *a, **k: _FakeHeroTextResult(success=True, content=_FakeHeroTextContent()),
+    )
+    monkeypatch.setattr(builder, "build_background_only_prompt", lambda brief: _fake_image_prompt())
+
+    def _raise_value_error(content):
+        raise ValueError("ai_background는 비어있을 수 없습니다")
+
+    monkeypatch.setattr(builder, "render_hero_card", _raise_value_error)
+
+    result = builder.create_content_package(vault_root=tmp_path, hero_card_enabled=True)
+
+    assert result.success is False
+    assert result.error_code == "IMAGE_GENERATION_FAILED"
+    assert _content_files(tmp_path) == []
+    assert _image_files(tmp_path) == []
+
+
+def test_hero_card_blocks_get_fixed_icon_sequence(tmp_path, monkeypatch):
+    """4블록에 아이콘이 target/search/gear/graph 고정 순서로 배정되는지 확인한다
+    (모델이 아이콘을 고르지 않음 — HeroBlock.icon은 render_hero_card()가 검증하는
+    4종 중 하나여야 하므로 결정적으로 배정)."""
+    captured = {}
+    monkeypatch.setattr(
+        builder, "generate_hero_card_content",
+        lambda *a, **k: _FakeHeroTextResult(success=True, content=_FakeHeroTextContent()),
+    )
+    monkeypatch.setattr(builder, "build_background_only_prompt", lambda brief: _fake_image_prompt())
+
+    def _spy_render_hero_card(content):
+        captured["blocks"] = content.blocks
+        return b"fake-hero-card-png-bytes"
+
+    monkeypatch.setattr(builder, "render_hero_card", _spy_render_hero_card)
+
+    result = builder.create_content_package(vault_root=tmp_path, hero_card_enabled=True)
+
+    assert result.success is True
+    assert [b.icon for b in captured["blocks"]] == ["target", "search", "gear", "graph"]
+
+
+def test_hero_card_gemini_client_forwarded(tmp_path, monkeypatch):
+    captured = {}
+
+    def _spy_generate_hero_card_content(topic, *, client=None, throttle_fn=None, model=None,
+                                          existing_fingerprints=None):
+        captured["client"] = client
+        return _FakeHeroTextResult(success=True, content=_FakeHeroTextContent())
+
+    monkeypatch.setattr(builder, "generate_hero_card_content", _spy_generate_hero_card_content)
+    monkeypatch.setattr(builder, "build_background_only_prompt", lambda brief: _fake_image_prompt())
+    monkeypatch.setattr(builder, "render_hero_card", lambda content: b"fake-hero-card-png-bytes")
+
+    sentinel_client = object()
+    result = builder.create_content_package(
+        vault_root=tmp_path, hero_card_enabled=True, gemini_client=sentinel_client,
+    )
+
+    assert result.success is True
+    assert captured["client"] is sentinel_client

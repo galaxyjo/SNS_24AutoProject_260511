@@ -104,3 +104,47 @@ def build_image_prompt(brief: VisualBrief) -> "ImagePrompt | None":
         aspect_ratio=DEFAULT_ASPECT_RATIO,
         prompt_version=PROMPT_VERSION,
     )
+
+
+def build_background_only_prompt(brief: VisualBrief) -> "ImagePrompt | None":
+    """260811 Visual Type Wiring — `render_hero_card()`용 배경 이미지 Prompt.
+
+    `build_image_prompt()`와 별개 함수다(기존 함수·기존 호출부 무수정) — 이
+    배경은 최종 이미지가 아니라 Pillow가 그 위에 실제 텍스트를 덧그리는
+    바탕이므로, "no text" 지시를 지키지 못했을 때의 위험이 다르다(Pillow
+    텍스트가 항상 실제로 그려지므로 최종 결과의 글자 자체는 항상 정확 —
+    `render_hero_card()`가 헤드라인 구간에 불투명 밴드를 추가로 덮어 배경의
+    잔여 텍스트 유령을 가린다, 260811 실측 확인). 그래도 1차 방어선으로 이
+    함수도 동일하게 "no text" 지시를 명시한다.
+    """
+    if not brief.core_message or not brief.core_message.strip():
+        return None
+
+    tone_clause = f", {brief.tone_style} mood" if brief.tone_style else ""
+    brand_clause = (
+        f" Do NOT depict {brief.title}'s actual logo, brand colors, or any recognizable "
+        f"company branding — represent the underlying idea with a completely generic, "
+        f"unbranded scene instead."
+        if brief.title else ""
+    )
+
+    prompt_text = (
+        "A modern high-tech isometric 3D business banner background, deep navy "
+        "blue and neon cyan aesthetic, symbolic imagery representing the "
+        "following idea: "
+        f"\"{brief.core_message.strip()}\"{tone_clause}. "
+        "Dramatic lighting, layered depth, premium and futuristic in feel, "
+        "glowing circuit-board pattern accents."
+        f"{brand_clause} "
+        "Absolutely no text, letters, or writing in any language anywhere in the "
+        "image. No logos, no watermarks, no real or recognizable human faces, no "
+        "invented statistics or numbers. Abstract and symbolic only."
+    )
+    negative_prompt = ", ".join(brief.forbidden_elements)
+
+    return ImagePrompt(
+        prompt_text=prompt_text,
+        negative_prompt=negative_prompt,
+        aspect_ratio=DEFAULT_ASPECT_RATIO,
+        prompt_version=PROMPT_VERSION,
+    )
