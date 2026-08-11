@@ -1,3 +1,57 @@
+# 2026-08-11 10:26 ICT — 세션 종료: ERR-109(stale-process 관측) + 히어로카드 템플릿 + Sourcebook 넥플릭스 삭제 + Training_Review_Queue 재검수(Codex 2차 PASS) 전부 Commit·Push 완료
+
+_기록 시각: 2026-08-11 10:26 ICT · 상태: 08:36 ICT "오늘오전 자동 안올라갔어" 회장 보고로 시작한 조사가 ERR-109 발견·수정으로 이어졌고, 이미 승인된 히어로카드 템플릿 반영·Sourcebook 넥플릭스 삭제·Training_Review_Queue 재검수 기능(전날부터 Codex 2차 회신 대기 중이던 것)까지 전부 이 세션에서 완료·Commit·Push됐다. 세션을 종료한다._
+
+## 판정
+
+**SUCCESS** — 이번 세션에서 진행한 4건 전부 Runtime Evidence(테스트 실행·회귀 비교) 확인 후 Commit·Push 완료. 미해결(UNKNOWN)로 남은 항목 없음(단, 항목별 "다음 단계"는 별도 승인 필요 — 아래 참조).
+
+## 완료된 FACT (Commit·Push 완료, origin/master 반영 확인)
+
+| Commit | 내용 | 상태 |
+|---|---|---|
+| `4cdcfe5` | ERR-109 — Live 프로세스가 재시작 없이 구코드를 계속 실행하던 문제(260810 05:56:43~20:02:54, 17:00:33 ERR-107 4번째 재현) 진단 + `health_monitor.py`에 `record_boot_commit()`/`get_code_freshness_status()` 관측 기능 신규, `launcher/main.py::main()` 연결. 신규 테스트 7개 PASS. | SUCCESS |
+| `6b8c832` | 히어로카드 이미지 템플릿(AI배경+Pillow텍스트 하이브리드) 실제 코드 반영 — `HeroBlock`/`HeroCardContent`/`render_hero_card()`. 신규 테스트 13개 PASS(총 23개). **module_verified만 — 자동 파이프라인 미배선.** | SUCCESS(코드·테스트 기준) |
+| `0dfd450` | Sourcebook에서 Netflix Culture Memo 섹션 전체 삭제(회장 지시). 선택 가능 주제 11→10개, 파싱 오류 없음 재확인. | SUCCESS |
+| `1c0f4a5` | Training_Review_Queue 재검수(PENDING/PASS/BLOCK 모드) 기능 — `RepositoryInterface.fetch_candidates_by_status()` 신규(High-Risk). Codex 2라운드 리뷰 전부 반영(P1 2건 검증 추가, P2 새로고침 복원 테스트 추가) 후 2차 리뷰 **PASS**. 대상 스위트 167/167 PASS 직접 재확인. | SUCCESS |
+
+전부 `git push origin master`로 원격 반영 확인(`origin/master..HEAD` 차이 0건, 각 커밋 직후 직접 확인).
+
+## 테스트 결과
+
+- 개별 기능 테스트: 위 표 참조, 전부 PASS.
+- 전체 회귀(`pytest tests/ -q --continue-on-collection-errors`): 이번 세션 전 구간에서 일관되게 **`62 failed, 1168 passed, 3 xfailed, 8 errors`** — 실패 전부 `write_budget_idempotency`/`provider_routing`/`publish_outcome_unknown`/`retry_handler_eager_registration`/`runtime_boot_policy.json` PermissionError 계열(이 세션 환경 고유, 무관 확인됨). 신규 회귀 0건.
+
+## Runtime 변경
+
+- `db/launcher_boot_state.json` 신규 생성(코드-신선도 관측 기능이 프로세스 기동 시 자동 기록, `.gitignore` `db/` 관례상 미커밋 — Git 추적 대상 아님, 정상).
+- ERR-109 수정 반영을 위해서는 **Live `launcher/main.py` 프로세스 재시작 필요**(다음 세션 첫 확인 항목 — 아래 참조). 이번 세션 내 재시작·`get_code_freshness_status()`의 실제 stale→fresh 전환 관측은 아직 미실증.
+
+## Airtable 변경
+
+- 이번 세션(이 기록 시점 기준) 범위에서 Airtable Write 직접 실행 0건 — 앞선 260811 08:36am 조사(stuck 레코드 복구, 자동 파이프라인 라이브 트리거)는 이 세션 이전 단계에서 이미 완료됐으며 그 상세는 ERR-109/INC-051 참조.
+
+## Rollback
+
+- 4개 커밋 전부 `git revert <hash>`로 개별 원복 가능(서로 독립적 — 순서 무관, 파일 겹침 없음).
+- `render_hero_card()`는 어떤 자동 경로에서도 아직 호출되지 않아 원복 없이도 Blast Radius 0.
+- 코드-신선도 관측 기능은 순수 관측용(판정만 하고 어떤 상태도 강제하지 않음) — 원복해도 기존 동작(Fail-open) 무변화.
+
+## 다음 세션 확인할 것 (순서·승인 필요 여부 명시)
+
+1. **[Runtime 확인, 승인 불요 — read-only]** Live 프로세스가 이 세션의 커밋 이후 재시작됐는지 `get_code_freshness_status()`/`print_health()`로 확인. 재시작 전이면 ERR-109 수정 자체가 아직 그 프로세스에 반영 안 된 상태.
+2. **[설계+승인 필요]** `render_hero_card()`를 `content_package_builder.py` 자동 파이프라인에 배선 — AI배경 프롬프트를 post 주제별로 동적 생성하는 방식, 9필드 캡션→4블록 콘텐츠 도출 규칙 설계 필요(이번 세션 범위 밖으로 명시 DEFER).
+3. **[승인 필요]** 기존 WORKFLOW/BEFORE_AFTER/SOURCE_CARD 3템플릿과 신규 히어로카드 템플릿의 관계 정리 — 완전 대체인지 병행인지 미결정.
+4. Founder Secret Architecture 분리(Read-only 감사만 완료, 메모리 기록됨) 실제 착수 여부 — 회장 결정 대기.
+5. 신규 계정(단순 실루엣+캡션 스타일) 생성 여부 — 기획만 완료, 미착수.
+6. ⚠️ 260706~260709 구간 여전히 별도 미반영 — 과거 Backlog 그대로 승계.
+
+## 관련 문서
+
+- ERR-109, FP-080, INC-051, `docs/VALIDATION_STATUS.md`(신규 2행), `porting_logs/MERGE_JOURNAL.md`("260811" 항목) — 전체 raw 근거는 각 문서 참조.
+
+---
+
 # 2026-08-10 19:57 ICT — aijomoojin 슬롯 3→5 확대 + 이미지 일일 안전장치 사실상 해제(회장 명시 지시)
 
 _기록 시각: 2026-08-10 19:57 ICT · 상태: 회장이 "예약 하루 5번으로 늘리고 안전장치 하루 3장은 해제하자, 나중에 안정되고 트래픽 나오면 필요하면 그때 정하겠음"이라고 명시적으로 지시해 즉시 반영함._

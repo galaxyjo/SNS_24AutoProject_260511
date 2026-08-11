@@ -2483,7 +2483,26 @@ push: 해당 없음(Commit 없음)
 
 **잔여 과제(다음 세션):** (1) `render_hero_card()`를 `content_package_builder.py` 자동 파이프라인에 배선(AI배경 프롬프트를 post 주제별로 동적 생성하는 설계, 9필드 캡션에서 4블록 콘텐츠를 도출하는 규칙 필요), (2) `modules/infra/*` 4개 파일(Training_Review_Queue 재검수 기능) Codex 2차 리뷰 회신 대기 계속, (3) Founder Secret Architecture 분리 실제 착수 여부(Read-only 감사만 완료, 메모리 기록됨), (4) 신규 계정(단순 실루엣+캡션 스타일) 생성 여부(기획만, 메모리 기록됨).
 
-commit: 3건 예정(각각 별도 승인·별도 커밋 — health_monitor 신선도 기능, 히어로카드 템플릿, Sourcebook 넥플릭스 삭제)
-push: 세션 종료 시 일괄 승인 대상(관행 유지)
+commit: 3건 완료 — `4cdcfe5`(health_monitor 신선도 기능), `6b8c832`(히어로카드 템플릿), `0dfd450`(Sourcebook 넥플릭스 삭제). 회장이 "각각커밋" 승인, 각 커밋 직후 무관 파일 미포함 확인.
+push: 3건 모두 완료 — `git push origin master`로 `38ac9fc..0dfd450` 반영 확인.
+
+---
+
+## 260811 (계속) — Training_Review_Queue 재검수 기능 Codex 2차 리뷰 PASS + Commit·Push 완료
+
+**배경:** 260806 세션부터 Codex 2차 회신 대기로 미커밋 상태였던 재검수 기능(4 files, 위 260806 항목 참조)의 회신이 이번 세션에 도착했다.
+
+**Codex 2차 리뷰 결과 (PASS):** 1차 지적 P1 2건(status/revert_to가 쓰기·API 호출 전 `ReviewStatus`로 검증되는지) 전부 해소 확인, `AirtableRepository`가 유일한 `RepositoryInterface` 직접 구현체이며 신규 abstractmethod 구현 확인, PENDING 기존 경로·undo 기본값 회귀 없음, PASS/BLOCK 재검수 undo도 원래 상태로 복원됨 확인, 새 세션(새로고침)에서 SQLite payload의 `revert_to` 복원 테스트 포함 확인, `git diff --check`·정적 컴파일 통과. 단 Codex 자신의 환경(`.venv` 부재)에서 pytest 독립 재실행은 못 함(코드상 추가 차단 이슈 없음이라고 명시).
+
+**직접 재검증(Codex가 못 돌린 부분 보완):** 대상 스위트 7개 파일(`test_review_grid_ui_re_review.py`/`test_review_grid_ui.py`/`test_review_batch_committer.py`/`test_review_batch_committer_batched.py`/`test_review_batch.py`/`test_airtable_repository_batch_review.py`/`test_repository_exceptions.py`) 직접 실행 — **167 passed, 0 failed**. `git diff --check` 독립 재확인 통과. 전체 회귀 재실행 `62 failed, 1168 passed, 3 xfailed, 8 errors` — 이 4파일 변경 적용 상태에서도 오늘 baseline과 완전 동일(신규 회귀 0건).
+
+**Commit·Push:** 회장 승인("커밋해라") 하 `1c0f4a5` 커밋(`modules/infra/repository_interface.py`/`airtable_repository.py`/`review_batch_committer.py`/`review_grid_ui.py`/`tests/test_review_grid_ui_re_review.py` 5개 파일만, `db/launcher_boot_state.json` 등 무관 파일 미포함 확인) → `git push origin master`로 `0dfd450..1c0f4a5` 반영 확인.
+
+**상태변경 총계:** 코드 변경 1건(5파일, 위 상세). Airtable Write·Instagram 게시 없음.
+
+**잔여 과제:** 없음 — 이 기능은 Codex 2차 PASS + Runtime 재검증 + Commit + Push까지 전부 완료돼 Closed. 실제 대시보드에서 재검수 모드로 Write(제출 버튼 클릭)까지 실사용하는 것은 아직 미실행(라이브 read-only 확인만 260806에 완료) — 향후 회장이 실제로 PASS/BLOCK 재판정을 제출할 때가 첫 실사용.
+
+commit: 완료 — `1c0f4a5`
+push: 완료 — `0dfd450..1c0f4a5`
 
 ---
