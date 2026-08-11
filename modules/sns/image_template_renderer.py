@@ -269,21 +269,33 @@ def render_hero_card(content: HeroCardContent) -> bytes:
     canvas = Image.new("RGBA", CANVAS_SIZE, (5, 8, 25, 255))
     canvas.paste(bg, (0, (CANVAS_SIZE[1] - new_h) // 2))
 
-    # 왼쪽 텍스트 영역 가독성 확보용 다크 오버레이(좌측이 진하고 우측으로 갈수록 옅어짐).
+    # 260811 ERR-109 계열 재현 대응 — AI 배경이 "no text" 지시를 무시하고 글자 비슷한
+    # 형상을 그려 넣는 경우가 실측 확인됐다(Flux는 negative_prompt 미지원, positive
+    # prompt 지시도 항상 지키지 않음 — visual_brief.py 기존 주석과 동일 근본원인).
+    # 헤드라인/서브헤드라인이 배경 위에 바로 얹히면 그 잔상과 겹쳐 보일 수 있어,
+    # 실제 텍스트 높이를 계산해 그 구간만 거의 불투명한 별도 밴드로 덮는다 —
+    # 왼쪽 전체 그라데이션(4블록/태그라인 가독성용)과는 별개, 헤드라인 구간에서만
+    # 추가로 덧씌운다.
+    measure_draw = ImageDraw.Draw(canvas)
+    title_font = _hero_fit_font_one_line(measure_draw, content.headline, _FONT_EXTRABOLD, _HERO_FULL_W, 88)
+    sub_font = _hero_fit_font_one_line(measure_draw, content.subheadline, _FONT_REGULAR, _HERO_FULL_W, 44)
+    headline_top = 240 - 40
+    headline_bottom = 240 + title_font.size + 25 + sub_font.size + 60
+
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay)
+    # 왼쪽 텍스트 영역 가독성 확보용 다크 오버레이(좌측이 진하고 우측으로 갈수록 옅어짐).
     for x in range(620):
         alpha = int(190 * (1 - x / 620)) if x < 500 else int(190 * 0.2)
         odraw.line([(x, 0), (x, CANVAS_SIZE[1])], fill=(5, 8, 25, min(alpha + 40, 235)))
+    # 헤드라인·서브헤드라인 구간은 전체 폭에 걸쳐 거의 불투명하게 추가로 덮는다.
+    odraw.rectangle([0, headline_top, CANVAS_SIZE[0], headline_bottom], fill=(5, 8, 25, 255))
     canvas = Image.alpha_composite(canvas, overlay)
     draw = ImageDraw.Draw(canvas)
 
     block_title_font = _load_font(_FONT_EXTRABOLD, 34)
     block_desc_font = _load_font(_FONT_REGULAR, 26)
     footer_font = _load_font(_FONT_REGULAR, 22)
-
-    title_font = _hero_fit_font_one_line(draw, content.headline, _FONT_EXTRABOLD, _HERO_FULL_W, 88)
-    sub_font = _hero_fit_font_one_line(draw, content.subheadline, _FONT_REGULAR, _HERO_FULL_W, 44)
 
     y = 240
     draw.text((_HERO_MARGIN, y), content.headline, font=title_font, fill=_HERO_WHITE)
