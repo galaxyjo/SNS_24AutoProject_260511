@@ -2159,3 +2159,23 @@ watchdog.log(같은 구간):
 **Prevention:** FP-080 참조. **명시적 한계 — 이 기능은 `launcher/main.py` 자체의 최상위 코드만 커버하며, 그 안에서 지연 import(`import` 문이 함수 내부에 있는 경우)되는 다른 모듈은 해당 프로세스 수명 중 처음 import되는 시점의 디스크 코드를 그때 반영하므로, 여러 모듈이 서로 다른 시점의 코드를 실행 중일 수 있는 불일치 가능성은 이 기능으로 감지되지 않는다.** 프로세스 재시작 자동화(코드 변경 감지 시 자동 재기동)는 이번 범위 밖 — 사람이 `get_health()`/`print_health()`로 `stale` 여부를 확인 후 수동 재시작하는 것을 전제로 한다.
 
 **관련:** ERR-107, FP-080, INC-051
+
+---
+
+## ERR-110 | 히어로카드 AI 배경이 "no text" 지시를 무시하고 유령글자를 반복 생성 — 오버레이 확대+프롬프트 강화 2단계로 완화 (RESOLVED — best-effort, 260811)
+
+**발견 경위:** 260811 Visual Type Wiring 코드 완성 후 첫 실제 게시물 2건(아침 자동슬롯)에서 헤드라인과 겹치는 형태로 발견(회장 스크린샷 제보) → 헤드라인 전용 불투명 밴드로 1차 수정 → 수동 Canary #1(`content_id=13-1-260811-a7b8c253`, 실제 Gemini+Cloudflare+Vault 저장) 성공 직후 회장이 결과 이미지를 확대해 블록 영역(헤드라인 밴드 밖)에서 동일 현상 재확인(중국어 비슷한 글자 지적).
+
+**Raw:** 260811 하루 동안 실제 Cloudflare 배경 생성 4회 중 3회에서 유령글자 재현(헤드라인 겹침 1회, 블록 영역 1회, 상단·하단 여백 각 1회 — 마지막은 강화 전 마지막 테스트). 공통적으로 `visual_brief.build_background_only_prompt()`의 기존 문구("business banner", "isometric 3D device", "glowing circuit-board pattern accents")가 화면·패널·문서류 이미지를 연상시켜 라벨성 텍스트를 유발하는 경향과 상관관계 확인(완전한 인과 증명은 아님 — Flux는 내부 동작을 공개하지 않음).
+
+**Root Cause:** Cloudflare Workers AI FLUX.1-schnell은 `negative_prompt`를 지원하지 않고(260731 이미 확인됨, `visual_brief.py` 기존 주석 참조), positive prompt 안의 "no text" 지시도 항상 지키지는 않는다 — 모델 자체의 신뢰성 한계이며 이 프로젝트가 코드로 100% 통제할 수 없는 영역이다.
+
+**Fix(2단계, 둘 다 실측 검증):**
+1. `modules/sns/image_template_renderer.py::render_hero_card()` — 헤드라인 구간만 덮던 별도 불투명 밴드를 폐기하고, Pillow 텍스트가 그려질 수 있는 왼쪽 전체 컬럼(x<680)을 전체 높이(0~1350)에 걸쳐 균일하게 거의 불투명(alpha 250) 처리, 그 뒤(680~780)만 짧게 페이드아웃해 오른쪽 그래픽 영역(텍스트 없음)만 원본 그대로 노출.
+2. `modules/sns/visual_brief.py::build_background_only_prompt()` — "no text" 지시를 프롬프트 맨 앞에 반복 배치, "banner"/"isometric 3D device" 표현을 순수 추상 형상(빛 궤적·결정체·기하학 도형) 위주 문구로 교체.
+
+**검증:** 강화된 프롬프트로 서로 다른 2개 topic(L'Oréal 13.1, Sequoia 3.4) 배경을 각각 재생성 → 2/2 유령글자 0건(강화 전 4회 중 3회 재현과 대비). `tests/test_image_template_renderer.py` 23/23, `tests/test_visual_brief.py` 16/16, 관련 스위트 90/90 PASS.
+
+**Prevention:** FP-081 참조. **명시적 한계 — 100% 보장 아님.** 프롬프트 강화는 발생 확률을 낮출 뿐이고, 오버레이 확대가 실제 최종 방어선이다(어떤 배경이 와도 텍스트가 그려지는 자리는 구조적으로 가려짐). 더 강한 보장이 필요해지면 OCR 기반 사후 검출+재생성 또는 다른 Provider 검토가 다음 단계(이번 세션 범위 밖).
+
+**관련:** ERR-107, FP-081

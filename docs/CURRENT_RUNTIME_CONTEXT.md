@@ -1,3 +1,51 @@
+# 2026-08-11 19:49 ICT — Visual Type Wiring 파이프라인 연결(Codex 2라운드 PASS) + 수동 Canary #1 SUCCESS + 유령글자 2단계 수정(best-effort)
+
+_기록 시각: 2026-08-11 19:49 ICT · 상태: 10:26 세션종료 기록 이후 진행된 히어로카드 자동 파이프라인 연결 작업을 종합 정리한다. 이하는 최신 상태이며, 위 10:26 기록은 그 이전 구간(ERR-109/Sourcebook 넥플릭스삭제/Training_Review_Queue) 요약으로 그대로 보존한다._
+
+## 판정
+
+**PARTIAL** — 코드+Codex 리뷰+수동 Canary(Vault 저장까지) 전부 SUCCESS. 자동 슬롯 연결과 Push 1건은 다음 단계로 남아있어 전체를 CLOSED로 선언하지 않는다.
+
+## 완료된 FACT (Commit 완료, Push는 일부만)
+
+| Commit | 내용 | Push |
+|---|---|---|
+| `be5b048` | 히어로카드를 `content_package_builder.py`에 `hero_card_enabled=False`(기본) opt-in으로 연결. Codex 2라운드 리뷰(1차 P1 — `OSError`(PIL `UnidentifiedImageError`) 미포착으로 예외가 자동 파이프라인까지 전파될 위험 → 수정+실제 PIL 경로 회귀 테스트 추가. 2차 PASS). | 완료 |
+| `e691c3e` | 수동 Canary #1(아래)에서 발견한 배경 유령글자 잔존을 오버레이 확대(`image_template_renderer.py`)+프롬프트 강화(`visual_brief.py`) 2단계로 완화, 2/2 재검증 확인. | **미완료 — 승인 대기** |
+
+## 테스트 결과
+
+- `hero_card_content_builder`(16)+`content_package_builder` 확장(7)+`visual_brief` 확장(6) = 신규 29개 전부 PASS.
+- 전체 회귀: `62 failed, 1198 passed, 3 xfailed, 8 errors`(기존 baseline과 원인 동일 — 1회 63건은 재실행으로 flaky 확인, 신규 회귀 아님).
+
+## 수동 Canary #1 결과 (Runtime Evidence — Vault 저장까지만, Airtable Write·Instagram 게시 없음)
+
+- `content_id=13-1-260811-a7b8c253`(Sourcebook 13.1, 오늘 신규 추가한 L'Oréal Beauty Genius 원천), `vault/content/*.md`+`vault/images/*.png` 실제 생성 확인.
+- 시행착오: 최초 3회 `CAPTION_GENERATION_FAILED`(`PAYLOAD_TOO_LONG`)는 Canary 스크립트 자체가 `target_language`를 안 넘긴 버그(운영은 `"ko"` 명시) — 운영 캡션 파이프라인은 무관·정상 확인됨.
+- 배경 유령글자(ERR-110/FP-081 신규 기록) 회장이 결과 이미지 확대 검토로 발견 → 2단계 수정 후 서로 다른 2개 topic 재검증 2/2 유령글자 0건.
+
+## Runtime 변경
+
+- 없음 — `hero_card_enabled` 플래그는 여전히 기본 `False`, `launcher/main.py`의 실제 자동 슬롯 호출부는 아직 이 플래그를 넘기지 않는다(수동 Canary 스크립트에서만 `True`로 호출됨). 자동 게시 동작 변화 없음.
+
+## Rollback
+
+- `be5b048`/`e691c3e` 둘 다 `git revert`로 개별 원복 가능(서로 다른 파일 범위, 독립적).
+- 자동 슬롯에 전혀 배선 안 됨 — 이 두 커밋 자체는 원복하지 않아도 Blast Radius 0(플래그가 계속 False인 한).
+
+## 다음 세션 확인할 것 (순서·승인 필요 여부 명시)
+
+1. **[승인 필요]** `e691c3e` Push.
+2. **[설계+승인 필요]** `AIJOMOOJIN_HERO_CARD_ENABLED` 플래그를 `launcher/main.py` 실제 자동 슬롯(Producer/게시 잡)에 연결할지 결정 — 연결 전 hero card fingerprint dedup(P2, 현재 의도적 보류) 설계 필요.
+3. 유령글자 완화는 best-effort(100% 보장 아님) — 자동 슬롯 반영 후에도 주기적 육안 확인 권장.
+4. ⚠️ 260706~260709 구간 여전히 별도 미반영 — 과거 Backlog 그대로 승계.
+
+## 관련 문서
+
+- ERR-110, FP-081, `docs/VALIDATION_STATUS.md`(신규 2행), `porting_logs/MERGE_JOURNAL.md`("260811 (계속 2)" 항목) — 전체 raw 근거는 각 문서 참조.
+
+---
+
 # 2026-08-11 10:26 ICT — 세션 종료: ERR-109(stale-process 관측) + 히어로카드 템플릿 + Sourcebook 넥플릭스 삭제 + Training_Review_Queue 재검수(Codex 2차 PASS) 전부 Commit·Push 완료
 
 _기록 시각: 2026-08-11 10:26 ICT · 상태: 08:36 ICT "오늘오전 자동 안올라갔어" 회장 보고로 시작한 조사가 ERR-109 발견·수정으로 이어졌고, 이미 승인된 히어로카드 템플릿 반영·Sourcebook 넥플릭스 삭제·Training_Review_Queue 재검수 기능(전날부터 Codex 2차 회신 대기 중이던 것)까지 전부 이 세션에서 완료·Commit·Push됐다. 세션을 종료한다._

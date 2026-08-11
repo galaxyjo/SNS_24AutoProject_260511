@@ -2506,3 +2506,42 @@ commit: 완료 — `1c0f4a5`
 push: 완료 — `0dfd450..1c0f4a5`
 
 ---
+
+## 260811 (계속 2) — Visual Type Wiring 파이프라인 연결(Codex 2라운드) + 수동 Canary #1 + 유령글자 2단계 수정
+
+**배경:** 회장 지시("지금 그 wiring 설계부터 시작하자")로 오전에 만든 히어로카드 템플릿을 실제 자동 파이프라인에 연결하는 작업을 시작했다.
+
+**1) 설계 확정(Gate 7):** 캡션 9필드(`HOW_POINT1`/`CORE_POINT` 등)를 실제 라이브 캡션 2건으로 역분해해 시뮬레이션한 결과 전부 20~35자 완전한 문장이라 블록(한 줄, 6~14자)에 안 맞음을 실측 확인 → `caption_generator.py`를 건드리지 않고 `carousel_content_builder.py`의 이미 검증된 패턴(구조화 Gemini 호출+Fail-closed 계약+과장탐지)을 그대로 복제하는 방향으로 확정(회장 승인).
+
+**2) 구현(4 files, +841/-9):**
+- `modules/sns/hero_card_content_builder.py`(신규) — `generate_hero_card_content()`, headline≤16자/subheadline≤28자/block title≤8자·desc≤14자/tagline≤22자 계약, `carousel_content_builder._detect_possible_fabrication()`/`_normalize_text()` 재사용.
+- `modules/sns/visual_brief.py` — `build_background_only_prompt()` 신규(기존 `build_image_prompt()` 무수정).
+- `modules/sns/content_package_builder.py` — `hero_card_enabled: bool = False` 선택 인자로 분기, `_build_hero_card_image()` 신규 헬퍼.
+- 신규 테스트 `tests/test_hero_card_content_builder.py`(16) + `tests/test_content_package_builder.py`/`tests/test_visual_brief.py` 확장(각 7/6).
+
+**3) Codex 리뷰(2라운드):**
+- 1차 CHANGES REQUESTED — [P1, 치명] `_build_hero_card_image()`가 `render_hero_card()`를 `except ValueError:`로만 감싸는데, `generate_image()`가 `success=True`+손상된 bytes를 반환하면 `PIL.Image.open()`이 `UnidentifiedImageError`(OSError 하위클래스)를 내고, 이게 잡히지 않아 예외가 `create_content_package()` 밖 자동 파이프라인까지 전파돼 Job 전체가 죽을 수 있음. [P2] hero card fingerprint가 carousel과 같은 frontmatter 필드(`content_fingerprint`)를 공유해 두 기능 동시사용 시 dedup이 무력화될 위험.
+- 반영: `except (ValueError, OSError):`로 확장 + `b"not-an-image"` 입력으로 실제 PIL 예외 경로를 그대로 타는 회귀 테스트 추가(mock 안 함) — Codex가 직접 `PIL.UnidentifiedImageError`가 `OSError` 하위클래스임을 검증 요구했고 실제로 확인됨. P2는 자동배선 전까지 의도적 보류로 코드에 사유 명시(수동 Canary 단계에서는 중복위험 낮음).
+- 2차 리뷰 PASS. Commit `be5b048`, Push 완료.
+
+**4) 수동 Canary #1 (Vault 저장까지만, Airtable·Instagram 없음):**
+- 최초 3회 연속 `CAPTION_GENERATION_FAILED`(`PAYLOAD_TOO_LONG`, 802/740/821자) — 원인 조사 결과 Canary 스크립트가 `target_language`를 안 넘겨 기본값 `EN`으로 호출된 것이 원인(실제 운영 `launcher/main.py:1154`는 `"ko"` 명시 전달). 운영 캡션 파이프라인 자체는 정상임을 `target_language="ko"`로 직접 재검증(9필드 합계 308자로 여유있게 통과)해 확정 — **거짓 경보, 실제 프로덕션 결함 아님.**
+- 정정 후 재실행 SUCCESS — `content_id=13-1-260811-a7b8c253`, Sourcebook 13.1(L'Oréal, 오늘 신규 추가분)로 캡션+히어로카드 이미지 실제 생성, `vault/content/*.md`+`vault/images/*.png` 저장 확인.
+
+**5) 유령글자 잔존 발견(ERR-110/FP-081 신규) 및 2단계 수정:**
+- 회장이 Canary #1 결과 이미지를 확대 검토해 블록 영역(오전 수정한 헤드라인 밴드 밖) 배경에 유령글자(중국어 비슷한 형상) 잔존을 발견.
+- 1단계: `render_hero_card()` 오버레이를 헤드라인 전용 밴드에서 왼쪽 전체 컬럼(x<680, 전체 높이)으로 확대.
+- 2단계: `build_background_only_prompt()` 문구 강화 — "no text"를 프롬프트 맨 앞에 반복 배치, "banner"/"isometric 3D device" 표현(문서·화면·패널 연상 → 라벨텍스트 유발 상관관계 확인)을 순수 추상 형상(빛 궤적·결정체) 위주로 교체.
+- 검증: 서로 다른 2개 topic(L'Oréal/Sequoia)으로 배경 재생성 → 2/2 유령글자 0건(강화 전 4회 중 3회 재현과 대비). `git diff --check` 통과, 관련 스위트 90/90 PASS, 전체 회귀 재확인 62 failed(1회 63건은 재실행으로 flaky 확인)/1198 passed/3 xfailed/8 errors 신규 실패 0건.
+- Commit `e691c3e`, Push는 별도 승인 대기.
+
+**문서 갱신:** `docs/ERROR_DATABASE.md`(ERR-110 신규), `docs/FAILURE_PATTERN.md`(FP-081 신규), `docs/VALIDATION_STATUS.md`(신규 2행), 이 항목.
+
+**상태변경 총계:** 코드 변경 2건(`be5b048` 파이프라인 연결, `e691c3e` 유령글자 2단계 수정). Vault 파일 생성 1건(Canary #1, Airtable·Instagram 무관). Airtable Write·Instagram 게시 0건.
+
+**잔여 과제(다음 세션):** (1) `AIJOMOOJIN_HERO_CARD_ENABLED` 플래그를 실제 `launcher/main.py` 자동 슬롯에 연결할지 결정(현재는 코드만 존재, 자동 반영 안 됨) — 별도 승인 필요. (2) hero card fingerprint dedup을 carousel과 충돌 없이 배선하는 설계(P2, 자동배선 전 필수). (3) 유령글자는 best-effort 완화이지 100% 보장 아님 — 자동 슬롯 반영 후에도 주기적 육안 확인 필요.
+
+commit: 완료 — `be5b048`, `e691c3e`
+push: `be5b048`까지 완료, `e691c3e`는 승인 대기
+
+---
