@@ -2545,3 +2545,30 @@ commit: 완료 — `be5b048`, `e691c3e`
 push: `be5b048`까지 완료, `e691c3e`는 승인 대기
 
 ---
+
+## 260811 (계속 3) — 자동 슬롯 플래그 배선+실활성화 + ERR-111(관측 도구 자체 결함) 발견·수정
+
+**배경:** 회장 지시("자동 슬롯에 플래그 켜자")로 위 "잔여 과제 (1)"을 바로 이어서 진행, 이어서 "코드만 커밋하고 활성화도 진행해" 승인으로 실제 `.env` 반영까지 완료했다.
+
+**1) 플래그 배선(Commit `4b87ad6`):** `launcher/main.py::_job_aijomoojin_content_producer()`에 `os.getenv("AIJOMOOJIN_HERO_CARD_ENABLED", "false")` 패턴(기존 다른 Flag와 동일)으로 읽어 `hero_card_enabled=`로 `create_content_package()`에 전달. carousel(05시 슬롯, `slot_role="REACH"`)과 동시 활성화돼도 히어로카드 fingerprint가 frontmatter에 안 쓰여(P2, 의도적 보류) 충돌 없음을 코드 추적으로 확인 — 기존 dedup(content_id 결정성/캡션 정확일치/일일 source_url 제한)은 무관하게 유지. 신규 테스트 8개(미설정→false/`true`→forward/true·false 문자열 파싱 계약) PASS.
+
+**2) 실제 활성화(Airtable Write·Instagram 게시 없음, Runtime 설정 변경만):** 회장 승인 하 `.env`에 `AIJOMOOJIN_HERO_CARD_ENABLED=true` 추가 → 관리자 PowerShell `Restart-Service SNS_Watchdog`.
+
+**3) 반영 검증 시도 중 ERR-111 신규 발견:** 오늘 아침 만든 `get_code_freshness_status()`로 반영을 확인하려 했으나 `status: "unknown"`, `db/launcher_boot_state.json`에 `commit: ""` — 관측 도구 자신이 서비스 계정 환경에서 무력화된 상태를 발견. `logs/watchdog.log`(`20:09:50~20:09:56` 재시작 확인)로 우회 확인은 했으나, 도구 자체는 여전히 고장 상태.
+
+**4) ERR-111 근본 수정(Commit `c0a1b22`):** `subprocess.check_output(["git","rev-parse","HEAD"], ...)`가 NSSM 서비스 계정 환경에서 조용히 실패(PATH 등으로 추정, 정확한 원인은 UNKNOWN)하는 것이 원인 — `modules/common/health_monitor.py`에 `_read_git_head_commit()` 신규(`.git/HEAD` 파싱 + `refs/heads/*` 또는 `packed-refs`에서 SHA 직접 읽기, git 실행파일 의존성 완전 제거). `record_boot_commit()`/`_check_code_freshness()` 양쪽 교체. 실제 프로젝트 `.git`으로 직접 호출해 `git rev-parse HEAD`와 일치 확인. 신규 테스트 13개(기존 7개 재작성+신규 6개: 정상 ref/detached HEAD/packed-refs fallback/`.git` 없음/ref 못찾음/subprocess 완전 미호출) PASS.
+
+**5) 최종 재시작+자기검증(Runtime Evidence):** `c0a1b22` Commit 후 회장이 관리자 PowerShell로 재시작 → `get_code_freshness_status()`가 **최초로 `status: "fresh"`, `boot_commit == head_commit == c0a1b22...`**를 정확히 반환(`started_at: 20:24:17`이 `logs/watchdog.log`의 재시작 시각 `20:24:15~20:24:21`과 정확히 일치) — 관측 도구가 자기 자신을 고친 커밋을 정확히 검증하는 것으로 완전한 실사용(production_verified) 확인.
+
+**문서 갱신:** `docs/ERROR_DATABASE.md`(ERR-111 신규), `docs/FAILURE_PATTERN.md`(FP-082 신규), `docs/VALIDATION_STATUS.md`(신규 1행), 이 항목.
+
+**상태변경 총계:** 코드 변경 2건(`4b87ad6`, `c0a1b22`). Runtime 설정 변경 1건(`.env` 신규 플래그 추가, 회장 승인). Windows Service 재시작 2회(회장 직접 실행). Airtable Write·Instagram 게시 0건.
+
+**현재 상태:** aijomoojin 자동 슬롯(05:00/08:00/11:00/14:00/17:00 ICT)이 **지금부터 실제로 히어로카드(AI배경+Pillow텍스트, 오버레이 확대+프롬프트 강화 완료 버전)를 사용해 게시한다.**
+
+**잔여 과제(다음 세션):** (1) 실제 자동 슬롯 첫 게시물을 육안으로 확인(production_verified 확정) — 다음 슬롯 실행 시점. (2) hero card fingerprint dedup을 carousel과 충돌 없이 배선하는 설계(P2, 여전히 미해결이나 현재 실사용에는 안전). (3) 유령글자는 best-effort 완화이지 100% 보장 아님 — 주기적 육안 확인 필요. (4) ERR-111의 정확한 근본원인(PATH vs 권한 등)은 서비스 프로세스 내부 직접 디버깅 없이는 확정 못함 — 필요시 후속 조사.
+
+commit: 완료 — `4b87ad6`, `c0a1b22`
+push: 완료 — 전부(`be5b048`~`c0a1b22`)
+
+---

@@ -1,3 +1,73 @@
+# 2026-08-11 20:34 ICT — 세션 종료: ERR-109/110/111 전부 RESOLVED, 히어로카드 aijomoojin 자동 슬롯 실활성화 완료
+
+_기록 시각: 2026-08-11 20:34 ICT · 상태: 08:36 ICT "오늘오전 자동 안올라갔어" 회장 보고로 시작한 하루 전체를 이 항목으로 종합 정리하고 세션을 종료한다. 이하는 세션 종료 기록이며, 개별 단계의 상세 경과는 그 시각의 원본 항목(이 파일 아래 19:49/10:26 기록, `porting_logs/MERGE_JOURNAL.md`의 "260811" 계열 4개 항목)을 소급 수정하지 않고 그대로 유지한다._
+
+## 오늘 세션 최종 상태 요약 (Stage Status)
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| ERR-109 | Live 프로세스 stale-code(재시작 없이 구코드 계속 실행) 진단 + 코드-신선도 관측 기능 신규 | RESOLVED / CLOSED |
+| Sourcebook 넥플릭스 삭제 | 3.1 섹션 및 관련 언급 전량 제거 | SUCCESS / CLOSED |
+| Training_Review_Queue 재검수 | Codex 2차 리뷰 PASS, Commit·Push 완료 | SUCCESS / CLOSED |
+| Sourcebook AI 페르소나 5축 추가 | 섹션 13(Beauty/Commerce/Marketing/Sales/Growth), WebSearch로 5개 전부 공식 출처 검증 | SUCCESS / CLOSED |
+| 히어로카드 템플릿 설계 | AI배경(텍스트없음)+Pillow텍스트 하이브리드, 회장 다회 피드백 반영 | SUCCESS / CLOSED |
+| Visual Type Wiring(파이프라인 연결) | `hero_card_content_builder.py` 신규+`content_package_builder.py` 배선, Codex 2라운드 PASS(P1 OSError 미포착 수정) | SUCCESS / CLOSED |
+| 수동 Canary #1 | 실제 Gemini+Cloudflare+Vault 저장 SUCCESS(`content_id=13-1-260811-a7b8c253`) | SUCCESS / CLOSED |
+| ERR-110 | 히어로카드 배경 유령글자 — 오버레이 확대+프롬프트 강화 2단계 완화 | RESOLVED(best-effort) / CLOSED |
+| 자동 슬롯 플래그 배선+활성화 | `AIJOMOOJIN_HERO_CARD_ENABLED` 코드 배선 + `.env` 실제 활성화 + 재시작 | SUCCESS / CLOSED |
+| ERR-111 | 코드-신선도 관측 도구 자신이 서비스 계정에서 무력화 — `.git` 직접 읽기로 근본 수정 | RESOLVED / CLOSED |
+
+## 판정
+
+**SUCCESS** — 오늘 발견된 3개 오류(ERR-109/110/111) 전부 RESOLVED, 관련 커밋 전부 Commit+Push 완료, 최종 목표(aijomoojin 자동 게시가 실제로 히어로카드를 사용하도록 만들기)를 재시작 후 관측 도구 자신의 "fresh" 자기검증으로 확인 완료.
+
+## 완료된 FACT — 오늘 Commit 전체(전부 Push 완료, origin/master 반영 확인)
+
+| Commit | 내용 |
+|---|---|
+| `4cdcfe5` | ERR-109 코드-신선도 관측 기능 신규 |
+| `6b8c832` | 히어로카드 템플릿(`render_hero_card()`) 신규 — 당시 미배선 |
+| `0dfd450` | Sourcebook 넥플릭스 섹션 삭제 |
+| `1c0f4a5` | Training_Review_Queue 재검수 기능(Codex 2차 PASS) |
+| `2da1679` | 문서화(ERR-109/히어로카드/Sourcebook/재검수 세션 기록) |
+| `2e046e9` | Sourcebook 섹션 13(AI 페르소나 5축) 신규 |
+| `956ee66` | 히어로카드 헤드라인 유령글자 1차 수정(오버레이) |
+| `be5b048` | Visual Type Wiring — 파이프라인 연결(opt-in, 기본 false), Codex 2라운드 PASS |
+| `e691c3e` | ERR-110 — 오버레이 확대+프롬프트 강화 2단계(best-effort) |
+| `bef9f5f` | 문서화(ERR-110/FP-081/파이프라인 연결/Canary #1) |
+| `4b87ad6` | 자동 슬롯 플래그(`AIJOMOOJIN_HERO_CARD_ENABLED`) 배선 |
+| `c0a1b22` | ERR-111 — 관측 도구 자체 결함 근본 수정(`.git` 직접 읽기) |
+
+## Runtime 변경 (실제 반영, 재시작 2회로 확인됨)
+
+- `.env`에 `AIJOMOOJIN_HERO_CARD_ENABLED=true` 추가(회장 승인) — aijomoojin 자동 슬롯(05:00/08:00/11:00/14:00/17:00 ICT)이 지금부터 히어로카드를 사용한다.
+- 관리자 PowerShell `Restart-Service SNS_Watchdog` 2회(회장 직접 실행) — 1차(`20:09:5x`)는 히어로카드 플래그 반영용, 2차(`20:24:1x`)는 ERR-111 수정 반영용. 둘 다 `logs/watchdog.log`+`db/launcher_boot_state.json`으로 실제 반영 시각 대조 확인.
+
+## 테스트 결과
+
+- 오늘 신규/수정 테스트 파일: `test_health_monitor_code_freshness.py`(13), `test_image_template_renderer.py`(23, 신규 13), `test_hero_card_content_builder.py`(16, 신규), `test_visual_brief.py`(16, 신규 6), `test_content_package_builder.py`(35, 신규 8), `test_review_grid_ui_re_review.py`, `test_aijomoojin_content_producer.py`(45, 신규 8).
+- 전체 회귀(최종): `62 failed, 1212 passed, 3 xfailed, 8 errors` — 실패 전부 기존 baseline과 원인 동일(`runtime_boot_policy.json` PermissionError 계열 등, 이 세션 환경 고유). 신규 회귀 0건(하루 종일 매 변경마다 재확인).
+
+## Rollback
+
+- 오늘의 12개 커밋 전부 `git revert <hash>`로 개별 원복 가능.
+- `.env`의 `AIJOMOOJIN_HERO_CARD_ENABLED=true`는 `false`로 되돌리고 재시작하면 즉시 원복(원본 Flux 이미지 경로로 복귀, 코드 자체는 그대로 둬도 무방 — opt-in 설계).
+
+## 다음 세션 확인할 것 (순서·승인 필요 여부 명시)
+
+1. **[Runtime 확인, 승인 불요 — read-only]** 다음 자동 슬롯(05/08/11/14/17 ICT 중 하나) 실행 후, 실제 게시물이 히어로카드 형태로 정상 게시됐는지 육안 확인 — 이번 세션은 Vault 저장까지만 검증했고, 실제 자동 슬롯의 production_verified는 아직 미확정.
+2. 유령글자 완화는 best-effort — 위 확인 시 배경에 이상 없는지 함께 확인.
+3. **[승인 필요]** hero card fingerprint dedup을 carousel과 충돌 없이 배선하는 설계(P2, 현재 안전하지만 미완성 상태로 남음).
+4. **[승인 필요]** 5개 AI 페르소나(Beauty/Commerce/Marketing/Sales/Growth)의 계정 배정 — 오늘은 방향만 확정, 배정은 보류.
+5. Founder Secret Architecture 분리, 신규 계정(단순 실루엣 스타일) — 둘 다 기획만 완료, 미착수.
+6. ⚠️ 260706~260709 구간 여전히 별도 미반영 — 과거 Backlog 그대로 승계.
+
+## 관련 문서
+
+- ERR-109/110/111, FP-080/081/082, `docs/VALIDATION_STATUS.md`, `porting_logs/MERGE_JOURNAL.md`("260811" 계열 4개 항목) — 전체 raw 근거는 각 문서 참조.
+
+---
+
 # 2026-08-11 19:49 ICT — Visual Type Wiring 파이프라인 연결(Codex 2라운드 PASS) + 수동 Canary #1 SUCCESS + 유령글자 2단계 수정(best-effort)
 
 _기록 시각: 2026-08-11 19:49 ICT · 상태: 10:26 세션종료 기록 이후 진행된 히어로카드 자동 파이프라인 연결 작업을 종합 정리한다. 이하는 최신 상태이며, 위 10:26 기록은 그 이전 구간(ERR-109/Sourcebook 넥플릭스삭제/Training_Review_Queue) 요약으로 그대로 보존한다._

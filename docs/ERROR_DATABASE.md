@@ -2179,3 +2179,21 @@ watchdog.log(같은 구간):
 **Prevention:** FP-081 참조. **명시적 한계 — 100% 보장 아님.** 프롬프트 강화는 발생 확률을 낮출 뿐이고, 오버레이 확대가 실제 최종 방어선이다(어떤 배경이 와도 텍스트가 그려지는 자리는 구조적으로 가려짐). 더 강한 보장이 필요해지면 OCR 기반 사후 검출+재생성 또는 다른 Provider 검토가 다음 단계(이번 세션 범위 밖).
 
 **관련:** ERR-107, FP-081
+
+---
+
+## ERR-111 | `health_monitor.py`의 코드-신선도 관측 기능(ERR-109 Fix 자신)이 NSSM 서비스 계정 환경에서 `git rev-parse HEAD` subprocess 호출 실패로 무력화 (RESOLVED, 260811)
+
+**발견 경위:** ERR-109 Fix(코드-신선도 관측 기능) 배포 후, `AIJOMOOJIN_HERO_CARD_ENABLED` 플래그를 실제 `.env`에 켜고 관리자 PowerShell로 `Restart-Service SNS_Watchdog` 재시작 → 반영 여부를 직접 검증하려고 `get_code_freshness_status()`를 호출했더니 `status: "unknown"`, `boot_commit: null`(실제로는 `db/launcher_boot_state.json`에 `commit: ""`로 기록됨) — 정작 오늘 아침 만든 관측 도구 자신이 검증이 필요한 바로 그 순간 무력화돼 있었음을 발견.
+
+**Raw:** `db/launcher_boot_state.json` = `{"commit": "", "started_at": "2026-08-11 20:09:52"}`. `logs/watchdog.log`에서 같은 시각(`20:09:50~20:09:56`) 정상 재시작 확인됨 — 프로세스 자체는 살아있고 정상 기동했으나 `record_boot_commit()` 내부의 `subprocess.check_output(["git","rev-parse","HEAD"], cwd=_ROOT, ...)`만 실패(예외 발생, Fail-open 설계대로 조용히 `commit=""`로 넘어감 — 예외 자체는 로그에 안 남아 원인 특정에 별도 확인 필요했음). 동일 명령을 Claude Code 세션(대화형 Bash)에서 직접 실행하면 정상 동작 확인.
+
+**Root Cause:** NSSM 서비스 계정으로 기동되는 `launcher/main.py` 프로세스의 실행 환경(PATH 등)이 대화형 사용자 셸과 다르며, `git.exe`가 그 환경의 PATH에 없거나 실행권한이 다른 것으로 추정(완전 확정은 아님 — 서비스 프로세스 내부에서 직접 디버깅하지 않고 결과로만 역추정, UNKNOWN 정확한 세부원인은 남음). 대화형 셸에서 검증된 명령이 실제 서비스 계정 환경에서도 동일하게 동작한다고 가정한 것이 근본 설계 결함.
+
+**Fix:** `modules/common/health_monitor.py`에 `_read_git_head_commit()` 신규 — `subprocess`로 `git` 실행파일을 호출하는 대신 `.git/HEAD`를 직접 읽어 `ref: refs/heads/<branch>`를 파싱하고, `.git/<그 ref 경로>`(loose ref) 또는 `.git/packed-refs`(fallback)에서 SHA를 직접 읽는다 — `git.exe`의 PATH·실행권한에 전혀 의존하지 않음. `record_boot_commit()`/`_check_code_freshness()` 양쪽 모두 이 함수로 교체. 기존 Fail-open 계약(읽기 실패 시 빈 문자열) 그대로 유지.
+
+**검증:** 실제 프로젝트 `.git`으로 직접 호출해 `git rev-parse HEAD`와 정확히 일치 확인(`c0a1b22...`). 이 수정 자체를 커밋(`c0a1b22`) 후 관리자 PowerShell로 재시작 → `get_code_freshness_status()`가 최초로 `status: "fresh"`, `boot_commit == head_commit == c0a1b22...`를 정확히 반환함을 확인(`logs/watchdog.log`의 재시작 시각 `20:24:15~20:24:21`과 `started_at: 20:24:17` 일치) — 도구 자신이 자신을 고친 커밋을 정확히 검증하는 것으로 완전한 실사용 확인 완료.
+
+**Prevention:** FP-082 참조. 신규 테스트 13개(`tests/test_health_monitor_code_freshness.py`, 정상 ref/detached HEAD/packed-refs fallback/`.git` 없음/ref 못찾음/subprocess 미호출 확인 포함) 전부 PASS.
+
+**관련:** ERR-109, FP-082
