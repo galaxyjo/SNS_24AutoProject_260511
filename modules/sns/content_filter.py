@@ -27,11 +27,27 @@ CAPTION_BLOCKLIST = [
     "lily",
 ]
 
-# 중국어/베트남어 유니코드 범위
+# 중국어/베트남어 유니코드 범위 — 비율 기반(260812).
+# ERR-033/FP-022(전체가 베트남어인 게시글 차단)는 그대로 유지하되, A003/A005처럼
+# 한국어/영어 위주 정상 게시글에 외국어 글자가 소량 섞인 경우까지 통째로 버리지
+# 않도록 임계치를 둔다. 실측 결과 정상 베트남어 문장은 성조부호 비율이 보통
+# 15~28% 수준(공백/숫자/성조없는 단어가 섞이기 때문), A003/A005 사례는 0.6%
+# 수준이라 5%로 두면 둘 다 안전하게 구분된다(20%는 실측상 베트남어 정상범위와
+# 겹쳐 오히려 ERR-033 사례를 통과시킬 위험이 있어 채택하지 않음).
+_EXCLUDED_LANGUAGE_CHARS = 'àáâãèéêìíòóôõùúýăđơưạảấầẩẫậắặẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ'
+_EXCLUDED_LANGUAGE_RATIO_THRESHOLD = 0.05
+
+
+def _excluded_language_ratio(text: str) -> float:
+    if not text:
+        return 0.0
+    chinese = sum(1 for c in text if '一' <= c <= '鿿')
+    vietnamese = sum(1 for c in text.lower() if c in _EXCLUDED_LANGUAGE_CHARS)
+    return (chinese + vietnamese) / len(text)
+
+
 def _has_excluded_language(text: str) -> bool:
-    chinese = any('一' <= c <= '鿿' for c in text)
-    vietnamese = any(c in 'àáâãèéêìíòóôõùúýăđơưạảấầẩẫậắặẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ' for c in text.lower())
-    return chinese or vietnamese
+    return _excluded_language_ratio(text) > _EXCLUDED_LANGUAGE_RATIO_THRESHOLD
 
 # 한글 비율 감지
 def _korean_ratio(text: str) -> float:
