@@ -2197,3 +2197,28 @@ watchdog.log(같은 구간):
 **Prevention:** FP-082 참조. 신규 테스트 13개(`tests/test_health_monitor_code_freshness.py`, 정상 ref/detached HEAD/packed-refs fallback/`.git` 없음/ref 못찾음/subprocess 미호출 확인 포함) 전부 PASS.
 
 **관련:** ERR-109, FP-082
+
+---
+
+## ERR-112 | `_has_excluded_language()`의 "글자 1개라도 있으면 차단" 설계가 A003/A005의 유일한 실질 게시물을 3.5일간(189+ 사이클) 매번 필터 제외 — 비율 기반으로 전환 (RESOLVED, 260812)
+
+**발견 경위:** 회장 지시("yuna18253 페이스북 크롤링 재점검")로 `logs/function/modules_sns_facebook_crawler.log`(2026-08-08~08-11, 3.5일치) 전수 확인 중, Active FB 크롤 타겟 4개(A002/A003/A004/A005) 중 A003(FB_뷰티도매2)·A005(FB_신규2)만 Instagram_Posts 실제 저장 0건(A002 29건/A004 5건과 대비)임을 Airtable 직접조회로 확인. 로그 교차확인 결과 두 그룹 모두 매 사이클 `posts=3` 감지 → 전부 "POST N 필터 제외"로 귀결, 크롤러 자체 에러는 0건.
+
+**Raw:** 원문 임시 관측 로그(§13.2 절차, 회장 승인 후 실행·확인 후 즉시 원복 2회)로 확보:
+```
+POST 1 excluded_lang=True raw='김정현 5월 26일 We can supply Arocell. ... 올데어코리아에서는 한국의 다수 브랜드 화장품을 수출 및 도매로 공급하고 있습니다...' translated=''
+POST 1 excluded_lang=True raw='김정현 7월 10일 We can supply KUNDAL. ... (동일 템플릿, 제품명만 다름)' translated=''
+```
+POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제외 — 문제는 POST 1(두 그룹의 유일한 실질 게시물, 같은 작성자 "김정현"/올데어코리아의 다국어 도매 광고 템플릿, 제품명만 매 게시물 다름)뿐.
+
+**Root Cause:** `content_filter.py::_has_excluded_language()`가 원문 전체 길이 중 중국어/베트남어 글자가 **단 1개라도** 있으면 무조건 True를 반환 → `detect_and_translate()`가 번역 자체를 생략하고 즉시 `""` 반환 → `passes_keyword_filter('')`은 항상 실패. 위 원문은 "화장품"·"수출"·"도매"·"공급" 등 KEYWORDS를 명백히 포함하는 정상 한국어/영어 게시글이었으나, 전체 텍스트(150자 초과 구간, 다국어 대상 판매 목적으로 추정)에 섞인 극소수 외국어 글자 때문에 번역 단계 진입 자체가 불가능했음.
+
+**Closed Gate 관련 확인:** `_has_excluded_language()` 자체는 ERR-033/FP-022(260601)에서 이미 "정상 설계"로 종결된 판정이 있음(전체가 베트남어인 게시글은 정상 차단). 이번 건은 그 판정을 뒤집는 것이 아니라 — ERR-033 원 사례(전체 베트남어)와 이번 A003/A005 사례(한국어/영어 위주 + 외국어 글자 극소량)를 구분하지 못하는 **구현 정밀도 문제**를 새로 발견한 것. 실측(Vietnamese 문장 4종 ratio 15~28% vs A003/A005 실제 원문 ratio 0.56%)으로 두 케이스가 뚜렷이 구분됨을 확인 후 진행.
+
+**Fix:** `_has_excluded_language()`를 "글자 존재 여부"에서 "비율(전체 글자 대비 중국어+베트남어 글자 수) > 5%"로 전환(`modules/sns/content_filter.py`, 커밋 `c0fc447`). 임계치는 처음 20%로 제안했으나 회귀테스트 작성 중 정상 베트남어 문장 4종을 실측한 결과 15~28% 범위로 20%와 겹쳐 ERR-033 원사례를 되레 통과시킬 위험을 발견, 5%로 하향 조정(A003/A005 실측값 0.56%와 9배 이상 안전마진, 최저 베트남어 샘플 15%와도 3배 이상 마진).
+
+**검증:** 신규 회귀테스트 9개(`tests/test_content_filter_excluded_language.py` — ERR-033 원사례+베트남어 문장 3종은 여전히 차단, A003/A005 실제 원문은 더 이상 차단 안 됨, 임계치 경계값 2건) 전부 PASS. 관련 기존 테스트(`test_ai_content_gate_v0.py`+`test_publish_gate_and_approval.py`, 71개) 회귀 없음. **Runtime 검증(Gate 11)**: 회장 승인 하 `Restart-Service SNS_Watchdog` 재시작 → 같은 날 다음 사이클에서 A003·A005 둘 다 POST1이 필터 통과 → ImgBB 업로드 성공 → Airtable 실제 저장 확인(`A-F4-260812-001`/`A-F6-260812-001`, `account_code_ref=IDN-000041`, `post_status=ready`) — 3.5일 만의 첫 성공, 로그 타임스탬프(09:46:27/09:47:16 KST)와 Airtable `createdTime`(02:46:27/02:47:16 UTC) 정확히 일치.
+
+**Prevention:** FP-083 참조.
+
+**관련:** ERR-033, FP-022, FP-083, INC-052

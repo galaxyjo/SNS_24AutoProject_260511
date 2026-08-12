@@ -2572,3 +2572,28 @@ commit: 완료 — `4b87ad6`, `c0a1b22`
 push: 완료 — 전부(`be5b048`~`c0a1b22`)
 
 ---
+
+## 260812 — 도매꾹 정지(yura_r 문의) + yuna18253 FB 크롤 재점검 → A003/A005 필터 오탐 발견·수정(ERR-112/FP-083/INC-052)
+
+**배경:** 회장 "yura r 계정 도매꾹 크롤링 멈추자" 지시로 시작. Airtable 전수조회 결과 "yura_r"에 정확히 일치하는 계정/타겟은 없었으나, 회장 확인 후 도매꾹 Active 타겟 2건(D001 DOME_화장품/D002 DOME_건강식품, account_ref=redergen)을 Hold 처리(Airtable Write만, 코드 변경 없음). 이어서 회장이 "yuna18253 페이스북 크롤링도 다시 점검, 게시물이 많이 안 보인다"고 지시.
+
+**조사(read-only):** `configs/accounts.json`+Airtable `Crawl_Targets`(platform=facebook, account_ref=k1bto3j4) 대조로 yuna18253(IDN-000041)의 실제 FB 소스가 A001~A005 5개 그룹임을 확인. `CRAWL_TARGET_SOURCE=airtable`이라 실제 크롤 URL은 Airtable `Crawl_Targets.status=Active`에서 결정됨(A001만 기존 Hold). Instagram_Posts를 `account_code_ref=IDN-000041` + `source_url contains facebook.com`으로 필터해 그룹별 생산량 대조 — A002 29건/A004 5건 vs **A003·A005 0건**(A005는 과거 canary 테스트 1건 제외). `logs/function/modules_sns_facebook_crawler.log` 3.5일치(189+ 사이클/그룹) 교차확인 — 두 그룹 모두 매 사이클 유일한 실질 게시물이 "필터 제외"로 귀결.
+
+**진단(회장 승인 하 임시 관측 로그, 2라운드):**
+1. 1차 시도 — 별도 1회성 스크립트로 `facebook_crawler.run()` 직접 호출 시도했으나 **Runtime Boot Policy**(`C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json`, LocalSystem 전용 ACL)에 의도적으로 차단됨(Execution Owner 단일화 설계 — `icacls`로 우회 시도하지 않고 그대로 수용). 임시코드는 즉시 git checkout으로 원복.
+2. 2차 — 회장 승인 하 같은 임시 로그를 다시 넣고 `Restart-Service SNS_Watchdog`로 라이브 프로세스에 반영해 실제 원문 확보. `_has_excluded_language()`가 두 그룹의 유일한 실질 게시물(같은 작성자 "김정현"/올데어코리아의 다국어 도매 템플릿, 제품명만 다름)을 매번 `excluded_lang=True`로 판정 → 번역 자체가 생략됨을 확인. 확인 후 즉시 git checkout 원복 + 재시작으로 라이브 프로세스도 원복(다음 사이클에 임시태그 0건 재확인).
+
+**Closed Gate 확인:** `_has_excluded_language()`는 ERR-033/FP-022(260601)에서 이미 "정상 설계"로 종결됨. 이번 발견은 그 판정을 뒤집는 게 아니라, ERR-033 원사례(전체 베트남어)와 이번 사례(한국어/영어 위주 + 외국어 글자 극소량)를 구분 못하는 구현 정밀도 문제를 새로 특정한 것 — 회장 승인 하 "옵션 A(비율 기반 완화)"로 진행.
+
+**구현:** `modules/sns/content_filter.py::_has_excluded_language()`를 "글자 존재 시 전부 차단"에서 "비율(중국어+베트남어 글자 수/전체 길이) > 5%"로 전환. 처음 20%를 제안했으나(다른 함수 `_korean_ratio()`의 0.2 관례를 근거 없이 재사용) 신규 회귀테스트(`tests/test_content_filter_excluded_language.py`) 작성 중 정상 베트남어 문장 4종을 실측하니 15~28%로 20%와 겹쳐 ERR-033 사례를 되레 통과시킬 위험을 스스로 발견 — 5%로 조정(A003/A005 실측 0.56%와 9배 이상 안전마진). 신규 테스트 9개 전부 PASS, 관련 기존 테스트 71개(`test_ai_content_gate_v0.py`+`test_publish_gate_and_approval.py`) 회귀 없음.
+
+**Runtime 검증:** 회장 승인 하 3번째 `Restart-Service SNS_Watchdog` → 같은 사이클에서 A003·A005 둘 다 POST1이 필터 통과 → ImgBB 업로드 성공 → Airtable 실제 저장 확인(`A-F4-260812-001`/`A-F6-260812-001`, `account_code_ref=IDN-000041`, `post_status=ready`, 로그·Airtable `createdTime` 초 단위까지 일치) — 3.5일 만의 첫 성공.
+
+**상태변경 총계:** Airtable Write 1건(도매꾹 D001/D002 status→Hold). 코드 변경 1건(`content_filter.py` + 신규 테스트, 커밋 `c0fc447`). Runtime 재시작 3회(전부 회장 승인·회장 직접 실행). Instagram 게시 없음(FB 크롤이 만든 신규 레코드 2건은 `post_status=ready`로 대기 상태, 이후 정규 업로드 잡이 처리).
+
+**잔여 과제:** 이번 Runtime 검증은 1사이클(각 그룹 1건)뿐이라 지속 여부는 별도 모니터링 대상 — "완전 해소"로 과장하지 않음. `docs/ERROR_DATABASE.md`(ERR-112) / `docs/FAILURE_PATTERN.md`(FP-083) / `docs/INCIDENT_TIMELINE.md`(INC-052) / `docs/VALIDATION_STATUS.md` 기록 완료, 이 커밋은 회장 승인 대기.
+
+commit: 완료 — `c0fc447`(코드+테스트). 문서 커밋은 별도 승인 대기.
+push: 미실행(세션 종료 시 일괄 예정).
+
+---
