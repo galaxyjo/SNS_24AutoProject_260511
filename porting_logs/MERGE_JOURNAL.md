@@ -2597,3 +2597,22 @@ commit: 완료 — `c0fc447`(코드+테스트). 문서 커밋은 별도 승인 �
 push: 미실행(세션 종료 시 일괄 예정).
 
 ---
+
+## 260813 — yura FB 크롤 그룹 A002/A003/A004 정지 + Supplier_Contacts 테이블 신설(연락처 22건)
+
+**배경:** 회장이 "yura 계정 facebook 크롤링하는 그룹 교체한다"며 그룹 URL 6개(중복 1개 포함) + 판매자 연락처 정보(이름/카카오/위챗/라인/왓츠앱/인스타/이메일/전화) 23줄을 한 번에 전달. 최초 해석이 두 차례 어긋나(1차: "6개로 교체=A005 제외"로 오독, 2차: "6개 전부 삭제 대상, 그 아래는 전부 추가 대상"이라는 회장 직접 정정 이후에도 A002/A003/A004 정지 여부 재확인 필요) — 회장이 "모르면 질문하고 실행하지말아라"고 명시해 매 단계 재확인 후 진행.
+
+**조사(read-only):** 6개 그룹 URL 중 4번(1428020590609779)은 시스템에 전혀 없는 완전 신규, 5번(822629411993671)은 이미 **A027**(training 목적, account_ref 공란)로 존재, 연락처 목록 중간의 3073791749340122도 이미 **A015**(마찬가지로 training 목적)로 존재함을 Airtable 직접조회로 확인 후 보고 — 회장이 A027/A015는 "그대로 두기"로 확정.
+
+**실행 1 — 그룹 정지(회장 명시 승인 "네, 1~6번 전부 yura에서 중단(Hold)"):** Crawl_Targets에서 A002(FB_한국화장품)·A003(FB_뷰티도매2)·A004(FB_신규1) 3건의 `status`를 Active→Hold로 Airtable Write(코드 변경 없음). yura(k1bto3j4) Active FB 타겟은 A005(1827528710833477) 1개만 남음. `Restart-Service SNS_Watchdog`(회장 직접 실행) 후 다음 사이클 로그로 실제 A005만 크롤되고 A002/A003/A004는 JOB_START 자체가 없음을 확인(Runtime 검증 완료).
+
+**실행 2 — Supplier_Contacts 신규(회장 승인 "URL만이라도 저장", "Mooncher Kim 저장해라"):** 신규 테이블 `Supplier_Contacts`(`contact_id`/`name`/`profile_url`/`source_group_url`/`phone`/`kakao`/`wechat`/`line`/`whatsapp`/`instagram`/`email`/`notes`/`collected_at`) 생성 후 회장이 준 원문 23줄 중 A015(3073791749340122, 이미 존재하는 training 타겟이라 회장 지시로 손대지 않음)를 제외한 **22건**(SC-001~SC-022)을 입력. 이름·연락처 미확보 3건(SC-002/004/017)은 URL만이라도 저장(회장 지시), SC-008(Mooncher Kim)은 기존 `Supplier_Blocklist`(BLOCK_WATERMARK_SUPPLIER) 등록 사실을 notes에 병기해 저장, SC-005(피터박)는 `content_filter.py`의 이미지 차단 키워드와 동일 인물임을 notes에 표기, SC-015(Khánh Sun)는 ERR-033 원 진단사례의 그 게시자로 추정된다는 점을 notes에 표기, SC-020/021/022는 전화번호 동일로 동일 운영자 추정이라고 notes에 표기.
+
+**상태변경 총계:** Airtable Write 2종(Crawl_Targets 상태변경 3건 + 신규 테이블·레코드 22건). Runtime 재시작 1회(회장 직접 실행, Runtime Evidence로 반영 확인). 코드 변경 없음(그래서 이 항목은 별도 git diff 없이 문서 기록만).
+
+**잔여 과제:** SC-002/004/017 이름·연락처 보강은 회장이 추후 별도 진행 예정(오늘 범위 아님). Supplier_Contacts와 기존 Instagram_Posts/Source_Items 간 자동 연결(예: 크롤된 게시물 작성자가 이 표에 있으면 자동 태깅)은 이번 범위 밖 — 향후 회장 지시 시 별도 설계 필요.
+
+commit: 완료 — 이 항목 자체(문서만, 코드 diff 없음).
+push: 미실행(세션 종료 시 일괄 예정).
+
+---
