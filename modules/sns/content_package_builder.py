@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from modules.common.logger import get_logger
 from modules.sns.caption_generator import generate_hook_caption
 from modules.sns.carousel_content_builder import (
     generate_carousel_content,
@@ -41,6 +42,8 @@ from modules.sns.image_provider_cloudflare import generate_image
 from modules.sns.image_template_renderer import HeroBlock, HeroCardContent, render_hero_card
 from modules.sns.source_selector import parse_sourcebook, select_next_topic
 from modules.sns.visual_brief import build_background_only_prompt, build_image_prompt, build_visual_brief
+
+logger = get_logger(__name__)
 
 _HERO_ICON_SEQUENCE = ("target", "search", "gear", "graph")
 
@@ -295,13 +298,23 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
     이미지로 조용히 폴백하지 않는다)."""
     text_result = generate_hero_card_content(topic, client=client, throttle_fn=throttle_fn, model=model)
     if not text_result.success:
+        logger.warning(
+            f"[HeroCardImage] 텍스트 생성 단계 실패 | stage=text | error_code={text_result.error_code}"
+        )
         return None
 
     bg_prompt = build_background_only_prompt(brief)
     if bg_prompt is None:
+        logger.warning(
+            "[HeroCardImage] 배경 프롬프트 생성 단계 실패 | stage=bg_prompt | "
+            "error_code=EMPTY_CORE_MESSAGE"
+        )
         return None
     bg_result = generate_image(bg_prompt.prompt_text, bg_prompt.negative_prompt)
     if not bg_result.success:
+        logger.warning(
+            f"[HeroCardImage] 배경 이미지 생성 단계 실패 | stage=bg_image | error_code={bg_result.error_code}"
+        )
         return None
 
     text_content = text_result.content
@@ -319,7 +332,7 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
     )
     try:
         return render_hero_card(hero_content)
-    except (ValueError, OSError):
+    except (ValueError, OSError) as exc:
         # 260811 Codex 리뷰(P1) — ValueError는 render_hero_card() 자체의 필드
         # 검증 실패지만, generate_image()가 success=True를 반환해도 손상된
         # 이미지 bytes를 줄 수 있다. 그 경우 PIL.Image.open()이 손상된
@@ -327,6 +340,10 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
         # 잡지 않으면 예외가 create_content_package() 밖 자동 파이프라인까지
         # 전파돼 Job 전체가 죽는다. 두 예외 모두 동일하게 Fail-closed(None
         # 반환 → 호출자가 IMAGE_GENERATION_FAILED로 안전하게 종료).
+        logger.warning(
+            f"[HeroCardImage] 렌더링 단계 실패 | stage=render | "
+            f"error_type={type(exc).__name__} | error={exc}"
+        )
         return None
 
 
