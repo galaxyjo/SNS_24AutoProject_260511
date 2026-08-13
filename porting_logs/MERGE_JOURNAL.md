@@ -2634,3 +2634,42 @@ commit: 완료 — 이 항목 자체(문서만, 코드 diff 없음).
 push: 미실행(세션 종료 시 일괄 예정).
 
 ---
+
+## 260814 — aijomoojin 2일 게시중단(INC-053) 원인 특정 + 히어로카드 텍스트 계약 완화(ERR-113)
+
+**배경:** 260811 밤 이 세션(히어로카드 설계·구현 세션)에서 `AIJOMOOJIN_HERO_CARD_ENABLED=true`를 실활성화했다. 약 2.75일 뒤(260814 00:20 ICT) 회장이 이 세션으로 복귀해 "오늘하루종일 한건도 인스타에 업로드안됐다"며 다른(병행) 세션에서 캡처한 스크린샷(원본 Flux 이미지 테스트 결과)을 첨부하고 이 세션의 기억으로 원인을 진단해달라고 요청했다.
+
+**1) 현재 상태 Read-only 확인:** `git fetch`로 원격과 로컬 HEAD가 완전히 일치함(`46bb252`)을 먼저 확인 — 그 사이 다른 세션이 이 저장소에서 총 5개 커밋(ERR-112 FB크롤 필터/Supplier_Contacts/히어로카드 진단로그)을 이미 push했음을 확인. `.env` 확인 결과 `AIJOMOOJIN_HERO_CARD_ENABLED=false`로 되돌려져 있음 확인 — 회장이 본 "원본 Flux 이미지"는 이 플래그가 꺼져있어 나온 정상 결과(버그 아님)임을 먼저 정정.
+
+**2) 실제 장애 규모 확인:** `logs/summary/app.log`에서 aijomoojin 자동 슬롯 `IMAGE_GENERATION_FAILED` 7연속(260812 14:00~260813 17:00 ICT) 확인. 다른 세션의 마지막 커밋(`46bb252`, 진단 로그 추가만, 원인 미확정 상태)에서 참조된 "260813 aijomoojin 5슬롯 전패"와 일치하는 사건임을 확정.
+
+**3) `DAILY_IMAGE_CAP_EXCEEDED` 가설 배제:** `db/image_gen_quota.db` 직접조회(SQL) — 260812/260813 실제 Cloudflare 이미지 생성이 각 2건/1건뿐(cap=50 근처도 안 감) — 다른 세션의 재현 테스트 로그에 찍혔던 이 error_code는 진단 테스트가 인위적으로 만든 것이지 실제 원인이 아님을 Evidence로 배제.
+
+**4) 실제 원인 재현(Read-only, 실제 Gemini 6회 호출):** `hero_card_content_builder.py`의 프롬프트~검증 단계를 직접 재현하는 스크립트로 서로 다른 Sourcebook topic 6개(3.2/3.4/13.2/13.3/13.4/13.5)를 실제 aijomoojin Credential로 호출 → **3/6(50%)이 `SUBHEADLINE_INVALID`(2건) 또는 `BLOCK_DESC_INVALID`(1건)로 거부**됨, 전부 260811에 직접 정한 문자수 상한을 1~5자만 초과(조작·안전 문제 아님, Fabrication Guard는 6회 모두 트리거 안 됨 — 애초 가설이었던 "숫자 조작 탐지"는 배제됨).
+
+**5) Fix(2단계, 회장 승인 하 이 세션에서 직접 진행):**
+   - `modules/sns/hero_card_content_builder.py` — 상한을 실측 여유치로 조정(headline 16→18/subheadline 28→42/block desc 14→20/tagline 22→26, block title=8 무변경 — 실측상 문제없음). 프롬프트는 이 상수를 참조해 자동 동기화.
+   - `modules/sns/image_template_renderer.py` — `_hero_fit_block_line()` 신규(블록 제목·설명 폰트를 같은 비율로 함께 줄여 항상 한 줄 유지, 최소 20pt). headline/subheadline/tagline에만 있던 폰트 자동축소 안전장치를 블록까지 확장 — 이제 상한을 넉넉히 잡아도 렌더링이 안전함.
+   - 동일 6개 topic 재실행 → **5/6(83%) 성공**, 잔여 1건(subheadline 40자)도 상한 42로 재조정해 해소.
+
+**6) 테스트+회귀:** `tests/test_hero_card_content_builder.py` 16/16(기존 길이초과 fixture 1개가 새 상한 하에서 우연히 통과 후 Fabrication Guard로 다른 이유로 실패하던 것을 발견해 숫자 없는 문구로 재작성), `tests/test_image_template_renderer.py` 24/24(신규 1건 — 상한 크게 초과 block도 캔버스 이탈 없음 확인). 관련 스위트 91/91, 전체 회귀 `62 failed, 1222 passed, 3 xfailed, 8 errors`(baseline과 원인 동일, 신규 실패 0건). 실제 Cloudflare 배경으로 전체 카드 1회 렌더링해 육안 확인(잘림·겹침 없음, 헤드라인 우측 상단에 배경 그래픽 경미한 겹침은 의도된 페이드 구간 — 유령글자 아님).
+
+**문서 갱신:** `docs/ERROR_DATABASE.md`(ERR-113 신규), `docs/FAILURE_PATTERN.md`(FP-084 신규), `docs/INCIDENT_TIMELINE.md`(INC-053 신규), `docs/VALIDATION_STATUS.md`(신규 1행), 이 항목.
+
+**상태변경 총계:** 코드 변경 2건(`hero_card_content_builder.py`, `image_template_renderer.py`) + 테스트 변경 2건. Airtable Write·Instagram 게시·`.env`·Runtime 재시작 0건(이번 항목 범위에서는 발생 안 함 — 재활성화는 별도 승인 대기).
+
+**중요 — 다른 세션과의 관계:** 이 Fix는 다른 세션이 남긴 진단 로그(`46bb252`)가 가리키던 미해결 원인을 이 세션이 이어서 특정·해결한 것이다. 두 세션이 동시에 같은 코드를 편집할 위험을 피하기 위해, 작업 시작 전 `git fetch`로 원격 최신 상태를 확인했고(회장에게 명시적으로 "여기서 진행" 승인을 받은 뒤 시작), 커밋 전 다시 한번 원격과의 divergence를 확인할 예정.
+
+**추가 — 같은 세션 내 재활성화 + Live E2E 완전 검증(260814 01:00 ICT):** 회장 지시("실제로 인스타에 지금 올려봐")로 이어서 진행.
+   - Airtable 직접조회로 stuck `ready` 레코드(`recy8HlSy4HupgWag`, 옛 원본-Flux 이미지, Producer 신규생성 게이트를 막던 원인) 발견 → 회장 승인 하 **삭제**(전환 아닌 명시적 삭제, 회장이 직접 지정).
+   - `.env` `AIJOMOOJIN_HERO_CARD_ENABLED=true` 재설정(수동 스크립트는 매 실행마다 `.env`를 새로 읽으므로 서비스 재시작 불요).
+   - 신규 `tools/run_aijomoojin_publish_manual.py`(REUSE — `run_aijomoojin_producer_manual.py`와 동일 패턴, `_job_aijomoojin_scheduled_post()` 그대로 호출).
+   - 관리자 PowerShell 2회(회장 직접 실행): Producer(신규 topic 13.5 a16z, `content_id=13-5-260814-f6d8f5e7`, `.png`, `HeroCardImage` 실패 로그 0건, Airtable `record_id=recJqiLp1Wy4os5hB`) → 결과 이미지 육안 확인(유령글자 없음) → Publish(`ig_media_id=18156129901496096`, HTTP 200, Airtable `post_status=posted` 확인).
+   - **ERR-113 Fix가 캡션~실게시 전 구간에서 production_verified 확인됨. INC-053 완전 종결.**
+
+**잔여 과제(다음 세션):** (1) hero card fingerprint dedup을 carousel과 충돌 없이 배선(P2, 여전히 미해결이나 안전 — 오늘은 수동 1건 트리거뿐이라 중복위험 없음). (2) `AIJOMOOJIN_HERO_CARD_ENABLED=true`가 지금 `.env`에 남아있음 — 다음 자동 슬롯(다음 05/08/11/14/17 ICT)부터 실제로 히어로카드를 계속 쓰게 됨, 이후 몇 슬롯 추가 관찰 권장.
+
+commit: 완료 예정(이 기록과 함께 승인 요청)
+push: 완료 예정(이 기록과 함께 승인 요청)
+
+---

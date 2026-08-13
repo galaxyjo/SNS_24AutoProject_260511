@@ -208,6 +208,28 @@ def _hero_fit_font_one_line(draw, text: str, path: Path, max_w: int, start_size:
     return ImageFont.truetype(str(path), min_size)
 
 
+def _hero_fit_block_line(draw, title: str, desc: str, max_w: int, start_title_size: int = 34, min_title_size: int = 20):
+    """260814 ERR-113 대응 — 블록 "제목: 설명"이 한 줄 폭(max_w)을 넘으면
+    제목·설명 폰트를 같은 비율로 함께 줄여 항상 한 줄에 들어가게 한다
+    (헤드라인 등과 동일한 원칙, `_hero_fit_font_one_line`과 별개 함수인 이유는
+    제목·설명 두 폰트를 함께 재는 조합 측정이 필요해서다). 실제 Gemini 출력이
+    `hero_card_content_builder`의 문자 수 상한을 항상 정확히 지키지는 않는다는
+    실측(260814) 대비 구조적 안전장치 — 이게 있으면 상한을 다소 넉넉하게 잡아도
+    시각적으로 깨지지 않는다."""
+    ratio = 26 / 34  # desc_font_size / title_font_size 기존 고정비 유지
+    size = start_title_size
+    while size > min_title_size:
+        title_font = ImageFont.truetype(str(_FONT_EXTRABOLD), size)
+        desc_font = ImageFont.truetype(str(_FONT_REGULAR), max(int(size * ratio), 1))
+        combined_w = draw.textlength(title + ": ", font=title_font) + draw.textlength(desc, font=desc_font)
+        if combined_w <= max_w:
+            return title_font, desc_font
+        size -= 2
+    title_font = ImageFont.truetype(str(_FONT_EXTRABOLD), min_title_size)
+    desc_font = ImageFont.truetype(str(_FONT_REGULAR), max(int(min_title_size * ratio), 1))
+    return title_font, desc_font
+
+
 def _hero_draw_icon(draw, kind: str, cx: float, cy: float, r: float) -> None:
     draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=_HERO_CYAN, width=3)
     if kind == "target":
@@ -295,9 +317,8 @@ def render_hero_card(content: HeroCardContent) -> bytes:
     canvas = Image.alpha_composite(canvas, overlay)
     draw = ImageDraw.Draw(canvas)
 
-    block_title_font = _load_font(_FONT_EXTRABOLD, 34)
-    block_desc_font = _load_font(_FONT_REGULAR, 26)
     footer_font = _load_font(_FONT_REGULAR, 22)
+    _BLOCK_TEXT_MAX_W = _TEXT_COLUMN_SOLID_W - (_HERO_MARGIN + 30 * 2 + 24)
 
     title_font = _hero_fit_font_one_line(draw, content.headline, _FONT_EXTRABOLD, _HERO_FULL_W, 88)
     sub_font = _hero_fit_font_one_line(draw, content.subheadline, _FONT_REGULAR, _HERO_FULL_W, 44)
@@ -316,6 +337,7 @@ def render_hero_card(content: HeroCardContent) -> bytes:
         icon_cy = y + icon_r
         _hero_draw_icon(draw, block.icon, icon_cx, icon_cy, icon_r)
         text_x = _HERO_MARGIN + icon_r * 2 + 24
+        block_title_font, block_desc_font = _hero_fit_block_line(draw, block.title, block.desc, _BLOCK_TEXT_MAX_W)
         title_w = draw.textlength(block.title + ": ", font=block_title_font)
         draw.text((text_x, y + icon_r - 20), block.title + ":", font=block_title_font, fill=_HERO_WHITE)
         draw.text((text_x + title_w, y + icon_r - 16), block.desc, font=block_desc_font, fill=_HERO_DIM)

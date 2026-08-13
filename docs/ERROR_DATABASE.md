@@ -2222,3 +2222,23 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **Prevention:** FP-083 참조.
 
 **관련:** ERR-033, FP-022, FP-083, INC-052
+
+---
+
+## ERR-113 | 히어로카드 텍스트 계약(문자수 상한)이 실제 Gemini 출력보다 지나치게 타이트해 aijomoojin 자동 슬롯이 260812~260813 전패 — 상한 실측 기반 완화 + 블록 텍스트 폰트 축소 안전장치 추가 (RESOLVED, 260814)
+
+**발견 경위:** 260811 밤 `AIJOMOOJIN_HERO_CARD_ENABLED=true` 실활성화 이후, 260812 14:00 ICT부터 260813 17:00 ICT까지 aijomoojin 자동 슬롯 7회 연속 `IMAGE_GENERATION_FAILED`로 전패(다른 세션에서 `260813 aijomoojin 5슬롯 전패`로 조사 시작, 진단 로그 커밋 `46bb252`로 원인불명인 채 `AIJOMOOJIN_HERO_CARD_ENABLED=false`로 임시 mitigation). 회장이 새 세션에서 원본 Flux 이미지가 다시 생성되는 것을 보고 이전 세션(본 세션)에 원인 확인 요청.
+
+**Raw:** `logs/summary/app.log`에서 실제 자동 슬롯 실패 7건 확인(`error_code=IMAGE_GENERATION_FAILED`, 08-12 14:00/17:00, 08-13 05:00/08:00/11:00/14:00/17:00). `db/image_gen_quota.db` 직접조회로 해당 2일간 Cloudflare 이미지 생성이 각 1~2건뿐임을 확인해 `DAILY_IMAGE_CAP_EXCEEDED`(cap=50)는 원인에서 배제. 실제 aijomoojin 전용 Credential+모델(`gemini-3.5-flash-lite`)로 서로 다른 실제 Sourcebook topic 6개를 `hero_card_content_builder`의 프롬프트~검증 단계 그대로 재현 호출한 결과 **3/6(50%)이 `SUBHEADLINE_INVALID`(1건) 또는 `BLOCK_DESC_INVALID`(1건, 나머지 1건도 subheadline)로 거부**됨 — 전부 원래 상한(subheadline 28자/block desc 14자)을 1~5자만 초과, 조작·안전 문제 없는 정상적인 한국어 문장.
+
+**Root Cause:** `hero_card_content_builder.py`의 `_validate_contract()`가 요구하는 문자수 상한(`_SUBHEADLINE_MAX_CHARS=28`/`_BLOCK_DESC_MAX_CHARS=14` 등, 260811 최초 설계 시 직접 정한 값)이 Gemini의 실제 한국어 출력 분포보다 타이트했다. 프롬프트에 "at most N characters"로 명시해도 모델이 항상 정확히 지키지는 않으며(생성형 모델의 일반적 한계, 조작이 아님), 이 계약 위반 시 재시도 없이 즉시 거부하는 설계(260811 CONTENT_PLAYBOOK/9요소 Validator와 동일 계열 Fail-closed 정책)라 실패율이 그대로 슬롯 실패율로 직결됐다. 반면 렌더링 단계(`render_hero_card()`)는 headline/subheadline/tagline에는 이미 폰트 자동축소(`_hero_fit_font_one_line`)가 있어 어떤 길이든 안전했지만, **block title/desc는 고정 폰트 크기였다** — 상한을 단순히 완화하면 이 부분만 화면 밖으로 넘칠 위험이 있었다.
+
+**Fix(2단계, 둘 다 실측 검증):**
+1. `modules/sns/hero_card_content_builder.py` — 실측 분포에 여유를 둔 새 상한으로 조정(`_HEADLINE_MAX_CHARS` 16→18, `_SUBHEADLINE_MAX_CHARS` 28→42, `_BLOCK_DESC_MAX_CHARS` 14→20, `_TAGLINE_MAX_CHARS` 22→26; `_BLOCK_TITLE_MAX_CHARS`=8은 실측상 문제 없어 무변경). 프롬프트 문구는 이 상수를 그대로 참조해 자동 동기화됨.
+2. `modules/sns/image_template_renderer.py::render_hero_card()` — `_hero_fit_block_line()` 신규(제목·설명 폰트를 같은 비율로 함께 줄여 항상 한 줄에 들어가게 함, 최소 20pt까지). 이제 상한을 다소 넉넉히 잡아도 시각적으로 깨지지 않는 구조적 안전장치가 생김(headline/subheadline/tagline과 동일한 원칙을 블록까지 확장).
+
+**검증:** 동일 6개 topic으로 재실행 → **5/6(83%)** 성공(잔여 1건도 subheadline 40자 확인 후 상한을 42로 추가 조정해 해소). `tests/test_hero_card_content_builder.py` 16/16(길이초과 테스트 fixture 1건은 새 상한 기준으로 재작성), `tests/test_image_template_renderer.py` 24/24(신규 1건 — 상한 크게 초과하는 block title/desc도 캔버스 이탈 없이 렌더링됨). 실제 Cloudflare 배경으로 전체 렌더링 1회 육안 확인(잘림·겹침 없음). 전체 회귀 `62 failed, 1222 passed, 3 xfailed, 8 errors`(baseline과 원인 동일, 신규 실패 0건).
+
+**Prevention:** FP-084 참조. **현재 상태 — `AIJOMOOJIN_HERO_CARD_ENABLED`는 여전히 `false`(다른 세션이 mitigation으로 끈 상태 유지)** — 이 Fix 반영 후 재활성화 여부는 회장 승인 별도 필요(이번 문서화 시점 기준 미결정).
+
+**관련:** ERR-110, FP-081, FP-084

@@ -859,3 +859,21 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **재발 방지:** FP-083 참조. **한계 명시** — 이번 검증은 1사이클(각 그룹 1건)뿐이라 "완전 해소"가 아니라 "메커니즘이 실제로 작동함"까지만 확정. 이후 사이클에서도 꾸준히 처리되는지, 다른 Active 타겟에도 유사한 조용한 저생산 구간이 없는지는 별도 모니터링 대상.
 
 **관련:** ERR-112, FP-083, ERR-033, FP-022
+
+---
+
+## INC-053 | aijomoojin 자동 슬롯이 260812~260813 2일간(7슬롯 연속) 인스타그램 게시 0건 — 히어로카드 문자수 계약 완화+렌더링 안전장치로 해소 (RESOLVED, 260814)
+
+**발생:** 260811 밤 `AIJOMOOJIN_HERO_CARD_ENABLED=true` 실활성화 직후부터, 260812 14:00 ICT~260813 17:00 ICT 사이 aijomoojin 자동 슬롯 7회가 전부 `IMAGE_GENERATION_FAILED`로 실패 — 이 기간 동안 aijomoojin 계정의 실제 Instagram 게시가 한 건도 없었음.
+
+**영향:** aijomoojin 자동 콘텐츠 생산이 만 2일간 완전히 중단됨(계정 정지·오게시·데이터유실은 아님, 순수 처리량 0). 다른 세션이 원인불명 상태에서 `AIJOMOOJIN_HERO_CARD_ENABLED=false`로 되돌려 최소한의 원본 Flux 경로는 복구 가능한 상태로 mitigation.
+
+**발견 경위:** 회장이 새 세션에서 원본 Flux 스타일 테스트 이미지가 다시 나오는 것을 보고 "오늘하루종일 한건도 인스타에 업로드안됐다"며 본 세션(히어로카드를 설계·구현한 세션)에 원인 확인을 요청.
+
+**해결:** ERR-113 Fix — 히어로카드 텍스트 계약 문자수 상한을 실측 기반으로 완화(subheadline 28→42자 등) + `render_hero_card()`에 블록 텍스트 폰트 자동축소(`_hero_fit_block_line()`) 신규 추가. 실측 6개 topic 재검증으로 실패율 50%→17%(5/6 성공)로 개선 확인.
+
+**재발 방지:** FP-084 참조.
+
+**추가 — 같은 세션 내 완전 해소(260814 01:00 ICT):** 회장 지시로 재활성화까지 이어서 진행. 옛 원본-Flux stuck `ready` 레코드(`recy8HlSy4HupgWag`, Producer 신규생성 게이트를 막고 있던 또 다른 원인이었음)를 회장 승인 하 삭제 → `.env` `AIJOMOOJIN_HERO_CARD_ENABLED=true` 재설정 → 관리자 PowerShell로 Producer 수동 실행(신규 topic 13.5, `content_id=13-5-260814-f6d8f5e7`) → 결과 이미지 육안 확인(정상) → Publish 수동 실행 → **HTTP 200, `ig_media_id=18156129901496096`, Airtable `post_status=posted` 확인**. INC-053 완전 종결 — production_verified.
+
+**관련:** ERR-113, FP-084, ERR-110, FP-081

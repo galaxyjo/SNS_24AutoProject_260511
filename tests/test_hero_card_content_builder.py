@@ -100,7 +100,7 @@ class TestFieldContract:
         assert result.error_code == "HEADLINE_INVALID"
 
     def test_subheadline_over_max_chars_rejected(self, monkeypatch):
-        payload = _valid_payload(subheadline="이것은 28자를 초과하는 매우 긴 서브헤드라인 문구를 만들어 봅니다 진짜로")
+        payload = _valid_payload(subheadline="이것은 상한 글자수를 초과하는 매우 길고 긴 서브헤드라인 문구를 일부러 만들어 봅니다 정말로")
         models = _FakeModels(response=_FakeResponse(payload))
         _patch_gemini(monkeypatch, models)
 

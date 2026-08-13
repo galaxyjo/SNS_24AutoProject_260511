@@ -269,6 +269,24 @@ def test_hero_card_long_headline_shrinks_to_fit_one_line_without_crashing():
     assert img.size == CANVAS_SIZE
 
 
+def test_hero_card_long_block_text_shrinks_to_fit_without_crashing():
+    """260814 ERR-113 — hero_card_content_builder의 문자수 상한을 실측 근거로
+    완화한 만큼(예: block desc 14자→20자), 렌더러 쪽에도 구조적 안전장치가
+    있어야 한다. 상한을 크게 넘는 block title/desc를 줘도 예외 없이
+    렌더링되고 캔버스를 벗어나지 않아야 한다(_hero_fit_block_line)."""
+    long_blocks = (
+        HeroBlock("target", "아주 길고 긴 블록 제목입니다", "이것도 상한을 크게 초과하는 아주 긴 설명 문구입니다"),
+        HeroBlock("search", "고객 검증", "진짜 시장 문제를 확인한다"),
+        HeroBlock("gear", "제품 개발", "시행착오 없이 MVP를 만든다"),
+        HeroBlock("graph", "확장과 성장", "체계적으로 사업을 키운다"),
+    )
+
+    png_bytes = render_hero_card(_hero_content(blocks=long_blocks))
+    img = _decode(png_bytes)
+
+    assert img.size == CANVAS_SIZE
+
+
 def test_hero_card_accepts_ai_background_in_different_aspect_ratio():
     """image_provider_cloudflare가 만드는 실제 배경은 정사각형(1024x1024)에
     가깝다 — 4:5 캔버스와 비율이 달라도 예외 없이 리사이즈·크롭돼야 한다."""

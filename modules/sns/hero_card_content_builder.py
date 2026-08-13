@@ -32,11 +32,17 @@ from modules.sns.caption_generator import (
 )
 from modules.sns.carousel_content_builder import _detect_possible_fabrication, _normalize_text
 
-_HEADLINE_MAX_CHARS = 16
-_SUBHEADLINE_MAX_CHARS = 28
+# 260814 ERR-113 — 실제 6회 라이브 호출 실측 결과 3/6이 SUBHEADLINE_INVALID/
+# BLOCK_DESC_INVALID로 거부됐다(전부 원래 상한을 1~5자 초과, 조작·안전 문제
+# 아님) — Gemini가 프롬프트에 명시한 글자수를 항상 정확히 지키지는 않는다는
+# 실측 근거로 상한을 실측 분포에 여유를 둔 값으로 조정한다. `render_hero_card()`
+# 의 블록 줄(`_hero_fit_block_line`)도 같은 날 폰트 축소 안전장치를 추가해,
+# 이 상한을 다소 넉넉히 잡아도 시각적으로 깨지지 않는다.
+_HEADLINE_MAX_CHARS = 18
+_SUBHEADLINE_MAX_CHARS = 42
 _BLOCK_TITLE_MAX_CHARS = 8
-_BLOCK_DESC_MAX_CHARS = 14
-_TAGLINE_MAX_CHARS = 22
+_BLOCK_DESC_MAX_CHARS = 20
+_TAGLINE_MAX_CHARS = 26
 _BLOCK_COUNT = 4
 
 _HERO_RESPONSE_SCHEMA = {
