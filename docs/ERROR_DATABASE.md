@@ -2239,6 +2239,10 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 
 **검증:** 동일 6개 topic으로 재실행 → **5/6(83%)** 성공(잔여 1건도 subheadline 40자 확인 후 상한을 42로 추가 조정해 해소). `tests/test_hero_card_content_builder.py` 16/16(길이초과 테스트 fixture 1건은 새 상한 기준으로 재작성), `tests/test_image_template_renderer.py` 24/24(신규 1건 — 상한 크게 초과하는 block title/desc도 캔버스 이탈 없이 렌더링됨). 실제 Cloudflare 배경으로 전체 렌더링 1회 육안 확인(잘림·겹침 없음). 전체 회귀 `62 failed, 1222 passed, 3 xfailed, 8 errors`(baseline과 원인 동일, 신규 실패 0건).
 
-**Prevention:** FP-084 참조. **현재 상태 — `AIJOMOOJIN_HERO_CARD_ENABLED`는 여전히 `false`(다른 세션이 mitigation으로 끈 상태 유지)** — 이 Fix 반영 후 재활성화 여부는 회장 승인 별도 필요(이번 문서화 시점 기준 미결정).
+**Prevention:** FP-084 참조.
+
+**추가 1(260814, 같은 세션) — 재활성화 + 실게시 production_verified:** 회장 승인 하 stuck `ready` 레코드(옛 원본-Flux 이미지, `recy8HlSy4HupgWag`, Producer 신규생성 게이트를 막던 원인이기도 함) 삭제 → `AIJOMOOJIN_HERO_CARD_ENABLED=true` 재설정 → 신규 `tools/run_aijomoojin_publish_manual.py`(REUSE)로 관리자 PowerShell 수동 실행 → 캡션+히어로카드 이미지 생성(`content_id=13-5-260814-f6d8f5e7`) → Airtable `ready` 저장 → 실제 Instagram 게시 성공(`ig_media_id=18156129901496096`, `post_status=posted` 확인). production_verified 확정, Commit `cae64d5`.
+
+**추가 2(260814, 같은 날 이어서) — 1차 완화로도 실제 자동 슬롯 재발 확인, 상한을 "렌더러 안전망 배경의 최후 방어선"으로 재정의:** 재활성화 이후 실제 자동 슬롯에서 08:00(`SUBHEADLINE_INVALID`, 42자 상한도 초과)·11:00(`TAGLINE_INVALID`) **또 실패** — `logs/summary/app.log`의 `[HeroCardImage]` 진단 로그(260814 아침 추가분)로 stage/error_code 직접 확인. 05:00 슬롯만 성공(1/3). 1차 완화(28→42 등)가 실측 6건 기준으로는 5/6까지 개선했지만 실제 운영에서는 여전히 부족함이 재확인됨 — "실측값+여유"로 상한을 정하는 접근 자체의 한계. **재정의:** `render_hero_card()`가 headline/subheadline/tagline/block 전부 폰트 자동축소 안전장치를 갖췄으므로(같은 260814), 이 문자수 상한은 더 이상 렌더링 안전을 위한 것이 아니라 "명백히 잘못된(문단급) 응답"만 걸러내는 최후 방어선으로 재정의 — 상한을 대폭 상향(`_HEADLINE_MAX_CHARS` 18→40, `_SUBHEADLINE_MAX_CHARS` 42→80, `_BLOCK_TITLE_MAX_CHARS` 8→20, `_BLOCK_DESC_MAX_CHARS` 20→40, `_TAGLINE_MAX_CHARS` 26→50). 실제 신규 topic 4개(12.1/12.6/3.6/13.1) 재검증 **4/4(100%)** 통과(block desc 실측 19~25자로 기존 예상보다 넓은 분산 재확인). 관련 테스트 4개 fixture를 새 상한 기준(문단급 길이)으로 재작성, `tests/test_hero_card_content_builder.py` 16/16 PASS, 관련 스위트 91/91, 전체 회귀 재확인(1회차 63건은 재실행으로 flaky 확인) `62 failed, 1222 passed, 3 xfailed, 8 errors`(baseline과 원인 동일, 신규 실패 0건).
 
 **관련:** ERR-110, FP-081, FP-084

@@ -80,7 +80,7 @@ class TestFieldContract:
         assert len(result.content.blocks) == 4
 
     def test_headline_over_max_chars_rejected(self, monkeypatch):
-        payload = _valid_payload(headline="이것은 16자를 초과하는 매우 긴 헤드라인 문구입니다")
+        payload = _valid_payload(headline="이것은 상한 글자수를 명백히 초과하는 문단 수준으로 아주 길고 긴 헤드라인 문구를 일부러 만들어 봅니다")
         models = _FakeModels(response=_FakeResponse(payload))
         _patch_gemini(monkeypatch, models)
 
@@ -100,7 +100,7 @@ class TestFieldContract:
         assert result.error_code == "HEADLINE_INVALID"
 
     def test_subheadline_over_max_chars_rejected(self, monkeypatch):
-        payload = _valid_payload(subheadline="이것은 상한 글자수를 초과하는 매우 길고 긴 서브헤드라인 문구를 일부러 만들어 봅니다 정말로")
+        payload = _valid_payload(subheadline="이것은 상한 글자수를 명백히 초과하는 문단 수준의 매우 길고 긴 서브헤드라인 문구를 일부러 만들어서 상한을 확실히 넘기도록 반복해서 길게 늘려 봅니다 정말로 아주 길게")
         models = _FakeModels(response=_FakeResponse(payload))
         _patch_gemini(monkeypatch, models)
 
@@ -122,7 +122,7 @@ class TestFieldContract:
 
     def test_block_title_over_max_chars_rejected(self, monkeypatch):
         payload = _valid_payload()
-        payload["blocks"][0]["title"] = "이것은 8자를 초과하는 라벨"
+        payload["blocks"][0]["title"] = "이것은 상한 글자수를 명백히 초과하는 아주 길고 긴 라벨입니다"
         models = _FakeModels(response=_FakeResponse(payload))
         _patch_gemini(monkeypatch, models)
 
@@ -133,7 +133,7 @@ class TestFieldContract:
 
     def test_block_desc_over_max_chars_rejected(self, monkeypatch):
         payload = _valid_payload()
-        payload["blocks"][0]["desc"] = "이것은 14자를 초과하는 아주 긴 설명문입니다"
+        payload["blocks"][0]["desc"] = "이것은 상한 글자수를 명백히 초과하는 문단 수준으로 아주 길고 긴 설명문을 일부러 만들어 봅니다"
         models = _FakeModels(response=_FakeResponse(payload))
         _patch_gemini(monkeypatch, models)
 
@@ -154,7 +154,7 @@ class TestFieldContract:
         assert result.error_code == "BLOCK_TITLE_INVALID"
 
     def test_tagline_over_max_chars_rejected(self, monkeypatch):
-        payload = _valid_payload(tagline="이것은 22자를 초과하는 매우 긴 태그라인 문구를 만들어 봅니다 정말로")
+        payload = _valid_payload(tagline="이것은 상한 글자수를 명백히 초과하는 문단 수준의 매우 길고 긴 태그라인 문구를 일부러 만들어서 상한을 확실히 넘기도록 반복해서 길게 늘려 봅니다 정말로")
         models = _FakeModels(response=_FakeResponse(payload))
         _patch_gemini(monkeypatch, models)
 

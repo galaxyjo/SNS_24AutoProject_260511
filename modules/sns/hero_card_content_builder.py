@@ -34,15 +34,20 @@ from modules.sns.carousel_content_builder import _detect_possible_fabrication, _
 
 # 260814 ERR-113 — 실제 6회 라이브 호출 실측 결과 3/6이 SUBHEADLINE_INVALID/
 # BLOCK_DESC_INVALID로 거부됐다(전부 원래 상한을 1~5자 초과, 조작·안전 문제
-# 아님) — Gemini가 프롬프트에 명시한 글자수를 항상 정확히 지키지는 않는다는
-# 실측 근거로 상한을 실측 분포에 여유를 둔 값으로 조정한다. `render_hero_card()`
-# 의 블록 줄(`_hero_fit_block_line`)도 같은 날 폰트 축소 안전장치를 추가해,
-# 이 상한을 다소 넉넉히 잡아도 시각적으로 깨지지 않는다.
-_HEADLINE_MAX_CHARS = 18
-_SUBHEADLINE_MAX_CHARS = 42
-_BLOCK_TITLE_MAX_CHARS = 8
-_BLOCK_DESC_MAX_CHARS = 20
-_TAGLINE_MAX_CHARS = 26
+# 아님). 1차 완화(28→42/14→20 등)를 실제 자동 슬롯에 반영한 뒤에도 같은 날
+# 08:00/11:00 슬롯이 각각 SUBHEADLINE_INVALID(42자 상한도 초과)/
+# TAGLINE_INVALID로 또 실패 — Gemini의 길이 분산이 예상보다 넓어 "실측값에
+# 여유를 조금 더 두는" 접근 자체의 한계가 재확인됐다. `render_hero_card()`의
+# headline/subheadline/tagline/block 전부 이제 폰트 자동축소 안전장치가
+# 있으므로(같은 날 `_hero_fit_font_one_line`/`_hero_fit_block_line`), 이
+# 상한은 실제 렌더링 안전을 위한 것이 아니라 "명백히 잘못된(예: 문단급)
+# 응답"만 걸러내는 최후 방어선으로 재정의한다 — 정상 범위 내 모든 변동은
+# 통과시키고, 렌더러의 폰트 축소가 시각적 안전을 담당한다.
+_HEADLINE_MAX_CHARS = 40
+_SUBHEADLINE_MAX_CHARS = 80
+_BLOCK_TITLE_MAX_CHARS = 20
+_BLOCK_DESC_MAX_CHARS = 40
+_TAGLINE_MAX_CHARS = 50
 _BLOCK_COUNT = 4
 
 _HERO_RESPONSE_SCHEMA = {
