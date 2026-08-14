@@ -229,6 +229,29 @@ if (-not $N8N_WATCHDOG_ENABLED) {
     Write-Log "[INFO] n8n watchdog 감시 비활성화 — N8N_WATCHDOG_ENABLED=false"
 }
 
+# 260814 FP-075 대응 — 이 기기는 전통적 Sleep(S1~S3)을 펌웨어가 지원하지 않고
+# Modern Standby(S0)만 지원한다(powercfg /a 확인). 기존 전원설정
+# (STANDBYIDLE=절대안함)은 Modern Standby에는 적용되지 않아, 유휴 상태가 길어지면
+# 시스템 전체(스케줄러 포함)가 몇 시간씩 멈추는 현상이 실측 확인됐다(Kernel-Power
+# 이벤트 506/507, "Idle Timeout"/"Austerity Battery Drain Budget Exceeded").
+# Windows 공식 API(SetThreadExecutionState)로 watchdog.ps1이 살아있는 동안 시스템이
+# 유휴 절전에 들어가지 않도록 요청한다 — 화면(Display)은 꺼져도 되고 시스템만
+# 깨어있게 한다(ES_DISPLAY_REQUIRED 미사용). 프로세스 종료 시 요청은 자동 해제된다.
+try {
+    Add-Type -Name Kernel32Power -Namespace WatchdogPower -MemberDefinition '
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern uint SetThreadExecutionState(uint esFlags);
+    '
+    # 260814 — 0x80000000을 그대로 쓰면 PowerShell이 부호있는 Int32(-2147483648)로
+    # 먼저 해석해 [uint32] 변환이 실패한다(실측 확인). 10진수 리터럴로 우회.
+    $ES_CONTINUOUS = [uint32]2147483648        # 0x80000000
+    $ES_SYSTEM_REQUIRED = [uint32]1            # 0x00000001
+    $null = [WatchdogPower.Kernel32Power]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED)
+    Write-Log "[INFO] SetThreadExecutionState 요청 완료 — Modern Standby 유휴 절전 방지 활성화"
+} catch {
+    Write-Log "[WARN] SetThreadExecutionState 실패 — 절전 방지 미적용: $($_.Exception.Message)"
+}
+
 try {
     while ($true) {
         try {

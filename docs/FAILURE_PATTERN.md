@@ -983,9 +983,9 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 
 **증상:** 260805 08:50:55~09:07:04 Windows Sleep(Kernel-Power Event 506/507) 동안 `app.log`의 heartbeat·`_job_insta_upload`·`_job_fb_crawl`·DM followup·`_job_aijomoojin_content_producer` 등 **모든** 등록 Job이 동시에 끊겼다(ERR-103). 09:00 ICT aijomoojin Producer 슬롯만 골라서 실패한 것이 아니라, 그 시각에 도는 모든 Job이 동일하게 대상이었다 — 우연히 Producer가 가장 눈에 띄었을 뿐이다.
 
-**예방:** (1) 이 머신의 전원설정(`powercfg`) Sleep/Idle timeout이 실제로 어떻게 설정돼 있는지 Read-only 확인 — 자동 Sleep이 켜져 있다면 그 자체가 "24시간 무단 동작" 전제의 근본 결함이다. (2) 향후 유사 Cron 슬롯(aijomoojin 3슬롯 등) 설계 시 misfire 발생을 Slack/Health로 관측 가능하게(현재는 로그에만 남고 별도 Alert 없음, 확인 필요) 만드는 것을 검토— 지금은 로그를 직접 찾아야만 미실행 여부를 알 수 있다.
+**예방:** (1) **260814 완료(ERR-114 참조)** — 이 머신의 전원설정을 Read-only 확인한 결과 전통적 Sleep(`STANDBYIDLE`)은 이미 "절대 안 함"으로 정상 설정돼 있었으나, 이 기기가 Modern Standby(S0) 전용 기종이라 그 설정이 적용되지 않는다는 것이 근본원인으로 확정됨 — `watchdog.ps1`에 `SetThreadExecutionState` 공식 API 호출을 추가해 조치. (2) 향후 유사 Cron 슬롯(aijomoojin 5슬롯 등) 설계 시 misfire 발생을 Slack/Health로 관측 가능하게(현재는 로그에만 남고 별도 Alert 없음, 확인 필요) 만드는 것을 검토 — 지금은 로그를 직접 찾아야만 미실행 여부를 알 수 있다(여전히 미착수).
 
-**관련:** ERR-103, INC-047
+**관련:** ERR-103, ERR-114, INC-047
 
 ---
 

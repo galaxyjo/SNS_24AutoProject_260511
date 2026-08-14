@@ -2246,3 +2246,21 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **추가 2(260814, 같은 날 이어서) — 1차 완화로도 실제 자동 슬롯 재발 확인, 상한을 "렌더러 안전망 배경의 최후 방어선"으로 재정의:** 재활성화 이후 실제 자동 슬롯에서 08:00(`SUBHEADLINE_INVALID`, 42자 상한도 초과)·11:00(`TAGLINE_INVALID`) **또 실패** — `logs/summary/app.log`의 `[HeroCardImage]` 진단 로그(260814 아침 추가분)로 stage/error_code 직접 확인. 05:00 슬롯만 성공(1/3). 1차 완화(28→42 등)가 실측 6건 기준으로는 5/6까지 개선했지만 실제 운영에서는 여전히 부족함이 재확인됨 — "실측값+여유"로 상한을 정하는 접근 자체의 한계. **재정의:** `render_hero_card()`가 headline/subheadline/tagline/block 전부 폰트 자동축소 안전장치를 갖췄으므로(같은 260814), 이 문자수 상한은 더 이상 렌더링 안전을 위한 것이 아니라 "명백히 잘못된(문단급) 응답"만 걸러내는 최후 방어선으로 재정의 — 상한을 대폭 상향(`_HEADLINE_MAX_CHARS` 18→40, `_SUBHEADLINE_MAX_CHARS` 42→80, `_BLOCK_TITLE_MAX_CHARS` 8→20, `_BLOCK_DESC_MAX_CHARS` 20→40, `_TAGLINE_MAX_CHARS` 26→50). 실제 신규 topic 4개(12.1/12.6/3.6/13.1) 재검증 **4/4(100%)** 통과(block desc 실측 19~25자로 기존 예상보다 넓은 분산 재확인). 관련 테스트 4개 fixture를 새 상한 기준(문단급 길이)으로 재작성, `tests/test_hero_card_content_builder.py` 16/16 PASS, 관련 스위트 91/91, 전체 회귀 재확인(1회차 63건은 재실행으로 flaky 확인) `62 failed, 1222 passed, 3 xfailed, 8 errors`(baseline과 원인 동일, 신규 실패 0건).
 
 **관련:** ERR-110, FP-081, FP-084
+
+---
+
+## ERR-114 | 이 기기가 전통적 Sleep(S1~S3) 미지원 Modern Standby(S0) 전용 기종이라 기존 "절전 안 함" 설정이 무효 — 오후 스케줄러 전체가 최대 4시간 정지(FP-075 근본조치 미착수분 실행) (RESOLVED, 260814)
+
+**발견 경위:** 회장이 "하루 5번인데 1번만 게시됨"(14:41 ICT 기준) 보고 → 260814 14:00 aijomoojin Producer가 `logs/summary/app.log`에 `Run time of job ... was missed by 0:32:24`로만 남고 실제 실행 자체가 없었음을 확인 → `logs/watchdog.log` 하트비트 대조 결과 13:31~18:35 사이(약 5시간) 거의 전 구간이 끊겨있었음을 확인.
+
+**Raw:** `Get-WinEvent -FilterHashtable @{LogName='System'; Id=506,507}`(Kernel-Power, Read-only)로 오늘 하루 전체 Modern Standby 진입·해제 기록 직접 조회 — 08:04~13:01 사이엔 초~20분 수준의 짧은 진입(사람의 마우스 입력·전원버튼으로 곧 해제)뿐이었으나, **13:09→14:32(1시간23분)**, **14:32→18:34(4시간2분, 회장이 전원버튼으로 직접 깨움)** 두 차례 장시간 정지가 실제로 발생. `powercfg /a` 확인 결과 이 기기는 "대기 모드(S1)/(S2)/(S3)" 전부 "시스템 펌웨어에서 지원하지 않음"으로 명시되고, "대기 모드(S0 저 전원 유휴)"(Modern Standby)만 지원됨을 직접 확인.
+
+**Root Cause:** FP-075(260805)에서 이미 "이 머신의 전원설정 Sleep/Idle timeout이 실제로 어떻게 설정돼 있는지 확인 필요"로 예방 항목만 남겨두고 실제 조치는 미착수였다. 이번에 확인한 결과 `powercfg /query SCHEME_CURRENT SUB_SLEEP`의 `STANDBYIDLE`(전통적 Sleep 유휴 타이머)은 AC/DC 둘 다 이미 `0`(절대 절전 안 함)으로 올바르게 설정돼 있었으나, **Modern Standby는 이 설정과 완전히 별개의 자체 유휴 타이머로 동작**해 영향을 받지 않는다 — 회장이 이전에 이미 조치한 절전설정이 무효화된 게 아니라, 애초에 적용 범위 밖이었다.
+
+**Fix:** `watchdog.ps1`이 시작될 때 Windows 공식 API `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`를 1회 호출해, watchdog 프로세스가 살아있는 동안 시스템이 유휴 절전(Modern Standby)에 들어가지 않도록 명시적으로 요청(화면은 꺼져도 무방, 시스템만 유지). 구현 중 `0x80000000` 16진수 리터럴을 PowerShell이 부호있는 Int32(-2147483648)로 먼저 해석해 `[uint32]` 변환이 실패하는 문제를 실측으로 발견 — 10진수 리터럴(`2147483648`)로 우회해 해결(격리된 PowerShell 세션에서 실제 P/Invoke 호출 성공 확인 후 반영).
+
+**검증(계획):** 재시작 후 20~30분 이상 사람 조작 없이 방치해 Kernel-Power 506 이벤트(Modern Standby 진입) 재발 여부를 Read-only로 관찰. Codex/GPT 리뷰는 CLAUDE.md Multi-AI Review Policy상 "Scheduler/Watchdog" High-Risk 카테고리에 해당하나, 변경 자체가 Windows 공식 API 1회 호출로 작고 격리돼 있어 회장 승인 하 즉시 반영 후 Runtime으로 직접 검증하는 경로를 택함.
+
+**Prevention:** FP-075의 예방 항목 (1)이 이번에 실제로 완료됨. **명시적 한계 — 이 조치는 이 watchdog.ps1 프로세스가 실행 중인 동안에만 유효하다(프로세스 재시작 시 요청이 자동 해제됐다가 스크립트 시작부에서 다시 요청됨, 정상). 원격 데스크톱 연결 해제나 로그아웃 등 다른 절전 유발 경로는 이번 조치 범위 밖.**
+
+**관련:** FP-075, ERR-103, INC-047
