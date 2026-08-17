@@ -334,7 +334,12 @@ def generate_carousel_content(
     hashtags = tuple(payload["hashtags"])
     combined_text = " ".join(s.text for s in slides) + " " + caption
 
-    if _detect_possible_fabrication(combined_text, topic.core_message):
+    # 260817 ERR-115 — 위 _build_prompt() 호출도 core_message와 title을 함께
+    # Gemini에게 근거로 주므로, 검증 대상도 동일하게 title을 포함해야 title에만
+    # 있는 숫자(버전 등)를 날조로 오판정하지 않는다(hero_card_content_builder.py
+    # 동일 수정과 짝).
+    grounding_text = topic.core_message + " " + topic.title
+    if _detect_possible_fabrication(combined_text, grounding_text):
         return CarouselResult(success=False, error_code="POSSIBLE_FABRICATION")
 
     safety_status, safety_reason = check_caption_safety(

@@ -185,6 +185,25 @@ class TestFabricationGuard:
         assert result.success is False
         assert result.error_code == "POSSIBLE_FABRICATION"
 
+    def test_number_present_only_in_title_not_flagged_as_fabrication(self, monkeypatch):
+        """260817 ERR-115 — _build_prompt()가 core_message와 title을 함께
+        Gemini에게 근거로 주므로(예: 'AI RMF 1.0'), title에만 있는 숫자를
+        검증 대상에서 빠뜨리면 정상 응답까지 날조로 오판정한다."""
+        topic = SourceTopic(
+            topic_id="3.6", title="NIST AI Risk Management Framework (AI RMF 1.0)",
+            status="VERIFIED FACT", source_url="https://example.com/source-nist",
+            core_message="AI 위험은 성능만이 아니라 설계·데이터·배포·거버넌스 전 과정에서 식별·관리해야 한다.",
+            prohibited_expression="",
+        )
+        payload = _valid_payload(headline="NIST AI 위험관리 프레임워크 1.0")
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+
+        result = builder.generate_hero_card_content(topic)
+
+        assert result.success is True
+        assert result.error_code == ""
+
 
 class TestFingerprintDeduplication:
     def test_identical_fingerprint_blocks_regeneration(self, monkeypatch):

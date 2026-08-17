@@ -214,7 +214,12 @@ def generate_hero_card_content(
         + " ".join(f"{b.title} {b.desc}" for b in blocks) + " " + tagline
     )
 
-    if _detect_possible_fabrication(combined_text, topic.core_message):
+    # 260817 ERR-115 — _build_prompt()가 Gemini에게 core_message와 title을
+    # 함께 근거로 주는데, 검증은 core_message만 봐서 title에만 있는 숫자
+    # (예: "AI RMF 1.0"의 "1.0")까지 날조로 오판정하던 버그 수정. 검증
+    # 대상도 실제로 준 근거와 동일하게 title을 포함한다.
+    grounding_text = topic.core_message + " " + topic.title
+    if _detect_possible_fabrication(combined_text, grounding_text):
         return HeroCardTextResult(success=False, error_code="POSSIBLE_FABRICATION")
 
     safety_status, safety_reason = check_caption_safety(
