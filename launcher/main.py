@@ -306,6 +306,39 @@ PROVIDER_CONFIG = {
 }
 
 
+def _extract_meta_error_detail(exc_or_resp) -> str:
+    """260818 — publish_single() 실패 원인 진단 강화. Meta Graph API가 돌려준 실제
+    에러 본문(error.message/type/code/error_subcode/fbtrace_id)을 예외의 .response
+    또는 응답 객체 자체에서 뽑아 로그 문자열로 만든다(ERR-113 계열, 09:00 슬롯 400
+    원인불명 사고 재발방지). 응답이 없거나 파싱 실패해도 이 함수 자체가 새로운
+    실패 지점이 되면 안 되므로 예외를 던지지 않고 빈 문자열을 반환한다."""
+    resp = getattr(exc_or_resp, "response", None)
+    if resp is None and hasattr(exc_or_resp, "status_code"):
+        resp = exc_or_resp  # Phase B 4xx/5xx처럼 응답 객체를 직접 받은 경우
+    if resp is None:
+        return ""
+    try:
+        body = resp.json()
+    except Exception:
+        body = None
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        err = body["error"]
+        parts = [f"message={err.get('message', '')}"]
+        if err.get("type"):
+            parts.append(f"type={err['type']}")
+        if err.get("code") is not None:
+            parts.append(f"code={err['code']}")
+        if err.get("error_subcode") is not None:
+            parts.append(f"subcode={err['error_subcode']}")
+        if err.get("fbtrace_id"):
+            parts.append(f"fbtrace_id={err['fbtrace_id']}")
+        return " | meta_error=(" + ", ".join(parts) + ")"
+    text = getattr(resp, "text", "")
+    if text:
+        return f" | meta_error_raw={redact_sensitive(str(text))[:300]}"
+    return ""
+
+
 def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="graph.facebook.com"):
     """
     단일 Record 게시 실행 함수.
@@ -358,9 +391,10 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             creation_id = r1.json()["id"]
             break
         except Exception as e:
-            logger.warning(f"[publish_single] media 생성 시도 {attempt}/3 실패 | rid={rid} | {redact_sensitive(str(e))}")
+            detail = _extract_meta_error_detail(e)
+            logger.warning(f"[publish_single] media 생성 시도 {attempt}/3 실패 | rid={rid} | {redact_sensitive(str(e))}{detail}")
             if attempt == 3:
-                logger.error(f"[publish_single] 3회 실패 최종(media 생성) | rid={rid}")
+                logger.error(f"[publish_single] 3회 실패 최종(media 생성) | rid={rid}{detail}")
                 return {"ok": False, "error": str(e)}
 
     # ── Phase A.5: 컨테이너 처리 완료 대기 (status_code=FINISHED) — 아직 Phase B(발행)를
@@ -386,9 +420,10 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             r_status.raise_for_status()
             status_code = r_status.json().get("status_code")
         except Exception as e:
+            detail = _extract_meta_error_detail(e)
             logger.warning(
                 f"[publish_single] 컨테이너 상태 조회 시도 {poll_attempt} 실패 | "
-                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}"
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}{detail}"
             )
             remaining = deadline - _time.monotonic()
             if remaining > 0:
@@ -450,21 +485,21 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             # 요청이 서버에 도달했을 가능성이 있는 모호한 실패 — 재시도하면 중복게시 위험, 즉시 중단
             logger.error(
                 f"[publish_single] media_publish 결과 불명(모호한 전송오류) — 재시도 중단 | "
-                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}"
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}{_extract_meta_error_detail(e)}"
             )
             return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
         except Exception as e:
             # 분류되지 않은 예외 — "서버가 게시하지 않았음이 확실한가?"를 확신할 수 없으므로 보수적으로 중단
             logger.error(
                 f"[publish_single] media_publish 결과 불명(미분류 예외) — 재시도 중단 | "
-                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}"
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}{_extract_meta_error_detail(e)}"
             )
             return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
 
         # 여기 도달 = 네트워크 레벨 예외 없이 HTTP 응답을 받음 → 상태코드/본문으로 분류
         if r2.status_code >= 500:
             # Meta 5xx는 멱등성이 보장되지 않음 — 보수적으로 모호한 실패 취급, 재시도 없음
-            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}")
+            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}{_extract_meta_error_detail(r2)}")
             return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
 
         if r2.status_code >= 400:
@@ -474,7 +509,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             # 만들었다(aijomoojin Canary, media_id 17900221041544868/18021773060855830).
             # "명확한 실패"라는 기존 가정이 틀렸으므로 5xx와 동일하게 outcome_unknown으로
             # 격리하고 재시도하지 않는다 — 재게시 여부는 실계정 확인 후 사람이 결정한다.
-            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}")
+            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}{_extract_meta_error_detail(r2)}")
             return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
 
         try:

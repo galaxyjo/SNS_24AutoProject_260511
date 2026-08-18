@@ -174,6 +174,34 @@ class TestPublishSinglePhaseHandling:
 
         assert result == {"ok": True, "ig_media_id": "mediaOK"}
 
+    def test_media_creation_failure_logs_meta_error_detail(self, caplog):
+        """260818 — 09:00 슬롯 400 원인불명 사고 재발방지. media 생성 실패 시 Meta가
+        실제로 보낸 error.message/type/code/error_subcode/fbtrace_id가 로그에 남는지
+        확인한다(관찰성 강화, 동작/재시도 횟수는 무변경)."""
+        err_resp = _Resp(400, {
+            "error": {
+                "message": "Invalid parameter",
+                "type": "OAuthException",
+                "code": 100,
+                "error_subcode": 2108006,
+                "fbtrace_id": "AbCdEfGhIjK",
+            },
+        })
+        http_err = requests.HTTPError("400 Client Error")
+        http_err.response = err_resp
+
+        with patch("requests.post", side_effect=[http_err, http_err, http_err]), \
+             caplog.at_level("ERROR"):
+            result = launcher_main.publish_single("r19", "http://img", "cap", "tok", "iguser")
+
+        assert result["ok"] is False
+        final_logs = [r.message for r in caplog.records if "3회 실패 최종(media 생성)" in r.message]
+        assert final_logs, "최종 실패 로그가 없음"
+        assert "Invalid parameter" in final_logs[0]
+        assert "OAuthException" in final_logs[0]
+        assert "2108006" in final_logs[0]
+        assert "AbCdEfGhIjK" in final_logs[0]
+
     def test_facebook_login_default_host_unchanged(self):
         """api_host 인자를 안 주는 기존 호출부는 여전히 graph.facebook.com을 씀(회귀 없음)."""
         with patch("requests.post", side_effect=[_MEDIA_OK, _Resp(200, {"id": "mediaFB"})]) as mock_post:
