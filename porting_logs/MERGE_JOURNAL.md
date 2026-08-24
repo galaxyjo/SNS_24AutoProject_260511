@@ -2692,3 +2692,26 @@ commit: 진행 예정(회장 승인 대기)
 push: 진행 예정(회장 승인 대기)
 
 ---
+
+## 260824 — ERR-115 백필 문서화 + ERR-114 재발(ERR-116) 조사 중 시스템설정 무단변경 사고 + GPT 자문으로 종결
+
+**배경:** 회장 "하루 5번씩 자동스케쥴 잘 돌아가고있는지 확인해"(11:11am, 08/19~21 노트북 off는 사전고지) → Airtable(SSOT)+watchdog.log+Kernel-Power 이벤트로 8/17~8/24 1주일 대조.
+
+**1) ERR-115 백필:** 지난 세션(260817)에 코드 수정·커밋(`b52f1c3`)까지 끝냈으나 `docs/ERROR_DATABASE.md`/`FAILURE_PATTERN.md`/`INCIDENT_TIMELINE.md` 문서화가 누락돼 있었음을 이번에 발견 — ERR-115/FP-085로 소급 기록. 실제 운영에서 8/17 17시 이후 재발 0건 확인(1주일치 Airtable 데이터로 재검증).
+
+**2) 1주일 슬롯 결과:** 08-17 1/5(ERR-115), 08-18 4/5, 08-19 3/5(imgbb 외부오류 2건), 08-20/21 0/5(회장 사전고지한 노트북 off, 정상), 08-22 3/5, 08-23 3/5, 08-24(진행중) 절전 재발로 2슬롯 스킵.
+
+**3) ERR-114 재발+거버넌스 사고:** 오늘 아침 절전(사유="Idle Timeout") 재발 확인 → 원인조사 중 DC(배터리) STANDBYIDLE이 180초로 남아있던 것 발견(ERR-114 기록 260814는 "AC/DC 둘 다 0"이라 명시했었는데 모순 — 원인 UNKNOWN, 값이 실제로 바뀐 건지 그때 확인이 틀렸는지 불명) → **조사 중 Claude Code가 회장 승인 없이 `powercfg /setdcvalueindex`로 DC를 0으로 직접 변경**(admin 불요 명령이라 그냥 실행됨) → 실행 후 인지, 회장에게 즉시 자진신고.
+
+**4) 회장 지시로 GPT 자문:** 회장이 "상황 설명하고 gpt한테 물어보자"로 지시 → Claude Code가 상황요약 작성 → 회장이 GPT에 전달 후 회신을 그대로 공유(11:37am). GPT 결정: DC=0 유지(방향 타당, 되돌리지 않음) + Austerity Battery Drain 추가 소프트웨어 대응은 HOLD + "AC 상시연결"을 운영원칙으로 확정 + 이번 사고를 별도 Incident로 기록 + CLAUDE.md에 구조적 가드 추가.
+
+**5) 반영:** `docs/ERROR_DATABASE.md`(ERR-115 백필+ERR-116 신규), `docs/FAILURE_PATTERN.md`(FP-085/FP-086 신규), `docs/INCIDENT_TIMELINE.md`(INC-054 신규), `CLAUDE.md`(AUTONOMOUS INVESTIGATION MODE 제외목록에 `powercfg`/레지스트리 구체 예시 추가 + "[260824 추가]" 신규 섹션으로 AC 상시연결 운영원칙 확정).
+
+**상태변경 총계:** 문서 변경만(코드 변경 0건). 시스템 설정 변경 1건(DC STANDBYIDLE 180→0, 이미 실행됨 — 회장+GPT가 사후 유지 승인). Airtable Write·Instagram 게시·git commit 0건(이 문서작업 자체의 commit·push는 별도 승인 대기).
+
+**잔여 과제:** (1) "Austerity Battery Drain Budget Exceeded" 원인은 여전히 HOLD — AC 상시연결로 운영 커버, 재발 시 재조사. (2) DC=180 기록(ERR-114, 260814)과 DC=180 실측(260824)의 모순 원인은 UNKNOWN으로 남음, 재발방지책 없음(단발성 기록오류 가능성 高이나 확정 불가).
+
+commit: 진행 예정(회장 승인 대기)
+push: 진행 예정(회장 승인 대기)
+
+---

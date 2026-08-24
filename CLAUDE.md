@@ -313,8 +313,9 @@ read-only 조사 단계에 대한 승인은 그 조사 자체에만 유효하다
 read-only 조사 명령(`Get-*`, `grep`, `diff`, `status` 조회, 이미 승인된 진단용 Task의 반복 트리거 등 — 상태를 변경하지 않는 명령)에 한해, 매 단일 명령마다 승인을 기다리지 않고 여러 단계를 자율적으로 연속 실행한 뒤 결과를 한 번에 종합 보고할 수 있다.
 - 적용 대상: 로그 확인, 이벤트 조회, 상태 확인, 여러 가설의 순차/병렬 read-only 테스트
 - 명시적 제외(자동 실행 금지, 발견 즉시 중단 후 승인 요청): 파일 쓰기, commit, push, 삭제, Task 생성/변경, 시스템 설정 변경, 서비스 재시작 등 상태 변경 행동 — [H] STATE-CHANGE GATE 승인 절차는 그대로 유지, 이 규칙으로 약화되지 않는다.
+  - **"시스템 설정 변경"의 구체적 예시(260824 추가, ERR-116/FP-086 재발방지)**: `powercfg /setacvalueindex`·`powercfg /setdcvalueindex`·`powercfg /change` 등 전원설정 변경 명령, 레지스트리 편집(`Set-ItemProperty` on `HKLM:`/`HKCU:` 등), 방화벽·네트워크·계정 설정 변경 명령 전부 포함. **판단 기준은 "admin 권한이 필요한가"가 아니라 "이 명령의 동사가 조회(`Get-*`/`query`/`-a`/`status`)인가 변경(`Set-*`/`New-*`/`Remove-*`/`change`)인가"다** — admin 권한 없이 그냥 실행되는 명령이라도 상태를 바꾸면 이 제외 대상이다(admin이 필요 없다는 사실을 "그러니 read-only다"로 착각하지 않는다).
 - 보고 방식: 여러 스텝을 배치 실행했더라도 각 raw 출력은 요약 없이 전달(RAW OUTPUT 원칙 유지).
-근거: 260709 세션에서 read-only 조사조차 매 단일 명령마다 승인을 거치는 방식이 조사 속도를 과도하게 저하시키고 사용자 피로를 유발함을 확인.
+근거: 260709 세션에서 read-only 조사조차 매 단일 명령마다 승인을 거치는 방식이 조사 속도를 과도하게 저하시키고 사용자 피로를 유발함을 확인. 260824 세션 — `powercfg /query`(read-only)로 배터리 절전 타이머를 조사하던 중, admin 권한이 필요 없다는 이유로 `powercfg /setdcvalueindex`(상태변경)까지 승인 없이 실행해버린 사고(ERR-116) 이후, 위 구체적 예시 항목을 추가.
 
 ### 단계별 Bookending 원칙
 각 실행 단계(Runbook Step)를 시작하기 전, 지금 상태가 무엇인지 한 줄로 짧게 확인하고 시작한다 (예: "지금 X가 Y 상태다, 이제 Z를 하겠다"). 단계를 마친 후에는, 그 결과로 상태가 어떻게 바뀌었는지 한 줄로 짧게 확인하고 마친다 (예: "이제 X는 Y가 아니라 Z 상태다").
@@ -1154,3 +1155,18 @@ Rollback 없이 변경하지 않는다.
 16. Closed Gate는 새로운 Runtime Evidence가 기존 판정을 뒤집는 경우가 아니면 재검증하지 않는다.
 
 **7B-3(Carousel Content Contract) 명시 판정**: `module_verified`로만 확정한다 — 실제 8슬라이드 이미지 렌더링과 Carousel 형태의 실제 게시는 이번 세션에 한 번도 수행되지 않았으므로 `production_verified`로 과장하지 않는다(규칙 13 직접 적용 사례).
+
+---
+
+## [260824 추가 — "AC 상시연결" 운영원칙 + 시스템 설정변경 가드 강화]
+
+> 근거: 260824 세션 — ERR-114(Modern Standby 절전)가 260815 수정 이후에도 재발(사유="Idle Timeout"), 원인조사 중 배터리(DC) 절전 유휴타이머가 180초로 남아있던 것을 발견했으나, 그 조사 과정에서 Claude Code가 회장 승인 없이 `powercfg /setdcvalueindex`를 직접 실행(ERR-116, FP-086)함. 회장이 상황을 GPT에 자문한 결과(260824 11:37am)를 그대로 반영해 확정한다. 상세는 `docs/ERROR_DATABASE.md`의 `ERR-114`/`ERR-115`/`ERR-116`, `docs/FAILURE_PATTERN.md`의 `FP-085`/`FP-086`, `docs/INCIDENT_TIMELINE.md`의 `INC-054` 참조.
+
+### 운영 원칙: 24시간 자동화 서버는 AC(충전기) 상시 연결 상태에서만 운영한다
+- Windows Modern Standby의 배터리 보호 계층(`Austerity Battery Drain Budget` 등)은 소프트웨어 wake-lock(`SetThreadExecutionState` 등)으로 완전히 우회되지 않을 수 있다(Microsoft 공식 문서 근거, GPT 자문 260824). 배터리 구동 중에는 절전 재발 가능성이 구조적으로 남는다.
+- 따라서 절전 문제를 소프트웨어만으로 100% 해결하려는 추가 시도는 여기서 중단한다(Accept) — 대신 **이 노트북을 24시간 서버로 쓰는 동안은 충전기를 상시 연결 상태로 유지하는 것**을 1차 운영원칙으로 확정한다.
+- 전원설정 `STANDBYIDLE`의 DC(배터리) 값은 260824 AC와 동일하게 0(끔)으로 맞춰 유지한다(회장+GPT 승인, 되돌리지 않음) — 단 이 설정은 "배터리 구동 중에도 최대한 버티게" 하는 보조수단일 뿐, AC 상시연결을 대체하지 않는다.
+
+### 시스템 설정 변경 가드 강화 (재발방지)
+- 위 `AUTONOMOUS INVESTIGATION MODE` 섹션의 "명시적 제외" 항목에 `powercfg`/레지스트리 편집 등 구체적 명령 예시를 추가했다(해당 섹션 참조).
+- 핵심 재발방지 원칙: **admin 권한이 필요 없다는 사실은 "승인이 필요 없다"는 뜻이 아니다.** 명령의 동사가 조회(`Get-*`/`query`/`-a`/`status`)인지 변경(`Set-*`/`New-*`/`Remove-*`/`change`)인지로 먼저 분류하고, 변경 계열이면 admin 권한 여부와 무관하게 실행 전 승인을 받는다.

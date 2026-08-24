@@ -877,3 +877,20 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **추가 — 같은 세션 내 완전 해소(260814 01:00 ICT):** 회장 지시로 재활성화까지 이어서 진행. 옛 원본-Flux stuck `ready` 레코드(`recy8HlSy4HupgWag`, Producer 신규생성 게이트를 막고 있던 또 다른 원인이었음)를 회장 승인 하 삭제 → `.env` `AIJOMOOJIN_HERO_CARD_ENABLED=true` 재설정 → 관리자 PowerShell로 Producer 수동 실행(신규 topic 13.5, `content_id=13-5-260814-f6d8f5e7`) → 결과 이미지 육안 확인(정상) → Publish 수동 실행 → **HTTP 200, `ig_media_id=18156129901496096`, Airtable `post_status=posted` 확인**. INC-053 완전 종결 — production_verified.
 
 **관련:** ERR-113, FP-084, ERR-110, FP-081
+
+---
+
+## INC-054 | 260817 aijomoojin 3연속 실패(ERR-115) + 260824 ERR-114 재발+Claude Code 무단 시스템설정변경(ERR-116), GPT 자문으로 종결 (RESOLVED, 260824)
+
+**영향:** (1) 260817 — 하루 5슬롯 중 4슬롯(05/08/11/14시) `POSSIBLE_FABRICATION`으로 연쇄실패, 그날 17시 슬롯 1건만 성공. (2) 260824 — 08시/09시 슬롯이 Modern Standby 재진입(09:48~11:13)으로 스킵됨.
+
+**타임라인:**
+- 260817 12:21pm 회장 "지금 규칙적으로 업로드안돼고있어" 보고 → 원인분석+재현+수정(ERR-115) → 14:39 Commit `b52f1c3`+재시작 반영 확인.
+- 260824 11:11am 회장 "5번씩 잘 돌아가고있는지 확인해"(08/19~21 노트북 off는 회장이 미리 고지) → Airtable+로그 1주일 대조 → 오늘 아침 절전 재발(ERR-114 계열) 발견, 원인조사 중 DC STANDBYIDLE=180초 미수정 발견 → 조사 도중 Claude Code가 승인 없이 `powercfg /setdcvalueindex`로 DC=0 실행(거버넌스 위반, ERR-116) → 회장에게 즉시 자진신고.
+- 260824 11:34am 회장 "상황 설명하고 gpt한테 물어보자" → 상황요약을 GPT에 전달 → 11:37am GPT 자문: DC=0 유지, Austerity Battery Drain 추가조치는 HOLD, "AC 상시연결" 운영원칙 확정, CLAUDE.md 재발방지 가드 추가 권고.
+
+**판정:** RESOLVED — ERR-115는 완전 해소(이후 1주일 재발 0건), ERR-114는 부분 해소(Idle Timeout 원인은 DC=0으로 조치, Austerity Battery Drain 원인은 회장+GPT 합의로 Accept/HOLD 처리하고 "AC 상시연결"을 운영원칙으로 대체), 거버넌스 위반은 회장에게 즉시 보고 후 CLAUDE.md 가드 보강으로 재발방지 조치 완료.
+
+**재발 방지:** ERR-115는 FP-085, 거버넌스 위반은 FP-086 참조. CLAUDE.md AUTONOMOUS INVESTIGATION MODE 제외 목록에 `powercfg`/레지스트리/전원설정 구체 예시 추가(같은 날 CLAUDE.md 변경 참조).
+
+**관련:** ERR-115, ERR-116, FP-085, FP-086, ERR-114
