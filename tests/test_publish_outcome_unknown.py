@@ -71,7 +71,7 @@ class TestPublishSinglePhaseHandling:
         ) as mock_post:
             result = launcher_main.publish_single("r2", "http://img", "cap", "tok", "iguser")
 
-        assert result == {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": "creation123"}
+        assert result == {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": "creation123", "detail": ""}
         assert mock_post.call_count == 2  # /media 1회 + /media_publish 1회, 재시도 없음
 
     def test_media_publish_connection_error_stops_immediately_no_new_container(self):

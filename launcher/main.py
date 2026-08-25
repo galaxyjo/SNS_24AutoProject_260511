@@ -37,6 +37,7 @@ load_dotenv(override=True)
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.events import EVENT_JOB_MISSED
 
 from core.log_initializer import init_logging
 from core.error_handler import handle_errors
@@ -395,7 +396,7 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             logger.warning(f"[publish_single] media 생성 시도 {attempt}/3 실패 | rid={rid} | {redact_sensitive(str(e))}{detail}")
             if attempt == 3:
                 logger.error(f"[publish_single] 3회 실패 최종(media 생성) | rid={rid}{detail}")
-                return {"ok": False, "error": str(e)}
+                return {"ok": False, "error": str(e), "detail": detail}
 
     # ── Phase A.5: 컨테이너 처리 완료 대기 (status_code=FINISHED) — 아직 Phase B(발행)를
     # 호출하지 않았으므로 여기서 반환하는 실패는 확정 실패다(outcome_unknown 아님).
@@ -483,24 +484,27 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
         except (_req.exceptions.ReadTimeout, _req.exceptions.ConnectionError,
                 _req.exceptions.ChunkedEncodingError) as e:
             # 요청이 서버에 도달했을 가능성이 있는 모호한 실패 — 재시도하면 중복게시 위험, 즉시 중단
+            detail = _extract_meta_error_detail(e)
             logger.error(
                 f"[publish_single] media_publish 결과 불명(모호한 전송오류) — 재시도 중단 | "
-                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}{_extract_meta_error_detail(e)}"
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}{detail}"
             )
-            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id, "detail": detail}
         except Exception as e:
             # 분류되지 않은 예외 — "서버가 게시하지 않았음이 확실한가?"를 확신할 수 없으므로 보수적으로 중단
+            detail = _extract_meta_error_detail(e)
             logger.error(
                 f"[publish_single] media_publish 결과 불명(미분류 예외) — 재시도 중단 | "
-                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}{_extract_meta_error_detail(e)}"
+                f"rid={rid} | creation_id={creation_id} | {redact_sensitive(str(e))}{detail}"
             )
-            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id, "detail": detail}
 
         # 여기 도달 = 네트워크 레벨 예외 없이 HTTP 응답을 받음 → 상태코드/본문으로 분류
         if r2.status_code >= 500:
             # Meta 5xx는 멱등성이 보장되지 않음 — 보수적으로 모호한 실패 취급, 재시도 없음
-            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}{_extract_meta_error_detail(r2)}")
-            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+            detail = _extract_meta_error_detail(r2)
+            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}{detail}")
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id, "detail": detail}
 
         if r2.status_code >= 400:
             # 260801 6D — 실측 사고 2건 확인: HTTP 400을 "명확한 거부"로 간주했으나
@@ -509,8 +513,9 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             # 만들었다(aijomoojin Canary, media_id 17900221041544868/18021773060855830).
             # "명확한 실패"라는 기존 가정이 틀렸으므로 5xx와 동일하게 outcome_unknown으로
             # 격리하고 재시도하지 않는다 — 재게시 여부는 실계정 확인 후 사람이 결정한다.
-            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}{_extract_meta_error_detail(r2)}")
-            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+            detail = _extract_meta_error_detail(r2)
+            logger.error(f"[publish_single] media_publish 결과 불명(HTTP {r2.status_code}) — 재시도 중단 | rid={rid} | creation_id={creation_id}{detail}")
+            return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id, "detail": detail}
 
         try:
             ig_media_id = r2.json()["id"]
@@ -1323,6 +1328,27 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
 
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
 
+def _on_aijomoojin_job_missed(event) -> None:
+    """260825 — aijomoojin 5슬롯(Producer/Slot) 중 하나가 misfire_grace_time(60초)을
+    넘겨 스킵되면(주로 노트북 Modern Standby로 스케줄러 전체가 멈췄을 때) 즉시 Slack
+    알림을 보낸다. 노트북이 잠드는 것 자체를 막는 시도는 이미 두 차례(충전기 상시연결,
+    STANDBYIDLE=0) 실패해 중단했고(ERR-114/ERR-116), 대신 "놓치면 바로 안다"로 방향을
+    바꿨다. 이 리스너는 관측만 하며, 재시도/캐치업은 하지 않는다(기존 스킵 설계 무변경).
+    aijomoojin 외 다른 Job(5분 간격 폴러 등)은 알림 폭주 방지를 위해 대상에서 뺀다."""
+    job_id = getattr(event, "job_id", "") or ""
+    if not job_id.startswith("aijomoojin_"):
+        return
+    scheduled = getattr(event, "scheduled_run_time", None)
+    logger.error(f"[MissedSlot] {job_id} 스킵됨(60초 초과) | scheduled_run_time={scheduled}")
+    if _slack:
+        _slack(
+            f"[경고] aijomoojin 슬롯 놓침 — {job_id}\n"
+            f"예정 시각={scheduled}\n"
+            f"원인 추정: 이 시간대에 컴퓨터가 잠들어(Modern Standby) 스케줄러가 멈췄을 가능성 — "
+            f"놓친 회차는 재시도되지 않습니다(설계상 스킵)."
+        )
+
+
 def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     now = datetime.now()
     sched = BackgroundScheduler(timezone="Asia/Seoul")
@@ -1416,6 +1442,7 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
                 id=f"aijomoojin_producer_{_producer_hour:02d}00",
                 max_instances=1, coalesce=False, misfire_grace_time=60,
             )
+    sched.add_listener(_on_aijomoojin_job_missed, EVENT_JOB_MISSED)
     return sched
 
 
