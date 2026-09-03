@@ -2302,3 +2302,75 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **Prevention:** (1) 권한(admin 필요 여부)과 승인 필요 여부는 별개 기준이다 — admin이 필요 없는 명령이라도 시스템 상태를 바꾸면 승인 대상이다. (2) CLAUDE.md AUTONOMOUS INVESTIGATION MODE 제외 목록을 구체적 명령 예시로 강화(아래 CLAUDE.md 변경 참조).
 
 **관련:** ERR-114, FP-075, INC-047
+
+---
+
+## ERR-117 | Foreign Eligibility가 그룹명 "Korean Cosmetic Wholesale"을 회원 국적으로 오판 — 해외회원 전원 skip (RESOLVED, 260902)
+
+**발견 경위:** STEP 3-G+R(이름 국적판정 폐기, location Evidence만) 적용 후 첫 라이브 read-only 검증(260902 16:18). 그룹 `755455243345993` 회원 프로필 8명을 순회했는데 **8/8 전부 `korea_evidence`로 skip**, eligible 0명. 방문자 중 Nguyen Vu Nam(베트남)·Murodbek Muhammadqodirov(우즈벡)·라오스문자 이름 등 명백한 비한국인이 다수 포함돼 있어 오판이 확실했다.
+
+**Raw:** `_profile_location_text()` 반환값이 8명 전부 `'Korean Cosmetic Wholesale | {name}님이 Korean Cosmetic Wholesale에 아직 게시물을 올리지 않았습니다.'` — 실제 거주지가 아니라 **그룹명 + 그룹활동 chrome**이었다.
+
+**Root Cause(Confirmed):** ① 카나리가 쓰는 group-scoped 프로필 URL(`/groups/{gid}/user/{uid}`)의 `body.text`에는 개인 거주지 줄이 없고 그룹 chrome만 렌더된다. ② `_profile_location_text()`가 `body.text` **전체**를 판정 입력으로 삼았다. ③ `_KR_CARD_KW`에 `"korea"`가 있고 `_card_has_kr_evidence()`가 부분문자열 매칭이라, 그룹명 `"Korean Cosmetic Wholesale"`이 모든 회원 프로필에서 매칭됐다. 즉 문제는 국가 키워드가 아니라 **판정 입력의 Scope**였다.
+
+**Fix (STEP 3-G+S1):** `_GROUP_CHROME_RE` + `_strip_group_chrome(text, group_name)` 신규 — 그룹명이 든 줄과 그룹 활동/가입/멤버 안내 chrome을 판정 입력에서 제거. `_group_name_from_page(driver)` + `_clean_group_title()` 신규 — 회원목록 페이지 `driver.title`에서 그룹명 1회 추출(FB 미읽음 알림 프리픽스 `(3) ` 제거 포함). `_profile_location_text(driver, group_name="")` 파라미터 추가. `_KR_LOCATION_KW`에서 맨 `"korea"/"korean"` 제거(해외 도매상 bio의 "Korean cosmetics" 오탐 방지), 대신 `대한민국`/`한국인`/도시명만 유지.
+
+**검증:** Target Test 5개 + 단위 4개 신규, 152 passed(회귀 0). 라이브 read-only 재확인(260902 17:03, 클릭 0): `driver.title='(3) Korean Cosmetic Wholesale | Facebook'` → 추출 `'Korean Cosmetic Wholesale'`, 회원 3/3 `loc_txt=''` — **그룹명 오염 0/3**(수정 전 3/3 오염).
+
+**Prevention:** 판정 입력은 항상 "대상 본인의 정보"로 Scope를 명시적으로 좁힌다 — 페이지 전체 텍스트를 그대로 판정에 넣지 않는다. 이는 260902 target-scoped 성공판정(제3자 버튼 오탐 차단)과 같은 원칙의 판정-입력판 적용이다.
+
+**관련:** FP-087, INC-055
+
+---
+
+## ERR-118 | FB 회원목록의 '친구 추가' 버튼이 rect 0x0 유령노드 — JS 클릭이 무효라 실발송 0건 (RESOLVED, 260903)
+
+**발견 경위:** STEP 3-G+S3(목록 카드에서 바로 클릭) 첫 Live Canary(260903 10:29). 스캔은 정상(4명 중 한국인 2명 skip, Hnin Thu Zar·Zouache Fatiha 후보 선정)이었고 클릭도 6회(3회 재시도 ×2명) 실행됐으나 **버튼 상태가 매번 '친구 추가' 그대로**, `sent_today` 0 유지.
+
+**Raw:** 실패 후 read-only로 두 대상 프로필 재확인 — 버튼이 여전히 `친구 {이름}님 추가`, "요청 취소" 없음 → **실제 발송 0건**(부작용 없음). 이어서 목록 DOM 직접 측정: `박보미` 버튼 `rect [1011,462,105,36]`(렌더됨), **`조현주`·`Hnin Thu Zar`·`Zouache Fatiha` 버튼 `rect [0,0,0,0]`**. `window.scrollTo(bottom)`×4 / `PAGE_DOWN`×4 / 내부 스크롤컨테이너 탐색 / 창 확대(1600×1000) / "멤버 1,172" 섹션 클릭 — 모든 시도에서 렌더되는 친구버튼은 **박보미 1개뿐**. 페이지 전체 높이 `scrollHeight=1822px`(약 2화면), lazy-load 없음(`scrollY 316→794`로 끝까지 도달).
+
+**Root Cause(Confirmed):** FB가 이 회원목록 위젯에서 aria-label 노드(`친구 {이름}님 추가`)는 DOM에 만들어두지만 실제 버튼은 극히 일부만 레이아웃한다. `arguments[0].click()`을 크기 0 요소에 호출하면 이벤트는 디스패치되지만 FB 핸들러가 동작하지 않는다. 코드는 aria-label만 보고 클릭 대상으로 삼아 **"DOM에 있다=클릭 가능하다"고 가정**했다.
+
+**Fix (STEP 3-G+S3-FINAL):** `_element_visible(el)` 신규 — `is_displayed()` + `rect.width>0 and rect.height>0`로 0x0 유령노드 차단. 카나리 흐름을 **A. 목록 버튼이 실렌더면 Selenium native click / B. 0x0이면 그 후보 프로필 1회 진입해 visible 버튼 클릭 → 목록 복귀**로 이분화. 클릭 재시도 3회 제거(대상당 1회).
+
+**검증:** Target Test A~D + `_element_visible` 단위테스트, outbound 164 passed(회귀 0). 라이브 실증: Hnin Thu Zar가 프로필 fallback 경로로 실제 발송 성공(260903 17:05, `요청 취소` 확인).
+
+**Prevention:** 클릭 전 `is_displayed + rect>0` 확인을 필수 게이트로 둔다. "요소를 찾았다"와 "클릭할 수 있다"를 구분한다.
+
+**관련:** ERR-119, FP-087, INC-055
+
+---
+
+## ERR-119 | 프로필 '친구 추가' 버튼에 Selenium native click이 ElementClickIntercepted — 검증된 JS click으로 해결 (RESOLVED, 260903)
+
+**발견 경위:** ERR-118 수정(S3-FINAL) 후 Live Canary 1차(260903 16:51). 목록 0x0 → 프로필 fallback까지 정상 진입, 프로필에서 `친구 Hnin Thu Zar님 추가` 버튼도 정상 발견(`verify=True`)했으나 `btn.click()`(Selenium native)에서 `ElementClickInterceptedException` → failed, `sent_today` 0 유지(발송 0).
+
+**Raw:** read-only 진단 — 그 버튼 `rect [1252,552,105,36]`, `btn_is_top=true`(중심점의 topmost 요소가 버튼의 자손 span), `fixed_elems=[]`(가리는 고정 배너 없음). 즉 **기하학적으로는 가려져 있지 않았다**. ESC로 오버레이 해제 후에도 동일.
+
+**Root Cause(Confirmed 수준):** Selenium native click은 클릭 순간의 obstruction 판정이 엄격해, FB 프로필의 순간적 레이아웃 시프트/토스트에도 거부한다. 반면 `arguments[0].click()`(JS)은 260902에 실제로 친구요청을 발송시킨 검증된 경로였다(Murodbek·Ym Ym 발송 실증). S3-FINAL 구현 시 목록·프로필 **양쪽 모두** native click으로 통일해버린 것이 원인 — GPT 지시 §2.B의 "기존 검증된 프로필 click"은 JS click을 의미했다.
+
+**Fix:** `_send_friend_visible(driver, btn, name, use_js=False)` — 목록 카드 경로는 native click(GPT §2.A), 프로필 fallback 경로는 `use_js=True`(JS click). 단, **`_element_visible`로 실렌더를 검증한 뒤에만** JS click을 쓴다(ERR-118의 0x0 유령버튼 강제클릭과 구분).
+
+**검증:** Live Canary 2차(260903 17:05) — Hnin Thu Zar 프로필 JS click → 주 액션 영역 `['메시지 보내기','Hnin Thu Zar님에 대한 요청 취소','요청 취소']` → success. 별도 read-only 재확인(17:05)에서 `요청 취소` 지속 확인, 미타겟 Zouache Fatiha는 `친구 추가` 그대로 → **정확히 1건만 발송**.
+
+**Prevention:** 클릭 방식(native/JS)은 "어느 화면의 버튼인가"에 따라 검증된 것을 쓴다. 한 방식으로 통일하려다 이미 실증된 경로를 잃지 않는다. JS click은 0x0 유령버튼에는 금지, 실렌더 검증 통과 버튼에만 허용.
+
+**관련:** ERR-118, FP-087, INC-055
+
+---
+
+## ERR-120 | `.env` 편집 중 `OUTBOUND_FRIEND_SCHEDULE_ENABLED` 유실 — 재시작 후 친구 잡 미등록(자동 발송 0) (RESOLVED, 260904)
+
+**발견 경위:** 24시간 분산 전환 후 간격 재조정(`INTERVAL_MIN=90`/`JITTER_SEC=1800`)을 위해 회장이 `.env` 수정 + 재시작(260904 06:27). 재시작 자체는 성공(포트 5000 청취, `Scheduler started`)했으나 **배너에 `YUNA 친구요청` 라인이 없고 `Added job "_job_yuna_friend_request"` 0건**.
+
+**Raw:** `grep -n "OUTBOUND" .env` → `OUTBOUND_FRIEND_INTERVAL_MIN=90`, `OUTBOUND_FRIEND_JITTER_SEC=1800` **2줄만 존재**. 전날 추가했던 `OUTBOUND_FRIEND_SCHEDULE_ENABLED=true`가 사라져 있었다. `_build_scheduler`가 이 Flag를 `!= "true"`로 확인하므로 잡 자체가 등록되지 않았다.
+
+**Root Cause:** `.env` 편집 과정에서 기존 줄이 덮어써지거나 누락됨(편집 행위 자체는 회장 측 조작이라 Claude Code가 원문 diff를 확인할 수 없음 — 결과 상태만 확인 가능). 구조적으로는 **Flag 3줄이 서로 의존하는데 한 줄만 빠져도 조용히 "아무 일도 안 하는" 상태**가 되고, 로그에 오류가 남지 않는다는 점이 문제.
+
+**Fix:** 3줄(`SCHEDULE_ENABLED=true`/`INTERVAL_MIN=90`/`JITTER_SEC=1800`)을 모두 넣고 재시작 → 06:30:27 배너 `YUNA 친구요청 : 90분±30분 랜덤, 8~23시만, 실행당 1건, Airtable 그룹 순회` + `Added job` 확인.
+
+**검증:** 재시작 후 배너·잡 등록·`.env` 3줄을 모두 직접 확인(추정 금지). 발송 카운트는 날짜 변경(09-04)으로 0/10 리셋 확인.
+
+**Prevention:** Flag 변경 후에는 **반드시 ①배너 라인 ②`Added job` 로그 ③`.env` 실제 내용** 3가지를 재시작 직후 확인한다. "재시작했다"만으로 반영을 단정하지 않는다(ERR-109 계열 교훈의 Flag판).
+
+**관련:** FP-088, INC-055

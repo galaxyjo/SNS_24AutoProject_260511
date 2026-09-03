@@ -1228,6 +1228,253 @@ class AirtableRepository(RepositoryInterface):
 
         return r.json().get("id", "")
 
+    # ── 13b. Outbound_Actions (STEP 3, 260901) ───────────────────────────────
+    #
+    # YUNA outbound engagement(현재 Follow 1종) 결과 SSOT 기록. Lead_Interactions
+    # 는 inbound 전용 스키마(inquiry_user_handle/inquiry_message)라 재사용하지 않고
+    # 별도 테이블(Outbound_Actions)을 사용한다. 여기서는 concrete 메서드만 추가하고
+    # RepositoryInterface(ABC)에는 손대지 않는다 — 정식 인터페이스 편입은 별도
+    # 인터페이스 변경 리뷰 대상(High Risk).
+
+    def find_outbound_action(
+        self, account_code_ref: str, target_identifier: str, action_type: str
+    ) -> str | None:
+        """같은 (계정·target·action) 결과가 이미 있으면 record_id, 없으면 None.
+        조회 실패(네트워크/HTTP)는 예외로 전파 — None(없음 확인)과 구분해야 한다."""
+        safe_a = account_code_ref.replace("'", "\\'")
+        safe_t = target_identifier.replace("'", "\\'")
+        safe_y = action_type.replace("'", "\\'")
+        formula = (
+            f"AND({{account_code_ref}}='{safe_a}',"
+            f"{{target_identifier}}='{safe_t}',"
+            f"{{action_type}}='{safe_y}')"
+        )
+        try:
+            r = requests.get(
+                _url("Outbound_Actions"),
+                headers=_headers(),
+                params={"filterByFormula": formula, "maxRecords": 1, "fields[0]": "result"},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Outbound_Actions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Outbound_Actions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        return records[0]["id"] if records else None
+
+    def create_outbound_action(self, data: dict) -> str:
+        """Outbound_Actions 에 결과 1건 기록(success/failed). 반환: Airtable record_id.
+
+        기대 키: account_code_ref, target_identifier, action_type, result(필수) /
+                target_url, occurred_at, error_reason(선택).
+        """
+        code = "OA-" + uuid.uuid4().hex[:8].upper()
+        fields = {
+            "action_code":       code,
+            "account_code_ref":  data["account_code_ref"],
+            "target_url":        data.get("target_url", ""),
+            "target_identifier": data["target_identifier"],
+            "action_type":       data["action_type"],
+            "result":            data["result"],
+            "occurred_at":       data.get("occurred_at")
+            or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "error_reason":      data.get("error_reason", ""),
+        }
+        if data.get("relationship_status"):
+            fields["relationship_status"] = data["relationship_status"]
+        if data.get("accepted_at"):
+            fields["accepted_at"] = data["accepted_at"]
+        try:
+            r = requests.post(
+                _url("Outbound_Actions"),
+                headers=_headers(json_body=True),
+                json={"fields": fields},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Outbound_Actions", "POST")
+        except requests.HTTPError as e:
+            _raise(e, "Outbound_Actions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return r.json().get("id", "")
+
+    def list_outbound_actions_since(
+        self, account_code_ref: str, action_type: str, since_ymd: str
+    ) -> list[dict]:
+        """occurred_at 이 since_ymd(YYYY-MM 또는 YYYY-MM-DD) 로 시작하는 이 계정·action
+        Outbound_Actions 레코드들. 각 dict: result / relationship_status / occurred_at /
+        target_identifier. 조회 실패는 예외로 전파."""
+        safe_a = account_code_ref.replace("'", "\\'")
+        safe_y = action_type.replace("'", "\\'")
+        formula = f"AND({{account_code_ref}}='{safe_a}',{{action_type}}='{safe_y}')"
+        out: list[dict] = []
+        offset = None
+        while True:
+            params = {"filterByFormula": formula, "pageSize": 100,
+                      "fields[]": "occurred_at", "fields[1]": "result",
+                      "fields[2]": "relationship_status", "fields[3]": "target_identifier"}
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(_url("Outbound_Actions"), headers=_headers(),
+                                 params=params, timeout=_TIMEOUT)
+                r.raise_for_status()
+                log_api_call("Outbound_Actions", "GET")
+            except requests.HTTPError as e:
+                _raise(e, "Outbound_Actions")
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+            j = r.json()
+            for rec in j.get("records", []):
+                f = rec.get("fields", {})
+                if str(f.get("occurred_at", "")).startswith(since_ymd):
+                    out.append({
+                        "record_id": rec.get("id", ""),
+                        "result": f.get("result", ""),
+                        "relationship_status": f.get("relationship_status", ""),
+                        "occurred_at": f.get("occurred_at", ""),
+                        "target_identifier": f.get("target_identifier", ""),
+                    })
+            offset = j.get("offset")
+            if not offset:
+                break
+        return out
+
+    def count_outbound_actions_today(
+        self, account_code_ref: str, action_type: str, requested_only: bool = False
+    ) -> int:
+        """오늘(UTC) 이 계정·action_type 건수. requested_only=True 면 relationship_status
+        ='requested'(실제 요청 전송)만 — friend 일일 한도 게이트용(버튼 미발견 등 미전송 제외)."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        rows = self.list_outbound_actions_since(account_code_ref, action_type, today)
+        if requested_only:
+            return sum(1 for r in rows if r.get("relationship_status") == "requested")
+        return len(rows)
+
+    def get_account_outbound_limits(self, account_code: str) -> dict:
+        """Account_Registry 에서 일일 한도 3개를 읽는다. 값이 없으면 0(Fail-closed).
+        반환: {"follow": int, "friend": int, "comment": int}. 0/2건은 전부 0 반환."""
+        safe = account_code.replace("'", "\\'")
+        try:
+            r = requests.get(
+                _url("Account_Registry"), headers=_headers(),
+                params={
+                    "filterByFormula": f"{{account_code}}='{safe}'",
+                    "maxRecords": 2,
+                    "fields[]": "daily_follow_limit",
+                    "fields[1]": "daily_friend_limit",
+                    "fields[2]": "daily_comment_limit",
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Account_Registry", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Account_Registry")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+        records = r.json().get("records", [])
+        if len(records) != 1:
+            return {"follow": 0, "friend": 0, "comment": 0}
+        f = records[0].get("fields", {})
+
+        def _n(v) -> int:
+            try:
+                return max(0, int(v))
+            except (TypeError, ValueError):
+                return 0
+
+        return {
+            "follow": _n(f.get("daily_follow_limit")),
+            "friend": _n(f.get("daily_friend_limit")),
+            "comment": _n(f.get("daily_comment_limit")),
+        }
+
+    # ── 13c. Prospect_Queue (STEP 3-C, 260901) ───────────────────────────────
+    #
+    # 친추/팔로우 대상 개인 작업 큐. Prospect_Groups(그룹) → 크롤 → 여기(개인)
+    # → 필터/스코어 → needs_review(Approval) → 실행 → Outbound_Actions 기록.
+    # concrete 메서드만 추가, RepositoryInterface(ABC) 미변경.
+
+    def find_prospect_by_target(
+        self, target_identifier: str, action_type: str
+    ) -> str | None:
+        """같은 (target_identifier·action_type) Prospect 가 이미 있으면 record_id."""
+        safe_t = target_identifier.replace("'", "\\'")
+        safe_y = action_type.replace("'", "\\'")
+        formula = f"AND({{target_identifier}}='{safe_t}',{{action_type}}='{safe_y}')"
+        try:
+            r = requests.get(
+                _url("Prospect_Queue"), headers=_headers(),
+                params={"filterByFormula": formula, "maxRecords": 1,
+                        "fields[]": "status"},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Prospect_Queue", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Prospect_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+        records = r.json().get("records", [])
+        return records[0]["id"] if records else None
+
+    def create_prospect(self, data: dict) -> str:
+        """Prospect_Queue 에 후보 1건 생성. 반환: Airtable record_id.
+
+        기대 키: source_group_code_ref, target_url, target_identifier, action_type,
+                status(필수) / display_name, score, score_detail, filter_reason,
+                evidence, collected_at(선택).
+        """
+        code = "PQ-" + uuid.uuid4().hex[:10].upper()
+        fields = {
+            "prospect_code":         code,
+            "source_group_code_ref": data.get("source_group_code_ref", ""),
+            "target_url":            data.get("target_url", ""),
+            "target_identifier":     data["target_identifier"],
+            "action_type":           data["action_type"],
+            "status":                data["status"],
+            "display_name":          data.get("display_name", ""),
+            "score":                 data.get("score", 0),
+            "score_detail":          data.get("score_detail", ""),
+            "filter_reason":         data.get("filter_reason", ""),
+            "evidence":              data.get("evidence", ""),
+            "collected_at":          data.get("collected_at")
+            or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        try:
+            r = requests.post(
+                _url("Prospect_Queue"), headers=_headers(json_body=True),
+                json={"fields": fields}, timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Prospect_Queue", "POST")
+        except requests.HTTPError as e:
+            _raise(e, "Prospect_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+        return r.json().get("id", "")
+
+    def update_prospect(self, record_id: str, fields: dict) -> None:
+        """Prospect_Queue 레코드 PATCH (status/review_note/actioned_at/outbound_action_ref 등)."""
+        try:
+            r = requests.patch(
+                _url("Prospect_Queue", record_id), headers=_headers(json_body=True),
+                json={"fields": fields}, timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Prospect_Queue", "PATCH")
+        except requests.HTTPError as e:
+            _raise(e, "Prospect_Queue")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
     # ── FP-047: 댓글 이벤트 idempotency 조회 ────────────────────────────────────
 
     def find_lead_interaction_by_source_event(self, source: str, source_event_id: str) -> str | None:

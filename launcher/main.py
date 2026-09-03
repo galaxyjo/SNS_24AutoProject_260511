@@ -1326,6 +1326,127 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
         producer_lock.release(owner_token)
 
 
+# ── STEP 3-G+ (회장/GPT 260902) : YUNA 해외 친구요청 분산 스케줄 ───────────────
+# 한 세션 배치 금지 — 실행당 정확히 1건. FB 크롤(_job_fb_crawl)과 _build_scheduler
+# 등록 시점 기준 위상차(크롤 주기의 절반)로 분리해 두 잡의 실행 창이 구조적으로
+# 겹치지 않는다(별도 lock/pause 구조 없음). 하루 누적이 daily_friend_limit 이상이면
+# 브라우저를 열지 않고 즉시 no-op. 성공 판정은 outbound_connector 계약 그대로
+# (클릭 후 같은 프로필에서 '요청 취소' 확인 시에만 로컬 집계 +1).
+YUNA_FRIEND_ACCOUNT_CODE = "IDN-000041"
+YUNA_FRIEND_GROUP_URL = os.getenv(
+    "OUTBOUND_FRIEND_GROUP_URL",
+    "https://www.facebook.com/groups/755455243345993/members/things_in_common",
+)
+# 크롤 그리드와 정확히 중간에 놓는 위상차 = 크롤 주기의 절반.
+_FRIEND_OFFSET_MIN = max(1, CRAWL_INTERVAL_MIN // 2)
+# 260903 24시간 분산(회장 지시): 하루 10건을 24시간에 나눠 보낸다.
+#  - 평균 간격 135분 ± jitter 45분 = 90~180분 랜덤 (균등 간격은 봇 시그널이라 금지).
+#  - 활동시간대(08~23시 KST)에만 발송 — 새벽 발송은 봇 시그널.
+#  - 실행당 1건 후 브라우저 종료 — 장시간 점유는 봇 시그널.
+_FRIEND_INTERVAL_MIN = int(os.getenv("OUTBOUND_FRIEND_INTERVAL_MIN", "135"))
+_FRIEND_JITTER_SEC = int(os.getenv("OUTBOUND_FRIEND_JITTER_SEC", "2700"))   # ±45분
+_FRIEND_ACTIVE_HOUR_START = int(os.getenv("OUTBOUND_FRIEND_HOUR_START", "8"))
+_FRIEND_ACTIVE_HOUR_END = int(os.getenv("OUTBOUND_FRIEND_HOUR_END", "23"))
+
+
+def _adspower_busy(user_id: str = "k1bto3j4") -> bool:
+    """AdsPower 프로필 브라우저가 이미 열려 있으면 True (FB 크롤 등이 사용 중).
+    조회 실패 시 False(진행) — 조회 자체가 발송을 막지는 않는다."""
+    import json as _json
+    import urllib.request as _rq
+    try:
+        with _rq.urlopen(
+            f"http://local.adspower.net:50325/api/v1/browser/active?user_id={user_id}",
+            timeout=8,
+        ) as r:
+            data = _json.loads(r.read())
+        return (data.get("data") or {}).get("status") == "Active"
+    except Exception as exc:
+        logger.info(f"[YunaFriend] AdsPower 상태조회 실패(진행) | {type(exc).__name__}: {exc}")
+        return False
+
+
+@handle_errors(task="yuna_friend_request", notify_fn=_slack)
+def _job_yuna_friend_request():
+    """STEP 3-G+ — YUNA 해외 친구요청을 실행당 1건씩 자동 실행한다(회장/GPT 260902).
+
+    - 실행당 max_requests=1 (한 번에 여러 건 금지).
+    - 하루 누적이 Account_Registry.daily_friend_limit 이상이면 브라우저를 열지
+      않고 즉시 no-op. 한도 미설정(0)도 Fail-closed(no-op).
+    - 성공 판정은 outbound_connector 계약 그대로 — 클릭 후 같은 프로필에서
+      '요청 취소' 확인 시에만 로컬 집계(db/outbound_friend_daily.json) +1.
+    - checkpoint/CAPTCHA/일시차단/기능제한, 브라우저 확보 실패, 배치 내 연속
+      실패 3회, 일일한도 도달 시 그 실행은 즉시 중단(다음 슬롯에서 재시도).
+    - FB 크롤(_job_fb_crawl)과는 _build_scheduler 등록 시점 기준 위상차
+      (_FRIEND_OFFSET_MIN 분)로 분리 — 실행 창이 구조적으로 겹치지 않는다.
+
+    Flag: OUTBOUND_FRIEND_SCHEDULE_ENABLED=true 여야 _build_scheduler 에서
+    등록되고, 이 함수도 매 실행 프로세스 환경값을 재확인한다(방어적 일관성).
+    원복(끄기)에는 `.env` 수정 + launcher 재시작이 필요하다(다른 Flag와 동일 제약).
+    """
+    if os.getenv("OUTBOUND_FRIEND_SCHEDULE_ENABLED", "false").strip().lower() != "true":
+        logger.info("[YunaFriend] Flag 프로세스 환경값 false — 이번 실행 스킵")
+        return
+
+    # 260903 24시간 분산: 사람 활동시간대(기본 08~23시 KST)에만 발송한다.
+    hour = datetime.now().hour
+    if not (_FRIEND_ACTIVE_HOUR_START <= hour < _FRIEND_ACTIVE_HOUR_END):
+        logger.info(
+            f"[YunaFriend] 활동시간대 밖({hour}시) — 스킵 "
+            f"({_FRIEND_ACTIVE_HOUR_START}~{_FRIEND_ACTIVE_HOUR_END}시만 발송)"
+        )
+        return
+
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.interaction_engine.outbound_connector import (
+        _friend_daily_blocked, _friend_daily_count)
+    from modules.interaction_engine.outbound_pipeline import friend_daily_run
+
+    blocked = _friend_daily_blocked(YUNA_FRIEND_ACCOUNT_CODE)
+    if blocked:
+        logger.info(f"[YunaFriend] 오늘 제한 신호로 차단됨 — 스킵(다음 운영일 자동 해제) | {blocked}")
+        return
+
+    done = _friend_daily_count(YUNA_FRIEND_ACCOUNT_CODE)
+    cap = int((AirtableRepository().get_account_outbound_limits(
+        YUNA_FRIEND_ACCOUNT_CODE) or {}).get("friend", 0) or 0)
+    if cap <= 0 or done >= cap:
+        logger.info(f"[YunaFriend] 일일 한도 — 스킵(브라우저 미기동) | {done}/{cap}")
+        return
+
+    # AdsPower 프로필을 FB 크롤 등이 쓰는 중이면 이번 회차는 양보(다음 회차 재시도).
+    if _adspower_busy():
+        logger.info("[YunaFriend] AdsPower 사용 중(크롤 등) — 이번 회차 양보")
+        return
+
+    # 스케줄러 경로가 회장 승인 게이트 역할 — 호출 직전에만 Live env 를 세우고 즉시 회수.
+    os.environ["OUTBOUND_FRIEND_LIVE_ENABLED"] = "true"
+    try:
+        result = friend_daily_run(
+            YUNA_FRIEND_ACCOUNT_CODE, dry_run=False, max_per_run=1,
+        )
+    finally:
+        os.environ.pop("OUTBOUND_FRIEND_LIVE_ENABLED", None)
+
+    fr = result or {}
+    outcome, reason = fr.get("status"), str(fr.get("reason") or "")
+    daily = fr.get("daily_count")
+    logger.info(
+        f"[YunaFriend] 완료 | status={outcome} reason={reason!r} "
+        f"daily_count={daily} sent={fr.get('sent')} groups={fr.get('groups_visited')}"
+    )
+    if outcome == "stopped" and reason.startswith("checkpoint"):
+        if _slack:
+            _slack(
+                f"[경고] YUNA 친구요청 중단 — {reason}\n"
+                f"계정 제한/체크포인트 가능성. 다음 슬롯 자동 재시도 전 "
+                f"OUTBOUND_FRIEND_SCHEDULE_ENABLED 확인 권장."
+            )
+    elif fr.get("sent"):
+        if _slack:
+            _slack(f"[정보] YUNA 친구요청 {fr.get('sent')}건 성공 — 오늘 {daily}/{cap}")
+
+
 # ── 스케줄러 설정 ─────────────────────────────────────────────────────────────
 
 def _on_aijomoojin_job_missed(event) -> None:
@@ -1442,6 +1563,18 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
                 id=f"aijomoojin_producer_{_producer_hour:02d}00",
                 max_instances=1, coalesce=False, misfire_grace_time=60,
             )
+    # 260903 STEP 3-G — YUNA 친구요청 24시간 분산(회장 지시). 기본 false(미등록).
+    # 평균 _FRIEND_INTERVAL_MIN 분 ± _FRIEND_JITTER_SEC 랜덤 → 균등 간격 봇 시그널 회피.
+    # 크롤과의 충돌은 고정 위상차 대신 잡 내부 _adspower_busy() 양보로 처리한다
+    # (jitter 를 주면 위상차가 유지되지 않기 때문). 실행당 1건.
+    if os.getenv("OUTBOUND_FRIEND_SCHEDULE_ENABLED", "false").strip().lower() == "true":
+        sched.add_job(
+            _job_yuna_friend_request, "interval", minutes=_FRIEND_INTERVAL_MIN,
+            jitter=_FRIEND_JITTER_SEC,
+            id="yuna_friend_request",
+            start_date=now + timedelta(minutes=_FRIEND_OFFSET_MIN),
+            max_instances=1, coalesce=True, misfire_grace_time=120,
+        )
     sched.add_listener(_on_aijomoojin_job_missed, EVENT_JOB_MISSED)
     return sched
 
@@ -1454,6 +1587,11 @@ def _print_banner(canary_safe_mode: bool = False):
     logger.info(f"  Flask Webhook   : http://localhost:{WEBHOOK_PORT}")
     logger.info(f"  FB 크롤링       : {CRAWL_INTERVAL_MIN}분 간격")
     logger.info(f"  Instagram 업로드: {UPLOAD_POLL_MIN}분 간격")
+    if os.getenv("OUTBOUND_FRIEND_SCHEDULE_ENABLED", "false").strip().lower() == "true":
+        logger.info(
+            f"  YUNA 친구요청   : {_FRIEND_INTERVAL_MIN}분±{_FRIEND_JITTER_SEC // 60}분 랜덤, "
+            f"{_FRIEND_ACTIVE_HOUR_START}~{_FRIEND_ACTIVE_HOUR_END}시만, 실행당 1건, "
+            f"Airtable 그룹 순회")
     logger.info(f"  Canary Safe Mode: {canary_safe_mode}")
     logger.info(f"  Streamlit       : python -m streamlit run dashboard.py")
     logger.info("=" * 60)
