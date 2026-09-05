@@ -18,6 +18,7 @@ Streamlit 대시보드는 별도 프로세스:
 import io
 import os
 import sys
+import time
 
 # 백그라운드 프로세스에서 stdout/stderr 인코딩을 UTF-8로 강제 설정
 if hasattr(sys.stdout, "reconfigure"):
@@ -1347,6 +1348,10 @@ _FRIEND_INTERVAL_MIN = int(os.getenv("OUTBOUND_FRIEND_INTERVAL_MIN", "135"))
 _FRIEND_JITTER_SEC = int(os.getenv("OUTBOUND_FRIEND_JITTER_SEC", "2700"))   # ±45분
 _FRIEND_ACTIVE_HOUR_START = int(os.getenv("OUTBOUND_FRIEND_HOUR_START", "8"))
 _FRIEND_ACTIVE_HOUR_END = int(os.getenv("OUTBOUND_FRIEND_HOUR_END", "23"))
+# 260905: AdsPower 를 FB 크롤이 점유(1회 약 3분)하는 순간과 겹치면 그 회차를 통째로
+# 버리게 되므로, 즉시 포기하지 않고 짧게 재확인한다(최대 RETRY x WAIT 초).
+_FRIEND_BUSY_RETRY = int(os.getenv("OUTBOUND_FRIEND_BUSY_RETRY", "3"))
+_FRIEND_BUSY_WAIT_SEC = int(os.getenv("OUTBOUND_FRIEND_BUSY_WAIT_SEC", "120"))
 
 
 def _adspower_busy(user_id: str = "k1bto3j4") -> bool:
@@ -1414,9 +1419,18 @@ def _job_yuna_friend_request():
         logger.info(f"[YunaFriend] 일일 한도 — 스킵(브라우저 미기동) | {done}/{cap}")
         return
 
-    # AdsPower 프로필을 FB 크롤 등이 쓰는 중이면 이번 회차는 양보(다음 회차 재시도).
-    if _adspower_busy():
-        logger.info("[YunaFriend] AdsPower 사용 중(크롤 등) — 이번 회차 양보")
+    # AdsPower 프로필을 FB 크롤 등이 쓰는 중이면 짧게 재확인 후 진행한다.
+    # (크롤 1회 점유는 보통 3분 내 — 즉시 양보하면 그 회차가 통째로 날아간다)
+    for _try in range(_FRIEND_BUSY_RETRY):
+        if not _adspower_busy():
+            break
+        logger.info(
+            f"[YunaFriend] AdsPower 사용 중 — {_FRIEND_BUSY_WAIT_SEC}초 후 재확인 "
+            f"({_try + 1}/{_FRIEND_BUSY_RETRY})"
+        )
+        time.sleep(_FRIEND_BUSY_WAIT_SEC)
+    else:
+        logger.info("[YunaFriend] AdsPower 계속 사용 중 — 이번 회차 양보")
         return
 
     # 스케줄러 경로가 회장 승인 게이트 역할 — 호출 직전에만 Live env 를 세우고 즉시 회수.

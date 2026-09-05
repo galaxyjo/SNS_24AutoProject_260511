@@ -34,6 +34,7 @@ def _patch_limits(monkeypatch, friend_cap=10):
 def _patch_env(monkeypatch, launcher_main, busy=False, hour=12):
     """260903 24시간 분산: AdsPower idle + 활동시간대 안으로 고정."""
     monkeypatch.setattr(launcher_main, "_adspower_busy", lambda *a, **k: busy)
+    monkeypatch.setattr(launcher_main.time, "sleep", lambda *a, **k: None)
 
     class _DT(datetime):
         @classmethod
@@ -66,6 +67,24 @@ def test_yields_when_adspower_busy(monkeypatch, launcher_main):
     )
     launcher_main._job_yuna_friend_request.__wrapped__()
     assert called == []
+
+
+def test_busy_then_idle_retries_and_proceeds(monkeypatch, launcher_main):
+    """260905: AdsPower 가 잠깐 사용 중이면 즉시 양보하지 말고 재확인 후 진행한다."""
+    _patch_limits(monkeypatch)
+    _patch_daily_count(monkeypatch, 3)
+    _patch_env(monkeypatch, launcher_main)          # sleep 무력화 + 활동시간대
+    seq = [True, True, False]                        # 2회 busy 후 해제
+    monkeypatch.setattr(launcher_main, "_adspower_busy",
+                        lambda *a, **k: seq.pop(0) if seq else False)
+    called = []
+    monkeypatch.setattr(
+        "modules.interaction_engine.outbound_pipeline.friend_daily_run",
+        lambda *a, **kw: called.append(kw) or {"status": "done", "sent": 1,
+                                               "daily_count": 4, "groups_visited": ["PG-023"]},
+    )
+    launcher_main._job_yuna_friend_request.__wrapped__()
+    assert len(called) == 1 and called[0]["max_per_run"] == 1
 
 
 def test_skips_outside_active_hours(monkeypatch, launcher_main):
