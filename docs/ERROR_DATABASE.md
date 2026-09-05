@@ -2359,6 +2359,22 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 
 ---
 
+## ERR-121 | friend 회차가 FB 크롤의 AdsPower 점유와 겹치면 즉시 양보하고 종료 — 그 회차(90~120분)가 통째로 유실 (RESOLVED, 260905)
+
+**발견 경위:** 260905 오늘 발송 0건 상황을 조사하던 중, 09:02:20 friend 회차가 **2초 만에** `executed successfully` 로 끝난 것을 확인. 로그: `[YunaFriend] AdsPower 사용 중(크롤 등) — 이번 회차 양보`.
+
+**Raw:** 같은 시각 `_job_fb_crawl`(09:01:27 시작)이 5개 URL 을 순차 크롤하며 AdsPower 프로필 `k1bto3j4` 를 점유 중이었다(`[STAGE:JOB_START]`~`[AdsPower] Stop API 완료`). friend 잡은 브라우저를 열지도 못하고 종료.
+
+**Root Cause:** 260903 24시간 분산 전환 시 넣은 `_adspower_busy()` 양보 로직이 **양보만 하고 재시도를 하지 않았다.** 크롤 1회 점유는 약 3분인데 friend 회차 간격은 90~120분이라, 그 3분에 겹치면 그 회차 전체가 버려진다. jitter 도입으로 고정 위상차를 폐기한 대가를 재시도로 메우지 않은 설계 누락.
+
+**Fix:** `_job_yuna_friend_request` — 즉시 `return` 대신 최대 `_FRIEND_BUSY_RETRY`(3) × `_FRIEND_BUSY_WAIT_SEC`(120초) 재확인 후 진행, 끝까지 사용 중일 때만 양보. 두 값은 `OUTBOUND_FRIEND_BUSY_RETRY` / `OUTBOUND_FRIEND_BUSY_WAIT_SEC` 로 조정 가능. 신규 테스트 `test_busy_then_idle_retries_and_proceeds`. Commit `dff82e3`.
+
+**검증:** 10:41:33 재시작으로 반영(배너·`Added job` 확인). 이후 11:09~22:55 **8회 전부 발송 성공, 크롤 경합으로 인한 양보 0건**. outbound 166 passed.
+
+**Prevention:** 공유 자원(AdsPower 프로필)을 쓰는 잡을 추가할 때는 "충돌 시 양보"만으로 끝내지 말고 **양보 후 언제 다시 시도하는지**까지 설계한다. 회차 간격이 점유 시간보다 훨씬 길면 즉시 양보 = 그 회차 손실이다.
+
+**관련:** ERR-114/116(절전), FP-087, INC-055, `stepG_friend_automation_daily_run_260905`
+
 ## ERR-120 | `.env` 편집 중 `OUTBOUND_FRIEND_SCHEDULE_ENABLED` 유실 — 재시작 후 친구 잡 미등록(자동 발송 0) (RESOLVED, 260904)
 
 **발견 경위:** 24시간 분산 전환 후 간격 재조정(`INTERVAL_MIN=90`/`JITTER_SEC=1800`)을 위해 회장이 `.env` 수정 + 재시작(260904 06:27). 재시작 자체는 성공(포트 5000 청취, `Scheduler started`)했으나 **배너에 `YUNA 친구요청` 라인이 없고 `Added job "_job_yuna_friend_request"` 0건**.
