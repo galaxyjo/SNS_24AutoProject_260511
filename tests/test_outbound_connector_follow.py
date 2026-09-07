@@ -62,9 +62,10 @@ class _FakeDriver:
 
 class _FakeRepo:
     def __init__(self, *, automation_enabled=True, existing=None,
-                 limits=None, used_today=0):
+                 limits=None, used_today=0, existing_result="success"):
         self._automation_enabled = automation_enabled
         self._existing = existing
+        self._existing_result = existing_result
         # 기본 한도는 넉넉히 — 한도 테스트만 명시적으로 낮춘다
         self._limits = dict(limits) if limits is not None else {
             "follow": 50, "friend": 50, "comment": 50}
@@ -83,6 +84,11 @@ class _FakeRepo:
 
     def find_outbound_action(self, account_code_ref, target_identifier, action_type):
         return self._existing
+
+    def find_outbound_action_result(self, account_code_ref, target_identifier, action_type):
+        if not self._existing:
+            return None
+        return {"record_id": self._existing, "result": self._existing_result}
 
     def create_outbound_action(self, data):
         self.created.append(data)
@@ -1568,3 +1574,341 @@ def test_s3final_D_korean_skipped_before_profile(_friend_live_env):
     assert not any("/user/413/" in g for g in d.gets)              # 박보미 프로필 안 감
     assert not any("/user/414/" in g for g in d.gets)              # 공장 프로필 안 감
     assert any("/user/415/" in g for g in d.gets)
+
+
+# ── Instagram Like Target Test (260907, 회장 규칙 + GPT 판정 반영) ───────────
+#
+#   1. already_liked      → click 0회 / success(no-op)
+#   2. not_liked          → JS click 1회 → unlike 전이 → success
+#   3. click 후 미전이     → failed
+#   4. 이전 failed Audit   → 재시도 가능(차단 안 함)
+#   5. 이전 success        → duplicate 차단
+#   6. follow/friend 기존 target test 회귀 0 (같은 파일 상단 테스트가 그대로 통과)
+#   + URL fail-closed / 유령노드(0x0) / 댓글 하트 / target-scope / 안전 게이트
+
+IG_TARGET = "https://www.instagram.com/p/Dc9_RzhEjOT/"
+
+
+class _FakeEl2:
+    """svg 아이콘 또는 clickable 조상 겸용 Fake."""
+
+    def __init__(self, label=None, height=24, rendered=True, ancestor=None):
+        self._label = label
+        self._height = height
+        self._rendered = rendered
+        self.ancestor = ancestor
+        self.clicks = 0
+
+    def get_attribute(self, name):
+        if name == "aria-label":
+            return self._label
+        if name == "height":
+            return str(self._height)
+        return None
+
+    def is_displayed(self):
+        return self._rendered
+
+    @property
+    def rect(self):
+        size = self._height if self._rendered else 0
+        return {"x": 802, "y": 511, "width": size, "height": size}
+
+    def click(self):
+        raise AssertionError("native .click() 금지 — JS click 만 허용")
+
+    def js_click(self):
+        self.clicks += 1
+
+
+def _icon(label, height=24, rendered=True, ancestor_rendered=True):
+    """아이콘 + 그 clickable 조상(button) 한 쌍을 만든다."""
+    anc = _FakeEl2(rendered=ancestor_rendered)
+    return _FakeEl2(label, height, rendered, ancestor=anc)
+
+
+class _FakeBody:
+    text = ""
+
+
+class _FakeScope:
+    def __init__(self, driver):
+        self._driver = driver
+
+    def find_elements(self, by, value):
+        return self._driver._icons()
+
+
+class _FakeIgDriver:
+    def __init__(self, before, after=None, url=IG_TARGET, has_scope=True):
+        self._before = list(before)
+        self._after = list(after if after is not None else before)
+        self._clicked = False
+        self._has_scope = has_scope
+        self.current_url = url
+        self.gets = []
+        self.js_clicks = []
+        self.quit_called = False
+
+    def _icons(self):
+        return self._after if self._clicked else self._before
+
+    def get(self, url):
+        self.gets.append(url)
+
+    def find_element(self, by, value):
+        return _FakeBody()
+
+    def find_elements(self, by, value):
+        if value in ("article", "main"):
+            return [_FakeScope(self)] if self._has_scope else []
+        return self._icons()
+
+    def execute_script(self, script, *args):
+        if "closest" in script:
+            return args[0].ancestor
+        if "contains" in script:
+            return True
+        if "click()" in script:
+            target = args[0]
+            target.js_click()
+            self.js_clicks.append(target)
+            self._clicked = True
+            return None
+        raise AssertionError(f"예상하지 못한 스크립트: {script}")
+
+    def quit(self):
+        self.quit_called = True
+
+
+def _ig_repo(**kw):
+    kw.setdefault("used_today", 0)
+    return _FakeRepo(**kw)
+
+
+@pytest.fixture
+def _like_live(monkeypatch):
+    monkeypatch.setenv(oc.LIKE_LIVE_ENV, "true")
+    monkeypatch.setenv(oc.LIKE_LIMIT_ENV, "5")
+
+
+def _like(driver, repo=None, account="IDN-000037"):
+    return oc.like_once(IG_TARGET, account_code=account,
+                        adspower_profile_id="k1goch3g", dry_run=False,
+                        repo=repo if repo is not None else _ig_repo(),
+                        driver_factory=lambda: driver, browser_stopper=lambda: None)
+
+
+# URL 계약 ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://www.instagram.com/p/Dc9_RzhEjOT/", "Dc9_RzhEjOT"),
+    ("https://instagram.com/reel/AbC-123_x", "AbC-123_x"),
+    ("https://www.instagram.com/tv/XyZ9/", "XyZ9"),
+])
+def test_like_url_allowed(url, expected):
+    assert oc.extract_instagram_target(url) == expected
+
+
+@pytest.mark.parametrize("url", [
+    "http://www.instagram.com/p/Dc9_RzhEjOT/",
+    "https://www.facebook.com/p/Dc9_RzhEjOT/",
+    "https://www.instagram.com/someuser/",
+    "https://www.instagram.com/p/",
+    "https://evil.com/instagram.com/p/Dc9_RzhEjOT/",
+    "",
+])
+def test_like_url_fail_closed(url):
+    with pytest.raises(oc.OutboundActionError):
+        oc.extract_instagram_target(url)
+
+
+# PASS 1. already_liked → click 0 / success ─────────────────────────────────
+
+def test_like_already_liked_is_success_noop(_like_live):
+    icon = _icon("좋아요 취소")
+    driver = _FakeIgDriver([icon])
+    repo = _ig_repo()
+    out = _like(driver, repo)
+    assert out["result"] == "success"
+    assert out["reason"] == "already_liked"
+    assert out["click_count"] == 0
+    assert icon.clicks == 0 and icon.ancestor.clicks == 0
+    assert driver.js_clicks == []
+    assert repo.created[0]["result"] == "success"     # attempt 는 Audit 에 남는다
+    assert driver.quit_called is True
+
+
+# PASS 2. not_liked → JS click 1회 → unlike 전이 → success ───────────────────
+
+def test_like_success_js_click_once_and_state_transition(_like_live):
+    icon = _icon("좋아요")
+    driver = _FakeIgDriver([icon], after=[_icon("좋아요 취소")])
+    repo = _ig_repo()
+    out = _like(driver, repo)
+    assert out["result"] == "success"
+    assert (out["before_state"], out["after_state"]) == ("not_liked", "liked")
+    assert out["click_count"] == 1
+    assert icon.ancestor.clicks == 1 and icon.clicks == 0   # 조상 button 을 누른다
+    assert len(driver.js_clicks) == 1                        # JS click 정확히 1회
+    assert driver.gets == [IG_TARGET]                        # 대상 URL 오식별 0
+    assert repo.created[0]["action_type"] == "like"
+    assert repo.created[0]["target_identifier"] == "Dc9_RzhEjOT"
+
+
+# PASS 3. click 후 미전이 → failed ──────────────────────────────────────────
+
+def test_like_state_not_confirmed_failed(_like_live):
+    icon = _icon("좋아요")
+    driver = _FakeIgDriver([icon], after=[_icon("좋아요")])
+    out = _like(driver)
+    assert out["result"] == "failed"
+    assert out["reason"] == "state_not_confirmed"
+    assert out["click_count"] == 1                           # 재시도 없음
+
+
+# PASS 4. 이전 failed Audit 이 있어도 재시도 가능 ───────────────────────────
+
+def test_like_previous_failed_does_not_block_retry(_like_live):
+    icon = _icon("좋아요")
+    driver = _FakeIgDriver([icon], after=[_icon("좋아요 취소")])
+    repo = _ig_repo(existing="recPjlU7gubdb0D85", existing_result="failed")
+    out = _like(driver, repo)
+    assert out["result"] == "success"
+    assert icon.ancestor.clicks == 1
+
+
+def test_like_local_failed_row_does_not_block_retry(_like_live):
+    """실패는 로컬 dedup mark 를 남기지 않는다 — 두 번째 호출이 실제로 재시도된다."""
+    fail_icon = _icon("좋아요")
+    fail_driver = _FakeIgDriver([fail_icon], after=[_icon("좋아요")])
+    assert _like(fail_driver)["result"] == "failed"
+    ok_icon = _icon("좋아요")
+    ok_driver = _FakeIgDriver([ok_icon], after=[_icon("좋아요 취소")])
+    assert _like(ok_driver)["result"] == "success"
+    assert ok_icon.ancestor.clicks == 1
+
+
+# PASS 5. 이전 success → duplicate 차단 ─────────────────────────────────────
+
+def test_like_previous_success_blocks(_like_live):
+    repo = _ig_repo(existing="recSUCCESS1", existing_result="success")
+    out = oc.like_once(IG_TARGET, account_code="IDN-000037",
+                       adspower_profile_id="k1goch3g", dry_run=False, repo=repo,
+                       driver_factory=_boom, browser_stopper=lambda: None)
+    assert out["result"] == "skipped"
+    assert out["reason"] == "duplicate_ssot"
+
+
+def test_like_duplicate_local_blocked_after_success(_like_live):
+    icon = _icon("좋아요")
+    driver = _FakeIgDriver([icon], after=[_icon("좋아요 취소")])
+    repo = _ig_repo()
+    assert _like(driver, repo)["result"] == "success"
+    second = oc.like_once(IG_TARGET, account_code="IDN-000037",
+                          adspower_profile_id="k1goch3g", dry_run=False, repo=repo,
+                          driver_factory=_boom, browser_stopper=lambda: None)
+    assert second["result"] == "skipped"
+    assert second["reason"] == "duplicate_local"
+    assert icon.ancestor.clicks == 1
+    assert len(repo.created) == 1
+
+
+# 실렌더 / scope / 클릭대상 게이트 ──────────────────────────────────────────
+
+def test_like_ghost_node_not_clicked(_like_live):
+    ghost = _icon("좋아요", rendered=False)
+    driver = _FakeIgDriver([ghost])
+    out = _like(driver)
+    assert out["result"] == "failed"
+    assert out["reason"] == "like_button_not_found"
+    assert driver.js_clicks == []
+
+
+def test_like_comment_heart_ignored(_like_live):
+    comment_icon = _icon("좋아요", height=12)
+    driver = _FakeIgDriver([comment_icon])
+    out = _like(driver)
+    assert out["result"] == "failed"
+    assert out["reason"] == "like_button_not_found"
+    assert comment_icon.clicks == 0
+
+
+def test_like_no_post_scope_means_no_global_scan(_like_live):
+    driver = _FakeIgDriver([_icon("좋아요")], has_scope=False)
+    out = _like(driver)
+    assert out["result"] == "failed"
+    assert out["reason"] == "like_button_not_found"
+    assert driver.js_clicks == []
+
+
+def test_like_ghost_clickable_ancestor_not_clicked(_like_live):
+    """조상 button 이 0x0 이면 강제클릭하지 않고 실패 처리한다."""
+    icon = _icon("좋아요", ancestor_rendered=False)
+    driver = _FakeIgDriver([icon])
+    out = _like(driver)
+    assert out["result"] == "failed"
+    assert out["reason"] == "clickable_target_not_found"
+    assert driver.js_clicks == []
+
+
+def test_like_ambiguous_state_is_unknown(_like_live):
+    """같은 영역에 Like/Unlike 가 동시에 보이면 모호 — 클릭하지 않는다."""
+    driver = _FakeIgDriver([_icon("좋아요"), _icon("좋아요 취소")])
+    out = _like(driver)
+    assert out["result"] == "failed"
+    assert out["reason"] == "like_button_not_found"
+    assert driver.js_clicks == []
+
+
+# 안전 게이트 ──────────────────────────────────────────────────────────────
+
+def test_like_dry_run_default_does_not_open_browser(monkeypatch):
+    monkeypatch.setenv(oc.LIKE_LIMIT_ENV, "5")
+    out = oc.like_once(IG_TARGET, account_code="IDN-000037", repo=_ig_repo(),
+                       driver_factory=_boom, browser_stopper=lambda: None)
+    assert out["result"] == "skipped"
+    assert out["reason"] == "dry_run"
+
+
+def test_like_live_gate_required(monkeypatch):
+    monkeypatch.delenv(oc.LIKE_LIVE_ENV, raising=False)
+    monkeypatch.setenv(oc.LIKE_LIMIT_ENV, "5")
+    with pytest.raises(oc.OutboundActionError):
+        oc.like_once(IG_TARGET, account_code="IDN-000037",
+                     adspower_profile_id="k1goch3g", dry_run=False, repo=_ig_repo(),
+                     driver_factory=_boom, browser_stopper=lambda: None)
+
+
+def test_like_kill_switch_off_blocks(_like_live):
+    repo = _ig_repo(automation_enabled=False)
+    out = oc.like_once(IG_TARGET, account_code="IDN-000037",
+                       adspower_profile_id="k1goch3g", dry_run=False, repo=repo,
+                       driver_factory=_boom, browser_stopper=lambda: None)
+    assert out["result"] == "skipped"
+    assert out["reason"] == "automation_disabled"
+
+
+def test_like_daily_limit_unset_is_fail_closed(monkeypatch):
+    monkeypatch.setenv(oc.LIKE_LIVE_ENV, "true")
+    monkeypatch.delenv(oc.LIKE_LIMIT_ENV, raising=False)
+    out = oc.like_once(IG_TARGET, account_code="IDN-000037",
+                       adspower_profile_id="k1goch3g", dry_run=False, repo=_ig_repo(),
+                       driver_factory=_boom, browser_stopper=lambda: None)
+    assert out["result"] == "skipped"
+    assert out["reason"].startswith("daily_limit_exceeded")
+
+
+def test_like_requires_profile_id_when_live(_like_live):
+    with pytest.raises(oc.OutboundActionError):
+        oc.like_once(IG_TARGET, account_code="IDN-000037", adspower_profile_id="",
+                     dry_run=False, repo=_ig_repo(), browser_stopper=lambda: None)
+
+
+def test_like_checkpoint_blocks_click(_like_live):
+    icon = _icon("좋아요")
+    driver = _FakeIgDriver([icon], url="https://www.instagram.com/challenge/checkpoint/")
+    out = _like(driver)
+    assert out["result"] == "failed"
+    assert out["reason"].startswith("checkpoint:")
+    assert driver.js_clicks == []

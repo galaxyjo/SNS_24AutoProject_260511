@@ -98,6 +98,31 @@ def _local_mark(key: str, result: str) -> None:
 
 # ── target 식별자 추출 (Fail-closed) ─────────────────────────────────────────
 
+def _local_result(key: str) -> str:
+    """로컬 dedup 행의 result 문자열(없으면 ''). like 재시도 정책용(260907) —
+    기존 _local_seen(존재 여부)은 follow/friend 가 계속 쓴다."""
+    _ensure_db()
+    con = sqlite3.connect(_DB_PATH)
+    row = con.execute(
+        "SELECT result FROM outbound_actions WHERE dedup_key=?", (key,)
+    ).fetchone()
+    con.close()
+    return (row[0] if row else "") or ""
+
+
+def _local_upsert(key: str, result: str) -> None:
+    """result 를 덮어쓰는 dedup 기록. like 는 이전 failed 행을 success 로 승격해야 해서
+    INSERT OR IGNORE 인 _local_mark 대신 이 함수를 쓴다(follow/friend 는 미사용)."""
+    _ensure_db()
+    con = sqlite3.connect(_DB_PATH)
+    con.execute(
+        "INSERT OR REPLACE INTO outbound_actions (dedup_key, result, recorded_at) VALUES (?, ?, ?)",
+        (key, result, datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
+    )
+    con.commit()
+    con.close()
+
+
 def extract_target_identifier(target_url: str) -> str:
     """승인된 HTTPS Facebook 프로필/페이지 URL 에서 결정론적으로 식별자를 뽑는다."""
     parsed = urlparse((target_url or "").strip())
@@ -1841,3 +1866,395 @@ def friend_in_group(
 
     logger.info(f"[Friend] 완료 | target={resolved} result={outcome} reason={reason!r}")
     return _out(outcome, reason, resolved)
+
+
+# ── Instagram Like (260907) — follow_once 와 동일 계약의 형제 액션 ────────────
+#
+#   외부 참조 패턴(adolfousier/socialcrabs)에서 다음 순서만 ADAPT 한다:
+#     Target URL → 현재 Like 여부 확인 → Like 클릭 → '좋아요 취소' 상태로 Verify → Result
+#   전체 시스템(Playwright/Node)은 도입하지 않는다 — Browser/Session/Dedup/Logger/
+#   Audit 는 기존 AdsPower+Selenium harness 를 그대로 REUSE 한다.
+#
+#   - dry_run=True 기본 (브라우저 미기동)
+#   - Live 는 OUTBOUND_LIKE_LIVE_ENABLED=true 필수 (follow/friend 와 별도 게이트)
+#   - 일일 한도는 OUTBOUND_LIKE_DAILY_LIMIT (미설정=0=차단, Fail-closed).
+#     Account_Registry 에는 like 한도 필드가 없다 — 스케줄러 연결 단계에서
+#     daily_like_limit 로 이관하는 것을 전제로 한 Canary 한정 임시 게이트다.
+#   - 계정마다 AdsPower 프로필이 다르므로 adspower_profile_id 를 명시로 받는다
+#     (follow/friend 의 get_default_account() 단일 프로필 가정과 다른 점).
+#   - 스케줄러/자동 caller 미연결 — 수동/테스트 호출 전용.
+#   - dedup 은 like 에만 다른 계약을 쓴다(260907 GPT 판정): 성공(=already_liked 포함)만
+#     영구 차단하고, 기술적 실패는 Audit 만 남기고 재시도를 허용한다.
+#     friend/follow 의 dedup 계약은 이 변경의 영향을 받지 않는다.
+
+LIKE_LIVE_ENV = "OUTBOUND_LIKE_LIVE_ENABLED"
+LIKE_LIMIT_ENV = "OUTBOUND_LIKE_DAILY_LIMIT"
+LIKE_ACTION = "like"
+
+_IG_PAGE_SETTLE_SEC = 8
+_IG_POST_CLICK_SEC = 3
+# 게시물 본문 하트는 24px, 댓글 하트는 12px — 댓글 좋아요 오클릭 차단용 하한.
+_IG_LIKE_MIN_ICON_PX = 20
+
+# aria-label 완전일치만 인정한다(부분일치는 "Liked by ..." 등 오탐 위험).
+_IG_LIKE_POS = frozenset({"좋아요", "Like"})
+_IG_LIKE_NEG = frozenset({"좋아요 취소", "Unlike"})
+
+_IG_SHORTCODE_RE = re.compile(r"^/(?:p|reel|tv)/([A-Za-z0-9_-]+)/?$")
+
+# 아이콘에서 가장 가까운 semantic clickable 조상만 고른다(큰 컨테이너로 올라가지 않음).
+_IG_CLOSEST_JS = (
+    "const s = arguments[0];"
+    "return s.closest('button') || s.closest('[role=\"button\"]') || null;"
+)
+
+
+def extract_instagram_target(target_url: str) -> str:
+    """승인된 HTTPS Instagram 게시물 URL 에서 shortcode 를 뽑는다(Fail-closed)."""
+    parsed = urlparse((target_url or "").strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (
+        host == "instagram.com" or host.endswith(".instagram.com")
+    ):
+        raise OutboundActionError("승인된 HTTPS Instagram 게시물 URL 필수")
+    m = _IG_SHORTCODE_RE.match(parsed.path)
+    if not m:
+        raise OutboundActionError("Instagram 게시물(p/reel/tv) 식별자 추출 실패")
+    return m.group(1)
+
+
+def _is_ig_unlike_label(label: str) -> bool:
+    return (label or "").strip() in _IG_LIKE_NEG
+
+
+def _is_ig_like_label(label: str) -> bool:
+    return (label or "").strip() in _IG_LIKE_POS
+
+
+def _ig_rendered(el) -> bool:
+    """실렌더 검증(회장 규칙 1) — DOM 에 있다고 클릭 가능한 게 아니다.
+    is_displayed()=True 이고 rect 가 0x0 이 아니어야 클릭 대상으로 인정한다."""
+    try:
+        if not el.is_displayed():
+            return False
+        rect = el.rect or {}
+        return float(rect.get("width") or 0) > 0 and float(rect.get("height") or 0) > 0
+    except Exception:
+        return False
+
+
+def _ig_post_scope(driver):
+    """대상 게시물 영역(article → main). 전역 스캔 금지(회장 규칙 6) —
+    같은 '좋아요' 라벨이 추천 카드·다른 게시물에도 있으므로 이 영역 안에서만 판정한다.
+    영역을 못 찾으면 None 을 돌려 전역 폴백 없이 실패 처리한다."""
+    from selenium.webdriver.common.by import By
+
+    for sel in ("article", "main"):
+        try:
+            els = driver.find_elements(By.CSS_SELECTOR, sel)
+        except Exception:
+            els = []
+        if els:
+            return els[0]
+    return None
+
+
+def _ig_like_icons(driver) -> list:
+    """대상 게시물 영역 안의 좋아요 아이콘만 [(label, element)] 로 반환.
+    댓글 좋아요(12px)는 크기 하한으로, 유령노드(0x0)는 실렌더 검증으로 제외한다."""
+    from selenium.webdriver.common.by import By
+
+    scope = _ig_post_scope(driver)
+    if scope is None:
+        return []
+    out = []
+    for svg in scope.find_elements(By.CSS_SELECTOR, "svg[aria-label]"):
+        try:
+            label = (svg.get_attribute("aria-label") or "").strip()
+        except Exception:
+            continue
+        if not (_is_ig_like_label(label) or _is_ig_unlike_label(label)):
+            continue
+        try:
+            height = int(float(svg.get_attribute("height") or 0))
+        except (TypeError, ValueError):
+            height = 0
+        if height < _IG_LIKE_MIN_ICON_PX:
+            continue
+        if not _ig_rendered(svg):
+            logger.info(f"[Like] 유령노드(0x0) 제외 | label={label}")
+            continue
+        out.append((label, svg))
+    return out
+
+
+def _ig_like_state(driver) -> str:
+    """대상 article 안의 Like/Unlike 아이콘 '존재 여부'로 판정한다(260907 GPT 판정).
+
+    'liked'      — Unlike/좋아요 취소만 있음
+    'not_liked'  — Like/좋아요만 있음
+    'unknown'    — 아이콘 없음, 또는 둘 다 있어 모호함(Fail-closed)
+    fill/색상/좋아요 수는 판정에 쓰지 않는다.
+    """
+    icons = _ig_like_icons(driver)
+    if not icons:
+        return "unknown"
+    has_like = any(_is_ig_like_label(label) for label, _ in icons)
+    has_unlike = any(_is_ig_unlike_label(label) for label, _ in icons)
+    if has_unlike and not has_like:
+        return "liked"
+    if has_like and not has_unlike:
+        return "not_liked"
+    logger.warning("[Like] Like/Unlike 아이콘 동시 존재 — 모호(unknown 처리)")
+    return "unknown"
+
+
+def _ig_like_icon_to_click(driver):
+    """클릭할 Like 아이콘(not_liked 상태의 24px 본문 하트) 1개. 없으면 None."""
+    for label, svg in _ig_like_icons(driver):
+        if _is_ig_like_label(label):
+            return svg
+    return None
+
+
+def _ig_clickable(driver, svg):
+    """아이콘에서 가장 가까운 semantic clickable 조상(button 우선 → [role=button]).
+
+    큰 상위 컨테이너까지 올라가지 않는다 — 260907 Canary #1 에서 과도하게 큰
+    조상을 클릭 대상으로 잡아 hit-test 가 다른 요소와 충돌했다(ElementClickIntercepted).
+    반환 요소는 실렌더 검증을 통과하고 해당 아이콘을 실제 descendant 로 포함해야 한다.
+    조건 미충족이면 None.
+    """
+    try:
+        target = driver.execute_script(_IG_CLOSEST_JS, svg)
+    except Exception as exc:
+        logger.warning(f"[Like] closest 조회 실패 | {type(exc).__name__}: {exc}")
+        return None
+    if target is None:
+        return None
+    if not _ig_rendered(target):
+        logger.info("[Like] 클릭 대상 미렌더(0x0) — 클릭하지 않음")
+        return None
+    try:
+        contains = driver.execute_script(
+            "return arguments[0].contains(arguments[1]);", target, svg
+        )
+    except Exception:
+        contains = True  # 조회 실패는 closest 결과를 신뢰(구조상 조상)
+    if not contains:
+        logger.info("[Like] 클릭 대상이 아이콘을 포함하지 않음 — 클릭하지 않음")
+        return None
+    return target
+
+
+def _ig_click_like(driver, target) -> None:
+    """실렌더 검증을 통과한 요소에 JS click 을 정확히 1회 보낸다(회장 규칙 3·4·10).
+
+    native .click() / ActionChains / 좌표 click / CDP click /
+    PointerEvent·MouseEvent dispatch / 재시도 loop 는 모두 사용하지 않는다.
+    """
+    driver.execute_script("arguments[0].click();", target)
+
+
+def _like_daily_gate(repo, account_code: str) -> str:
+    """오늘 이 계정 like 건수가 한도 이상이면 사유 문자열, 아니면 ''.
+    한도 미설정(0) = 차단(Fail-closed). 조회 실패는 예외 그대로 전파."""
+    try:
+        cap = int(os.getenv(LIKE_LIMIT_ENV, "0") or 0)
+    except ValueError:
+        cap = 0
+    used = repo.count_outbound_actions_today(account_code, LIKE_ACTION)
+    if used >= cap:
+        logger.warning(
+            f"[Like] 일일 한도 — skip | {account_code} used={used} cap={cap}"
+        )
+        return f"daily_limit_exceeded:{used}/{cap}"
+    return ""
+
+
+def _like_ssot_blocked(repo, account_code: str, target_identifier: str) -> str:
+    """이전 '성공' 기록이 있으면 그 record_id, 없으면 ''.
+
+    like 는 실패 attempt 가 재시도를 막지 않는다(260907 GPT 판정). result 판별이
+    가능한 Repository 면 성공 기록만 차단하고, 판별 메서드가 없는 구현/Fake 에서는
+    기존 계약(기록이 있으면 차단)을 그대로 유지한다.
+    """
+    getter = getattr(repo, "find_outbound_action_result", None)
+    if getter is None:
+        return repo.find_outbound_action(account_code, target_identifier, LIKE_ACTION) or ""
+    found = getter(account_code, target_identifier, LIKE_ACTION)
+    if found and (found.get("result") or "") == "success":
+        return found.get("record_id", "") or ""
+    return ""
+
+
+def _like_driver_factory(adspower_profile_id: str):
+    def _make():
+        from modules.sns.facebook_crawler import get_driver
+
+        return get_driver(adspower_profile_id)
+
+    return _make
+
+
+def _like_browser_stopper(adspower_profile_id: str):
+    def _stop() -> None:
+        from modules.sns.facebook_crawler import stop_browser
+
+        stop_browser(adspower_profile_id)
+
+    return _stop
+
+
+def like_once(
+    target_url: str,
+    *,
+    account_code: str,
+    adspower_profile_id: str = "",
+    dry_run: bool = True,
+    repo=None,
+    driver_factory=None,
+    browser_stopper=None,
+) -> dict:
+    """지정 계정으로 Instagram 게시물 1건에 Like 를 1회 시도한다.
+
+    반환 dict: {result: success|failed|skipped, reason, target_identifier,
+               target_url, action_type, account_code, adspower_profile_id,
+               before_state, after_state, click_count, record_id}
+
+    이미 좋아요 상태면 클릭하지 않고 success/already_liked(no-op)로 끝낸다.
+    """
+    target_identifier = extract_instagram_target(target_url)
+    key = _dedup_key(account_code, target_identifier, LIKE_ACTION)
+
+    def _out(result: str, reason: str = "", record_id: str = "",
+             before: str = "", after: str = "", clicks: int = 0) -> dict:
+        return {
+            "result": result,
+            "reason": reason,
+            "target_identifier": target_identifier,
+            "target_url": target_url,
+            "action_type": LIKE_ACTION,
+            "account_code": account_code,
+            "adspower_profile_id": adspower_profile_id,
+            "before_state": before,
+            "after_state": after,
+            "click_count": clicks,
+            "record_id": record_id,
+        }
+
+    repo = repo or _default_repo()
+
+    # 1. Kill-switch (Fail-closed) — automation_enabled 명시 true 아니면 실행 안 함
+    account = repo.get_publish_account(account_code)
+    if not account or not account.get("automation_enabled", False):
+        logger.warning(f"[Like] Kill-switch OFF — 실행 안 함 | account={account_code}")
+        return _out("skipped", "automation_disabled")
+
+    # 2. 중복 확인 — like 는 '성공' 기록만 영구 차단한다(실패는 재시도 허용).
+    if _local_result(key) == "success":
+        logger.info(f"[Like] 로컬 성공 기록 — skip | {key}")
+        return _out("skipped", "duplicate_local")
+    blocked_rec = _like_ssot_blocked(repo, account_code, target_identifier)
+    if blocked_rec:
+        logger.info(f"[Like] SSOT 성공 기록 — skip | {key} | rec={blocked_rec}")
+        _local_upsert(key, "success")
+        return _out("skipped", "duplicate_ssot", record_id=blocked_rec)
+
+    # 3. 일일 한도 (Fail-closed)
+    gate = _like_daily_gate(repo, account_code)
+    if gate:
+        return _out("skipped", gate)
+
+    # 4. dry_run — 여기서 종료. 브라우저 미기동, 기록 안 함.
+    if dry_run:
+        logger.info(f"[Like] dry_run — 클릭 안 함 | {key}")
+        return _out("skipped", "dry_run")
+
+    # 5. Live 게이트 (회장 승인)
+    if os.getenv(LIKE_LIVE_ENV, "").strip().lower() != "true":
+        raise OutboundActionError(
+            f"Live Like 차단 — {LIKE_LIVE_ENV}=true 필요(회장 승인 게이트)"
+        )
+    if driver_factory is None and not adspower_profile_id:
+        raise OutboundActionError(
+            "adspower_profile_id 필수 — 계정별 브라우저 지정 없이 실행 금지"
+        )
+
+    # 6. 브라우저 (기존 harness REUSE, 계정별 프로필)
+    make_driver = driver_factory or _like_driver_factory(adspower_profile_id)
+    stop_browser = browser_stopper or _like_browser_stopper(adspower_profile_id)
+    driver = make_driver()
+    outcome, reason = "failed", ""
+    before_state, after_state = "", ""
+    clicks = 0
+    try:
+        driver.get(target_url)
+        time.sleep(_IG_PAGE_SETTLE_SEC)
+        cp = _checkpoint_detected(driver)
+        if cp:
+            reason = f"checkpoint:{cp}"
+            logger.warning(f"[Like] checkpoint 감지 — 클릭 안 함 | {key} | {cp}")
+        else:
+            before_state = _ig_like_state(driver)
+            if before_state == "liked":
+                # 이미 좋아요 상태 — 클릭하지 않고 성공(no-op)으로 끝낸다.
+                outcome, reason = "success", "already_liked"
+                after_state = before_state
+            elif before_state == "unknown":
+                reason = "like_button_not_found"
+            else:
+                icon = _ig_like_icon_to_click(driver)
+                target = _ig_clickable(driver, icon) if icon is not None else None
+                if target is None:
+                    reason = "clickable_target_not_found"
+                else:
+                    _ig_click_like(driver, target)
+                    clicks = 1
+                    time.sleep(_IG_POST_CLICK_SEC)
+                    after_state = _ig_like_state(driver)
+                    if after_state == "liked":
+                        outcome, reason = "success", ""
+                    else:
+                        reason = "state_not_confirmed"
+    except OutboundActionError:
+        raise
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}"[:400]
+        logger.warning(f"[Like] 예외 | {key} | {reason}")
+    finally:
+        try:
+            driver.quit()
+        except Exception as exc:
+            logger.warning(f"[Like] driver.quit 실패 | {exc}")
+        try:
+            stop_browser()
+        except Exception as exc:
+            logger.warning(f"[Like] stop_browser 실패 | {exc}")
+
+    # 7. 기록 — Audit 는 성공·실패 모두 남긴다(attempt 로그).
+    #    로컬 영구 dedup mark 는 '성공'일 때만 — 실패는 재시도를 막지 않는다.
+    if outcome == "success":
+        _local_upsert(key, "success")
+    record_id = ""
+    try:
+        record_id = repo.create_outbound_action(
+            {
+                "account_code_ref": account_code,
+                "target_url": target_url,
+                "target_identifier": target_identifier,
+                "action_type": LIKE_ACTION,
+                "result": outcome,
+                "occurred_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "error_reason": reason,
+            }
+        )
+    except Exception as exc:
+        logger.error(f"[Like] SSOT 기록 실패 | {key} | {type(exc).__name__}: {exc}")
+
+    logger.info(
+        f"[Like] 완료 | {key} | {before_state}→{after_state} clicks={clicks} "
+        f"result={outcome} reason={reason!r} rec={record_id}"
+    )
+    return _out(outcome, reason, record_id, before=before_state, after=after_state,
+                clicks=clicks)

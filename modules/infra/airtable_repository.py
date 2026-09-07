@@ -1266,6 +1266,49 @@ class AirtableRepository(RepositoryInterface):
         records = r.json().get("records", [])
         return records[0]["id"] if records else None
 
+    def find_outbound_action_result(
+        self, account_code_ref: str, target_identifier: str, action_type: str
+    ) -> dict | None:
+        """같은 (계정·target·action) 기록의 {record_id, result}. 없으면 None.
+
+        260907 추가 — like 는 실패 attempt 가 재시도를 막지 않아야 해서 result 판별이
+        필요하다. 기존 find_outbound_action(존재 여부만) 계약은 그대로 두고, 이 메서드만
+        추가한다(follow/friend 호출부 무영향). 성공 기록이 하나라도 있으면 그것을 우선
+        반환한다. 조회 실패는 예외로 전파.
+        """
+        safe_a = account_code_ref.replace("'", "\\'")
+        safe_t = target_identifier.replace("'", "\\'")
+        safe_y = action_type.replace("'", "\\'")
+        formula = (
+            f"AND({{account_code_ref}}='{safe_a}',"
+            f"{{target_identifier}}='{safe_t}',"
+            f"{{action_type}}='{safe_y}')"
+        )
+        try:
+            r = requests.get(
+                _url("Outbound_Actions"),
+                headers=_headers(),
+                params={"filterByFormula": formula, "maxRecords": 10,
+                        "fields[0]": "result"},
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Outbound_Actions", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Outbound_Actions")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        records = r.json().get("records", [])
+        if not records:
+            return None
+        for rec in records:
+            if (rec.get("fields", {}).get("result") or "") == "success":
+                return {"record_id": rec.get("id", ""), "result": "success"}
+        first = records[0]
+        return {"record_id": first.get("id", ""),
+                "result": first.get("fields", {}).get("result", "")}
+
     def create_outbound_action(self, data: dict) -> str:
         """Outbound_Actions 에 결과 1건 기록(success/failed). 반환: Airtable record_id.
 
