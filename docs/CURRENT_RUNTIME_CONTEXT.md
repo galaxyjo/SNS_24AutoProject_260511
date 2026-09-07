@@ -1,3 +1,70 @@
+# 2026-09-07 15:27 KST — Instagram Like 자동화: YURA SUCCESS / IDN-000037 세션부재 추정 FAILED + 무인 운영 원칙 확정
+
+_기록 시각: 2026-09-07 15:27 KST · 상태: 진행 중(2계정 Canary 중 1계정 성공). Commit/Push 아직 안 함._
+
+## 판정
+
+**PARTIAL** — `IDN-000041`(YURA)은 실제 Like 성공(Runtime 입증). `IDN-000037`은 커널 정렬까지 성공했으나 클릭 후 상태 전이 없음(FAILED).
+
+## 완료된 FACT
+
+| 항목 | 내용 | 상태 |
+|---|---|---|
+| Account_Registry 등록 | `IDN-000037`=`recAEJTpaQdKcomar` / `IDN-000038`=`recFQiZp9bbdG7ap6` / `IDN-000039`=`recsgY7MxBx3dpZYl` (Excel `페르소나_Account_Registry_이관작업_260814_v2.xlsx` 기준) | SUCCESS |
+| like_once() 구현 | `modules/interaction_engine/outbound_connector.py` — follow_once 계약 형제 액션. 신규 모듈 0, 기존 함수 수정 0, 스케줄러 미등록 | SUCCESS |
+| 클릭 계약 | `closest('button') \|\| closest('[role=button]')` → 실렌더 검증(is_displayed + rect>0) + descendant 확인 → **JS click 1회**. native/ActionChains/좌표/CDP/PointerEvent/재시도 전부 금지 | SUCCESS |
+| 성공 판정 | 같은 article 안 Like/Unlike 존재여부(둘 다 있으면 unknown = Fail-closed). fill·좋아요수 미사용 | SUCCESS |
+| Like 전용 dedup | success/already_liked만 영구 차단, 실패는 Audit만 남기고 재시도 허용. friend/follow 계약 무변경 | SUCCESS |
+| Repository | `find_outbound_action_result()` **추가만**(기존 `find_outbound_action` 무변경, ABC 미편입 — GPT DEFER 판정) | SUCCESS |
+| Target Test | `140 passed` — follow/friend 기존 테스트 전원 통과(회귀 0) | SUCCESS |
+| YURA Live Like | `IDN-000041`/`k1bto3j4` — `not_liked → click 1회 → liked`, Audit `recntJtx22uB8O2Hk` | **SUCCESS** |
+| k1goch3g 커널 정렬 | AdsPower Local API `user/update`로 150→**144** 변경, start 후 `webdriver=chrome_144`, Selenium attach OK | SUCCESS |
+| IDN-000037 Live Like | `not_liked → click 1회 → not_liked`(전이 없음), Audit `rectSdJ59Gej0Qay5`(failed) | **FAILED** |
+
+## Audit 기록 (Outbound_Actions, action_type=like) — 전부 보존, 삭제 없음
+
+| record_id | account | result | 시각(UTC) | 비고 |
+|---|---|---|---|---|
+| `recPjlU7gubdb0D85` | IDN-000041 | failed | 04:43:50Z | ElementClickIntercepted(조상 div 과대 선택) |
+| `recntJtx22uB8O2Hk` | IDN-000041 | success | 05:31:30Z | 클릭 대상 수정 후 성공 |
+| `rectSdJ59Gej0Qay5` | IDN-000037 | failed | 06:23:xxZ | state_not_confirmed(세션 부재 추정) |
+
+## UNKNOWN (미확정)
+
+- `k1goch3g` 프로필의 **Instagram 로그인 세션 유무** — 미검증. 오늘 생성된 프로필이고 attach 시 첫 화면이 AdsPower 시작페이지였다. 로그아웃 상태면 하트 클릭이 로그인 모달만 띄우고 좋아요가 등록되지 않아, 관측된 `not_liked→not_liked`와 증상이 일치한다. **추정일 뿐 Evidence 없음** — 확인하려면 해당 프로필로 페이지를 1회 열어 로그인 상태를 읽어야 한다(GPT 지시상 실패 시 즉시 STOP이라 미수행).
+
+## 무인 운영 원칙 확정 (회장 260907 명시)
+
+회장 지시: **"이건 24시간 자동화다. 내가 수동으로 뭔가를 하면 안 된다. 정확히 명시하고 기록하고 자동화될 수 있게 하는 것이 목적이다."**
+→ `CLAUDE.md` 최하단에 **[260907 추가 — 무인 운영 원칙]** 섹션으로 항구 기록. 요지:
+- 운영 중 반복되는 사람 개입(A)은 **결함**이며 자동화 대상. "회장님이 해주세요"는 해결책이 아니라 미해결 보고다.
+- 계정당 1회 프로비저닝(B, 최초 로그인)만 예외로 허용하되 ①횟수 ②자동화 불가 근거 ③1회 이후 무인 근거를 반드시 명시.
+- 승인 게이트(C)는 설계상 의도된 사람 개입이라 별개.
+- A 제거 목록 3건 등록: ①세션 만료 자동 감지+Slack+계정별 Fail-closed 격리 ②chromedriver 하드코딩 제거(AdsPower start 응답의 `data.webdriver` 사용) ③프로필 설정은 UI 수동이 아니라 `user/update` API로 정렬(260907 실증).
+
+## 변경 파일 (Commit 안 함, `git diff --check` CLEAN)
+
+- `modules/interaction_engine/outbound_connector.py`
+- `modules/infra/airtable_repository.py` (추가만)
+- `tests/test_outbound_connector_follow.py`
+- `CLAUDE.md` (무인 운영 원칙)
+- ※ `facebook_crawler.py`·스케줄러·friend/follow 계약은 미변경
+
+## Rollback
+
+- 코드 3개 파일: 미커밋 상태이므로 `git checkout --` 로 즉시 원복 가능(단일 목적 Commit은 2계정 SUCCESS 후 승인 예정).
+- Airtable: Account_Registry 신규 3건(record_id 위 기재) 삭제로 원복. Outbound_Actions Audit는 Evidence이므로 삭제하지 않는다.
+- AdsPower `k1goch3g` 커널: `user/update`로 150으로 되돌릴 수 있으나 되돌릴 이유 없음(144가 Production 기준).
+
+## 다음 단계
+
+1. `k1goch3g`의 Instagram 로그인 세션 유무를 **클릭 없이** 확인(승인 필요) → 세션 부재면 계정당 1회 프로비저닝(B)으로 처리.
+2. 세션 확보 후 같은 코드로 `IDN-000037` Like 1회 재실행(실패 기록이 재시도를 막지 않도록 이미 설계됨. 단 오늘 like 시도 1건 집계돼 있어 한도값 2 필요).
+3. 2계정 SUCCESS 후 단일 목적 Commit 승인 요청.
+4. A 제거 항목(세션 만료 자동 대응 / chromedriver 하드코딩 제거)은 별도 단계로 승인 후 진행.
+
+---
+
 # 2026-08-11 20:34 ICT — 세션 종료: ERR-109/110/111 전부 RESOLVED, 히어로카드 aijomoojin 자동 슬롯 실활성화 완료
 
 _기록 시각: 2026-08-11 20:34 ICT · 상태: 08:36 ICT "오늘오전 자동 안올라갔어" 회장 보고로 시작한 하루 전체를 이 항목으로 종합 정리하고 세션을 종료한다. 이하는 세션 종료 기록이며, 개별 단계의 상세 경과는 그 시각의 원본 항목(이 파일 아래 19:49/10:26 기록, `porting_logs/MERGE_JOURNAL.md`의 "260811" 계열 4개 항목)을 소급 수정하지 않고 그대로 유지한다._
