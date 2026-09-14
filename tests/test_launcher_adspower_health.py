@@ -20,8 +20,39 @@ Runtime 상태변경 없음 — 상태파일도 tmp_path 로 격리한다.
 """
 
 import json
+from types import SimpleNamespace
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def slack_guard(monkeypatch):
+    """이 파일의 모든 테스트에서 실제 Slack Webhook 호출을 차단한다.
+
+    260914 테스트 격리 결함: 데코레이터(handle_errors) 경유 호출이 launcher.main 의
+    _slack → services.slack_notifier.send_alert → requests.post 까지 도달해
+    .env 의 실제 SLACK_WEBHOOK_URL 로 가짜 'disk full' 경보를 보냈다.
+
+    - send_alert 를 기록용 Mock 으로 바꾼다 → 알림 호출 횟수·내용은 여기서 검증한다.
+    - 그 아래 HTTP 경계(requests.post)는 호출을 기록만 한다. slack_notifier._post 가
+      모든 예외를 삼키므로 raise 로는 실패가 드러나지 않는다 — 대신 teardown 에서
+      호출 0건을 단언한다(실제 네트워크 요청 0건 증명).
+    """
+    import services.slack_notifier as sn
+
+    guard = SimpleNamespace(sent=[], http_calls=[])
+    monkeypatch.setattr(
+        sn, "send_alert",
+        lambda title, body="", level="warning": guard.sent.append(
+            {"title": title, "body": body, "level": level}
+        ) or True,
+    )
+    monkeypatch.setattr(
+        sn.requests, "post",
+        lambda *a, **k: guard.http_calls.append((a, k)),
+    )
+    yield guard
+    assert guard.http_calls == [], "테스트가 실제 Slack Webhook HTTP 요청을 시도했다"
 
 
 @pytest.fixture
@@ -188,7 +219,7 @@ def test_non_zero_code_is_failure(monkeypatch, m):
     assert "비정상 응답" in reason
 
 
-def test_state_write_failure_does_not_break_job(monkeypatch, m, alerts):
+def test_state_write_failure_does_not_break_job(monkeypatch, m, alerts, slack_guard):
     """상태파일을 못 써도 경보는 나가고 잡은 죽지 않는다."""
     monkeypatch.setattr(
         m, "_adspower_health_state_read",
@@ -201,7 +232,15 @@ def test_state_write_failure_does_not_break_job(monkeypatch, m, alerts):
     with pytest.raises(OSError):
         _run(m)                              # __wrapped__ 는 예외를 그대로 낸다
     assert len(alerts) == 1                  # 경보는 이미 나갔다
-    m._job_adspower_health()                 # 데코레이터 경유는 삼켜야 한다
+    assert m._job_adspower_health() is None  # 데코레이터 경유는 삼켜야 한다
+    # 데코레이터(handle_errors)의 notify_fn=_slack 경로 — 이 경로가 실제 Slack 으로
+    # 가짜 경보를 보냈던 곳이다. 이제는 send_alert Mock 에만 닿아야 한다.
+    expected = 1 if m._slack is not None else 0
+    error_path = [c for c in slack_guard.sent if "disk full" in c["body"]]
+    assert len(error_path) == expected
+    if expected:
+        assert error_path[0]["level"] == "error"
+        assert "[adspower_health]" in error_path[0]["body"]
 
 
 # ── 10. _build_scheduler() 등록 파라미터 ─────────────────────────────────────
