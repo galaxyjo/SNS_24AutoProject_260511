@@ -1371,6 +1371,177 @@ def _adspower_busy(user_id: str = "k1bto3j4") -> bool:
         return False
 
 
+# ── AdsPower 헬스체크 (260913) ────────────────────────────────────────────────
+# 260911 02:33 ~ 260912 16:34 KST 38시간 동안 AdsPower Local API 가 죽어
+# 크롤링(78회 전체실패)과 친구요청이 함께 멈췄으나, 그 사실 자체를 알리는
+# 경보가 없었다(크롤 잡은 @handle_errors 미부착, 친구 잡 경보는 원인을
+# 지목하지 못하는 urlopen 에러 문구). 이 잡은 "AdsPower 가 죽었다/살아났다"
+# 만 전담해서 알린다.
+#
+# 설계 원칙:
+#   - 상태전이에만 1회 알린다. 다운이 지속되는 동안 반복 발송하지 않는다
+#     (38시간이면 10분 간격 기준 228건 — 침묵만큼 나쁜 알림 폭탄이 된다).
+#   - 상태는 파일에 보존한다. launcher 재시작이 "복구"로 오인돼 중복 경보가
+#     나가는 것을 막는다.
+#   - 이 잡은 절대 예외를 밖으로 흘리지 않는다. 감시자가 감시 대상을 죽이면 안 된다.
+#   - 기존 _adspower_busy()(친구 잡의 점유 확인)와는 목적이 다르다 — 그쪽은
+#     "지금 쓰는 중인가", 이쪽은 "살아 있는가"다. 서로 건드리지 않는다.
+_ADSPOWER_HEALTH_URL = os.getenv(
+    "ADSPOWER_HEALTH_URL", "http://local.adspower.net:50325/status"
+)
+_ADSPOWER_HEALTH_INTERVAL_MIN = int(os.getenv("ADSPOWER_HEALTH_INTERVAL_MIN", "10"))
+_ADSPOWER_HEALTH_FAIL_THRESHOLD = int(os.getenv("ADSPOWER_HEALTH_FAIL_THRESHOLD", "3"))
+_ADSPOWER_HEALTH_STATE_PATH = _ROOT / "db" / "adspower_health_state.json"
+_ADSPOWER_HEALTH_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _adspower_ping(timeout: int = 5) -> tuple[bool, str]:
+    """AdsPower Local API 생존 확인. (정상여부, 실패사유) 반환.
+
+    예외를 밖으로 던지지 않는다 — 호출부가 try 없이 쓸 수 있어야 한다.
+    """
+    import json as _json
+    import urllib.request as _rq
+    try:
+        with _rq.urlopen(_ADSPOWER_HEALTH_URL, timeout=timeout) as r:
+            data = _json.loads(r.read())
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if isinstance(data, dict) and data.get("code") == 0:
+        return True, ""
+    return False, f"비정상 응답 | {str(data)[:120]}"
+
+
+def _adspower_health_state_read() -> dict:
+    """상태 파일을 읽는다. 없거나 깨졌으면 초기 상태(정상)로 본다."""
+    import json as _json
+    try:
+        with open(_ADSPOWER_HEALTH_STATE_PATH, "r", encoding="utf-8") as f:
+            state = _json.load(f)
+        return state if isinstance(state, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        logger.warning(f"[AdsPowerHealth] 상태파일 읽기 실패 — 초기상태로 진행 | {exc}")
+        return {}
+
+
+def _adspower_health_state_write(state: dict) -> None:
+    """상태 파일을 쓴다. 쓰기 실패가 감시 자체를 멈추지는 않는다."""
+    import json as _json
+    try:
+        _ADSPOWER_HEALTH_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _ADSPOWER_HEALTH_STATE_PATH.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            _json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _ADSPOWER_HEALTH_STATE_PATH)
+    except Exception as exc:
+        logger.warning(f"[AdsPowerHealth] 상태파일 쓰기 실패 | {exc}")
+
+
+def _adspower_health_notify(title: str, body: str, level: str) -> None:
+    """Slack 발송. 미설정·실패해도 잡을 중단시키지 않는다."""
+    try:
+        from services.slack_notifier import send_alert
+        send_alert(title=title, body=body, level=level)
+    except Exception as exc:
+        logger.warning(f"[AdsPowerHealth] Slack 발송 예외 | {exc}")
+
+
+def _adspower_down_duration(down_since: str, now_str: str) -> str:
+    """다운 지속시간을 사람이 읽는 문자열로. 계산 불가면 빈 문자열."""
+    try:
+        start = datetime.strptime(down_since, _ADSPOWER_HEALTH_TS_FMT)
+        end = datetime.strptime(now_str, _ADSPOWER_HEALTH_TS_FMT)
+    except Exception:
+        return ""
+    minutes = int((end - start).total_seconds() // 60)
+    if minutes < 0:
+        return ""
+    return f"{minutes // 60}시간 {minutes % 60}분"
+
+
+@handle_errors(task="adspower_health", notify_fn=_slack)
+def _job_adspower_health():
+    """AdsPower Local API 생존 감시 — 상태가 바뀔 때만 Slack 1건 발송한다.
+
+    - 연속 _ADSPOWER_HEALTH_FAIL_THRESHOLD 회 실패해야 DOWN 으로 판정한다
+      (일시적 네트워크 흔들림으로 울리지 않게 한다).
+    - DOWN 경보는 임계 도달 시 1회. 계속 죽어 있는 동안은 재발송하지 않는다.
+    - 복구 경보는 DOWN 경보를 보냈던 경우에만 1회, 지속시간과 함께 보낸다.
+    - 어떤 계정·잡의 동작도 바꾸지 않는다. 읽고 알리기만 한다.
+
+    Flag: ADSPOWER_HEALTH_ALERT_ENABLED=true 여야 _build_scheduler 에서 등록되고,
+    이 함수도 매 실행 프로세스 환경값을 재확인한다(방어적 일관성, 다른 잡과 동일).
+    """
+    if os.getenv("ADSPOWER_HEALTH_ALERT_ENABLED", "false").strip().lower() != "true":
+        logger.info("[AdsPowerHealth] Flag 프로세스 환경값 false — 이번 실행 스킵")
+        return
+
+    now_str = datetime.now().strftime(_ADSPOWER_HEALTH_TS_FMT)
+    ok, reason = _adspower_ping()
+    state = _adspower_health_state_read()
+    fails = int(state.get("consecutive_failures", 0) or 0)
+    down_alerted = bool(state.get("down_alerted", False))
+    down_since = str(state.get("down_since", "") or "")
+
+    if ok:
+        if down_alerted:
+            duration = _adspower_down_duration(down_since, now_str)
+            logger.info(f"[AdsPowerHealth] 복구 — 다운 지속 {duration or '알 수 없음'}")
+            _adspower_health_notify(
+                title="[AdsPower] 복구됨 — 크롤링·친구요청 재개 가능",
+                body=(
+                    f"다운 시작: {down_since or '알 수 없음'}\n"
+                    f"복구 확인: {now_str}\n"
+                    f"지속 시간: {duration or '알 수 없음'}"
+                ),
+                level="success",
+            )
+        else:
+            logger.debug("[AdsPowerHealth] 정상")
+        _adspower_health_state_write({
+            "healthy": True,
+            "consecutive_failures": 0,
+            "down_alerted": False,
+            "down_since": "",
+            "last_ok": now_str,
+        })
+        return
+
+    fails += 1
+    if not down_since:
+        down_since = now_str
+    logger.warning(
+        f"[AdsPowerHealth] 응답 실패 {fails}/{_ADSPOWER_HEALTH_FAIL_THRESHOLD} | {reason}"
+    )
+
+    if fails >= _ADSPOWER_HEALTH_FAIL_THRESHOLD and not down_alerted:
+        _adspower_health_notify(
+            title="[AdsPower] 다운 — 크롤링·친구요청 중단됨",
+            body=(
+                f"AdsPower Local API 가 연속 {fails}회 응답하지 않습니다.\n"
+                f"최초 실패: {down_since}\n"
+                f"마지막 확인: {now_str}\n"
+                f"사유: {reason}\n"
+                f"영향: Facebook 크롤링 / YUNA 친구요청이 이 상태에서는 전부 실패합니다.\n"
+                f"조치: AdsPower 앱이 실행 중인지 확인해 주세요."
+            ),
+            level="error",
+        )
+        down_alerted = True
+        logger.error(f"[AdsPowerHealth] DOWN 판정 — Slack 경보 발송 | {reason}")
+
+    _adspower_health_state_write({
+        "healthy": False,
+        "consecutive_failures": fails,
+        "down_alerted": down_alerted,
+        "down_since": down_since,
+        "last_ok": str(state.get("last_ok", "") or ""),
+        "last_reason": reason,
+    })
+
+
 @handle_errors(task="yuna_friend_request", notify_fn=_slack)
 def _job_yuna_friend_request():
     """STEP 3-G+ — YUNA 해외 친구요청을 실행당 1건씩 자동 실행한다(회장/GPT 260902).
@@ -1588,6 +1759,17 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
             id="yuna_friend_request",
             start_date=now + timedelta(minutes=_FRIEND_OFFSET_MIN),
             max_instances=1, coalesce=True, misfire_grace_time=120,
+        )
+    # 260913 — AdsPower 생존 감시. 기본 false(미등록).
+    # 다운/복구 전이 시에만 Slack 1건. 어떤 계정·잡의 동작도 바꾸지 않는다
+    # (읽고 알리기만 함). 원복(끄기)에는 `.env` 수정 + launcher 재시작이 필요하다.
+    if os.getenv("ADSPOWER_HEALTH_ALERT_ENABLED", "false").strip().lower() == "true":
+        sched.add_job(
+            _job_adspower_health, "interval",
+            minutes=_ADSPOWER_HEALTH_INTERVAL_MIN,
+            id="adspower_health",
+            next_run_time=now + timedelta(seconds=45),
+            max_instances=1, coalesce=True,
         )
     sched.add_listener(_on_aijomoojin_job_missed, EVENT_JOB_MISSED)
     return sched
