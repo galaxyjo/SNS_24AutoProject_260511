@@ -346,10 +346,64 @@ _IMAGE_BLOCK_KEYWORDS = [
 ]
 
 
-def passes_image_filter(image_url: str) -> bool:
-    """이미지 OCR로 워터마크/연락처/회사로고 감지 → True=통과, False=차단"""
-    import requests as _req
+_TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+_OCR_TIMEOUT_SEC = 30
+
+
+def _ocr_image_state(img) -> tuple[str, str]:
+    """OCR 판정을 4상태로 분리한다. 반환: (상태, 상세).
+
+    - OCR_PASS  : 엔진 정상 실행 + 판독 텍스트 있음 + 차단 패턴 없음
+    - OCR_BLOCK : 엔진 정상 실행 + 차단 패턴 탐지 (상세 = 매칭 패턴)
+    - OCR_EMPTY : 엔진 정상 실행이 확인됐고 인식 텍스트가 없음
+    - OCR_ERROR : import 실패 / 실행파일 없음 / timeout / OCR 예외 / 결과 형식 이상
+
+    엔진 오류를 "워터마크 없음"과 같은 결과로 취급하지 않기 위해 분리한다(260914).
+    """
     from PIL import Image, ImageEnhance
+
+    try:
+        import pytesseract
+    except Exception as exc:
+        return "OCR_ERROR", f"pytesseract import 실패: {type(exc).__name__}: {exc}"
+
+    try:
+        pytesseract.pytesseract.tesseract_cmd = _TESSERACT_CMD
+        pytesseract.get_tesseract_version()  # 엔진이 실제로 실행되는지에 대한 증거
+    except Exception as exc:
+        return "OCR_ERROR", f"tesseract 실행 불가: {type(exc).__name__}: {exc}"
+
+    try:
+        w, h = img.size
+        img_ocr = img.resize((w * 2, h * 2), Image.LANCZOS)
+        img_ocr = img_ocr.convert("L")
+        img_ocr = ImageEnhance.Contrast(img_ocr).enhance(2.0)
+        ocr_text = pytesseract.image_to_string(img_ocr, lang="eng", timeout=_OCR_TIMEOUT_SEC)
+    except Exception as exc:
+        return "OCR_ERROR", f"OCR 실행 예외: {type(exc).__name__}: {exc}"
+
+    if not isinstance(ocr_text, str):
+        return "OCR_ERROR", f"OCR 결과 형식 이상: {type(ocr_text).__name__}"
+
+    text = ocr_text.lower()
+    for pattern in _IMAGE_BLOCK_KEYWORDS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return "OCR_BLOCK", pattern
+    if not text.strip():
+        return "OCR_EMPTY", "인식 텍스트 없음(엔진 정상)"
+    return "OCR_PASS", ""
+
+
+def passes_image_filter(image_url: str) -> bool:
+    """이미지 OCR로 워터마크/연락처/회사로고 감지 → True=통과, False=차단
+
+    260914 Fail-closed: OCR 엔진이 정상 실행되고 차단 패턴이 없을 때만 통과한다.
+    OCR 실행 자체가 실패하면(OCR_ERROR) 게시물을 통과시키지 않는다 — 이전에는
+    예외 시 True 를 반환해, pytesseract 가 운영 venv 에 없던 기간 동안 모든 이미지가
+    검사 없이 자동게시 경로로 들어갔다(6/4~9/14 "OCR 실패 — 통과 처리" 1,754건).
+    """
+    import requests as _req
+    from PIL import Image
     from io import BytesIO
 
     if not image_url or not image_url.startswith("http"):
@@ -369,21 +423,15 @@ def passes_image_filter(image_url: str) -> bool:
         logger.info(f"[ImageFilter] 이미지 너무 작음 {w}x{h} — 차단")
         return False
 
-    try:
-        import pytesseract
-        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-        img_ocr = img.resize((w * 2, h * 2), Image.LANCZOS)
-        img_ocr = img_ocr.convert("L")
-        img_ocr = ImageEnhance.Contrast(img_ocr).enhance(2.0)
-        ocr_text = pytesseract.image_to_string(img_ocr, lang="eng").lower()
-    except Exception as exc:
-        logger.warning(f"[ImageFilter] OCR 실패 — 통과 처리 | {exc}")
+    state, detail = _ocr_image_state(img)
+    if state == "OCR_PASS":
+        logger.info(f"[ImageFilter] 통과 | {w}x{h}")
         return True
-
-    for pattern in _IMAGE_BLOCK_KEYWORDS:
-        if re.search(pattern, ocr_text, re.IGNORECASE):
-            logger.info(f"[ImageFilter] 차단 키워드 감지: {pattern} — 차단")
-            return False
-
-    logger.info(f"[ImageFilter] 통과 | {w}x{h}")
-    return True
+    if state == "OCR_EMPTY":
+        logger.info(f"[ImageFilter] 통과(텍스트 없음) | {w}x{h}")
+        return True
+    if state == "OCR_BLOCK":
+        logger.info(f"[ImageFilter] 차단 키워드 감지: {detail} — 차단")
+        return False
+    logger.error(f"[ImageFilter] OCR_ERROR — 차단 | {detail}")
+    return False
