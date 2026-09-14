@@ -12,7 +12,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from modules.common.airtable_bridge import get_table
 from modules.sns.caption_generator import generate_caption
-from modules.sns.content_filter import detect_and_translate, passes_keyword_filter, clean_contact_info, replace_contacts, passes_image_filter, clean_fb_metadata
+from modules.sns.content_filter import keyword_filter_text, passes_keyword_filter, clean_contact_info, replace_contacts, passes_image_filter, clean_fb_metadata
 from modules.sns.post_id_generator import generate_sku, get_source_group, get_platform_code
 from modules.sns.image_hosting import upload_to_imgbb
 from modules.common.logger import get_logger
@@ -699,7 +699,7 @@ def run(
             else:
                 logger.info(f"[Blocklist] 통과 | author={_author_raw!r}")
             logger.info(f"[FB Crawler] POST {i} | image={image_url[:60] if image_url else '없음'}")
-            filter_text = detect_and_translate(raw_text)
+            filter_text = keyword_filter_text(raw_text)
             if not filter_text or not passes_keyword_filter(filter_text):
                 logger.info(f"[FB Crawler] POST {i} 필터 제외")
                 continue

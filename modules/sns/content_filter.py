@@ -90,6 +90,23 @@ def passes_keyword_filter(text: str) -> bool:
     )
 
 
+# 원문 키워드 선검사 (260914) — 번역 실패가 관련 게시물까지 버리지 않게 한다.
+# Google 무료 번역이 TooManyRequests 로 막히면 detect_and_translate() 가 "" 를
+# 돌려줘, 원문에 키워드가 뚜렷한 게시물까지 '필터 제외' 로 버려졌다.
+# - 배제 언어 판정은 기존대로 가장 먼저 한다.
+# - 원문이 키워드를 통과하면 번역 없이 원문을 판정 텍스트로 쓴다.
+# - 통과 못 한 경우에만 기존 번역 경로(detect_and_translate)로 넘긴다.
+# 반환값은 필터 판정 전용이다 — 저장 본문은 호출부가 raw_text 로 만든다.
+def keyword_filter_text(raw_text: str) -> str:
+    if not raw_text:
+        return ""
+    if _has_excluded_language(raw_text):
+        return ""
+    if passes_keyword_filter(raw_text):
+        return raw_text
+    return detect_and_translate(raw_text)
+
+
 # ── Account Domain Routing (Track B-1D, 260731) ─────────────────────────────
 # Account_Registry 실측(260731) 기준 — 등록된 계정만 허용, 그 외 전부 Fail-closed.
 ACCOUNT_DOMAIN_POLICY = {
