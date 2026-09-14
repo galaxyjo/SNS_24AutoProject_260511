@@ -142,13 +142,14 @@ def _preprocess_image(image_url: str) -> str:
 
 # ── 잡 함수 ───────────────────────────────────────────────────────────────────
 
-@handle_errors(task="fb_crawl", notify_fn=_slack)
+@handle_errors(task="scheduler_heartbeat_main", notify_fn=_slack)
 def _job_scheduler_heartbeat_main():
     """ERR-089 관측 보강 — 이 스케줄러 루프가 살아있음을 60초 간격으로 남긴다.
     이 줄이 끊기면(watchdog.ps1 측 stale 판정) 루프 자체가 멈췄다는 뜻이다."""
     logger.info("[SchedulerHeartbeat][main] alive")
 
 
+@handle_errors(task="fb_crawl", notify_fn=_slack)
 def _job_fb_crawl(
     *,
     target_publish_account_code_ref: str,
