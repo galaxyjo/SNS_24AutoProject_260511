@@ -637,10 +637,14 @@ def _job_insta_upload():
         # 260730 계정별 Kill Switch(Fail-closed) — Airtable에서 명시적으로 체크
         # 안 된 계정은 게시하지 않는다. claim_post_for_upload() 이전이라 uploading
         # 마킹·Retry Queue 어디에도 진입하지 않고, post_status=ready 그대로 유지된다.
+        # 260915: Kill Switch OFF 는 "보류"다 — Identity 실패(_identity_reject → rejected)와
+        # 같은 결과로 처리하지 않는다. 7/31 이 분기가 _identity_reject() 를 쓰게 되면서
+        # PUBLISH_TEXT_GATE_ENABLED=true 에서 ready 게시물이 rejected 로 영구 변경됐다.
+        # aijomoojin 슬롯 잡(_job_aijomoojin_scheduled_post)의 Kill Switch 분기와 같은 계약.
         if not account.get("automation_enabled", False):
-            _identity_reject(
-                f"[Main] 계정별 Kill Switch OFF — 처리 보류 | rid={post_id} | account_code_ref={account_code_ref}",
-                is_warning=False,
+            logger.info(
+                "[Main] 계정별 Kill Switch OFF — 처리 보류 | rid=%s | account_code_ref=%s",
+                post_id, account_code_ref,
             )
             continue
 
