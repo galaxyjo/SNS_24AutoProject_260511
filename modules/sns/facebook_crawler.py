@@ -638,6 +638,102 @@ def run_all_training_targets(max_posts=MAX_POSTS) -> dict:
     return summary
 
 
+def _progressive_crawl_enabled() -> bool:
+    """260915 점진 수집 Flag. 기본 false(기존 1회 수집 유지). 매 호출 시 프로세스 환경값을 읽는다."""
+    return os.getenv("FB_PROGRESSIVE_CRAWL_ENABLED", "false").strip().lower() == "true"
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _enable_focus_emulation(driver) -> bool:
+    """페이지를 '보이는 상태'로 인식시키는 Chrome 내장 포커스 흉내(CDP).
+
+    260915 A/B 실측(그룹 1827528710833477): 운영 크롤 페이지는 visibilityState=hidden 이라
+    Facebook 이 첫 게시물 1개만 채우고 추가 로드를 하지 않았다(H=1개). 이 설정만으로
+    visible 로 바뀌며 실제 게시물 32개가 로드됐다(F=32, 창을 실제로 띄운 V=40).
+    실패해도 크롤을 멈추지 않는다 — 수집량이 기존 수준으로 돌아갈 뿐 안전 문제는 없다.
+    """
+    try:
+        driver.execute_cdp_cmd("Emulation.setFocusEmulationEnabled", {"enabled": True})
+        return True
+    except Exception as exc:
+        logger.warning(f"[FB Crawler] 포커스 흉내 실패 — 기존 방식으로 계속 | {exc}")
+        return False
+
+
+def _iter_progressive_posts(
+    driver,
+    initial_posts,
+    cap: int,
+    *,
+    max_rounds: int,
+    budget_sec: float,
+    scroll_wait_sec: float,
+):
+    """점진 수집: 텍스트가 있는 새 게시물만 순서대로 내보내고, 소진되면 바닥까지 스크롤한다.
+
+    정지 조건(하나라도 해당): 처리 cap 도달 / max_rounds 소진 / 2라운드 연속 새 글 없음 /
+    라운드 종료 시점 기준 budget_sec 초과 / 스크롤·재수집 실패.
+    빈 틀(텍스트 없는 article)과 이미 내보낸 게시물(텍스트 앞 160자 서명)은 건너뛴다.
+    각 게시물의 처리(이미지·필터·저장)는 호출부 루프가 그대로 수행한다.
+    """
+    seen: set[str] = set()
+    yielded = 0
+    idle_rounds = 0
+    rounds_done = 0
+    started = time.monotonic()
+    batch = list(initial_posts)
+    reason = "max_rounds"
+    while rounds_done < max_rounds:
+        rounds_done += 1
+        new_in_round = 0
+        for art in batch:
+            if yielded >= cap:
+                break
+            try:
+                text = (art.text or "").strip()
+            except Exception:
+                continue
+            if not text:
+                continue
+            sig = hashlib.sha1(text[:160].encode("utf-8", "replace")).hexdigest()
+            if sig in seen:
+                continue
+            seen.add(sig)
+            new_in_round += 1
+            yielded += 1
+            yield art
+        if yielded >= cap:
+            reason = "cap"
+            break
+        idle_rounds = idle_rounds + 1 if new_in_round == 0 else 0
+        if idle_rounds >= 2:
+            reason = "no_new_posts"
+            break
+        if time.monotonic() - started >= budget_sec:
+            reason = "budget"
+            break
+        if rounds_done >= max_rounds:
+            break
+        try:
+            driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
+            time.sleep(scroll_wait_sec)
+            batch = driver.find_element(By.CSS_SELECTOR, "div[role='feed']").find_elements(
+                By.XPATH, ".//div[@role='article']"
+            )
+        except Exception as exc:
+            reason = f"scroll_error:{type(exc).__name__}"
+            break
+    logger.info(
+        f"[FB Crawler] 점진 수집 종료 | 새 게시물={yielded} 라운드={rounds_done} 사유={reason}"
+    )
+
+
 def run(
     target_url,
     max_posts=MAX_POSTS,
@@ -660,8 +756,12 @@ def run(
     _stage_log("ADSPOWER", _t0, f"user={adspower_user_id}")
     driver = get_driver(adspower_user_id, proxy_opts)
     _stage_log("DRIVER", _t0, "WebDriver 연결 완료")
+    progressive = _progressive_crawl_enabled()
 
     try:
+        if progressive:
+            # 페이지 로드 전에 설정해야 로드 시점부터 visible 로 렌더링된다(A/B 실측 조건과 동일).
+            _enable_focus_emulation(driver)
         driver.get(target_url)
         time.sleep(12)  # 초기 렌더링 대기 (7 → 12초)
         _stage_log("PAGE_GET", _t0, f"url={target_url}")
@@ -681,7 +781,18 @@ def run(
 
         _stage_log("CRAWL", _t0, f"posts={len(posts)}")
         results = []
-        for i, post in enumerate(posts[:max_posts], start=1):
+        if progressive:
+            post_iter = _iter_progressive_posts(
+                driver,
+                posts,
+                min(max_posts, _env_int("FB_PROGRESSIVE_MAX_POSTS", 5)),
+                max_rounds=_env_int("FB_PROGRESSIVE_MAX_ROUNDS", 6),
+                budget_sec=_env_int("FB_PROGRESSIVE_BUDGET_SEC", 45),
+                scroll_wait_sec=3,
+            )
+        else:
+            post_iter = posts[:max_posts]
+        for i, post in enumerate(post_iter, start=1):
             # 각 포스트를 뷰포트 중앙으로 스크롤 → lazy-load 트리거
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", post)
             time.sleep(1.5)
