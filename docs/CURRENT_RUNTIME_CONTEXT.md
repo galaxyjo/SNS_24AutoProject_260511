@@ -1,3 +1,60 @@
+# 2026-09-15 14:20 KST — 세션 종료: AdsPower 감시·크롤 알림·번역/OCR 필터·Kill Switch 복구 완료, 점진 수집 Flag OFF
+
+_기록 시각: 2026-09-15 14:20 KST · 기간: 260913 00:11 ~ 260915 14:20 · 상태: 코드 커밋 7건 완료, 문서 커밋·Push 대기._
+
+## 판정
+
+**PARTIAL** — 장애 감시·알림, 필터 안전성, Kill Switch 계약은 운영 반영까지 SUCCESS. 수집량 회복(점진 수집)은 Canary 통과 후 Flag OFF로 HOLD. AdsPower 재부팅 자동복구는 미구현.
+
+## 완료된 FACT (커밋 순)
+
+| Commit | 내용 | 운영 검증 |
+|---|---|---|
+| `f799ab4` | AdsPower Local API 생존 감시 경보(ERR-122) | 260914 17:30 DOWN·17:50 복구 경보 실발송 |
+| `9d45df4` | 테스트 실 Slack 발송 차단(ERR-124) | 테스트 HTTP 0건 |
+| `6ad1f88` | 크롤링 예외 알림 데코레이터 복구(ERR-123) | 260914 17:41 `[ErrorHandler] fb_crawl` |
+| `c51c842` | 원문 키워드 선검사(ERR-125) | 번역 없이 필터 통과 확인 |
+| `21e77fb` | OCR 4상태 Fail-closed + pytesseract 선언(ERR-126) | 서비스 세션 OCR 통과, OCR_ERROR 0 |
+| `961fc05` | Kill Switch OFF = 보류 계약 복구(ERR-129) | 09:37 반영, 거절 2건 복구 후 14:04~14:05 게시 |
+| `730ef1d` | 점진 수집 코드(Flag 기본 OFF, ERR-128) | Dry-run·Live Canary 통과 후 Flag OFF |
+
+## 현재 운영 상태 (260915 14:20)
+
+- launcher 기동 09:37:13, watchdog 정상, AdsPower 정상.
+- `.env`: `ADSPOWER_HEALTH_ALERT_ENABLED=true`, `FB_PROGRESSIVE_CRAWL_ENABLED=false`, `PUBLISH_TEXT_GATE_ENABLED=true`.
+- Airtable `IDN-000041 automation_enabled=true`.
+- 크롤링은 기존 1회 수집(`posts=3`), OCR Fail-closed, 번역 실패 시 원문 키워드 판정.
+- Push 0건(origin 대비 ahead, 문서 커밋 전 16).
+
+## UNKNOWN
+
+- 7/26 수집 급락의 단독 원인.
+- 크롤러 창이 숨김 상태인 이유(AdsPower 창 최소화·화면 잠금·가려진 창 처리 중 무엇인지).
+- 9/11 Windows Update 재부팅 후 AdsPower 시작프로그램이 실행되지 않은 이유.
+- 운영에서 OCR BLOCK/ERROR 경로 실발생(테스트·실엔진으로만 검증).
+- Kill Switch OFF 보류 경로 운영 실측(테스트로만 검증).
+
+## RISK
+
+- 재부팅 시 AdsPower가 네트워크보다 먼저 뜨면 크롤링·친구요청이 멈춤(경보는 옴, 자동복구 없음, ERR-130).
+- 테스트가 운영 로그·상태파일에 기록(ERR-131) — 사고 조사 시 테스트 흔적 제외 필요.
+
+## Rollback
+
+- 각 커밋 단일 `git revert`. 운영 반영분은 revert 후 `Restart-Service SNS_Watchdog`.
+- AdsPower 경보 끄기: `.env` `ADSPOWER_HEALTH_ALERT_ENABLED=false` + 재시작.
+- 점진 수집은 이미 OFF.
+- pytesseract 제거 시 OCR_ERROR로 이미지 게시물 전량 차단됨(Fail-closed) — 제거하지 않는다.
+
+## 다음 단계 (각각 회장 승인)
+
+1. 문서 커밋 + Push.
+2. AdsPower 재부팅 자동복구(ERR-130 설계안 재검토).
+3. 점진 수집 재활성화 조건 설계(크롤 시간·공급사 쏠림·호출량).
+4. 610113703703488 상시 실패, 테스트 로그 격리, PYTHONPATH 누수.
+
+---
+
 # 2026-09-07 15:27 KST — Instagram Like 자동화: YURA SUCCESS / IDN-000037 세션부재 추정 FAILED + 무인 운영 원칙 확정
 
 _기록 시각: 2026-09-07 15:27 KST · 상태: 진행 중(2계정 Canary 중 1계정 성공). Commit/Push 아직 안 함._

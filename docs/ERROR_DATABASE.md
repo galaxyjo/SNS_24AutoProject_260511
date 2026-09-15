@@ -2390,3 +2390,155 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **Prevention:** Flag 변경 후에는 **반드시 ①배너 라인 ②`Added job` 로그 ③`.env` 실제 내용** 3가지를 재시작 직후 확인한다. "재시작했다"만으로 반영을 단정하지 않는다(ERR-109 계열 교훈의 Flag판).
 
 **관련:** FP-088, INC-055
+
+## ERR-122 | AdsPower Local API 38시간 다운 — 크롤링·친구요청 중단, 장애를 알리는 경보 없음 (RESOLVED-감시, 260913)
+
+**발견 경위:** 260913 회장 "9/8~9/12 자동화 정검" 요청. `db/crawl_stats.db` 수집 기록이 38.7시간 비어 있음을 발견.
+
+**Raw:** `logs/summary/app.log` — `2026-09-11 02:33:59` ~ `2026-09-12 16:34:16` KST 내내 `[FB Crawler] 크롤링 실패 ... WinError 10061 대상 컴퓨터에서 연결을 거부`. 크롤링 78회 계정 전체실패, 친구요청 9/11 0건·9/12 4건. AI 자동포스팅(aijomoojin)은 Meta API 경로라 25/25 정상. 이벤트로그: 9/11 02:29:18 Windows Update 자동 재시작(`MoUsoCoreWorker.exe`), 02:31:27 2차 재시작(`TrustedInstaller.exe`), 02:32:30 로그온(7001). AdsPower 로그에 9/11 실행 기록 0건, 다음 실행 9/12 16:55:45(LocalAPI 16:55:51).
+
+**Root Cause:** (1) Windows Update 재부팅 후 AdsPower가 시작되지 않음(시작프로그램 `AdsPower.lnk`는 존재 — 실행되지 않은 이유는 UNKNOWN). (2) AdsPower 생존을 감시하는 경보가 없었음. 크롤링 잡 경보는 ERR-123으로 끊겨 있었고, 친구요청 잡 경보 20건은 `urlopen error` 문구라 원인을 지목하지 못함.
+
+**Fix:** `f799ab4` — `launcher/main.py` `_job_adspower_health`(10분 주기, 연속 3회 실패 시 DOWN 1회·복구 시 1회, `db/adspower_health_state.json` 상태 보존, Flag `ADSPOWER_HEALTH_ALERT_ENABLED`). `.env` Flag true 설정 후 운영 반영(260914 11:35).
+
+**검증:** 신규 16 tests, 전체 회귀 실패 목록 baseline과 동일. 실 Slack Canary DOWN 1·복구 1 도달. 운영 실증: 260914 17:30:39 DOWN 경보, 17:50:39 복구 경보("다운 지속 0시간 40분").
+
+**Prevention:** 외부 의존 프로세스(AdsPower)는 잡 실패 로그가 아니라 전용 생존 감시로 알린다. 재부팅 자동복구는 ERR-130(OPEN).
+
+**관련:** ERR-123, ERR-130, FP-089, INC-056, INC-057
+
+## ERR-123 | `@handle_errors(task="fb_crawl")` 데코레이터 이탈 — 7/30 이후 크롤링 예외 알림 0건 (RESOLVED, 260914)
+
+**발견 경위:** ERR-122 조사 중 크롤링 전체실패 78회에 대응하는 `[ErrorHandler] fb_crawl` 로그가 0건임을 확인.
+
+**Raw:** `git blame launcher/main.py` — 데코레이터 줄은 `afbef47`(2026-05-13), 그 아래 `_job_scheduler_heartbeat_main()`은 `c00a734`(2026-07-30, ERR-089 Heartbeat 추가)가 데코레이터와 `def _job_fb_crawl` 사이에 삽입. `error.log`: `[ErrorHandler] fb_crawl` 7월 7건 → 8월 이후 0건, 같은 기간 `_job_fb_crawl raised an exception` 8월 123건·9월 81건. `FacebookCrawlAllTargetsFailedError` docstring은 "Job 레벨(handle_errors/Slack) 전달용"으로 설계 의도 명시.
+
+**Root Cause:** 함수 삽입 위치 실수로 데코레이터가 heartbeat 함수에 붙음(라벨도 `fb_crawl`로 오표기).
+
+**Fix:** `6ad1f88` — heartbeat 라벨 `scheduler_heartbeat_main`으로 정정 + `_job_fb_crawl`에 데코레이터 복구(+2/-1). 신규 테스트 2건(전체실패 → Slack Mock 1회, 부분성공 → 0회).
+
+**검증:** 운영 반영(260914 12:16) 후 260914 17:41:33 실제 전체실패에서 `[ErrorHandler] fb_crawl 실패 | 전체 URL 실패 계정` 발생.
+
+**한계:** 계정 URL 전부 실패할 때만 알림. 부분 실패(610113703703488 상시 실패)는 여전히 무알림.
+
+**Prevention:** 데코레이터가 붙은 함수 바로 위에 새 함수를 끼워 넣지 않는다. 잡 등록 함수마다 "데코레이터 부착"을 테스트로 고정(`__wrapped__` 존재).
+
+**관련:** ERR-122, FP-089
+
+## ERR-124 | 테스트가 실제 Slack Webhook으로 가짜 경보 발송 (RESOLVED, 260914)
+
+**발견 경위:** ERR-123 설계 검토 중, 커밋된 `tests/test_launcher_adspower_health.py`의 마지막 테스트가 데코레이터 경유로 `_slack`을 호출함을 확인.
+
+**Raw:** `.env`에 `SLACK_WEBHOOK_URL` 존재 → `launcher.main._slack`이 None이 아님. `error.log`에 `[ErrorHandler] adspower_health 실패 | disk full` 8건(260914 11:10~11:23, 전체 회귀 실행 시각), `[Slack] 발송 실패` 로그 0건 → 발송 성공으로 판단.
+
+**Root Cause:** Mock 범위가 `_adspower_health_notify`까지만이고, `handle_errors`의 `notify_fn=_slack` 경로는 실제 `send_alert`→`requests.post`로 이어짐.
+
+**Fix:** `9d45df4` — autouse fixture가 `send_alert`를 기록용 Mock으로 교체하고, `requests.post` 호출을 기록해 teardown에서 0건을 단언.
+
+**검증:** 16 passed, 실제 HTTP 0건.
+
+**Prevention:** `launcher.main`을 import하는 테스트는 Slack HTTP 경계를 파일 단위 autouse로 차단한다(ERR-126 이후 신규 테스트에도 동일 적용).
+
+**관련:** FP-094
+
+## ERR-125 | Google 무료 번역 `TooManyRequests`를 빈 문자열로 삼켜 관련 게시물까지 필터 제외 (RESOLVED, 260914)
+
+**발견 경위:** 크롤링 수집률 0 원인조사.
+
+**Raw:** 9/8~9/14 수집 단계별 감소 2130 → Blocklist −180 → 번역·키워드 제외 −1758 → 이미지 없음 −94 → 필터 통과 98 → 신규 저장 2. `GoogleTranslator(...).translate()` 직접 호출 결과 `TooManyRequests`. `detect_and_translate()`는 `except Exception: return ""`. 한국어·영어 관련 샘플("정품 화장품 도매 공급…", "Korean cosmetics wholesale, MOQ 100…") 모두 제외 재현. 9/12~14 제외율 947/948.
+
+**Root Cause:** 번역 결과로만 키워드 판정 → 번역 실패가 곧 "무관 게시물" 판정. 크롤러가 유일한 번역 호출부이고 하루 약 280건이라 호출량 원인보다 무료 엔드포인트 차단으로 추정(INFERENCE).
+
+**Fix:** `c51c842` — `content_filter.keyword_filter_text()`: 배제언어 판정 먼저(기존) → 원문 키워드 통과 시 번역 없이 원문 사용 → 통과 못 할 때만 번역. 크롤러는 호출 1줄 교체.
+
+**검증:** 18 passed(번역 Mock). 운영 Canary: 같은 게시물(이미지 707421461)이 A안 전 91회 제외/85회 통과 → A안 후 번역 없이 통과.
+
+**Prevention:** 외부 서비스 실패를 도메인 판정(제외/통과)으로 변환하지 않는다(FP-090).
+
+**관련:** ERR-126, FP-090, INC-059
+
+## ERR-126 | OCR 워터마크 필터 Fail-open + pytesseract 운영 venv 미설치 (RESOLVED, 260915)
+
+**발견 경위:** ERR-125 조사 중 `[ImageFilter] OCR 실패 — 통과 처리` 대량 확인. GPT 검수 #1(260914 18:07)에서 최우선 RISK로 지정.
+
+**Raw:** `passes_image_filter()` OCR 단계 `except → return True`. 운영 `.venv`에 `pytesseract` 미설치·`requirements.txt` 미선언(시스템 Python 3.10에만 0.3.13). `tesseract.exe` v5.5.0은 하드코딩 경로에 존재. 로그: "OCR 실패 → 통과" 1,754건(6/4~9/14), 정상 통과 136건(6/11~6/20에만), 차단 0건. 통과 시 `save → ready → 자동게시`, 게시 게이트는 캡션만 검사.
+
+**Root Cause:** 의존성 누락(환경) + 엔진 실패를 "워터마크 없음"으로 처리하는 Safety Logic Defect.
+
+**Fix:** (1) `.venv`에 `pytesseract==0.3.13` 설치(dry-run 게이트, freeze 차이 1줄). (2) `21e77fb` — `_ocr_image_state()` 4상태(OCR_PASS/BLOCK/EMPTY/ERROR), ERROR는 False + `logger.error`, requirements 선언.
+
+**검증:** 37 passed. 실엔진 합성 이미지 BLOCK/PASS/EMPTY. 260915 08:14 재부팅 후 운영 서비스(Session 0)에서 `[ImageFilter] 통과 | 1080x1025`, OCR_ERROR 0, Fail-open 로그 0.
+
+**Prevention:** 안전 필터의 엔진 오류는 Fail-closed. 의존성은 requirements에 선언하고 운영 interpreter에서 import를 검증한다.
+
+**관련:** ERR-127, FP-090, FP-091, INC-059
+
+## ERR-127 | 셸 heredoc이 백슬래시를 줄여 tesseract 경로에 TAB 삽입 — 운영 반영 전 차단 (CONTAINED, 260914)
+
+**발견 경위:** ERR-126 수정 diff 검토 중 `_TESSERACT_CMD = r"...Tesseract-OCR<TAB>esseract.exe"` 확인.
+
+**Raw:** 바이트 검사 `TAB 포함 True`, `os.path.exists=False`. 교정 스크립트도 같은 이유로 실패(자체 assert로 쓰기 중단). 같은 방식으로 추가한 경로 회귀 테스트도 일반 문자열 `"\t"` → TAB으로 기록돼 결함을 통과시키는 상태였음.
+
+**Root Cause:** 이 환경의 Bash heredoc 입력에서 연속 백슬래시가 1개로 줄어듦 → Python 문자열에서 `\t`가 TAB으로 해석. Mock 테스트는 경로 값을 검사하지 않음.
+
+**Fix:** Edit 도구로 경로·테스트 교정(raw 문자열), 경로 회귀 테스트 2건 추가, 실엔진 스모크 테스트 추가. 운영 launcher는 재시작 전이라 영향 0.
+
+**Prevention:** 백슬래시가 들어가는 코드는 셸 heredoc으로 쓰지 않는다(Edit/Write 도구 사용). 편집 후 바이트 단위 검사.
+
+**관련:** FP-091
+
+## ERR-128 | 크롤러 브라우저 페이지 `visibilityState=hidden` — Facebook이 첫 게시물 1개만 채움 (MITIGATION CODE, FLAG OFF, 260915)
+
+**발견 경위:** 크롤러가 매번 `posts=3`(4016/4016회)만 읽는 원인조사(원인 2).
+
+**Raw:** 실측 1차(1827): DOM article 3 중 실제 글 1, 점진 스크롤·최신순 URL 효과 0. 2차(3289·345): 둘 다 "가입함·공개 그룹", 실제 글 1. 3차 계측: `visibilityState=hidden`, outer 창 0×0, `scrollY` 316→1684로 스크롤 동작, `scrollHeight` 2677 고정, 빈 틀 뷰포트 중앙 이동 후에도 텍스트 0. A/B(260915 08:23~08:26): H(숨김) 1 / F(CDP `Emulation.setFocusEmulationEnabled`) 32 / V(창 최대화) 40. `run()`은 800px 한 번 스크롤 후 복귀해 1회 수집(`16a49d4`, 이미지 lazy-load 목적).
+
+**Root Cause:** 숨김 페이지에서 Facebook이 추가 로드·내용 채움을 하지 않음(추가 로드 저해의 Confirmed contributing cause, GPT 검수 #2). 7/26 수집 급락의 단독 원인은 UNKNOWN. 창이 숨김인 이유 UNKNOWN.
+
+**Fix:** `730ef1d` — `FB_PROGRESSIVE_CRAWL_ENABLED`(기본 false) ON 시 로드 전 포커스 흉내 + 점진 수집(빈 틀·중복 스킵, cap 5/6라운드/연속 무신규 2/45초). 10 tests. Dry-run(3289): posts 8, 저장 후보 4 중 3건 기존 중복. Live Canary(260915 08:58~09:03): 4그룹 posts 5/8/7/7, 신규 저장 2, 5분 47초. GPT 검수 #2 지시로 Flag OFF 복귀(09:19 재기동 이후 posts=3).
+
+**재활성화 조건(OPEN):** 크롤 1회 소요 vs 친구요청 AdsPower 대기 한도 6분, 동일 공급사 쏠림, Gemini 캡션·ImgBB 호출량.
+
+**관련:** FP-093, INC-059
+
+## ERR-129 | Kill Switch OFF가 `ready`를 `rejected`로 영구 변경 — 계약 불일치 (RESOLVED, 260915)
+
+**발견 경위:** ERR-128 Live Canary 중 Kill Switch(`IDN-000041 automation_enabled=false`) 상태에서 새 게시물 2건이 보류되지 않음.
+
+**Raw:** 260915 09:04:16/09:04:20 `[PublishGate] IDENTITY_REJECTED | rid=recChgyTQ6QINI1nX / recdnjpk5JQZ1nZ7t` → Airtable `post_status=rejected`(게시 0). 코드: Kill Switch 분기(`launcher/main.py`)가 `_identity_reject()` 호출 → `PUBLISH_TEXT_GATE_ENABLED=true`이면 `mark_post_result(status="rejected")`. 7/30 `e9b8fb8`은 `logger.info` + `continue`("post_status=ready 유지"), 7/31 `99d96b2`(Identity Gate)가 이 분기를 `_identity_reject()`로 교체. aijomoojin 슬롯 잡은 원래 계약 유지. 일반 게시 잡의 이 분기를 Gate ON으로 검증하는 테스트 0건.
+
+**Root Cause:** 안전장치(보류)와 Identity 실패(거절)가 같은 함수를 공유하면서 Gate ON에서 의미가 바뀜.
+
+**Fix:** `961fc05` — Kill Switch 분기를 `logger.info("…처리 보류")` + `continue`로 복구. Identity 실패(공란·조회 실패)는 기존대로 rejected.
+
+**검증:** 신규 7 tests passed. HEAD(결함) 코드에서 같은 테스트 2건(Gate ON 보류, OFF→ON 복귀)만 실패. 관련 회귀 87 passed/6 failed(기존 동일). 운영 반영 260915 09:37. 거절 2건은 회장 승인으로 `ready` 복구 → 14:04:39 `18086238614310863`, 14:05:05 `18334856932258995` 게시(중복 0).
+
+**절차 오류:** Canary 설계 때 `e9b8fb8` 주석만 확인하고 `99d96b2` 상호작용을 확인하지 않아 "보류된다"고 잘못 안내함. Kill Switch OFF 동안 친구요청도 멈춘다는 점도 처음에 잘못 안내함(outbound_connector도 `automation_enabled` 확인).
+
+**관련:** FP-092, INC-058
+
+## ERR-130 | 재부팅 시 AdsPower가 네트워크보다 먼저 실행되면 Local API가 열리지 않음 (OPEN, 260914)
+
+**발견 경위:** 260914 재부팅 후 첫 크롤 전체실패(ERR-122 경보로 감지).
+
+**Raw:** 부팅 17:09:18 → 로그온 17:09:30 → AdsPower 17:10:15 실행 → 17:10:18 `did-fail-load ERR_INTERNET_DISCONNECTED` → 코어 `listening on port 20725`만 기록, `[LocalAPI] listening port 50325` 없음 → 네트워크 연결 17:38:53 이후에도 자동 재시도 없음 → 회장 수동 재실행 17:42:38 → LocalAPI 17:42:41. 대조: 260915 부팅은 네트워크 08:14:44 → AdsPower 08:15:53 → LocalAPI 08:16:02 정상. `local.adspower.net`은 hosts가 아니라 인터넷 DNS로 127.0.0.1을 받음(오프라인 시 `getaddrinfo failed`), `127.0.0.1:50325` 직접 호출은 정상.
+
+**Root Cause:** AdsPower 초기화가 인터넷 연결에 의존하고, 실패 후 재시도하지 않음(INFERENCE, 2회 부팅 대조).
+
+**구조 제약:** `SNS_Watchdog`은 LocalSystem/Session 0, AdsPower는 Session 1 → watchdog에서 재실행은 부적합.
+
+**설계안(미구현, 회장 보류):** 사용자 세션 예약작업 `SNS_AdsPower_AutoRecover` + `tools/adspower_autorecover.ps1` (API 정상 → 종료 / 인터넷 미연결 → 대기 / `SunBrowser` 실행 중 → 종료 금지 / 실행 3분 미만 → 대기 / 15분 1회 제한 → 재실행·Slack). 자동 로그온 미설정(`AutoAdminLogon=0`)이라 로그인 전에는 실행 불가.
+
+**관련:** ERR-122, INC-057
+
+## ERR-131 | pytest가 운영 `logs/`·`db/`에 기록 — 사고 조사 증거 오염 (OPEN, 260914)
+
+**발견 경위:** 전체 회귀 실행 후 운영 로그·상태파일 확인.
+
+**Raw:** (1) `db/launcher_boot_state.json` `started_at`이 테스트 실행 시각(260914 11:24:50)으로 덮임(재시작으로 해소). (2) `error.log`에 가짜 `[ErrorHandler] adspower_health 실패 | disk full` 8건, 가짜 `DOWN 판정 — Slack 경보 발송`. (3) 260914 11:13~11:24 `[PublishGate] IDENTITY_REJECTED | rid=rid1/rec4/rec5/rid-both-fail/rid-mark-fail` — ERR-129 영향범위 조사 때 실제 거절과 구분해야 했음. (4) `db/*.json`은 gitignore 대상이 아님(untracked일 뿐).
+
+**Root Cause:** 중앙 로거·상태파일 경로가 테스트에서 격리되지 않음.
+
+**Fix:** 미착수(범위 밖). 이번 세션 신규 테스트는 로거·Slack·크롤통계를 파일 단위로 Mock해 추가 오염을 막음.
+
+**관련:** FP-094

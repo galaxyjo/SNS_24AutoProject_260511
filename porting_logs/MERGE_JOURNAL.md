@@ -2715,3 +2715,75 @@ commit: 진행 예정(회장 승인 대기)
 push: 진행 예정(회장 승인 대기)
 
 ---
+
+## 260902~260904 — STEP 3-G YUNA 친구요청 자동화: Human SOP 재구축 + 실제 발송 3건 + 24시간 분산 scheduler ON
+
+**배경:** 260902 세션에서 STEP 3-G+R(이름 국적판정 폐기)까지 마쳤으나 미커밋·scheduler OFF 상태로 종료. 이번 구간에서 라이브 검증 → 결함 4건 발견·수정 → 실제 Meta 친구요청 발송 → 24시간 분산 자동화까지 진행.
+
+**1) ERR-117 (그룹명 오염, 260902):** 라이브 read-only 8/8 전원 `korea_evidence` 오판 → `_profile_location_text()`가 `body.text` 전체를 판정 입력으로 써서 그룹명 "Korean Cosmetic Wholesale"이 `_KR_CARD_KW`의 `"korea"`에 부분매칭된 것이 원인. `_strip_group_chrome`/`_group_name_from_page`/`_clean_group_title` 신규 + `_KR_LOCATION_KW`에서 맨 "korea/korean" 제거. 라이브 재확인 오염 0/3.
+
+**2) 타겟 정의 정정 + blacklist 전환 (회장 직권, 260903):** 회장이 "해외 B2B 도매상이 바이어, 중국공장은 영업 스팸"으로 타겟을 명확화. whitelist(해외 location 명시된 사람만) → **blacklist(한국인·중국공장만 제외, 나머지 UNKNOWN 포함 전부 후보)** 로 전환. GPT가 260902 유출사고 후 CLOSED로 잠갔던 "이름 국적추정 금지"를 회장 직권으로 해제(로마자 한국성씨 ~90개 curated 포함, 애매한 성씨는 skip=보수적). `_should_skip_target()` 신규.
+
+**3) ERR-118/119 (클릭 경로, 260903):** ①목록 `친구 X님 추가` 버튼 4개 중 1개만 `rect>0`, 나머지 0x0 유령노드 → JS 클릭 6회 실발송 0(read-only로 확정). probe 8회로 "스크롤·창확대·전체멤버 섹션 전부 시도해도 렌더 버튼 1개뿐, 페이지 1822px 완전로드" 확인 → 목록 클릭 경로 CLOSED. ②프로필 실렌더 버튼에는 Selenium native click이 `ElementClickIntercepted`로 거부(버튼은 `btn_is_top=true`, 가림 없음) → 260902에 발송을 실증한 JS click으로 교체. `_element_visible()` 게이트 + 목록=native / 프로필=JS 이분화.
+
+**4) Human SOP LOCK (회장 확정, 260903):** "사람 직원이 그룹→Members→스크롤하며 한국인·중국공장만 빼고 친구추가 버튼을 계속 누르는 업무"로 실행계약 고정. 코드 반영: 성공해도 STOP 안 함(한도까지 계속) / 일반 버튼오류는 그 대상만 skip / 전체 STOP은 checkpoint·CAPTCHA·block·Kill-switch·한도만 / 처리→스크롤→재스캔 루프 / 프로필 fallback 후 목록 복귀 / `driver` 재사용. `outbound_pipeline.friend_daily_run()` 신규 — Airtable active 26개 그룹 순회(Airtable은 그룹 URL 제공만).
+
+**5) 실제 발송 3건 (production_verified, 260903):** Hnin Thu Zar(17:05, 프로필 fallback) / Duc Trung Nguyen(19:36, PG-023) / Ly Ly(19:38, PG-023). 전부 target-scoped `요청 취소` 확인 + 별도 read-only 재확인. 미타겟 Zouache Fatiha는 `친구 추가` 유지 → 오발송 0. checkpoint/CAPTCHA/block 0건.
+
+**6) 24시간 분산 + ERR-120 (260903~260904):** 회장 지시로 "하루 10건을 24시간에 분산"으로 전환 — `_job_yuna_friend_request`가 `friend_daily_run(max_per_run=1)` 호출, `interval 90분 + jitter ±30분`(60~120분 랜덤), 활동시간대 08~23시 KST, `_adspower_busy()`로 FB 크롤 충돌 시 양보. Meta 회피 근거: 균등간격·새벽발송·장시간 브라우저 점유가 봇 시그널이므로 전부 회피. 첫 자동 발사(23:14)는 활동시간대 밖으로 설계대로 skip. 260904 06:27 간격 재조정 중 `.env`의 `SCHEDULE_ENABLED` 유실로 잡 미등록(ERR-120) → 3줄 복구 후 06:30:27 배너·`Added job` 확인.
+
+**변경 파일:** `modules/interaction_engine/outbound_connector.py`(대폭 재작성) · `outbound_pipeline.py`(`friend_daily_run`/`_active_group_urls`/`max_per_run` 신규) · `launcher/main.py`(친구 잡 24시간 분산 전환, +138줄) · `tests/test_outbound_connector_follow.py` · `tests/test_outbound_pipeline.py` · `tests/test_launcher_friend_job.py`.
+
+**테스트:** outbound 165 passed. 전체 회귀 `63 failed, 1408 passed, 3 xfailed, 8 errors` — baseline과 원인 동일(DM collection error 등 환경 고유), **신규 회귀 0건**. `git diff --check` clean, pyflakes 신규 경고 0.
+
+**상태변경 총계:** 코드 변경 6파일. 실제 Meta 친구요청 발송 3건(회장 건별 승인). `.env` 3줄 추가(회장 직접) + `Restart-Service SNS_Watchdog` 3회(회장 직접). Airtable Write 0건. 문서 5종 갱신(본 항목 포함).
+
+**잔여 과제:** (1) **"하루 10건 무인운영"은 미검증** — 09-04 이후 실제 일일 실적으로 확인 필요. (2) pytest가 실 `logs/summary/app.log`에 `[Friend]`/`[FriendDaily]` 테스트 노이즈를 남김(기능 영향 없음, 로그 판독 시 주의). (3) `_FRIEND_CANARY_SKIP_IDS` 하드코딩 3건은 그대로 유지.
+
+commit: 진행 예정(회장 승인 대기)
+push: 진행 예정(회장 승인 대기)
+
+---
+
+## 260913~260915 — 자동화 정검 → AdsPower 감시·크롤 알림 복구 → 번역·OCR 필터 수정 → 원인2 실측·점진 수집(Flag OFF) → Kill Switch 계약 복구
+
+**배경:** 260913 회장 "9/8~9/12 크롤링·친구추가·AI 자동포스팅 정검" 요청으로 시작. AI 포스팅은 25/25 정상, 크롤링·친구요청은 AdsPower 38시간 다운(9/11 02:33~9/12 16:34) 동안 중단됐고 크롤링은 평소에도 수집이 거의 0이었다.
+
+**1) AdsPower 감시 경보 (ERR-122, `f799ab4`):** `_job_adspower_health` 신규(순수 추가). 실 Slack Canary 후 `.env` Flag ON·재시작. 260914 재부팅 후 실제 DOWN/복구 경보 발송 확인.
+
+**2) 테스트 실 Slack 발송 차단 (ERR-124, `9d45df4`):** 작업 1 테스트가 데코레이터 경로로 가짜 경보 약 8건을 실제 발송한 결함 수정.
+
+**3) 크롤링 예외 알림 복구 (ERR-123, `6ad1f88`):** 7/30 `c00a734` 함수 삽입으로 이탈한 데코레이터 복구. 운영 실증 260914 17:41.
+
+**4) 번역 차단 우회 (ERR-125, `c51c842`):** 원문 키워드 선검사. Kill Switch OFF 상태 Canary 2회(12:53/13:23)에서 번역 없이 통과 확인(신규 저장은 중복으로 0).
+
+**5) 원인 2 실측 (ERR-128):** 브라우저 실측 3회(가입·스크롤·최신순 기각, `visibilityState=hidden` 계측) → GPT 검수 #1(PARTIAL) 후 A/B(H 1/F 32/V 40).
+
+**6) OCR Gate Fail-closed (ERR-126/127, `21e77fb`):** pytesseract 0.3.13 설치·선언 + 4상태 판정. 경로 TAB 결함은 운영 반영 전 차단. 260915 재부팅 후 서비스 세션 OCR 동작 확인.
+
+**7) 점진 수집 (ERR-128, `730ef1d`):** Flag 기본 OFF 코드·10 tests → 쓰기 0건 Dry-run → Live Canary(4그룹 posts 5~8, 신규 저장 2) → GPT 검수 #2(HOLD) 지시로 Flag OFF 재기동.
+
+**8) Kill Switch 계약 복구 (ERR-129, `961fc05`):** Canary 중 게시물 2건 `rejected` → 원인 확정(7/31 `99d96b2` 이후 `_identity_reject` 공유) → 보류 복구·7 tests·운영 반영 → 2건 `ready` 복구 후 게시.
+
+**9) 조사만 한 것:** AdsPower 재부팅 자동복구 설계(ERR-130, 사용자 세션 예약작업안, 회장 보류). 테스트 운영 로그 오염(ERR-131).
+
+**변경 파일(커밋 7건):** `launcher/main.py`(f799ab4·6ad1f88·961fc05) · `modules/sns/content_filter.py`(c51c842·21e77fb) · `modules/sns/facebook_crawler.py`(c51c842·730ef1d) · `requirements.txt`(21e77fb) · 신규 테스트 6파일(`test_launcher_adspower_health`, `test_launcher_fb_crawl_job`, `test_content_filter_keyword_prefilter`, `test_content_filter_image_ocr_gate`, `test_facebook_crawler_progressive`, `test_insta_upload_kill_switch`).
+
+**테스트:** 신규 6파일 합계 63 tests(16+2+9+19+10+7=63) 전부 통과. 전체 회귀(260914) 실패 목록 baseline과 동일. 이후 단계는 관련 Suite 비교(크롤러 106/1, 게시 87/6 — 기존 실패와 이름까지 동일).
+
+**상태변경 총계:**
+- `.venv`: pytesseract 0.3.13 설치.
+- `.env`: `ADSPOWER_HEALTH_ALERT_ENABLED=true` 추가, `FB_PROGRESSIVE_CRAWL_ENABLED` 추가(Canary 중 true → 현재 false).
+- `.claude/settings.local.json`(gitignore): Airtable `update_records_for_table` allow 1줄(회장 지시).
+- Airtable: `IDN-000041 automation_enabled` true→false→true 2회(260914 Canary, 260915 Canary), `Instagram_Posts` 신규 2건 생성 → rejected → ready 복구 → posted.
+- 재시작: `Restart-Service SNS_Watchdog` 회장 실행 6회(260914 11:35·12:16·12:52, 260915 08:57·09:19·09:37), 전원 재투입 2회(260914 17:09, 260915 08:14).
+- 브라우저 진단: scratchpad 스크립트 5회(실측 3·A/B 1·Dry-run 1), 클릭·입력·Airtable 쓰기 0.
+
+**정정·절차 오류:** "Slack 알림 0건" 오판(친구요청은 20건 발송) / Kill Switch OFF 시 친구요청 영향 없다고 오안내 / Kill Switch 보류 전제 미확인 Canary(ERR-129) / 셸 heredoc 경로 결함(ERR-127, contained).
+
+**잔여 과제:** (1) AdsPower 재부팅 자동복구(ERR-130). (2) 점진 수집 재활성화 조건(크롤 시간 vs 친구요청 6분 대기, 공급사 쏠림, Gemini·ImgBB 호출량). (3) 610113703703488 상시 실패. (4) 테스트 로그 격리·`db/*.json` gitignore(ERR-131). (5) PYTHONPATH 250723 누수(ERR-094). (6) 부분 크롤 실패 무알림, 중복 저장 스킵이 `print()`로만 남음. (7) 7/26 수집 급락 단독 원인 UNKNOWN.
+
+commit: 진행 예정(회장 승인 대기)
+push: 진행 예정(회장 승인 대기)
+
+---
