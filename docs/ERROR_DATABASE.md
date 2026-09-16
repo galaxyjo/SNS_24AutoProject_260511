@@ -1797,6 +1797,8 @@ watchdog.log(같은 구간):
 
 ## ERR-094 | 시스템 PYTHONPATH 환경변수가 250723(Reference Only)을 가리켜, sys.path 미처리 일회성 스크립트가 구버전을 잘못 참조할 위험 (OPEN, 260730)
 
+**종결(260916, 안정화 STEP 4 — RESOLVED):** 출처는 User 범위 환경변수 1곳(HKCU\Environment, Machine·LocalSystem·.env·venv·site hook에는 없음). 운영 launcher(NSSM LocalSystem)는 원래 미영향. 21:32:58 User PYTHONPATH 제거 → 레지스트리 read-back 없음, 레지스트리 기준 새 환경 7개 실행방식 250723 import 0(프로젝트 밖·tools 형태는 ModuleNotFoundError fail-closed, 260511 root/launcher 정상), heartbeat 작업 21:45:04 rc 0, 신규 ModuleNotFoundError 0. 흔적: 250723 launcher/__pycache__/main.cpython-310.pyc 생성 260914 11:29:03(누수 사고 시각). 잔여: sys.path 미처리 tools 3개(comment_campaign_baseline_cli.py, inspect_posts.py, _gate6_logic_preflight.py) 보강은 별도 판단.
+
 **Type:** 환경 설정 오류(Windows System PYTHONPATH) — 코드 결함 아님
 
 **경위:** 10.5 Close Gate 보완용 팔로업 라우팅 Canary 스크립트(`tools/run_followup_routing_canary.py`)를 작성해 회장 터미널에서 실행했으나 `ImportError: cannot import name 'dm_followup_scheduler' from 'modules.dm' (C:\SNS_24AutoProject_250723\modules\dm\__init__.py)` 발생. Read-only 조사 결과 시스템 `PYTHONPATH` 환경변수가 `C:\SNS_24AutoProject_250723`(CLAUDE.md상 Reference Only, 실행 금지 저장소)로 설정돼 있음을 확인(`echo $PYTHONPATH` 직접 확인). `250723\modules\__init__.py`가 존재(정식 패키지)해, sys.path를 스크립트 자신이 명시적으로 챙기지 않으면(`python 파일.py` 방식으로 직접 실행 시 sys.path[0]이 스크립트 자신의 디렉터리가 됨) `modules.*` import가 250723으로 resolve된다. 250723은 `modules/infra/`(Repository 패턴, 260624 도입) 자체가 없는 등 260511과 구조가 크게 다른 구버전이라, 존재하지 않는 서브모듈에서 즉시 ImportError가 나거나(이번 사례), 최악의 경우 이름이 우연히 겹치는 구버전 코드가 조용히 실행될 잠재 위험이 있다.
@@ -2489,6 +2491,8 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 
 ## ERR-128 | 크롤러 브라우저 페이지 `visibilityState=hidden` — Facebook이 첫 게시물 1개만 채움 (MITIGATION CODE, FLAG OFF, 260915)
 
+**후속(260917, 안정화 STEP 6 — Progressive Canary FAIL, FLAG OFF 유지):** FB_PROGRESSIVE_CRAWL_ENABLED=true + FB_PROGRESSIVE_MAX_POSTS=4 + IDN-000041 Kill Switch OFF로 6회(260916 22:40~260917 01:14): 소요 202/227/212/202/212/205초(≤240 PASS), 점진 수집 24/24 정상, 신규 저장 2건(기준 ≥3 FAIL), 동일 작성자 0.50, OCR 차단·오류 0, missed 0, error.log 0. 원복: `.env` 원본 SHA256 복귀, Canary 2건(recuHbXP82urbOi3n·recxTnmq3zgYs7zBA) draft 보존(게시 0), automation_enabled=true, 재시작(260917 02:20:03) 후 posts=3·점진 로그 0. 재시도 선행조건: 게시 상한(daily_post_limit 코드 강제 없음) 등.
+
 **발견 경위:** 크롤러가 매번 `posts=3`(4016/4016회)만 읽는 원인조사(원인 2).
 
 **Raw:** 실측 1차(1827): DOM article 3 중 실제 글 1, 점진 스크롤·최신순 URL 효과 0. 2차(3289·345): 둘 다 "가입함·공개 그룹", 실제 글 1. 3차 계측: `visibilityState=hidden`, outer 창 0×0, `scrollY` 316→1684로 스크롤 동작, `scrollHeight` 2677 고정, 빈 틀 뷰포트 중앙 이동 후에도 텍스트 0. A/B(260915 08:23~08:26): H(숨김) 1 / F(CDP `Emulation.setFocusEmulationEnabled`) 32 / V(창 최대화) 40. `run()`은 800px 한 번 스크롤 후 복귀해 1회 수집(`16a49d4`, 이미지 lazy-load 목적).
@@ -2519,6 +2523,8 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 
 ## ERR-130 | 재부팅 시 AdsPower가 네트워크보다 먼저 실행되면 Local API가 열리지 않음 (OPEN, 260914)
 
+**종결(260915~16, 안정화 STEP 1~2 — RESOLVED, 성공기준: Windows 로그인 세션 발생 후 15분 이내 복구 또는 실패 Slack 1건):** `tools/adspower_autorecover.ps1` + 예약작업 `SNS_AdsPower_AutoRecover`(현재 사용자 InteractiveToken, LogonTrigger + PT5M, 배터리 허용, IgnoreNew, conhost --headless) — `162d1b9`. External-First: 공식 Headless는 GUI 동시실행 불가·API key 경계·렌더링 계약 UNKNOWN으로 DEFER. 실증: 크롤·친구요청 중 SKIP_BROWSER_OPEN(무접촉), 260915 17:22 재부팅 로그온 즉시 실행·AdsPower 기동 전 WAIT_FAILCOUNT·중복기동 0, START Canary(260916 22:12:52 START → 7초 API 복구, 작업 14초 rc 0 종료, 다음 5분 실행 정상). 실행수명 결함은 ERR-132. 미커버: 로그인 없는 부팅(AutoAdminLogon=0).
+
 **발견 경위:** 260914 재부팅 후 첫 크롤 전체실패(ERR-122 경보로 감지).
 
 **Raw:** 부팅 17:09:18 → 로그온 17:09:30 → AdsPower 17:10:15 실행 → 17:10:18 `did-fail-load ERR_INTERNET_DISCONNECTED` → 코어 `listening on port 20725`만 기록, `[LocalAPI] listening port 50325` 없음 → 네트워크 연결 17:38:53 이후에도 자동 재시도 없음 → 회장 수동 재실행 17:42:38 → LocalAPI 17:42:41. 대조: 260915 부팅은 네트워크 08:14:44 → AdsPower 08:15:53 → LocalAPI 08:16:02 정상. `local.adspower.net`은 hosts가 아니라 인터넷 DNS로 127.0.0.1을 받음(오프라인 시 `getaddrinfo failed`), `127.0.0.1:50325` 직접 호출은 정상.
@@ -2533,6 +2539,8 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 
 ## ERR-131 | pytest가 운영 `logs/`·`db/`에 기록 — 사고 조사 증거 오염 (OPEN, 260914)
 
+**종결(260916, 안정화 STEP 3 — RESOLVED):** `tests/conftest.py`(운영 코드 0) — 세션 시작 시 중앙 로거 app.log/error.log 핸들러·logs/function 폴더를 임시 폴더로, 테스트마다 로드된 프로젝트 모듈의 db/·logs/ 경로 상수를 임시 경로로 monkeypatch(.env를 override로 읽는 모듈은 새로 import하지 않음), 루프백 외 DNS/소켓 연결 차단. 샌드박스 측정(102파일): 내용 쓰기 77→0, 가짜 인증값 외부 연결 시도 13→0(Slack webhook 8·Telegram 3·기타 2 — 운영 .env에 실제 SLACK/TELEGRAM 값 존재), 파일별 결과 차이 0, 실패 ID 68 동일, 운영 표지 테스트 신규 로그 0. `b9d7c09`. 범위 밖 기록: dm_* 8개 수집오류(C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json 접근 거부), test_review_grid_ui 불안정, 운영 로그 과거 오염 72줄.
+
 **발견 경위:** 전체 회귀 실행 후 운영 로그·상태파일 확인.
 
 **Raw:** (1) `db/launcher_boot_state.json` `started_at`이 테스트 실행 시각(260914 11:24:50)으로 덮임(재시작으로 해소). (2) `error.log`에 가짜 `[ErrorHandler] adspower_health 실패 | disk full` 8건, 가짜 `DOWN 판정 — Slack 경보 발송`. (3) 260914 11:13~11:24 `[PublishGate] IDENTITY_REJECTED | rid=rid1/rec4/rec5/rid-both-fail/rid-mark-fail` — ERR-129 영향범위 조사 때 실제 거절과 구분해야 했음. (4) `db/*.json`은 gitignore 대상이 아님(untracked일 뿐).
@@ -2542,3 +2550,35 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **Fix:** 미착수(범위 밖). 이번 세션 신규 테스트는 로거·Slack·크롤통계를 파일 단위로 Mock해 추가 오염을 막음.
 
 **관련:** FP-094
+
+## ERR-132 | AdsPower 자동복구 예약작업이 START 후 10분간 종료되지 않음 — 다음 5분 점검 누락 + 시간한도 강제종료 (RESOLVED, 260916)
+
+**발견 경위:** ERR-130 STEP 2 START Live Canary(260915 21:02~21:22) 도중 작업 스케줄러 이벤트 확인.
+
+**Raw:** 정상 점검 21:07:45 → 21:07:54 id=201 return code 0(9초). START 실행 21:12:45(인스턴스 109f35c6) → 21:17:45·21:22:45 id=322 "이미 실행 중이라 실행 안 함"(결과코드 0x800710E0) → 21:22:50 id=329 실행시간 한도(PT10M) 초과 종료 → id=201 return code 0x8007050B. 스크립트 본문은 21:13:07에 이미 끝까지 실행됨(state 파일 consecutive_failures=0 기록). START로 띄운 AdsPower 루트의 부모는 헬퍼 powershell(종료됨), 부팅 경로(시작프로그램)의 부모는 explorer. AdsPower는 Electron 35.4.0이며 실행파일에 `ELECTRON_NO_ATTACH_CONSOLE` 문자열 존재(Electron 공식 문서: "Don't attach to the current console session").
+
+**Root Cause(Confirmed by Runtime A/B):** 헬퍼가 `conhost --headless` 숨김 콘솔 안에서 `Start-Process`로 AdsPower를 띄우면 Electron이 부모 콘솔에 붙음 → conhost가 AdsPower 생존 동안 남음 → 작업 인스턴스가 "실행 중"으로 유지.
+
+**Fix:** `162d1b9` — `tools/adspower_autorecover.ps1` START 직전 `$env:ELECTRON_NO_ATTACH_CONSOLE = "1"` 1줄(+주석) + Pester 신규 1건(23/23). 실행경로·인자·threshold·예약작업 설정 무변경.
+
+**검증:** START Canary 260916 22:02~22:19(AC 연결, 정상 종료만): 22:12:52 START 1회 → 22:12:59 API 복구(7초) → START 인스턴스 7407f0df 14초 만에 return code 0 종료 → 22:17:45·22:22:45 다음 점검 정상, id=322·329 0, AdsPower 루트 최대 1. 복구된 AdsPower에서 22:24 크롤 4/4 정상(610 그룹 제외 전).
+
+**관련:** ERR-130, FP-096
+
+## ERR-133 | 크롤 대상 A001(그룹 610113703703488)이 비공개·가입 대기 그룹이라 상시 실패 — Crawl_Targets Hold 처리 (RESOLVED, 260916)
+
+**발견 경위:** 안정화 STEP 5. 매 크롤 회차 "계정 부분완료 성공=4/5".
+
+**Raw:** 오류 로그 실패 1,055건(error.log.1 2026-06-02 13:27:20~06-19, error.log 08-26~09-16; 7월분은 로그 교체로 없음) — `no such element … div[role='feed']` 813건, AdsPower 다운 10061 234건 등. 읽기 전용 DOM 확인(260916 22:07~22:09, 클릭 없음): "비공개 그룹", "멤버 요청이 대기 중입니다", "멤버만 그룹 멤버와 게시물을 볼 수 있습니다", 버튼 "요청 취소", feed 0·article 0 / 비교 그룹 345179878828208: "공개 그룹", "가입함", feed 2·article 7(둘 다 visibilityState=hidden). crawl_stats: 이 그룹 행은 06-16~06-17 69행(게시물 1건 이상 7행)뿐.
+
+**Root Cause:** Confirmed — 비공개 그룹 + 크롤 계정(k1bto3j4) 가입 요청 대기 → 비멤버에게 피드 미노출. UNKNOWN — 가입 요청 시점, 06-16~17 수집 당시 공개 여부.
+
+**Fix:** Airtable `Crawl_Targets` `rec162ZUBXc69tEES`(A001) `status` Active → Hold(1칸). 코드·selector·다른 대상·가입 요청 상태 무변경. launcher 재시작 필요(목록은 시작 시 1회 로드 후 캐시).
+
+**절차 오류:** 첫 수정안은 `configs/accounts.json` 1줄 제거였으나 `.env` `CRAWL_TARGET_SOURCE=airtable`이라 운영에 효과 없음을 수정 직전 확인 → 수정하지 않고 HOLD 후 Airtable 기준으로 재승인.
+
+**검증:** 재시작(260916 22:24:22) 후 "Airtable crawl_urls 로드 | 4건", 첫 크롤 JOB_START 4개(A002~A005) "계정 완료 status=SUCCESS", 610 언급 0, error.log 신규 0. 재시작 시점이 권장보다 일러 22:21 크롤 1회·22:23 친구요청 1회가 중단(클릭 0, 일일 카운트 무변화) — INC-061.
+
+**재개 조건:** 가입 승인 시 status Active 복구 + launcher 재시작.
+
+**관련:** ERR-128, FP-095, INC-061

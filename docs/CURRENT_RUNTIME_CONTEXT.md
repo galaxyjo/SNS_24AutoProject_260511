@@ -1,3 +1,53 @@
+# 2026-09-17 02:31 KST — 안정화 Master Runbook STEP 1~6 종료: AutoRecover·pytest 격리·PYTHONPATH 누수 제거·실패 그룹 Hold SUCCESS, Progressive Canary FAIL 후 원복
+
+_기록 시각: 2026-09-17 02:31 KST · 기간: 260915 15:09 ~ 260917 02:24 · 상태: 코드 커밋 2건(162d1b9, b9d7c09), 문서 커밋·Push 대기(origin 대비 ahead 2)._
+
+## 판정
+
+**SUCCESS(STEP 1~5) / FAIL→원복 SUCCESS(STEP 6)** — 운영은 기존 posts=3 크롤 기준으로 안정 상태.
+
+## 완료된 FACT
+
+| STEP | 내용 | 결과 |
+|---|---|---|
+| 1~2 | AdsPower 자동복구 예약작업 `SNS_AdsPower_AutoRecover`(로그온+5분), START 1회·API 7초 복구·작업 14초 정상 종료 | SUCCESS `162d1b9` |
+| 3 | pytest 운영 logs/db/외부 네트워크 격리(`tests/conftest.py`) | SUCCESS `b9d7c09` |
+| 4 | User 범위 PYTHONPATH(250723) 제거, 250723 import 0 | SUCCESS(환경변경) |
+| 5 | 비공개·가입대기 그룹 A001(610113703703488) Airtable Active→Hold | SUCCESS(데이터변경) |
+| 6 | Progressive 6회 Canary 신규 저장 2건(<3) | FAIL → 원복 SUCCESS |
+
+## 현재 운영 상태 (260917 02:24)
+
+- `FB_PROGRESSIVE_CRAWL_ENABLED=false` (`.env` 원본 SHA256 999494317d8276da)
+- IDN-000041 `automation_enabled=true`
+- 크롤 대상 Airtable Active 4그룹(A002~A005) × posts=3, 재시작 후 첫 크롤 SUCCESS
+- Canary 저장 2건 `draft` 보존(자동게시 0)
+- launcher 시작 2026-09-17 02:20:03(commit b9d7c09), 신규 Runtime 오류 0
+
+## UNKNOWN
+
+- A001 가입 요청 시점·승인 가능성.
+- 로그인 없는 부팅에서의 AdsPower 복구(성공기준 제외 범위).
+
+## RISK
+
+- 노트북 AC 분리 시 Modern Standby 절전으로 전체 자동화 정지(INC-060, 260915·260916 반복).
+- Progressive 재시도 전 게시 상한 코드 강제 부재(daily_post_limit 미사용).
+
+## Rollback
+
+- 자동복구: `Disable-ScheduledTask -TaskName SNS_AdsPower_AutoRecover`.
+- pytest 격리: `tests/conftest.py` revert(b9d7c09).
+- PYTHONPATH: `[Environment]::SetEnvironmentVariable("PYTHONPATH","C:\SNS_24AutoProject_250723","User")` (권장하지 않음).
+- A001: Airtable status Active + launcher 재시작.
+
+## 다음 단계 (각각 회장 승인)
+
+1. 문서 커밋 + Push(코드 커밋 2건 포함 ahead 2).
+2. 잔여 과제는 별도 우선순위 결정(게시 상한, 캡션 품질, tools 3개, dm_* 테스트 수집오류).
+
+---
+
 # 2026-09-15 14:20 KST — 세션 종료: AdsPower 감시·크롤 알림·번역/OCR 필터·Kill Switch 복구 완료, 점진 수집 Flag OFF
 
 _기록 시각: 2026-09-15 14:20 KST · 기간: 260913 00:11 ~ 260915 14:20 · 상태: 코드 커밋 7건 완료, 문서 커밋·Push 대기._

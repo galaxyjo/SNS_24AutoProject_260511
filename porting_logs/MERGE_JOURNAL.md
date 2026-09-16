@@ -2787,3 +2787,34 @@ commit: 진행 예정(회장 승인 대기)
 push: 진행 예정(회장 승인 대기)
 
 ---
+
+## 260915~260917 — 안정화 Master Runbook STEP 1~6: AdsPower 자동복구·pytest 격리·PYTHONPATH 누수 제거·실패 그룹 Hold·Progressive Canary(FAIL 후 원복)
+
+**배경:** 260915 GPT·회장 고정 순서(ERR-130 → ERR-131 → PYTHONPATH → 610 그룹 → Progressive). 단계마다 GPT 검수 게이트, 재부팅만 회장 수동.
+
+**STEP 1 — AutoRecover 상호작용(SUCCESS):** 실제 크롤(15:08)·친구요청(15:42) 실행 중 `adspower_autorecover.ps1 -DryRun -SimulateApiDown` = SKIP_BROWSER_OPEN, AdsPower·브라우저 무접촉, 부작용 0.
+
+**STEP 2 — AutoRecover 예약작업 + START Canary(SUCCESS):** 승인 전 TimeTrigger·강제종료·수동 fallback을 넣은 절차 위반 → 실행 전 중단·Disable → 승인안(LogonTrigger+PT5M) 재등록 → 재부팅 실증 → Canary에서 작업 10분 미종료 결함 발견(ERR-132) → `ELECTRON_NO_ATTACH_CONSOLE=1` 1줄 → 재Canary PASS. 중간에 배터리 절전(INC-060)·하네스 결함(FP-097)으로 Canary 3회 무접촉 중단. `162d1b9`.
+
+**STEP 3 — pytest 격리(SUCCESS):** 샌드박스 측정으로 77파일 오염 확인 → `tests/conftest.py`(로거 핸들러·db/logs 경로 상수 임시폴더 + 루프백 외 네트워크 차단). 오염 0·외부 연결 13→0·결과 동일. `b9d7c09`.
+
+**STEP 4 — PYTHONPATH 250723 누수(SUCCESS):** 출처는 User 범위 환경변수 1곳(서비스 launcher는 무관). 제거 후 새 환경 import 250723 0, heartbeat 정상. 코드·커밋 없음.
+
+**STEP 5 — 실패 그룹(SUCCESS):** 비공개·가입대기 그룹 확정(ERR-133). accounts.json 수정안은 CRAWL_TARGET_SOURCE=airtable로 무효 → Airtable A001 Hold → 재시작 후 4/4. 재시작 시점 겹침(INC-061).
+
+**STEP 6 — Progressive(FAIL → 원복 SUCCESS):** 6회 Canary 신규 저장 2건(<3) FAIL. 원복: `.env` 원본 복귀, Canary 2건 draft, Kill Switch ON, 재시작 후 posts=3·오류 0. 원복 재시작이 늦어 01:40·02:10 2회 추가 Progressive 실행(저장 0).
+
+**변경 파일(커밋 2건):** `tools/adspower_autorecover.ps1`·`tests/adspower_autorecover.Tests.ps1`(162d1b9), `tests/conftest.py`(b9d7c09).
+
+**상태변경 총계(코드 외):**
+- Windows: 예약작업 `SNS_AdsPower_AutoRecover` 등록(Enabled), User 범위 PYTHONPATH 제거.
+- Airtable: Crawl_Targets A001 status Hold, Instagram_Posts `recuHbXP82urbOi3n`·`recxTnmq3zgYs7zBA` draft, IDN-000041 automation_enabled false→true(Canary 2회).
+- `.env`: Progressive Flag/MAX_POSTS 일시 변경 후 원본 해시로 복귀(최종 변경 0).
+- 재시작: 회장 Restart-Service 3회(260916 22:23·22:39, 260917 02:19), 재부팅 1회(260915 17:22).
+
+**잔여 과제:** (1) 로그인 없는 부팅 시 AdsPower 복구 미커버. (2) Progressive 재시도는 게시 상한(daily_post_limit 코드 강제) 등 선행 필요. (3) 캡션 품질(일반 문구 캡션). (4) tools 3개 sys.path 미처리 스크립트. (5) dm_* 테스트 수집오류(ProgramData 권한)·test_review_grid_ui 불안정. (6) AC 상시 연결 운영 원칙 재확인. (7) A001 가입 승인 시 Active 복구.
+
+commit: 진행 예정(회장 승인 대기)
+push: 진행 예정(회장 승인 대기)
+
+---
