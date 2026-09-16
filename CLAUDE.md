@@ -1165,7 +1165,7 @@ Rollback 없이 변경하지 않는다.
 ### 운영 원칙: 24시간 자동화 서버는 AC(충전기) 상시 연결 상태에서만 운영한다
 - Windows Modern Standby의 배터리 보호 계층(`Austerity Battery Drain Budget` 등)은 소프트웨어 wake-lock(`SetThreadExecutionState` 등)으로 완전히 우회되지 않을 수 있다(Microsoft 공식 문서 근거, GPT 자문 260824). 배터리 구동 중에는 절전 재발 가능성이 구조적으로 남는다.
 - 따라서 절전 문제를 소프트웨어만으로 100% 해결하려는 추가 시도는 여기서 중단한다(Accept) — 대신 **이 노트북을 24시간 서버로 쓰는 동안은 충전기를 상시 연결 상태로 유지하는 것**을 1차 운영원칙으로 확정한다.
-- 전원설정 `STANDBYIDLE`의 DC(배터리) 값은 260824 AC와 동일하게 0(끔)으로 맞춰 유지한다(회장+GPT 승인, 되돌리지 않음) — 단 이 설정은 "배터리 구동 중에도 최대한 버티게" 하는 보조수단일 뿐, AC 상시연결을 대체하지 않는다.
+- ~~전원설정 `STANDBYIDLE`의 DC(배터리) 값은 0으로 유지~~ → **260917 ERR-134로 폐기.** DC `STANDBYIDLE=0`으로 바꿔 AC 분리·무입력 10분 Canary를 했지만, 분리 3분 뒤 Modern Standby "Idle Timeout" 진입 → 약 5분 뒤 깊은 절전으로 watchdog·launcher가 멈춰 FAIL했다. 그래서 DC `STANDBYIDLE`은 **원래 값 180초로 원복**해 유지한다(회장+GPT 결정). DC 전원설정으로 배터리 절전을 막을 수 없으니 **AC 상시 연결이 유일한 운영 원칙**이다. 진입 트리거가 화면 끄기 타이머(DC `VIDEOIDLE` 180초)라는 것은 Hypothesis일 뿐이고, VIDEOIDLE 등 추가 전원설정 실험은 금지한다. AC 분리 경보 기능은 별도 과제로 DEFER.
 
 ### 시스템 설정 변경 가드 강화 (재발방지)
 - 위 `AUTONOMOUS INVESTIGATION MODE` 섹션의 "명시적 제외" 항목에 `powercfg`/레지스트리 편집 등 구체적 명령 예시를 추가했다(해당 섹션 참조).
