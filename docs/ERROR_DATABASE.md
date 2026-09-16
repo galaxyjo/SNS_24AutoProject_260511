@@ -2676,3 +2676,25 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **남은 사항:** 일일 한도는 attempt 기준 유지(GPT 판정: 실패도 플랫폼 액션 시도). 한도는 실행 시 환경변수 `OUTBOUND_LIKE_DAILY_LIMIT`로만 걸려 있음 — 스케줄러 연결 전 `Account_Registry.daily_like_limit` 이관 필요(DEFER).
 
 **관련:** FP-098, ERR-135
+
+## ERR-139 | 친구요청 처리량을 설정 간격(90분)으로 산정 — 실측 평균 113.6분이라 장애 0인데도 하루 8건이 구조적 상한 (RESOLVED, 260907 · 기록 260917 백필)
+
+**발견 경위:** 260907 11:15 회장 질의 "어제 9월6일 10건 성공?"으로 조사. 260906은 friend 잡 missed 0 · 절전 0 · 크롤 경합 양보 0 · checkpoint 0으로 **장애가 전혀 없었는데** 8건에서 멈췄다.
+
+**Raw:** 260906 실발송 8건(08:37 Bạc Sỉu ~ 21:52 Sỉ Và Lẻ). 발송 간격 105·116·110·114·113·116·121분 → **평균 113.6분**. 당시 설정 `OUTBOUND_FRIEND_INTERVAL_MIN=90` + `OUTBOUND_FRIEND_JITTER_SEC=1800`(±30분), 활동시간대 08~23시. 23:38 회차는 활동시간대 밖으로 skip.
+
+**Root Cause:** 260904 설정 당시 "활동시간 15시간 ÷ 90분 = 10회"로 계산 — **설정 interval을 실제 평균 간격으로 가정한 산정 오류**. 실측 평균은 설정보다 +23.6분(×1.26) 길었다. 누적 요인(jitter 분포 · 잡 실행시간 · AdsPower 재확인 대기 등)별 기여 비율은 UNKNOWN이며, FACT는 결과값(실측 평균 간격)뿐이다.
+
+**Fix:** 실측 비율로 역산해 `.env`를 `OUTBOUND_FRIEND_INTERVAL_MIN=65`, `OUTBOUND_FRIEND_JITTER_SEC=1200`(±20분)으로 변경(회장 직접, 260907 11:18 재시작). 코드 변경 없음 — 260903에 env로 조정 가능하게 만든 설계를 REUSE. 재시작 후 배너 `YUNA 친구요청 : 65분±20분 랜덤, 8~23시만, 실행당 1건, Airtable 그룹 순회` + `Added job "_job_yuna_friend_request"` 확인. `SCHEDULE_ENABLED=true` 줄 유지 확인(ERR-120 재발 없음).
+
+**검증:**
+- **260907 실발송 10건 — 21:49:52 일일 상한 도달**(08:34 Nguyễn Phương Gia Lợi ~ 21:49 Trương Thị Mỹ Lý). 앞 2건은 90분 설정, 11:18 이후 8건은 65분 설정. 65분 적용 후 간격 69·161·82·74·80·69·66분.
+- 12:58→15:38 **161분 공백의 원인은 UNKNOWN**(해당 구간 스케줄러 원문 로그가 로테이션으로 남아 있지 않음).
+- 같은 날 13:40~16:21의 `checkpoint:marker=temporarily blocked` · `[Like] checkpoint 감지` 로그는 **실제 계정 제한이 아니라 pytest fixture 노이즈**로 판정 — 근거: ①해당 라인 로거명이 테스트 import 경로인 `launcher.main`(실 launcher는 `__main__`) ②13:40 이후에도 15~19시대 실발송 4건이 계속됨(실제 day-block이었다면 그날 남은 발송은 0건). 운영 로그 오염 자체는 이후 ERR-131(`b9d7c09`)에서 수정됨.
+- 사후 확인(260917, `logs/function/modules_interaction_engine_outbound_connector.log*` 실계정 uid 기준): 09-08·09-09·09-10 **연속 10건**.
+
+**Prevention:** 스케줄 처리량은 **설정값이 아니라 첫 운영일 실측 평균 간격으로 산정**한다. 목표 건수 대비 여유(약 20%)를 두고 설정하며, 첫 온전한 운영일 실적으로 반드시 보정한다.
+
+**범위 밖(원인 미조사):** 09-11(0건) · 09-12(4건) · 09-14(3건) · 09-16(3건) 미달일 — 이 기록의 범위가 아니다.
+
+**관련:** ERR-120, ERR-121, ERR-131, INC-055, `stepG_friend_automation_daily_limit_260907`
