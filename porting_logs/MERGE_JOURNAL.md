@@ -2814,7 +2814,7 @@ push: 진행 예정(회장 승인 대기)
 
 **잔여 과제:** (1) 로그인 없는 부팅 시 AdsPower 복구 미커버. (2) Progressive 재시도는 게시 상한(daily_post_limit 코드 강제) 등 선행 필요. (3) 캡션 품질(일반 문구 캡션). (4) tools 3개 sys.path 미처리 스크립트. (5) dm_* 테스트 수집오류(ProgramData 권한)·test_review_grid_ui 불안정. (6) AC 상시 연결 운영 원칙 재확인. (7) A001 가입 승인 시 Active 복구.
 
-commit: 진행 예정(회장 승인 대기)
-push: 진행 예정(회장 승인 대기)
+commit: 162d1b9(AutoRecover), b9d7c09(pytest 격리), 2a554f6(문서)
+push: 완료 260917 — origin/master 72d376a..2a554f6
 
 ---
