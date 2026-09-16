@@ -2582,3 +2582,25 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **재개 조건:** 가입 승인 시 status Active 복구 + launcher 재시작.
 
 **관련:** ERR-128, FP-095, INC-061
+
+## ERR-134 | 배터리 + 무입력 시 Modern Standby로 자동화 전체 정지 — DC STANDBYIDLE=0 Canary FAIL, AC 상시 연결 원칙 확정 (HOLD, 260917)
+
+**발견 경위:** 안정화 이후 잔여 과제 1순위(260917). 260915·260916 자동화 정지 원인 조사.
+
+**Raw(조사, 읽기 전용):** watchdog.log HEARTBEAT 공백이 Kernel-Power 506/507 구간과 일치(260915 15:45~15:51, 16:14~16:29, 16:29~17:21, 17:44~20:21 최장 2시간 22분). 진입 사유 506 reason 12 "Idle Timeout", 절전 중 reason 55 "Austerity Battery Drain Budget Exceeded"로 더 깊은 절전 전환, 모든 507은 PowerStateAc=false(배터리), 해제는 Power Button·Touchpad(사람 조작). 260916 10:35~20:50(615분)은 절전이 아니라 시작 메뉴 "전원 끄기"(User32 1074). 전원설정: 지원 절전은 Modern Standby(S0, 네트워크 연결됨)만, STANDBYIDLE AC=0/DC=180초, VIDEOIDLE AC=0/DC=180초 — ERR-116(260824)의 "DC STANDBYIDLE=0 유지" 기록과 달리 조사 시점 DC=180초(변경 시점·원인 UNKNOWN). watchdog.ps1 SetThreadExecutionState(ES_CONTINUOUS|ES_SYSTEM_REQUIRED)는 배터리 Idle Timeout 진입을 막지 못함. 예약작업: SNS_HeartbeatMonitor_Independent는 배터리에서 실행 안 함(DisallowStartIfOnBatteries=True), SNS_AdsPower_AutoRecover는 배터리 허용.
+
+**Canary(승인: DC STANDBYIDLE 180→0만):** 260917 02:53:57 변경·read-back → AC 분리 02:57:20 → 무입력 → 03:00:26 506 "Idle Timeout"(분리 후 3분 6초) → 03:05:15까지 watchdog·launcher 동작 유지 → 03:05:12~03:06:19 watchdog HEARTBEAT 67초 공백, launcher SchedulerHeartbeat 03:06:15 누락, 03:06:38 apscheduler missed 3건 → 03:06:14 507 "Power Button"(SleepEntered=true, DisconnectedStandby=true) → AC 재연결 03:07:02. Austerity(reason 55) 0건, error.log 0, AdsPower 무영향. **판정 FAIL.**
+
+**원복:** 03:09:17 DC STANDBYIDLE 0→180초 복구, read-back 0x000000b4, AC 연결·충전, watchdog·launcher·AdsPower 정상, 신규 오류 0. VIDEOIDLE·예약작업·코드 변경 0.
+
+**Root Cause:**
+- Confirmed: 노트북이 배터리 구동 중 사람 입력이 없으면 Modern Standby(Idle Timeout)에 진입하고, 수분 뒤 깊은 절전으로 들어가 사람이 깨울 때까지 launcher·watchdog·AdsPower·예약작업 등 자동화 전체가 정지할 수 있다.
+- Confirmed: DC STANDBYIDLE=0만으로는 진입을 막지 못한다. watchdog의 ES_SYSTEM_REQUIRED 요청도 막지 못한다.
+- Hypothesis: 진입 트리거는 화면 끄기 타이머(DC VIDEOIDLE 180초) — 시점 일치 근거만 있음, 미검증.
+- UNKNOWN: VIDEOIDLE 변경 시 Austerity 경로로 계속 정지하는지, DC STANDBYIDLE이 0에서 180으로 되돌아간 시점·원인.
+
+**운영 원칙(확정):** 24시간 자동화 노트북은 **AC 상시 연결**로 운영한다. 배터리 구동은 정지 위험 구간으로 간주한다. (ERR-116의 "DC STANDBYIDLE=0 유지" 결정은 이번 GPT 결정으로 180초 원복 — 설정 실험 중단.)
+
+**DEFER:** AC 분리 즉시 알림(경보) 기능은 별도 과제로 보류. 추가 전원설정 실험(VIDEOIDLE 등) 금지.
+
+**관련:** ERR-114, ERR-116, FP-085, INC-060
