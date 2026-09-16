@@ -2604,3 +2604,75 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **DEFER:** AC 분리 즉시 알림(경보) 기능은 별도 과제로 보류. 추가 전원설정 실험(VIDEOIDLE 등) 금지.
 
 **관련:** ERR-114, ERR-116, FP-085, INC-060
+
+---
+
+## ERR-135 | Instagram Like 클릭이 ElementClickInterceptedException으로 실패 — 조상 div를 과대 선택하고 native click 사용 (RESOLVED, 발생 260907 / 기록 260917)
+
+**발견 경위:** 260907 Instagram Like 2계정 Canary 1차. `IDN-000041`(k1bto3j4)로 `https://www.instagram.com/p/Dc9_RzhEjOT/` Like 시도.
+
+**Raw:** `before_state=not_liked`, 클릭 시 `ElementClickInterceptedException`, `after_state=""`, Audit `recPjlU7gubdb0D85`(failed, 04:43:50Z). 좋아요 미등록. 클릭 없이 DOM 재확인: `[role=dialog]` 0개, 하트 `aria-label=좋아요 height=24 rect=[802,511.6,24,24]`, 아이콘 중심 `elementFromPoint` = 아이콘 자신(svg).
+
+**Root Cause (Confirmed):** 클릭 대상을 XPath `ancestor::*[self::button or @role='button'][1]`로 잡은 뒤 Selenium native `.click()`을 사용. native click은 요소 중심점으로 hit-test하므로, 잡힌 조상 요소의 중심이 다른 요소에 가려 intercepted가 났다. 아이콘 자체는 가려지지 않았다. (가린 요소의 정체는 UNKNOWN — 해결 판정에 불필요해 조사 중단, GPT 260907 판정)
+
+**Fix:** `closest('button') || closest('[role="button"]')`로 가장 가까운 semantic 조상만 선택 → 실렌더 검증(`is_displayed()` + rect>0) + 아이콘 descendant 확인 → JS `arguments[0].click()` 정확히 1회. native click·ActionChains·좌표·CDP·PointerEvent·재시도 전부 금지. 판정 범위는 대상 `article` 안으로 한정(전역 스캔 금지), 24px 본문 하트만(댓글 12px 제외). 회장 클릭규칙 10개(친구추가 성공 사례 기반) 반영.
+
+**검증:** 같은 계정·같은 게시물 `not_liked → click 1 → liked`, Audit `recntJtx22uB8O2Hk`(success, 05:31:30Z). Target Test 140 passed(follow/friend 회귀 0). commit `4bfccb6`.
+
+**관련:** FP-100, ERR-138
+
+---
+
+## ERR-136 | 신규 AdsPower 프로필 커널(150)이 프로젝트 chromedriver(144 하드코딩)와 불일치 — 브라우저 기동·attach 실패 (PARTIAL: 프로필 정렬 RESOLVED / 하드코딩 OPEN, 발생 260907 / 기록 260917)
+
+**발견 경위:** 260907 `IDN-000037` Like Canary. 회장이 AdsPower UI에서 새로 만든 프로필 `k1goch3g`.
+
+**Raw:**
+- 14:05 KST `browser/start` → `{"code":-1,"msg":"SunBrowser 150 is not ready,please to download!"}` → `get_driver()`에서 `KeyError: 'data'`(클릭·기록 0).
+- 14:45 KST 커널 150 설치 후 start는 성공(`webdriver=...\chrome_150\chromedriver.exe`)했으나 attach 실패: `SessionNotCreatedException: This version of ChromeDriver only supports Chrome version 144 / Current browser version is 150.0.7871.47`.
+- 15:21 KST AdsPower Local API `POST /api/v1/user/update` (`fingerprint_config.browser_kernel_config={"version":"144","type":"chrome"}`) → `code=0`. 재start `webdriver=...\chrome_144\chromedriver.exe`, attach OK.
+
+**Root Cause (Confirmed):** `modules/sns/facebook_crawler.py:22` `CHROMEDRIVER_PATH`가 `chrome_144`로 고정. 프로필별 커널을 추종하지 못한다. 새 프로필은 AdsPower 기본값(150)으로 생성됐다.
+
+**조치:** 프로필 `k1goch3g` 커널을 API로 144 정렬(코드 무변경). 회장 UI 수동조작 없이 해결.
+
+**OPEN / DEFER:** 하드코딩 제거 — AdsPower `browser/start` 응답의 `data.webdriver` 경로 사용(GPT 260907: 장기 정석). `facebook_crawler.py`는 friend/crawl 운영 경로라 별도 승인 필요. CLAUDE.md 무인 운영 원칙 A-2로 등록.
+
+**관련:** FP-099, ERR-137
+
+---
+
+## ERR-137 | 로그인 세션이 없는 프로필로 Instagram Like 실행 — 클릭은 됐으나 좋아요 미등록 (RESOLVED, 발생 260907 / 기록 260917)
+
+**발견 경위:** ERR-136 커널 정렬 직후 `IDN-000037`(k1goch3g) Like 실행.
+
+**Raw:** 15:23 KST `before_state=not_liked → click_count=1 → after_state=not_liked`, `reason=state_not_confirmed`, Audit `rectSdJ59Gej0Qay5`(failed, 06:23:10Z). 지시대로 즉시 STOP, 재클릭 없음. 15:37 KST read-only 세션 확인: `instagram.com` 정상 접속, checkpoint 판정 `''`, 쿠키 `csrftoken/datr/dpr/ig_did/mid/wd`만 존재(`sessionid`·`ds_user_id` 없음), `input[type=password]` 1개, 네비 아이콘은 `Meta 로고`·`아래쪽 V자형 아이콘`뿐 → `logged_out` 확정.
+
+**Root Cause (Confirmed):** 당일 생성된 프로필이라 Instagram 로그인 세션이 없었다. 로그아웃 상태에서는 하트 클릭이 로그인 유도만 하고 좋아요가 등록되지 않는다. `_checkpoint_detected()`는 URL `/login/`·본문 마커만 보므로, 게시물 URL을 유지한 채 로그아웃인 상태를 잡지 못한다.
+
+**조치:** 회장이 프로필 `k1goch3g`(Platform=instagram.com, User name=atqvtg@gmail.com, 2FA 없음)에서 1회 로그인(무인 운영 원칙 B: 계정당 1회 프로비저닝). 16:12 KST 재확인 `sessionid`·`ds_user_id` 존재, password field 0 → `logged_in`. 같은 코드로 Like `not_liked → click 1 → liked`, Audit `recpjaEFoIi2a5NrR`(success, 07:12:49Z).
+
+**DEFER:** 액션 전 세션 사전확인(`sessionid` 부재 시 클릭 없이 실패 처리) + 세션 만료 자동감지·Slack·계정별 격리 — CLAUDE.md 무인 운영 원칙 A-1로 등록, 별도 승인 필요.
+
+**관련:** FP-099, ERR-136
+
+---
+
+## ERR-138 | Like 실패 1건이 같은 계정·게시물 재시도를 영구 차단 — follow/friend dedup 계약을 그대로 복사 (RESOLVED, 발생 260907 / 기록 260917)
+
+**발견 경위:** ERR-135 클릭 수정 후 `IDN-000041` 재시도 준비 중.
+
+**Raw:** 실패 1건이 로컬 SQLite `db/outbound_actions.db`(`IDN-000041|like|Dc9_RzhEjOT`, result=failed)와 Airtable Audit `recPjlU7gubdb0D85` 양쪽에 남아 `duplicate_local`/`duplicate_ssot`로 재시도 차단. 회장 지시상 Audit 삭제 금지라 재검증 불가 상태.
+
+**Root Cause (Confirmed):** `like_once()`를 `follow_once()` 계약 그대로 만들면서 "결과가 있으면 영구 차단"을 복사했다. 이 규칙은 attempt 기록(Audit)과 성공 상태(idempotency)를 하나로 취급한다. 좋아요는 기술적 실패 후 재시도해도 안전하다(클릭 전 UI 상태를 먼저 확인하므로).
+
+**Fix (like 전용, friend/follow 계약 무변경):**
+- 성공(`already_liked` 포함)만 영구 차단. 실패는 Audit만 남기고 로컬 dedup mark를 남기지 않는다.
+- `AirtableRepository.find_outbound_action_result()` 추가(기존 `find_outbound_action` 무변경, RepositoryInterface ABC 미편입 — GPT DEFER). 구현/Fake에 메서드가 없으면 기존 계약(있으면 차단)으로 폴백.
+- 로컬: `_local_result()`·`_local_upsert()` 추가(기존 `_local_seen`/`_local_mark`는 follow/friend가 계속 사용).
+
+**검증:** dry_run으로 dedup 통과 확인 → `IDN-000041` 재시도 success(`recntJtx22uB8O2Hk`), 실패 Audit 보존. Target Test "이전 failed Audit가 있어도 재시도 가능"·"이전 success면 차단" PASS. commit `4bfccb6`.
+
+**남은 사항:** 일일 한도는 attempt 기준 유지(GPT 판정: 실패도 플랫폼 액션 시도). 한도는 실행 시 환경변수 `OUTBOUND_LIKE_DAILY_LIMIT`로만 걸려 있음 — 스케줄러 연결 전 `Account_Registry.daily_like_limit` 이관 필요(DEFER).
+
+**관련:** FP-098, ERR-135

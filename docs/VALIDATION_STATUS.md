@@ -55,6 +55,7 @@
 | followup_routing_canary_260730 | ✅ PASS | 2026-07-30 |
 | pythonpath_reference_repo_leak_err094_260730 | 🟠 OPEN(비차단, 별도 Gate 예정) | 2026-07-30 |
 | **10_5_close_gate_success** | ✅ **SUCCESS** | **2026-07-30** |
+| instagram_like_2account_canary_260907 (IDN-000041·IDN-000037, recntJtx22uB8O2Hk·recpjaEFoIi2a5NrR, 스케줄러 미연결) | ✅ PASS | 2026-09-07 |
 
 > ⚠️ **scope 한정:** single-account E2E + 운영 안정화 검증 완료. 다계정 실운영 evidence는 Phase 3 대상.
 

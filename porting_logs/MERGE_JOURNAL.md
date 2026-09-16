@@ -2745,6 +2745,39 @@ push: 진행 예정(회장 승인 대기)
 
 ---
 
+## 260907 — Instagram Like 자동화: 외부 패턴 REUSE → like_once() 구현 → 2계정 Live Canary SUCCESS (기록 260917)
+
+**배경:** 회장 지시 "새로 설계하지 않고 기존 GitHub Like 로직을 REUSE/ADAPT해 기존 AdsPower+Selenium 구조에 최소 연결". 선정 원본 `adolfousier/socialcrabs` — 전체 도입 없이 `Target URL → 현재 Like 여부 → Like → Unlike 상태 Verify → Result` 패턴만 ADAPT. 매 단계 GPT 검수 게이트.
+
+**1. 연결점 조사(read-only):** active caller `launcher/main.py` `_job_yuna_friend_request` → `outbound_pipeline.friend_daily_run` → `outbound_connector` → `facebook_crawler.get_driver`(AdsPower attach). 최소 연결점 = `outbound_connector.py`의 `follow_once()` 형제 자리. `auto_liker.py`는 Graph API 내 게시물 댓글 전용(스케줄 DISABLED_260603)이라 비대상.
+
+**2. 계정 준비:** Account_Registry·Platform_Accounts·accounts.json·AdsPower 전부에 037/038/039 매핑 없음 확인 → 회장 Excel(`페르소나_Account_Registry_이관작업_260814_v2.xlsx`) 기준 Account_Registry 신규 3건 생성(`recAEJTpaQdKcomar`/`recFQiZp9bbdG7ap6`/`recsgY7MxBx3dpZYl`). 같은 이메일 기존 레코드가 있어 2건씩 중복 — DEFER(Excel 전체 덮어쓰기 예정). 비밀번호·잘못된 recovery 칸은 옮기지 않음. AdsPower 프로필은 회장이 `k1goch3g` 생성.
+
+**3. 구현(`4bfccb6`):** `like_once()` + Instagram URL fail-closed + article 한정 판정 + 실렌더 검증 + closest semantic 조상 JS click 1회 + Like→Unlike 전이 판정 + like 전용 dedup(성공만 차단) + `find_outbound_action_result()` 추가. 신규 모듈 0, 기존 함수 수정 0, 스케줄러 미등록. Target Test 140 passed.
+
+**4. Canary 경과:**
+- IDN-000041/k1bto3j4 1차 failed — ElementClickIntercepted(ERR-135) → 회장 클릭규칙 10개 + GPT 판정 반영 → dedup이 재시도 차단(ERR-138) → like 전용 dedup 수정 → 재시도 **success**.
+- IDN-000037/k1goch3g — 커널 150 미설치·chromedriver 144 불일치(ERR-136) → AdsPower API `user/update`로 144 정렬 → 로그아웃 상태 클릭 failed(ERR-137) → read-only 세션 확인 `logged_out` 확정 → 회장 1회 로그인 → 세션 `logged_in` 확인 → **success**.
+
+**Audit(Outbound_Actions, action_type=like, 전부 보존):** `recPjlU7gubdb0D85` failed / `recntJtx22uB8O2Hk` success / `rectSdJ59Gej0Qay5` failed / `recpjaEFoIi2a5NrR` success.
+
+**운영 원칙 확정(`05dcbd2`):** 회장 "이건 24시간 자동화다, 내가 수동으로 하면 안 된다" → CLAUDE.md 무인 운영 원칙(A 반복개입=결함 / B 계정당 1회 프로비저닝 / C 승인게이트). 최초 로그인은 B.
+
+**변경 파일(커밋 2건):** `modules/interaction_engine/outbound_connector.py`·`modules/infra/airtable_repository.py`·`tests/test_outbound_connector_follow.py`(4bfccb6), `CLAUDE.md`·`docs/CURRENT_RUNTIME_CONTEXT.md`(05dcbd2).
+
+**상태변경 총계(코드 외):**
+- Airtable: Account_Registry 신규 3건, Outbound_Actions Audit 4건.
+- AdsPower: `k1goch3g` 커널 150→144(Local API `user/update`).
+- 회장 수동: AdsPower 프로필 생성, `k1goch3g` Instagram 1회 로그인.
+- `.env`·스케줄러·facebook_crawler.py·friend/follow 계약: 변경 0. Live·한도 env는 실행 프로세스 안에서만 설정.
+
+**잔여 과제(전부 DEFER):** (1) `daily_like_limit` Airtable 이관(스케줄러 전제) (2) chromedriver 하드코딩 제거(`data.webdriver`) (3) 액션 전 로그인 세션 사전확인·만료 자동감지 (4) 038/039 AdsPower 프로필 (5) Account_Registry 이메일 중복 6건 정리 (6) 대량 계정 Cookie 주입 조사 — GPT 판정: 지금 조사 금지, 소유/테스트 계정 기능 검증 범위 유지.
+
+commit: 4bfccb6(기능), 05dcbd2(문서)
+push: 미실행(260907 기준) — 이후 세션 push 여부는 git 기준으로 확인
+
+---
+
 ## 260913~260915 — 자동화 정검 → AdsPower 감시·크롤 알림 복구 → 번역·OCR 필터 수정 → 원인2 실측·점진 수집(Flag OFF) → Kill Switch 계약 복구
 
 **배경:** 260913 회장 "9/8~9/12 크롤링·친구추가·AI 자동포스팅 정검" 요청으로 시작. AI 포스팅은 25/25 정상, 크롤링·친구요청은 AdsPower 38시간 다운(9/11 02:33~9/12 16:34) 동안 중단됐고 크롤링은 평소에도 수집이 거의 0이었다.

@@ -105,6 +105,48 @@ _기록 시각: 2026-09-15 14:20 KST · 기간: 260913 00:11 ~ 260915 14:20 · �
 
 ---
 
+# 2026-09-07 16:25 KST — 세션 종료: Instagram Like 2계정 Canary SUCCESS + Commit 2건 (기록 260917)
+
+_기록 시각: 2026-09-17 07:02 KST 소급 기록 · 아래 15:27 기록은 037 성공 전 중간 기록이라 원문 그대로 보존한다(소급 수정 금지). 최종 상태는 이 항목이 기준이다._
+
+## 판정
+
+**SUCCESS** — 지정 게시물 `https://www.instagram.com/p/Dc9_RzhEjOT/`에 2계정 모두 실제 Like 표기, Audit 확인.
+
+## 최종 FACT
+
+| 계정 | AdsPower | before → after | click | Audit |
+|---|---|---|---|---|
+| IDN-000041 (yura) | k1bto3j4 | not_liked → liked | 1 | `recntJtx22uB8O2Hk` success |
+| IDN-000037 | k1goch3g | not_liked → liked | 1 | `recpjaEFoIi2a5NrR` success |
+
+- 실패 Audit 2건(`recPjlU7gubdb0D85`, `rectSdJ59Gej0Qay5`) 보존, 삭제 0.
+- 15:27 기록 이후 추가 경과: 15:37 read-only 세션 확인 `logged_out` 확정(`sessionid`·`ds_user_id` 없음, 비밀번호 입력창 존재) → 회장 1회 로그인 → 16:12 `logged_in` 확인 → 같은 코드로 Like SUCCESS.
+- Commit: `4bfccb6`(feat: add verified Instagram like action), `05dcbd2`(docs). Push는 260907 세션에서 안 함.
+- 오류 기록: ERR-135(클릭 intercepted), ERR-136(커널/chromedriver), ERR-137(로그아웃 상태 액션), ERR-138(실패가 재시도 차단), FP-098~100. 운영 영향 없음(Canary 한정) → INC 미생성.
+
+## UNKNOWN
+
+- ERR-135에서 조상 div 중심을 가린 요소의 정체 — 해결에 불필요해 조사 중단(GPT 판정).
+- `k1goch3g` 세션 유지 기간 — 1회 로그인 이후 장기 무인 유지 여부는 아직 실측 없음.
+
+## DEFER (GPT 260907 판정, 전부 미착수)
+
+1. `Account_Registry.daily_like_limit` 이관 — 스케줄러 연결 전제. 현재 한도는 실행 시 env로만.
+2. chromedriver 하드코딩 제거(`browser/start`의 `data.webdriver` 사용).
+3. 액션 전 로그인 세션 사전확인 + 만료 자동감지·Slack·계정별 격리.
+4. IDN-000038/039 AdsPower 프로필.
+5. Account_Registry 같은 이메일 중복 6건(신규 3 + 기존 3) — Excel 덮어쓰기 때 정리.
+6. 대량 계정 Cookie 주입·RPA 조사 — 지금 조사 금지(보안·범위 확대).
+
+## Rollback
+
+- 코드: `git revert 4bfccb6`(like 기능 전체, friend/follow 무영향).
+- Airtable: Account_Registry 신규 3건 삭제로 원복. Audit는 Evidence라 삭제하지 않음.
+- AdsPower `k1goch3g` 커널: 144 유지(Production 기준).
+
+---
+
 # 2026-09-07 15:27 KST — Instagram Like 자동화: YURA SUCCESS / IDN-000037 세션부재 추정 FAILED + 무인 운영 원칙 확정
 
 _기록 시각: 2026-09-07 15:27 KST · 상태: 진행 중(2계정 Canary 중 1계정 성공). Commit/Push 아직 안 함._
