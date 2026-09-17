@@ -1,3 +1,47 @@
+# 2026-09-17 11:15 KST — 문서 소급기록(Backfill) 3건: ERR-139(STEP 3-G 일일상한) · STEP 3 Prospect Discovery 스캐폴딩 · YouTube 발굴 커넥터(Lead-Acq 1-2a)
+
+_기록 시각: 2026-09-17 11:15 KST · 대상 커밋: `b5a3ff6`(07:21) / `fa81a1e`·`fb46fc5`(10:37~10:40) / `553a262`·`074d67a`(11:07~11:09) · 상태: 5건 전부 commit 완료, Push는 별도 승인 대기._
+
+## 판정
+
+**SUCCESS(문서화 완료 기준)** — 이 항목 자체는 신규 코드 실행이 아니라, 과거 세션(260831·260901·260905~260907)에 실행됐으나 당시 미문서화·미커밋 상태로 남아 있던 작업 3건을 260917 문서감사로 발견해 소급 기록·커밋한 것이다. 각 하위 작업의 실제 기능 판정(module_verified vs production_verified)은 아래 표 그대로 유지하며 이 배치 자체가 그 판정을 바꾸지 않는다.
+
+## 완료된 FACT
+
+| 작업 | 원 실행일 | 커밋 | 문서 반영 | 판정 |
+|---|---|---|---|---|
+| ERR-139 — 친구요청 처리량을 설정간격(90분)으로 오산정, 실측평균 113.6분이 원인이라 장애 없이도 하루 8건 상한 | 260907 | `b5a3ff6` | `docs/ERROR_DATABASE.md`(ERR-139) / `porting_logs/MERGE_JOURNAL.md`(260905~907 구간) / `docs/VALIDATION_STATUS.md`(`stepG_friend_automation_daily_limit_260907`) | RESOLVED — `.env` 간격조정(65분/1200초) 후 260907 10건 최초 도달, 260908~910 연속 10건 실측 |
+| STEP 3 Prospect Discovery 스캐폴딩 — Airtable 3테이블(`Outbound_Actions`/`Prospect_Groups`/`Prospect_Queue`) + `Account_Registry` 한도필드 3개 | 260901 | `fa81a1e`(코드/스크립트 기록)·`fb46fc5`(문서) | `porting_logs/MERGE_JOURNAL.md`(260901 구간) | 스키마는 production_verified(실측 존재). **크롤→Prospect_Queue적재→스코어링→승인→실행 파이프라인 자체는 한 번도 프로덕션 채택 안 됨**(`Prospect_Queue` 레코드 1건뿐, `status=filtered_out`) — 실제 라이브는 더 단순한 `outbound_pipeline.friend_daily_run()`(같은 트랙, Prospect_Queue 미사용) |
+| YouTube 채널 발굴 커넥터(Lead-Acq Track 1-2a) — `BaseCrawlConnector` 상속, `search.list`+`channels.list`→공통 Prospect dict, `prospect_id` 결정론적 sha256 | 260831 | `553a262`(코드)·`074d67a`(문서) | `porting_logs/MERGE_JOURNAL.md`(260831 구간) / `docs/VALIDATION_STATUS.md`(`youtube_connector_discovery_260831`, 205행) | module_verified만(Smoke Test 10/10 PASS, `requests.get` monkeypatch) — 실 API·Airtable·Scheduler 연결은 별도 Gate |
+
+## 현재 운영 상태 (260917 11:15)
+
+- Runtime 변경 없음 — 이 배치는 문서·과거 커밋 소급기록뿐, 코드 재배포·서비스 재시작·`.env`·Airtable Write 없음.
+- 직전 항목(STEP 1~6 안정화 Runbook, 아래)의 운영 상태(`FB_PROGRESSIVE_CRAWL_ENABLED=false`, IDN-000041 `automation_enabled=true`, posts=3 크롤)는 이 배치로 변경되지 않았다.
+- 이 항목은 2026-09-17 세션의 ".md 갱신 여부 정검" 요청(회장)에 대한 응답으로, 정검 결과 "`docs/CURRENT_RUNTIME_CONTEXT.md`가 07:21~11:09 배치를 반영하지 못하고 있다"는 Gap이 확인돼 이 항목으로 해소한다.
+
+## UNKNOWN
+
+- STEP 3 Prospect Discovery의 4개 테이블 생성 스크립트(`tools/create_prospect_groups_table.py` 등) 정확한 실행 시각·실행자 로그 없음(git 미추적 유지 — MERGE_JOURNAL 260901 구간 참조).
+- `Prospect_Queue` 기반 스코어링·회장검토 파이프라인을 앞으로 살릴지 폐기할지 미결정.
+- `docs/VALIDATION_STATUS.md`에 STEP 3 Prospect Discovery 스캐폴딩 자체의 행이 없었던 것이 의도적 생략인지 단순 누락인지 — 이번에 신규 행(`step3_prospect_discovery_scaffolding_260901`) 추가로 보완.
+
+## RISK
+
+- 낮음 — 코드·Runtime 변경이 없는 순수 문서화 작업. 단, YouTube 커넥터·Prospect Discovery 둘 다 "미완결 상태로 방치될 수 있다"는 패턴 자체가 재발 가능 — 신규 코드 작성 시 같은 세션 안에서 문서화·커밋까지 완결하는 습관 필요(단계 마무리 의무 체크리스트 재확인).
+
+## Rollback
+
+- 문서만의 변경이므로 각 커밋(`b5a3ff6`/`fa81a1e`/`fb46fc5`/`553a262`/`074d67a`) 개별 `git revert`로 원복 가능. 코드 커밋(`553a262`의 `modules/discovery/`, `fa81a1e`의 STEP 3 스캐폴딩 코드)은 되돌릴 경우 해당 파일도 함께 제거됨.
+
+## 다음 단계 (각각 회장 승인)
+
+1. 이번 배치(5개 커밋) Push 여부 — 별도 승인 대기.
+2. `Prospect_Queue` 기반 파이프라인 채택/폐기 결정.
+3. YouTube 커넥터의 다음 Gate(실 `YOUTUBE_API_KEY` 연동) 진행 여부.
+
+---
+
 # 2026-09-17 02:31 KST — 안정화 Master Runbook STEP 1~6 종료: AutoRecover·pytest 격리·PYTHONPATH 누수 제거·실패 그룹 Hold SUCCESS, Progressive Canary FAIL 후 원복
 
 _기록 시각: 2026-09-17 02:31 KST · 기간: 260915 15:09 ~ 260917 02:24 · 상태: 커밋 3건(162d1b9, b9d7c09, 2a554f6) Push 완료 — origin/master=2a554f6, ahead/behind 0._
