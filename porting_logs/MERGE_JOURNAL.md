@@ -2716,6 +2716,27 @@ push: 진행 예정(회장 승인 대기)
 
 ---
 
+## 260901 — STEP 3-B1R~F Prospect Discovery 파이프라인 구축(Airtable 3테이블 신설) — 미커밋 상태로 260917 소급 기록
+
+**배경:** 이 항목은 260901 당일 세션 기록이 없어(대화 기록 자체가 남아있지 않음) 260917에 파일 docstring·git 상태·Airtable 실제 스키마/레코드(Runtime Evidence)로만 재구성한다. 대화 기록은 증거가 아니므로(Evidence Rule) 아래는 전부 코드·Airtable 실측 기준이다.
+
+**1) Airtable 3테이블 신설(실측 확인, 260917):** `Outbound_Actions`(`tblEF7f7noFsJ2q1C`, "STEP 3(260901) — YUNA outbound engagement action 결과 SSOT"), `Prospect_Groups`(`tblvvRv4dawvcYzgk`, "STEP 3-B1R(260901)"), `Prospect_Queue`(`tblh0FCfKiVu1ahqV`, "STEP 3-C(260901)") — 3개 테이블 모두 현재 Airtable에 스키마·설명 그대로 존재 확인. `Account_Registry`에 `daily_follow_limit`/`daily_friend_limit`/`daily_comment_limit`(전부 "STEP 3-C: ... 비어있으면 0(차단)") 3개 필드도 존재 확인.
+
+**2) 로컬 스크립트 9개 — git 미추적 상태(260917 기준 그대로):** `tools/create_prospect_groups_table.py`(B1R 테이블 생성)·`tools/create_prospect_queue_table.py`(C 테이블 생성)·`tools/create_outbound_actions_table.py`(Outbound_Actions 생성)·`tools/add_account_registry_outbound_limits.py`(한도 필드 3개 추가)·`tools/set_account_outbound_limits.py`(계정별 한도 설정)·`tools/load_prospect_groups_from_xlsx.py`(회장 제공 "FB 그룹 리스트.xlsx" → Prospect_Groups upsert, email/비밀번호 컬럼은 읽지 않음 명시)·`tools/prospect_crawl.py`(그룹 회원 크롤 D1 / 개인 enrichment E)·`tools/friend_canary.py`(친구추가 Live Canary 1회)·`tools/fb_dom_probe.py`(DOM 진단 전용, 클릭 없음). 스키마가 실제로 존재하므로 테이블 생성 스크립트 4개는 **최소 1회 실행되어 성공한 것으로 판단**(module_verified 이상)하지만, 실행 시점의 콘솔 출력·커밋은 남아있지 않아 `production_verified`로는 기록하지 않는다.
+
+**3) Prospect_Queue 파이프라인 — 채택되지 않음(Runtime 확인):** `Prospect_Queue`에는 레코드가 **1건**뿐이다(`PQ-5B8DDAB264`, 생성 2026-09-01T07:46:20Z, `status=filtered_out`). `Outbound_Actions`는 11건 존재하나 260901 발생분은 전부 `action_type=friend_request`·`result=failed`(같은 날 캐너리 테스트로 보임; 260907 발생 1건은 `action_type=like`로 별도 스레드인 ERR-135~138 Instagram Like 작업 소속). 즉 "그룹 크롤 → Prospect_Queue 적재 → 스코어링 → 회장 검토(needs_review) → 승인 → 실행" 이라는 설계된 전체 흐름은 **한 번도 프로덕션으로 채택되지 않았다** — 실제로 라이브에 간 것은 이보다 단순한 `outbound_pipeline.friend_daily_run()`(Prospect_Groups의 그룹 URL만 순회, 그룹 페이지에서 바로 클릭 — Prospect_Queue 미사용) 쪽이며, 이는 다음 항목(260902~260904)에서 커밋 `48c4116`으로 이미 별도 기록돼 있다.
+
+**4) 판정(module_verified 한정):** Airtable 스키마·필드는 `production_verified`(실측 존재). Prospect_Queue 기반 크롤→스코어→리뷰 파이프라인 자체는 `module_verified` 이하(레코드 1건, 채택 안 됨) — CLAUDE.md 260805 규칙 13(module/e2e/production_verified 분리) 적용.
+
+**상태변경 총계(이번 260917 문서작업 자체):** 문서 신규 작성만(이 MERGE_JOURNAL 항목). 코드·Airtable·git 상태는 전부 260901~260917 사이에 이미 존재하던 상태를 그대로 서술한 것이며 이번 조사에서 추가로 변경한 것은 없다(read-only 조사 — Airtable read, git status/show, 로컬 파일 read만 수행).
+
+**잔여 과제(UNKNOWN, 추정 금지):** (1) 4개 테이블 생성 스크립트의 정확한 실행 시각·실행자 로그 없음. (2) `tests/test_youtube_connector_smoke.py`·`modules/discovery/`·`sd_out.txt`·`db/*.json`(4개) 등 나머지 미추적 항목은 이 Prospect 스레드와의 연관 여부가 파일명만으로는 확정되지 않아 이 항목에서 임의로 묶지 않았다 — 별도 확인 필요. (3) Prospect_Queue/스코어링 설계를 앞으로 살릴지 폐기할지는 회장 결정 대기.
+
+commit: 없음(9개 파일 전부 미추적 — git add/commit 안 함, 회장 승인 필요)
+push: 없음
+
+---
+
 ## 260902~260904 — STEP 3-G YUNA 친구요청 자동화: Human SOP 재구축 + 실제 발송 3건 + 24시간 분산 scheduler ON
 
 **배경:** 260902 세션에서 STEP 3-G+R(이름 국적판정 폐기)까지 마쳤으나 미커밋·scheduler OFF 상태로 종료. 이번 구간에서 라이브 검증 → 결함 4건 발견·수정 → 실제 Meta 친구요청 발송 → 24시간 분산 자동화까지 진행.
