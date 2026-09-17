@@ -2716,6 +2716,25 @@ push: 진행 예정(회장 승인 대기)
 
 ---
 
+## 260831 — YouTube 채널 발굴 커넥터(Lead-Acq Track 1-2a) 작성 — 미커밋 상태로 260917 소급 기록+커밋
+
+**배경:** 260917 "여기세션 .md 기록업데이트되었나 정검해줘" 요청으로 최근 커밋 전체를 해시 기준 문서 대조 감사 — 260901~260907 구간은 이미 백필돼 있었으나, `modules/discovery/youtube_connector.py`+`tests/test_youtube_connector_smoke.py`(파일 타임스탬프 8/31)만 git 미추적 + 어느 문서에도 언급 0건으로 누락 확인.
+
+**구현 내용:** `YouTubeConnector` — 기존 `modules/crawlers/base_connector.py::BaseCrawlConnector`를 그대로 상속(신규 ABC 없음), `naver_search_connector.py`/`domeggook_api_connector.py`와 동일한 "requests + os.getenv 키" 패턴. YouTube Data API v3 `search.list`(channel 검색) → `channels.list`(채널 상세) 2단계 호출을 공통 Prospect dict로 정규화한다. `prospect_id`는 정규화된 channel URL의 sha256 앞 12자로 결정론적 생성. Airtable 저장·Gemini 분류·Scheduler 연결은 이 커넥터의 범위가 아니다(별도 Gate).
+
+**검증:** Smoke Test 10/10 PASS(`requests.get` monkeypatch, 실제 네트워크·API Key·Airtable·Gemini·Scheduler 호출 0건) — `channelId` 추출/정규화/`prospect_id` 결정성만 검증하는 순수 로직 테스트. **`module_verified`만이며 `production_verified` 아님** — 실제 YouTube API 실호출·Airtable 저장·다른 Lead-Acq Track 단계와의 연결은 이번 백필 범위 밖(회장 규칙 13 적용).
+
+**260917 재검증:** 커밋 전 Smoke Test 재실행으로 여전히 10/10 PASS 확인 후, 코드 변경 없이 그대로 커밋.
+
+**상태변경 총계:** 코드 변경 0건(8/31 작성분 그대로), 신규 파일 3개 커밋(`modules/discovery/__init__.py`, `modules/discovery/youtube_connector.py`, `tests/test_youtube_connector_smoke.py`). Airtable Write·Runtime 연결·`.env` 변경 0건.
+
+**잔여 과제:** (1) `YOUTUBE_API_KEY` 실제 연동 후 실호출 검증(별도 Gate). (2) Airtable 저장 경로 설계(Prospect_Queue 등 기존 STEP 3 테이블 재사용 여부 확인 필요 — 아직 미검토). (3) "Lead-Acq Track 1" 전체 로드맵이 이 문서 체계에 아직 등록돼 있지 않음 — 다음 세션에서 Track 1의 전체 범위·단계를 확인해 별도 기록할지 결정 필요.
+
+commit: `553a262`(코드), 완료
+push: 완료(`fb46fc5..553a262`)
+
+---
+
 ## 260901 — STEP 3-B1R~F Prospect Discovery 파이프라인 구축(Airtable 3테이블 신설) — 미커밋 상태로 260917 소급 기록
 
 **배경:** 이 항목은 260901 당일 세션 기록이 없어(대화 기록 자체가 남아있지 않음) 260917에 파일 docstring·git 상태·Airtable 실제 스키마/레코드(Runtime Evidence)로만 재구성한다. 대화 기록은 증거가 아니므로(Evidence Rule) 아래는 전부 코드·Airtable 실측 기준이다.
