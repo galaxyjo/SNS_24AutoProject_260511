@@ -44,6 +44,18 @@ Describe "Get-AdsPowerRecoverDecision" {
     It "인터넷 판정이 브라우저·쿨다운보다 먼저" {
         Get-AdsPowerRecoverDecision -Obs (New-Obs @{ InternetOk = $false; BrowserOpen = $true; MinutesSinceRestart = 1 }) | Should Be "WAIT_NO_INTERNET"
     }
+    It "복구 3회 연속 실패면 GIVE_UP" {
+        Get-AdsPowerRecoverDecision -Obs (New-Obs @{ RestartFailures = 3 }) | Should Be "GIVE_UP"
+    }
+    It "GIVE_UP은 쿨다운보다 먼저 판정" {
+        Get-AdsPowerRecoverDecision -Obs (New-Obs @{ RestartFailures = 3; MinutesSinceRestart = 1 }) | Should Be "GIVE_UP"
+    }
+    It "브라우저 충돌방지는 GIVE_UP보다 먼저" {
+        Get-AdsPowerRecoverDecision -Obs (New-Obs @{ RestartFailures = 5; BrowserOpen = $true }) | Should Be "SKIP_BROWSER_OPEN"
+    }
+    It "2회 실패까지는 기존대로 복구 시도" {
+        Get-AdsPowerRecoverDecision -Obs (New-Obs @{ RestartFailures = 2; MinutesSinceRestart = 20 }) | Should Be "RESTART"
+    }
 }
 
 Describe "Get-MinutesSince / 상태파일" {
@@ -181,6 +193,54 @@ Describe "Invoke-AdsPowerAutoRecover" {
         } finally {
             if ($null -eq $prevEnv) { Remove-Item Env:\ELECTRON_NO_ATTACH_CONSOLE -ErrorAction SilentlyContinue } else { $env:ELECTRON_NO_ATTACH_CONSOLE = $prevEnv }
         }
+    }
+
+    It "3회째 복구 실패에 GIVE_UP Slack 정확히 1회 — 무응답 Slack은 보내지 않음" {
+        $StatePath = Join-Path $TestDrive "s_giveup_alert.json"
+        Write-RecoverState -Path $StatePath -State @{ consecutive_failures = 1; restart_failures = 2; last_restart = ""; last_action = ""; last_check = "" }
+        Mock Test-AdsPowerApi { $false }
+        Mock Get-Process { @() } -ParameterFilter { $Name -eq "SunBrowser" }
+        Mock Get-Process { @([pscustomobject]@{ StartTime = (Get-Date).AddMinutes(-30) }) } -ParameterFilter { $Name -eq "AdsPower Global" }
+        Invoke-AdsPowerAutoRecover | Should Be "RESTART"
+        Assert-MockCalled Send-RecoverSlack -Times 1 -Exactly -Scope It -ParameterFilter { $Text -match "자동복구를 중단" }
+        Assert-MockCalled Send-RecoverSlack -Times 0 -Exactly -Scope It -ParameterFilter { $Text -match "다음 시도는" }
+        (Read-RecoverState -Path $StatePath).restart_failures | Should Be 3
+    }
+
+    It "GIVE_UP 이후에는 프로세스 조작·Slack 0, API 확인은 계속" {
+        $StatePath = Join-Path $TestDrive "s_giveup_hold.json"
+        Write-RecoverState -Path $StatePath -State @{ consecutive_failures = 5; restart_failures = 3; last_restart = ""; last_action = "GIVE_UP"; last_check = "" }
+        Mock Test-AdsPowerApi { $false }
+        Mock Get-Process { @() } -ParameterFilter { $Name -eq "SunBrowser" }
+        Mock Get-Process { @([pscustomobject]@{ StartTime = (Get-Date).AddMinutes(-30) }) } -ParameterFilter { $Name -eq "AdsPower Global" }
+        Invoke-AdsPowerAutoRecover | Should Be "GIVE_UP"
+        Assert-MockCalled Start-Process -Times 0 -Exactly -Scope It
+        Assert-MockCalled Stop-Process -Times 0 -Exactly -Scope It
+        Assert-MockCalled Send-RecoverSlack -Times 0 -Exactly -Scope It
+        Assert-MockCalled Test-AdsPowerApi -Times 1 -Exactly -Scope It
+        (Read-RecoverState -Path $StatePath).restart_failures | Should Be 3
+    }
+
+    It "GIVE_UP 상태에서 API 정상이면 restart_failures 초기화 (수동복구 재개)" {
+        $StatePath = Join-Path $TestDrive "s_giveup_reset.json"
+        Write-RecoverState -Path $StatePath -State @{ consecutive_failures = 5; restart_failures = 3; last_restart = ""; last_action = "GIVE_UP"; last_check = "" }
+        Mock Test-AdsPowerApi { $true }
+        Invoke-AdsPowerAutoRecover | Should Be "OK"
+        $s = Read-RecoverState -Path $StatePath
+        $s.restart_failures | Should Be 0
+        $s.consecutive_failures | Should Be 0
+        Assert-MockCalled Start-Process -Times 0 -Exactly -Scope It
+    }
+
+    It "복구 성공 시 restart_failures 초기화" {
+        $StatePath = Join-Path $TestDrive "s_giveup_success.json"
+        Write-RecoverState -Path $StatePath -State @{ consecutive_failures = 1; restart_failures = 2; last_restart = ""; last_action = ""; last_check = "" }
+        $script:apiCalls = 0
+        Mock Test-AdsPowerApi { $script:apiCalls++; $script:apiCalls -gt 1 }
+        Mock Get-Process { @() } -ParameterFilter { $Name -eq "SunBrowser" }
+        Mock Get-Process { @([pscustomobject]@{ StartTime = (Get-Date).AddMinutes(-30) }) } -ParameterFilter { $Name -eq "AdsPower Global" }
+        Invoke-AdsPowerAutoRecover | Should Be "RESTART"
+        (Read-RecoverState -Path $StatePath).restart_failures | Should Be 0
     }
 
     It "DryRun은 판정만 — 조작·상태파일·로그·Slack 0" {
