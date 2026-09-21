@@ -645,6 +645,16 @@ def _progressive_crawl_enabled() -> bool:
     return os.getenv("FB_PROGRESSIVE_CRAWL_ENABLED", "false").strip().lower() == "true"
 
 
+def _focus_emulation_enabled() -> bool:
+    """260921 P1-1 — 포커스 흉내 단독 Flag. 기본 false(기존 동작 유지).
+
+    점진 스크롤(FB_PROGRESSIVE_CRAWL_ENABLED)과 분리한다. 260917 STEP 6에서
+    점진 스크롤이 Canary 기준 미달로 꺼질 때 같은 Flag에 묶여 있던 포커스
+    흉내까지 함께 꺼졌고, 그 뒤로 피드가 article 3개만 렌더링됐다.
+    """
+    return os.getenv("FB_FOCUS_EMULATION_ENABLED", "false").strip().lower() == "true"
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
@@ -761,7 +771,7 @@ def run(
     progressive = _progressive_crawl_enabled()
 
     try:
-        if progressive:
+        if progressive or _focus_emulation_enabled():
             # 페이지 로드 전에 설정해야 로드 시점부터 visible 로 렌더링된다(A/B 실측 조건과 동일).
             _enable_focus_emulation(driver)
         driver.get(target_url)

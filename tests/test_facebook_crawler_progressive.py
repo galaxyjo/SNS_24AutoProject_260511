@@ -87,7 +87,8 @@ def env(monkeypatch):
     state = SimpleNamespace(saved=[], driver=None, log=RecLogger())
 
     for name in ("FB_PROGRESSIVE_CRAWL_ENABLED", "FB_PROGRESSIVE_MAX_POSTS",
-                 "FB_PROGRESSIVE_MAX_ROUNDS", "FB_PROGRESSIVE_BUDGET_SEC"):
+                 "FB_PROGRESSIVE_MAX_ROUNDS", "FB_PROGRESSIVE_BUDGET_SEC",
+                 "FB_FOCUS_EMULATION_ENABLED"):
         monkeypatch.delenv(name, raising=False)
 
     monkeypatch.setattr(fc, "logger", state.log)
@@ -140,6 +141,36 @@ def test_flag_on_enables_focus_emulation_before_page_load(env, monkeypatch):
     assert kinds.index("cdp") < kinds.index("get")
     cdp = [c for c in d.calls if c[0] == "cdp"]
     assert cdp == [("cdp", "Emulation.setFocusEmulationEnabled", {"enabled": True})]
+
+
+# ── 2-A. 260921 P1-1: 포커스 흉내 단독 Flag (점진 스크롤과 분리) ─────────────
+def test_both_flags_off_makes_no_cdp_call(env, monkeypatch):
+    monkeypatch.setenv("FB_PROGRESSIVE_CRAWL_ENABLED", "false")
+    monkeypatch.setenv("FB_FOCUS_EMULATION_ENABLED", "false")
+    d = _run(env, [["post A"], ["post A", "post B"]])
+    assert not any(c[0] == "cdp" for c in d.calls)
+    assert d.bottom_scrolls() == 0
+    assert env.saved == ["post A"]
+
+
+def test_focus_flag_only_enables_cdp_without_progressive_scroll(env, monkeypatch):
+    monkeypatch.setenv("FB_FOCUS_EMULATION_ENABLED", "true")
+    d = _run(env, [["post A"], ["post A", "post B"]])
+    cdp = [c for c in d.calls if c[0] == "cdp"]
+    assert cdp == [("cdp", "Emulation.setFocusEmulationEnabled", {"enabled": True})]
+    kinds = [c[0] for c in d.calls]
+    assert kinds.index("cdp") < kinds.index("get")
+    assert d.bottom_scrolls() == 0
+    assert env.saved == ["post A"]
+    assert not env.log.has("info", "점진 수집 종료")
+
+
+def test_focus_flag_only_cdp_failure_continues_crawl(env, monkeypatch):
+    monkeypatch.setenv("FB_FOCUS_EMULATION_ENABLED", "true")
+    d = _run(env, [["post A"], ["post A", "post B"]], cdp_fail=True)
+    assert env.log.has("warning", "포커스 흉내 실패")
+    assert env.saved == ["post A"]
+    assert d.bottom_scrolls() == 0
 
 
 # ── 3. 라운드별 새 글만 처리, 빈 틀·중복 건너뜀 ─────────────────────────────
