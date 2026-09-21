@@ -398,9 +398,11 @@ def save_to_airtable(
                     post_status = "ready"
                     logger.info("[ImgBB] 업로드 성공 | " + image_url[:80])
                 else:
-                    logger.warning("[ImgBB] 업로드 실패 | " + str(_r.get("error")))
+                    logger.warning("[ImgBB] 업로드 실패 — 저장 생략(다음 크롤에서 재수집) | " + str(_r.get("error")))
+                    return False
             except Exception as _e:
-                logger.warning("[ImgBB] 예외 | " + str(_e))
+                logger.warning("[ImgBB] 예외 — 저장 생략(다음 크롤에서 재수집) | " + str(_e))
+                return False
         elif not caption:
             logger.warning("[ImgBB] caption 없음 — imgbb 생략 | " + original_image_url[:80])
 

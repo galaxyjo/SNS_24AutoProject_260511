@@ -441,3 +441,114 @@ class TestRunAllAccountsFailureVisibility:
         assert partial_lines
         for line in partial_lines:
             assert "EAA" not in line and "IGAA" not in line and "access_token" not in line.lower()
+
+
+class TestFacebookImgbbRehostContract:
+    """260921 D2 — ImgBB 재호스팅 실패 시 Airtable 저장·해시 생성을 하지 않는다.
+
+    실패해도 저장하던 기존 동작은 post_status=failed + 만료되는 fbcdn URL +
+    image_url_hash 를 남겨, 그 게시물을 재수집(중복 스킵)·게시(ready 아님)
+    양쪽에서 영구 배제시켰다. 저장을 생략하면 다음 크롤 주기가 곧 재시도다.
+    """
+
+    FBCDN_URL = "https://scontent-icn2-1.xx.fbcdn.net/v/t39.30808-6/817679170_122365539356007792_948090395073067512_n.jpg"
+
+    @staticmethod
+    def _repo_recording(saved):
+        class _Repo:
+            def validate_instagram_post_context(self, account, classification, canary=""):
+                return _publish_account(account)
+
+            def exists_post_by_image_url(self, image_url):
+                return False
+
+            def save_instagram_post(self, payload):
+                saved.append(payload)
+                return "rec-post"
+
+        return _Repo
+
+    def _patch_common(self, monkeypatch, facebook_crawler, saved):
+        monkeypatch.setattr(
+            "modules.infra.airtable_repository.AirtableRepository",
+            self._repo_recording(saved),
+        )
+        monkeypatch.setattr(
+            facebook_crawler, "generate_caption", lambda text: ("caption", "#tag")
+        )
+
+    def test_imgbb_success_saves_ready_with_hosted_url(self, monkeypatch):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        saved = []
+        self._patch_common(monkeypatch, facebook_crawler, saved)
+        monkeypatch.setattr(
+            facebook_crawler,
+            "upload_to_imgbb",
+            lambda image_url: {
+                "success": True,
+                "public_url": "https://i.ibb.co/fake/test.jpg",
+                "content_hash": "hash-1",
+            },
+        )
+
+        result = facebook_crawler.save_to_airtable(
+            self.FBCDN_URL,
+            "https://facebook.example/post",
+            text="item",
+            target_publish_account_code_ref="IDN-000041",
+            data_classification="production",
+        )
+
+        assert result is True
+        assert len(saved) == 1
+        assert saved[0]["post_status"] == "ready"
+        assert saved[0]["image_url"] == "https://i.ibb.co/fake/test.jpg"
+        assert saved[0]["original_image_url"] == self.FBCDN_URL
+        assert saved[0]["image_url_hash"]
+
+    @pytest.mark.parametrize("mode", ["returns_failure", "raises_exception"])
+    def test_imgbb_failure_saves_nothing_and_returns_false(self, monkeypatch, mode):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        saved = []
+        self._patch_common(monkeypatch, facebook_crawler, saved)
+
+        def _upload(image_url):
+            if mode == "raises_exception":
+                raise RuntimeError("imgbb read timeout")
+            return {"success": False, "error": "imgbb 업로드 실패: Read timed out."}
+
+        monkeypatch.setattr(facebook_crawler, "upload_to_imgbb", _upload)
+
+        result = facebook_crawler.save_to_airtable(
+            self.FBCDN_URL,
+            "https://facebook.example/post",
+            text="item",
+            target_publish_account_code_ref="IDN-000041",
+            data_classification="production",
+        )
+
+        assert result is False
+        assert saved == []
+
+    def test_non_fbcdn_image_keeps_existing_behavior(self, monkeypatch):
+        facebook_crawler = _import_facebook_crawler_without_optional_airtable_sdk(monkeypatch)
+        saved = []
+        self._patch_common(monkeypatch, facebook_crawler, saved)
+
+        def _must_not_be_called(image_url):
+            pytest.fail("비-fbcdn 이미지에 imgbb 재호스팅을 시도하면 안 됨")
+
+        monkeypatch.setattr(facebook_crawler, "upload_to_imgbb", _must_not_be_called)
+
+        result = facebook_crawler.save_to_airtable(
+            "https://img.example/item.jpg",
+            "https://facebook.example/post",
+            text="item",
+            target_publish_account_code_ref="IDN-000041",
+            data_classification="production",
+        )
+
+        assert result is True
+        assert len(saved) == 1
+        assert saved[0]["post_status"] == "failed"
+        assert saved[0]["image_url"] == "https://img.example/item.jpg"
