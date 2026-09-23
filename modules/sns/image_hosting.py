@@ -1,5 +1,6 @@
 import os
 import hashlib
+import time
 import requests
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,45 @@ DOWNLOAD_TIMEOUT = 15
 UPLOAD_TIMEOUT = 30
 MAX_FILE_SIZE = 32 * 1024 * 1024  # 32MB
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+# 260923 P1-2 Sprint1 — imgbb POST 성공 후의 공개 URL 검증(HEAD) 전용 설정.
+# 업로드 자체가 아니라 이 검증이 일시 Timeout으로 실패해 정상 URL을 실패 처리한
+# 사례가 4슬롯 발생했다(09-22 07:00/19:01, 09-23 07:00/10:00 — 전부
+# "URL 검증 실패: ... Read timeout", 해당 URL은 이후 HEAD 200 정상 확인).
+HEAD_TIMEOUT = 10
+HEAD_MAX_ATTEMPTS = 3
+HEAD_RETRY_DELAYS = (2, 5)  # 1→2 회차 대기, 2→3 회차 대기
+# 일시 오류로 보고 재시도할 HTTP 상태: 408(Request Timeout) / 429(Too Many Requests) / 5xx
+HEAD_RETRYABLE_STATUS = (408, 429)
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    """재시도 대상 상태코드인지 판정한다. 408·429·5xx만 일시 오류로 본다."""
+    return status_code in HEAD_RETRYABLE_STATUS or status_code >= 500
+
+
+def _verify_public_url(public_url: str) -> dict:
+    """imgbb POST 성공 이후의 공개 URL 접근 검증.
+
+    재시도 대상: Timeout/RequestException 등 네트워크 예외, HTTP 408·429·5xx.
+    즉시 실패: 408·429를 제외한 4xx(확정적 응답이라 재시도가 무의미).
+    업로드 POST는 이 함수 안에서 절대 재호출하지 않는다(중복 업로드 방지).
+    모두 실패하면 기존과 동일한 error 문자열로 Fail-closed한다.
+    """
+    last_error = ""
+    for attempt in range(1, HEAD_MAX_ATTEMPTS + 1):
+        try:
+            check = requests.head(public_url, timeout=HEAD_TIMEOUT)
+            if check.status_code == 200:
+                return {"ok": True}
+            last_error = f"공개 URL 접근 실패: {check.status_code}"
+            if not _is_retryable_status(check.status_code):
+                return {"ok": False, "error": last_error}
+        except Exception as e:
+            last_error = f"URL 검증 실패: {e}"
+        if attempt < HEAD_MAX_ATTEMPTS:
+            time.sleep(HEAD_RETRY_DELAYS[attempt - 1])
+    return {"ok": False, "error": last_error}
 
 
 def upload_to_imgbb(source_url: str, api_key: Optional[str] = None) -> dict:
@@ -114,11 +154,8 @@ def upload_local_file_to_imgbb(local_path, api_key: Optional[str] = None) -> dic
 
     public_url = data["data"]["url"]
 
-    try:
-        check = requests.head(public_url, timeout=10)
-        if check.status_code != 200:
-            return {"success": False, "error": f"공개 URL 접근 실패: {check.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": f"URL 검증 실패: {e}"}
+    verified = _verify_public_url(public_url)
+    if not verified["ok"]:
+        return {"success": False, "error": verified["error"]}
 
     return {"success": True, "public_url": public_url, "content_hash": content_hash}
