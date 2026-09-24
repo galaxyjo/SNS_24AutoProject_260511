@@ -5,6 +5,10 @@ import requests
 from pathlib import Path
 from typing import Optional
 
+from modules.common.logger import get_logger
+
+logger = get_logger(__name__)
+
 IMGBB_UPLOAD_URL = "https://api.imgbb.com/1/upload"
 DOWNLOAD_TIMEOUT = 15
 UPLOAD_TIMEOUT = 30
@@ -42,12 +46,21 @@ def _verify_public_url(public_url: str) -> dict:
             if check.status_code == 200:
                 return {"ok": True}
             last_error = f"공개 URL 접근 실패: {check.status_code}"
+            reason = f"HTTP {check.status_code}"
             if not _is_retryable_status(check.status_code):
                 return {"ok": False, "error": last_error}
         except Exception as e:
             last_error = f"URL 검증 실패: {e}"
+            reason = type(e).__name__
         if attempt < HEAD_MAX_ATTEMPTS:
-            time.sleep(HEAD_RETRY_DELAYS[attempt - 1])
+            wait_sec = HEAD_RETRY_DELAYS[attempt - 1]
+            # 260924 — 재시도가 실제로 발동했는지 운영 로그에서 확인하기 위한 1줄.
+            # 공개 URL·토큰·응답 본문은 남기지 않는다(실패 유형/상태코드만).
+            logger.warning(
+                "[ImgBB] 공개 URL 검증 재시도 | attempt=%d/%d | reason=%s | next_wait=%ds",
+                attempt, HEAD_MAX_ATTEMPTS, reason, wait_sec,
+            )
+            time.sleep(wait_sec)
     return {"ok": False, "error": last_error}
 
 

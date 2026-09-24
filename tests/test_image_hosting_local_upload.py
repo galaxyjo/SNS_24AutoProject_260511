@@ -183,3 +183,77 @@ def test_head_5xx_is_retried_then_fail_closed(fake_png):
     assert "공개 URL 접근 실패: 503" in result["error"]
     assert post.call_count == 1
     assert head.call_count == 3
+
+
+# ── 260924 P1-2 Micro-task — HEAD 재시도 관측 로그 ──────────────────────────
+RETRY_LOG = "공개 URL 검증 재시도"
+
+
+def _retry_logs(caplog):
+    return [r for r in caplog.records if RETRY_LOG in r.getMessage()]
+
+
+def test_retry_log_emitted_on_timeout_then_success(fake_png, caplog):
+    ok = MagicMock(); ok.status_code = 200
+    post = MagicMock(return_value=_post_ok())
+    head = MagicMock(side_effect=[requests.exceptions.ReadTimeout("t1"), ok])
+    with caplog.at_level("WARNING"), \
+         patch("modules.sns.image_hosting.requests.post", post), \
+         patch("modules.sns.image_hosting.requests.head", head), \
+         patch("modules.sns.image_hosting.time.sleep"):
+        result = image_hosting.upload_local_file_to_imgbb(fake_png, api_key="k")
+    assert result["success"] is True
+    logs = _retry_logs(caplog)
+    assert len(logs) == 1
+    msg = logs[0].getMessage()
+    assert "attempt=1/3" in msg and "ReadTimeout" in msg and "next_wait=2s" in msg
+    assert "i.ibb.co" not in msg and "https://" not in msg   # URL·토큰·본문 미기록
+
+
+@pytest.mark.parametrize(("status", "expected"), [(429, "HTTP 429"), (503, "HTTP 503")])
+def test_retry_log_emitted_on_retryable_status_then_success(fake_png, caplog, status, expected):
+    busy = MagicMock(); busy.status_code = status
+    ok = MagicMock(); ok.status_code = 200
+    post = MagicMock(return_value=_post_ok())
+    head = MagicMock(side_effect=[busy, ok])
+    with caplog.at_level("WARNING"), \
+         patch("modules.sns.image_hosting.requests.post", post), \
+         patch("modules.sns.image_hosting.requests.head", head), \
+         patch("modules.sns.image_hosting.time.sleep"):
+        result = image_hosting.upload_local_file_to_imgbb(fake_png, api_key="k")
+    assert result["success"] is True
+    logs = _retry_logs(caplog)
+    assert len(logs) == 1
+    assert expected in logs[0].getMessage()
+
+
+def test_no_retry_log_on_first_attempt_success(fake_png, caplog):
+    ok = MagicMock(); ok.status_code = 200
+    with caplog.at_level("WARNING"), \
+         patch("modules.sns.image_hosting.requests.post", return_value=_post_ok()), \
+         patch("modules.sns.image_hosting.requests.head", return_value=ok):
+        result = image_hosting.upload_local_file_to_imgbb(fake_png, api_key="k")
+    assert result["success"] is True
+    assert _retry_logs(caplog) == []
+
+
+def test_no_retry_log_on_immediate_404(fake_png, caplog):
+    nf = MagicMock(); nf.status_code = 404
+    with caplog.at_level("WARNING"), \
+         patch("modules.sns.image_hosting.requests.post", return_value=_post_ok()), \
+         patch("modules.sns.image_hosting.requests.head", return_value=nf):
+        result = image_hosting.upload_local_file_to_imgbb(fake_png, api_key="k")
+    assert result["success"] is False
+    assert _retry_logs(caplog) == []
+
+
+def test_public_url_never_appears_in_retry_log(fake_png, caplog):
+    post = MagicMock(return_value=_post_ok())
+    head = MagicMock(side_effect=requests.exceptions.ReadTimeout("boom"))
+    with caplog.at_level("WARNING"), \
+         patch("modules.sns.image_hosting.requests.post", post), \
+         patch("modules.sns.image_hosting.requests.head", head), \
+         patch("modules.sns.image_hosting.time.sleep"):
+        image_hosting.upload_local_file_to_imgbb(fake_png, api_key="k")
+    for rec in _retry_logs(caplog):
+        assert "https://" not in rec.getMessage()
