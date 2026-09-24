@@ -627,6 +627,46 @@ class AirtableRepository(RepositoryInterface):
 
         return bool(r.json().get("records"))
 
+    def find_account_post_by_content_id(self, account_code_ref: str, content_id: str) -> bool:
+        """260924 P1-2 Sprint2 — 이 계정에 이 content_id(Vault 패키지 식별자)로
+        저장된 레코드가 상태 무관하게 존재하는지 확인한다.
+
+        기존 find_account_post_by_source_url()은 같은 주제(source_url)를 반복
+        재사용하는 운영 방식과 충돌해, 한 번도 저장된 적 없는 새 패키지까지
+        과거 게시물 때문에 stale로 오분류했다(09-22 실측). 패키지 단위
+        식별자로 판정해 "정확히 이 패키지가 이미 저장됐는가"만 묻는다.
+        content_id 필드가 없던 시절 레코드는 공란이므로 이 조회에 걸리지
+        않는다 — 레거시 판정은 호출부가 기존 source_url 경로로 처리한다.
+        """
+        account_code_ref = (account_code_ref or "").strip()
+        content_id = (content_id or "").strip()
+        if not account_code_ref or not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code_ref):
+            return False
+        if not content_id:
+            return False
+        content_id_escaped = content_id.replace("\\", "\\\\").replace("'", "\'")
+        try:
+            r = requests.get(
+                _url("Instagram_Posts"),
+                headers=_headers(),
+                params={
+                    "filterByFormula": (
+                        f"AND({{account_code_ref}}='{account_code_ref}',"
+                        f"{{content_id}}='{content_id_escaped}')"
+                    ),
+                    "maxRecords": 1,
+                },
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
+        return bool(r.json().get("records"))
+
     def fetch_due_scheduled_post(self, account_code_ref: str, now_iso: str) -> "InstagramPost | None":
         """260801 Step6B — scheduled_upload_at<=now_iso인 due Record를 특정
         계정에서 정확히 1건만 반환한다(가장 이른 예약시각 우선). 미래 예약

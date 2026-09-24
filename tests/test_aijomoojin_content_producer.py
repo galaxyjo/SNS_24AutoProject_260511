@@ -113,15 +113,17 @@ class TestSchedulerRegistration:
 
 # ── Part B: _job_aijomoojin_content_producer() 단일 실행 통합 ─────────────
 
-def _write_fixture_package(vault_root, content_id, source_url="https://example.com/x", caption="c", channel_status="pending"):
+def _write_fixture_package(vault_root, content_id, source_url="https://example.com/x", caption="c", channel_status="pending", created_at="2026-08-04T00:00:00", idempotency_version=None):
     (vault_root / "content").mkdir(parents=True, exist_ok=True)
     (vault_root / "images").mkdir(parents=True, exist_ok=True)
     fields = {
         "content_id": content_id, "topic_id": "3.9", "title": "t", "source_url": source_url,
         "claims": "m", "status": "complete", "caption": caption, "hashtags": "#x",
-        "image_path": f"images/{content_id}.png", "created_at": "2026-08-04T00:00:00",
+        "image_path": f"images/{content_id}.png", "created_at": created_at,
         "channel_status": channel_status,
     }
+    if idempotency_version is not None:
+        fields["idempotency_version"] = idempotency_version
     md_path, img_path = cpb._content_paths(content_id, vault_root)
     md_path.write_text(cpb._render_frontmatter(fields) + f"\n{caption}\n", encoding="utf-8")
     img_path.write_bytes(b"fake-png-bytes")
@@ -129,7 +131,8 @@ def _write_fixture_package(vault_root, content_id, source_url="https://example.c
 
 
 def _fake_repo(active_status="", exists_by_source_url=False, known_source_urls=frozenset(),
-                exists_by_image_url=False, confirm_after_save=None, save_raises=None, save_record_id="recNEW"):
+                exists_by_image_url=False, confirm_after_save=None, save_raises=None, save_record_id="recNEW",
+                known_content_ids=frozenset(), content_id_owner_account=AIJOMOOJIN):
     """exists_by_source_url: 전체 source_url에 대한 기본값(True/False).
     known_source_urls: 이 집합에 있는 source_url만 True로 취급(둘 다 주어지면
     known_source_urls가 우선) — stale/genuine 파일이 섞여 있을 때 URL별로
@@ -139,7 +142,8 @@ def _fake_repo(active_status="", exists_by_source_url=False, known_source_urls=f
     exists_by_image_url 대신 confirm_after_save를 반환한다 — 빈 record_id
     read-after-write 확인 테스트에서 "게시 전엔 중복 아님, 저장 후엔 확인됨"을
     구분하기 위함."""
-    calls = {"save": [], "active_status_checks": [], "source_url_checks": [], "image_url_checks": 0}
+    calls = {"save": [], "active_status_checks": [], "source_url_checks": [], "image_url_checks": 0,
+             "content_id_checks": []}
 
     class _FakeRepo:
         def get_active_post_status_for_account(self, account_code_ref):
@@ -151,6 +155,12 @@ def _fake_repo(active_status="", exists_by_source_url=False, known_source_urls=f
             if known_source_urls:
                 return source_url in known_source_urls
             return exists_by_source_url
+
+        def find_account_post_by_content_id(self, account_code_ref, content_id):
+            calls["content_id_checks"].append((account_code_ref, content_id))
+            if account_code_ref != content_id_owner_account:
+                return False
+            return content_id in known_content_ids
 
         def exists_post_by_image_url(self, image_url):
             calls["image_url_checks"] += 1
@@ -853,3 +863,157 @@ class TestGetActivePostStatusRepositoryContract:
             repo = AirtableRepository()
             with pytest.raises(RepositoryUnavailableError):
                 repo.get_active_post_status_for_account("IDN-000036")
+
+
+# ── 260924 P1-2 Sprint2: content_id 기반 pending 회수(stale 오분류 차단) ──────
+V2 = cpb.IDEMPOTENCY_VERSION   # 표식이 있는 신규 패키지(= content_id 판정 대상)
+
+
+class TestContentIdIdempotency:
+    def test_save_payload_contains_content_id(self, monkeypatch, _flag_on, vault_root):
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "cid-new-1", source_url="https://t.example/a", idempotency_version=V2)
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("재개 대상이 있어 신규생성 금지"))
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: {"success": True, "public_url": "https://i.ibb.co/a.jpg"})
+        repo, calls = _fake_repo(active_status="", known_content_ids=frozenset())
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert len(calls["save"]) == 1
+        assert calls["save"][0]["content_id"] == "cid-new-1"
+
+    def test_same_source_url_different_content_id_is_resumed(self, monkeypatch, _flag_on, vault_root):
+        """09-22 실사고 재현 — 같은 source_url의 과거 게시물이 있어도 새 패키지는 회수한다."""
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "cid-new-2", source_url="https://reused.example/topic", idempotency_version=V2)
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("회수 대상이 있어 신규생성 금지"))
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: {"success": True, "public_url": "https://i.ibb.co/b.jpg"})
+        repo, calls = _fake_repo(active_status="", exists_by_source_url=True, known_content_ids=frozenset())
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert len(calls["save"]) == 1
+        assert calls["save"][0]["content_id"] == "cid-new-2"
+        assert calls["source_url_checks"] == []
+        assert calls["content_id_checks"] == [(AIJOMOOJIN, "cid-new-2")]
+
+    @pytest.mark.parametrize("_state", ["posted", "ready", "uploading", "failed"])
+    def test_same_content_id_any_state_is_not_resumed(self, monkeypatch, _flag_on, vault_root, _state):
+        """동일 content_id 레코드가 어떤 상태로든 존재하면 회수·재게시 0."""
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "cid-dup-1", source_url="https://t.example/c", idempotency_version=V2)
+
+        def _fake_create(**kwargs):
+            _write_fixture_package(vault_root, "cid-fresh-1", source_url="https://t.example/d", idempotency_version=V2)
+            return cpb.PackageResult(success=True, content_id="cid-fresh-1", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: _fake_create())
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: {"success": True, "public_url": "https://i.ibb.co/c.jpg"})
+        repo, calls = _fake_repo(active_status="", known_content_ids=frozenset({"cid-dup-1"}))
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        saved_ids = [c["content_id"] for c in calls["save"]]
+        assert "cid-dup-1" not in saved_ids
+        assert cpb.read_frontmatter("cid-dup-1", vault_root)["channel_status"] == "pending"
+
+    def test_other_account_same_content_id_has_no_effect(self, monkeypatch, _flag_on, vault_root):
+        """같은 content_id가 다른 계정에 있어도 이 계정의 회수를 막지 않는다."""
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "cid-xacct-1", source_url="https://t.example/e", idempotency_version=V2)
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("회수 대상이 있어 신규생성 금지"))
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: {"success": True, "public_url": "https://i.ibb.co/e.jpg"})
+        repo, calls = _fake_repo(active_status="", known_content_ids=frozenset({"cid-xacct-1"}),
+                                 content_id_owner_account="IDN-000099")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert len(calls["save"]) == 1
+        assert calls["save"][0]["content_id"] == "cid-xacct-1"
+        assert calls["content_id_checks"] == [(AIJOMOOJIN, "cid-xacct-1")]
+
+    def test_legacy_package_keeps_source_url_contract(self, monkeypatch, _flag_on, vault_root):
+        """content_id 필드 도입 이전 패키지는 기존 source_url 판정을 그대로 쓴다."""
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "legacy-1", source_url="https://already.example/posted")
+
+        def _fake_create(**kwargs):
+            _write_fixture_package(vault_root, "legacy-fresh-1", source_url="https://t.example/f", idempotency_version=V2)
+            return cpb.PackageResult(success=True, content_id="legacy-fresh-1", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: _fake_create())
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: {"success": True, "public_url": "https://i.ibb.co/f.jpg"})
+        repo, calls = _fake_repo(active_status="", exists_by_source_url=True)
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert calls["source_url_checks"] == [(AIJOMOOJIN, "https://already.example/posted")]
+        assert calls["content_id_checks"] == []
+        assert cpb.read_frontmatter("legacy-1", vault_root)["channel_status"] == "pending"
+
+    def test_marker_decides_not_date_old_created_at_with_marker_uses_content_id(
+        self, monkeypatch, _flag_on, vault_root
+    ):
+        """배포 전후 날짜와 무관 — created_at이 과거라도 표식이 있으면 content_id 판정."""
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "cid-olddate-1", source_url="https://reused.example/topic",
+                               created_at="2026-01-01T00:00:00", idempotency_version=V2)
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("회수 대상이 있어 신규생성 금지"))
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: {"success": True, "public_url": "https://i.ibb.co/g.jpg"})
+        repo, calls = _fake_repo(active_status="", exists_by_source_url=True, known_content_ids=frozenset())
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert calls["content_id_checks"] == [(AIJOMOOJIN, "cid-olddate-1")]
+        assert calls["source_url_checks"] == []
+        assert len(calls["save"]) == 1
+
+    def test_marker_decides_not_date_future_created_at_without_marker_is_legacy(
+        self, monkeypatch, _flag_on, vault_root
+    ):
+        """created_at이 미래여도 표식이 없으면 레거시(source_url) 판정."""
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "legacy-future-1", source_url="https://already.example/posted",
+                               created_at="2099-01-01T00:00:00")
+
+        def _fake_create(**kwargs):
+            _write_fixture_package(vault_root, "fresh-after-legacy", source_url="https://t.example/h",
+                                   idempotency_version=V2)
+            return cpb.PackageResult(success=True, content_id="fresh-after-legacy", status="complete")
+
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: _fake_create())
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: {"success": True, "public_url": "https://i.ibb.co/i.jpg"})
+        repo, calls = _fake_repo(active_status="", exists_by_source_url=True)
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert calls["source_url_checks"] == [(AIJOMOOJIN, "https://already.example/posted")]
+        assert calls["content_id_checks"] == []
+        assert cpb.read_frontmatter("legacy-future-1", vault_root)["channel_status"] == "pending"
+
+    def test_new_package_creation_records_marker(self, monkeypatch, _flag_on, vault_root):
+        """신규 생성 경로가 frontmatter에 표식을 기록한다(기존 파일 Backfill 없음)."""
+        assert cpb.IDEMPOTENCY_VERSION == 2
+        _write_fixture_package(vault_root, "no-marker-1")
+        assert "idempotency_version" not in cpb.read_frontmatter("no-marker-1", vault_root)

@@ -787,6 +787,26 @@ def _job_insta_upload():
 
 AIJOMOOJIN_SLOT_ACCOUNT_CODE = "IDN-000036"
 
+# 260924 P1-2 Sprint2 — content_package_builder 와 동일한 판정 계약 버전.
+# (Producer 의 지연 import 패턴을 깨지 않기 위해 여기서 값만 맞춘다.)
+IDEMPOTENCY_VERSION = 2
+
+
+def _is_legacy_package(frontmatter: "dict | None") -> bool:
+    """content_id 멱등 판정이 가능한 패키지인지, 표식(idempotency_version)으로만
+    구분한다.
+
+    날짜·시간·Timezone 기준 분기는 쓰지 않는다 — 배포 직전에 생성된 패키지를
+    신규로 오판해 재게시할 수 있기 때문이다(260924 검수 지적). 표식이 없거나
+    기대 버전 미만이면 레거시로 간주해 기존 source_url 판정을 유지한다
+    (Fail-safe: 판정 불가 시 재게시 위험을 만들지 않는다).
+    """
+    raw = (frontmatter or {}).get("idempotency_version", None)
+    try:
+        return int(raw) < IDEMPOTENCY_VERSION
+    except (TypeError, ValueError):
+        return True
+
 
 @handle_errors(task="aijomoojin_slot_post", notify_fn=_slack)
 def _job_aijomoojin_scheduled_post():
@@ -1145,10 +1165,21 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
         for candidate_id in pending_content_ids:
             candidate_fields = read_frontmatter(candidate_id, DEFAULT_VAULT_ROOT)
             candidate_source_url = candidate_fields.get("source_url", "") if candidate_fields else ""
-            already_in_airtable = (
-                repo.find_account_post_by_source_url(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, candidate_source_url)
-                if candidate_source_url else False
-            )
+            # 260924 P1-2 Sprint2 — stale 판정을 패키지 단위(content_id)로 분리한다.
+            # source_url 판정은 같은 주제를 반복 재사용하는 운영과 충돌해, 한 번도
+            # 저장된 적 없는 새 패키지까지 과거 게시물 때문에 영구 stale 처리했다.
+            # idempotency_version 표식이 없는 레거시 패키지는 Airtable 레코드에
+            # content_id가 없어 이 조회로 판정할 수 없으므로, 그때만 기존
+            # source_url 판정을 그대로 유지한다(날짜 기준 분기 없음).
+            if _is_legacy_package(candidate_fields):
+                already_in_airtable = (
+                    repo.find_account_post_by_source_url(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, candidate_source_url)
+                    if candidate_source_url else False
+                )
+            else:
+                already_in_airtable = repo.find_account_post_by_content_id(
+                    AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, candidate_id
+                )
             if already_in_airtable:
                 logger.info(
                     "[AijomoojinProducer] pending 마커가 stale(이미 Airtable 존재) — "
@@ -1277,6 +1308,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
                 "post_status": "ready",
                 "data_classification": "production",
                 "source_url": source_url,
+                "content_id": content_id,
             })
         except Exception as exc:
             logger.error(

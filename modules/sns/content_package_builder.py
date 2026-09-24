@@ -49,6 +49,10 @@ _HERO_ICON_SEQUENCE = ("target", "search", "gear", "graph")
 
 DEFAULT_VAULT_ROOT = Path(__file__).resolve().parents[2] / "vault"
 
+# 260924 P1-2 Sprint2 — pending 회수 판정 계약 버전(날짜 기준 분기 제거용 표식).
+# 신규 생성 패키지에만 frontmatter 로 기록되며, 표식이 없으면 레거시다.
+IDEMPOTENCY_VERSION = 2
+
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 _FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 
@@ -508,6 +512,11 @@ def create_content_package(
         "image_path": f"images/{content_id}.png",
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "channel_status": "pending",
+        # 260924 P1-2 Sprint2 — pending 회수 판정 계약 버전.
+        # 2 = Airtable Instagram_Posts.content_id 로 멱등 판정 가능한 패키지.
+        # 이 키가 없는 기존 패키지는 레거시로 보고 기존 source_url 판정을 쓴다
+        # (기존 Vault 파일 Backfill 금지 — 표식은 신규 생성분에만 기록한다).
+        "idempotency_version": IDEMPOTENCY_VERSION,
     }
     if carousel is not None:
         frontmatter["content_fingerprint"] = carousel.content_fingerprint
