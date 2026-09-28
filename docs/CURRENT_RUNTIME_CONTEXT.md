@@ -1,3 +1,88 @@
+# 2026-09-28 11:03 KST — 세션 중단(노트북 종료): AdsPower 일일 Open 상한 Root Cause 확정 + 재구독 완료, Canary는 오후 재개 대기
+
+_기록 시각: 2026-09-28 11:03 KST · 상태: 회장 노트북 종료로 전체 자동화 정지. Canary·후속 작업은 회장 귀가 후 재개._
+
+## 판정
+
+**Root Cause 확정 / 복구 미완** — AdsPower 크롤·친구요청 전면 정지의 원인이 `Exceeding open daily limit, recovery after 2 hours`(무료 플랜 일일 브라우저 Open 상한)로 확정됐다. 유료 재구독은 회장이 완료했으나, **검증 Canary는 미실행**이다.
+
+## 확정 FACT
+
+| 항목 | 값 |
+|---|---|
+| 장애 구간 | 09-27 07:16:42 첫 실패 → 12:16:49 자연복구 → 14:18:03 마지막 정상 attach → 이후 연속 실패(약 20시간) |
+| Root Cause | `browser/start` 응답 `{"code":-1,"msg":"Exceeding open daily limit, recovery after 2 hours"}` (HTTP 200, `data` 키 없음) |
+| 확정 근거 | 진단 로그 커밋 `56f4b5f` 반영 후 2026-09-28 10:48:14 첫 출력 |
+| Runtime | launcher `56f4b5f`, 기동 2026-09-28 10:46:55 (회장 재시작) = HEAD = origin/master |
+| 재구독 | **완료(회장, 09-28 오전)** — 상한 해제 실효 여부 미검증 |
+| 소진 추정 | 크롤 30분 주기 × 4그룹 = 일 약 192회 Open |
+
+## 폐기된 이전 판정 2건
+
+- 09-26 "AdsPower 유료화로 API 차단" — `user/list` 응답을 근거로 삼았으나 크롤러는 그 엔드포인트를 호출하지 않음. **무관한 증거였다.**
+- 09-28 오전 "유료화 아님" — 방향은 맞았으나 부정확. 정확히는 *유료 전환 차단*이 아니라 **무료 플랜의 일일 Open 횟수 제한**이다.
+
+## 다음 세션 재개 지점 (순서 고정)
+
+1. **Canary 1회** — `k1bto3j4` `browser/start → DRIVER attach → stop`. 성공 기준: `code=-1` 0건 / attach 성공 / 정상 종료 / 기존 게시 영향·중복 실행 0건. **회장 승인 후 실행.**
+2. 복구 SUCCESS 시 → **ImgBB 지속장애**(슬롯 4건 손실, HEAD 검증 3/3 실패)
+3. **HOLD 유지**: Meta 9004(Root Cause UNKNOWN) / 7일 Soak 재시작 / NSFW 대체처리
+
+## 미해결 결함 (분리 유지)
+
+- **ImgBB HEAD 검증 지속 실패** — 09-27 13:00·16:00·19:00, 09-28 07:00·10:00 각 3/3 실패. 같은 패키지 `3-5-260927-54c5b2e9` 4회 연속 회수 후 실패(= content_id 회수 로직은 정상 동작)
+- **Meta 9004/2207052** — Soak 중 2건(09-26·09-27 **둘 다 08:00 슬롯**), Root Cause UNKNOWN
+- **감시 사각** — `_job_adspower_health`가 `/status`만 확인해 이번 장애 내내 `healthy=true` 오판. Health 기준에서 제외 중, 보완은 별건
+
+## 7일 Soak 판정
+
+**FAIL·중단** (2026-09-26 00:00 ~ 09-28 10:25, 58시간 25분 경과 시점). 게시 성공 5 / 실패 2(9004) / 스킵 4(ImgBB) = **슬롯 손실 6건**. 안전지표(중복게시·오계정·MissedSlot·재기동·절전·수동개입)는 전부 0건 유지.
+
+---
+
+# 2026-09-28 11:03 KST — AdsPower 무료 플랜 Open 상한(Hard Blocker) 확정·재구독 완료 / Canary는 회장 귀가 후 대기
+
+_기록 시각: 2026-09-28 11:03 KST · Runtime: `56f4b5f`(2026-09-28 10:46:55 기동) = HEAD = origin/master · 상태: 재구독 완료, Canary 미실행, 노트북 종료됨(관측 중단)._
+
+## 판정
+
+**Root Cause CONFIRMED** — AdsPower **무료 플랜의 일일 브라우저 Open 상한 초과**. 응답 원문: `code=-1 | msg=Exceeding open daily limit, recovery after 2 hours`. 코드 결함 아님(외부 서비스 사용량 제한).
+
+## 확정 FACT
+
+| 항목 | 값 |
+|---|---|
+| 장애 구간 | 09-27 07:16:42 첫 실패 → 12:16:49 자연복구 → 14:18:03 마지막 정상 → 이후 연속 실패(09-28 10:48까지 약 20시간) |
+| 정상 구간 | 09-23~09-26 일 165~193회 attach 성공(상한 이하) |
+| 진단 경로 | `start_browser()`가 `data["data"]["debug_port"]` 직접 참조 → 실패 시 `KeyError('data')`만 남아 원인 불명이었음 |
+| 해소 | `56f4b5f` — 응답 `code`/`msg`(120자 절단)/`keys` 로깅 + 명시적 예외. 재기동 2분 만에 원인 포착 |
+| 영향 | 크롤·친구요청 전면 정지. aijomoojin 게시는 AdsPower 미사용이라 무관 |
+| 감시 사각 | `_job_adspower_health`가 `/status`만 확인 → `code:0` 반환으로 계속 `healthy=true` 오판. Health 기준에서 제외 유지(보완은 별건) |
+
+## 폐기된 과거 판정 (재사용 금지)
+
+- 09-26 "AdsPower 유료화로 API 차단" — 무관한 `user/list` 응답을 근거로 삼은 오판
+- 09-28 오전 "유료화 아님" — 방향은 맞았으나 실제는 **무료 플랜 Open 횟수 제한**이었음
+
+## 이번 구간 상태변경
+
+- Commit·Push: `56f4b5f`(진단 로그 2파일, Target Test 31 passed, 회귀 무관 실패 1건만) → `71f36d0..56f4b5f` Fast-forward Push 완료
+- Runtime: 회장 재시작으로 `56f4b5f` 반영(10:46:55). boot_state·Boot 로그·watchdog 3중 대조 확인
+- **AdsPower 유료 재구독 완료(회장, 11:03 이전)** — 효과 검증은 Canary 대기
+- 코드·Airtable·Vault·`.env` 추가 변경 0건
+
+## 대기 중인 다음 단계
+
+1. **Canary 1회** — 회장 귀가 후 승인받아 `k1bto3j4` `browser/start → DRIVER attach → stop`. 성공 기준: `code=-1` 0건 / attach 성공 / 정상 종료 / 기존 게시 영향·중복 실행 0건
+2. Canary SUCCESS 시 → **ImgBB 지속장애**(슬롯 4건 손실, HEAD 검증 3/3 실패 반복)
+3. **HOLD 유지**: Meta 9004(Root Cause UNKNOWN, 09-26·09-27 08:00 슬롯 2건), 7일 Soak 재시작
+
+## 노트북 종료 기록
+
+2026-09-28 11:03 KST 회장 노트북 종료 — 이 시점부터 Runtime 정지, Soak 관측 불가. 재가동 후 상태 재확인 필요.
+
+---
+
 # 2026-09-17 11:15 KST — 문서 소급기록(Backfill) 3건: ERR-139(STEP 3-G 일일상한) · STEP 3 Prospect Discovery 스캐폴딩 · YouTube 발굴 커넥터(Lead-Acq 1-2a)
 
 _기록 시각: 2026-09-17 11:15 KST · 대상 커밋: `b5a3ff6`(07:21) / `fa81a1e`·`fb46fc5`(10:37~10:40) / `553a262`·`074d67a`(11:07~11:09) · 상태: 5건 전부 commit 완료, Push는 별도 승인 대기._

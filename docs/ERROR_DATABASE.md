@@ -2698,3 +2698,27 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **범위 밖(원인 미조사):** 09-11(0건) · 09-12(4건) · 09-14(3건) · 09-16(3건) 미달일 — 이 기록의 범위가 아니다.
 
 **관련:** ERR-120, ERR-121, ERR-131, INC-055, `stepG_friend_automation_daily_limit_260907`
+
+---
+
+## ERR-140 | AdsPower 무료 플랜 일일 브라우저 Open 상한 초과 — 크롤·친구요청 20시간 전면 정지, 원인은 응답 미기록으로 이틀간 UNKNOWN
+
+**발견 경위:** 260928 10:17 회장 중간보고 요청으로 7일 Soak 집계 중, `[FB Crawler] 크롤링 실패 | 'data'` 202건·`yuna_friend_request 실패` 12건을 확인. 09-26까지는 attach 성공 192회/일로 완전 정상이었다.
+
+**Raw:** 실패 사유가 전부 `'data'`(KeyError 문자열)뿐. `STAGE:DRIVER`(attach 성공) 일자별 집계 — 09-23 165 / 09-24 191 / 09-25 193 / 09-26 192 / 09-27 74 / 09-28 0. 전환 시각: **09-27 07:16:42 첫 실패 → 12:16:49 자연복구 → 14:18:03 마지막 정상 attach → 이후 161건 연속 실패(약 20시간)**. 이 구간 내내 `/status`와 `browser/active`는 `code:0` 정상 응답.
+
+**Root Cause (Confirmed):** `browser/start`가 HTTP 200으로 **`{"code":-1,"msg":"Exceeding open daily limit, recovery after 2 hours"}`** 를 반환 — **AdsPower 무료 플랜의 일일 브라우저 Open 횟수 상한 초과**. 응답에 `data` 키가 없어 `start_browser()`의 `data["data"]["debug_port"]`가 `KeyError('data')`를 냈다. 소진 경로: 크롤 30분 주기 × 4그룹 = **일 약 192회 Open**. "recovery after 2 hours"가 09-27 12:16 자연복구와 14:18 재소진을 정확히 설명한다.
+
+**진단이 이틀 걸린 이유:** `start_browser()`가 응답 본문을 전혀 로깅하지 않아 전 로그에 `code`/`msg`가 0건이었다(FP-101). 260928 10:46:55 진단 로그(`56f4b5f`) 반영 후 **10:48:14에 첫 출력** — 2분 만에 확정됐다.
+
+**폐기된 오판 2건:**
+- 260928 오전 1차 — "AdsPower 유료화로 API 차단". 근거로 든 `{"code":-1,"msg":"This feature is only available in paid subscriptions."}`는 **`user/list` 엔드포인트 응답**인데 크롤러는 그 엔드포인트를 호출하지 않는다. **무관한 증거를 원인으로 연결한 오판**(회장 "9월24일에도 똑같았어?" 질의로 발견).
+- 260928 오전 2차 정정 — "유료화 아님". 방향은 맞았으나 부정확. 정확히는 *유료 전환 차단*이 아니라 **무료 플랜 사용량 제한**이다.
+
+**Fix:** (1) 관측 — `56f4b5f` `start_browser()`가 `data`/`debug_port` 부재 시 `user`/`code`/`msg`(120자 절단)/`keys`를 `logger.error`로 남기고 명시적 `RuntimeError`를 던진다(정상 경로 무변경, smoke test 27→31). (2) 해소 — **회장이 260928 오전 AdsPower 유료 재구독 완료**. 상한 해제 실효 여부는 Canary 미실행으로 **미검증**.
+
+**검증:** 재구독 후 `k1bto3j4` `browser/start → DRIVER attach → stop` Canary 1회 예정(회장 귀가 후). 성공 기준: `code=-1` 0건 / attach 성공 / 정상 종료 / 기존 게시 영향·중복 실행 0건.
+
+**상태:** PARTIAL — Root Cause 확정·관측 보강 완료, **복구 검증 미완**.
+
+**관련:** FP-101, INC-062, `modules/sns/facebook_crawler.py:start_browser()`

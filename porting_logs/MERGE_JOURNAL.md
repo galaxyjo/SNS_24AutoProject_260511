@@ -2912,3 +2912,29 @@ commit: 162d1b9(AutoRecover), b9d7c09(pytest 격리), 2a554f6(문서)
 push: 완료 260917 — origin/master 72d376a..2a554f6
 
 ---
+
+---
+
+## 260925~260928 — aijomoojin 토큰 무제한 전환 / P1-2 Soak FAIL / AdsPower Open 상한 Root Cause 확정
+
+**배경:** 260925 19:35 aijomoojin IGAA 토큰 만료로 20:00 슬롯 게시 실패(`code 190`). 60일 만료가 다계정 확장과 구조적으로 충돌해 `facebook_login`(무제한 페이지 토큰)으로 전환.
+
+**1) 토큰 전환(260925, 코드 변경 0):** Page `345212562017606`(AI 자동화) ↔ IG `17841467725643424` 프로페셔널 연결 → 단기 사용자 토큰 → **장기 사용자 토큰 교환** → 무제한 페이지 토큰 발급 → `.env` `AI_INSTA_ACCESS_TOKEN` 교체 → Airtable `IDN-000036.api_provider` `instagram_login`→`facebook_login`(1필드). 검증: `type=PAGE`/만료 없음/`instagram_content_publish`/Page↔IG 일치/IG 조회 200. Runtime 반영 22:45:33. 실경로 `graph.facebook.com/v21.0/.../media` 전환 확인.
+   - 과정 중 실수 3종 실측(드래그 복사 잘림·JSON 찌꺼기 `true`·빈 값) → 매뉴얼에 그대로 기록.
+
+**2) 코드 수정 4건:**
+- `15105bc` — ImgBB 공개 URL 검증(HEAD) 재시도 3회(408·429·5xx·네트워크 예외만, 4xx 즉시확정). POST는 1회 유지(중복 업로드 방지). 최악 지연 약 37초. 16 tests.
+- `1be5cb0` — pending 회수 판정을 `account+source_url` → **`account+content_id`** 로 분리. Airtable `Instagram_Posts.content_id` 필드 1개 신설(Backfill 0). 레거시 구분은 날짜가 아니라 **`idempotency_version` 표식**(GPT 검수 지적 반영). 56 tests.
+- `c809f8c` — HEAD 재시도 발동 시 `attempt/max`·사유·대기시간 WARNING 1줄(URL·토큰 미기록). 22 tests.
+- `56f4b5f` — `start_browser()` 응답 진단(`code`/`msg`/`keys`) + 명시적 예외. 31 tests.
+
+**3) 문서:** `docs/Instagram_토큰발급_매뉴얼.md` 전면 교체(`71f36d0`, 94→275줄) — `instagram_login`(60일) 폐기, `facebook_login` 무제한 9단계 표준, 계정별 체크리스트, 오류 8종, 검증 명령.
+
+**4) Soak 결과(FAIL):** 09-26 00:00 시작, 58시간 25분 경과 시점 중단. 게시 5성공/2실패(9004)/4스킵(ImgBB). Runtime 실증 — HEAD 재시도가 09-26 19:01 실제 발동해 20:00 슬롯 구제, content_id 회수가 동일 패키지를 4회 정확히 회수.
+
+**5) AdsPower(ERR-140/FP-101/INC-062):** 09-27 14:18~ 20시간 정지. 원인 `Exceeding open daily limit`. 유료화 오판 2회 후 철회, 진단 로그로 확정. 회장 재구독 완료, **Canary 미실행**.
+
+**미해결:** ImgBB HEAD 지속 실패(슬롯 4건) / Meta 9004 Root Cause UNKNOWN(Soak 중 2건, 둘 다 08:00 슬롯) / 크롤 소스 고갈 / AdsPower Health 판정 기준.
+
+commit: 15105bc, 1be5cb0, c809f8c, 71f36d0, 56f4b5f (전부 push 완료)
+push: 완료 — origin/master=56f4b5f
