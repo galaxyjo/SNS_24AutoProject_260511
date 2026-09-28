@@ -7,7 +7,11 @@ extract_image_url() 로직을 Selenium 없이 mock으로 검증.
 import pytest
 from selenium.webdriver.common.by import By
 
-from modules.sns.facebook_crawler import extract_image_url, _PROFILE_PATTERNS
+import io
+import json
+from unittest.mock import patch
+
+from modules.sns.facebook_crawler import extract_image_url, _PROFILE_PATTERNS, start_browser
 
 
 # ── Mock 헬퍼 ─────────────────────────────────────────────────────────────────
@@ -160,3 +164,58 @@ def test_mixed_small_and_large_with_driver():
             return 800
 
     assert extract_image_url(elem, driver=_SelectiveDriver()) == _VALID2
+
+
+# ── 260928 AdsPower browser/start 응답 진단 ─────────────────────────────────
+# 09-27 07:16~ 크롤·친구요청 전면 정지 시 로그에 KeyError('data') 문자열만 남아
+# code/msg를 확인할 수 없었다. 실패 응답을 구분해 진단 정보를 남기는지 검증한다.
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._b = json.dumps(payload).encode("utf-8")
+
+    def read(self):
+        return self._b
+
+
+def _urlopen_returning(payload):
+    return lambda *a, **k: _FakeResp(payload)
+
+
+def test_start_browser_returns_debug_port_on_success():
+    """정상 응답이면 기존과 동일하게 debug_port를 그대로 반환한다."""
+    ok = {"code": 0, "msg": "success", "data": {"debug_port": "51234"}}
+    with patch("urllib.request.urlopen", _urlopen_returning(ok)):
+        assert start_browser("k1bto3j4") == "51234"
+
+
+def test_start_browser_logs_code_msg_when_data_missing(caplog):
+    """data 키가 없는 실패 응답이면 code/msg를 남기고 명시적 예외를 던진다."""
+    bad = {"code": -1, "msg": "This feature is only available in paid subscriptions."}
+    with caplog.at_level("ERROR"), patch("urllib.request.urlopen", _urlopen_returning(bad)):
+        with pytest.raises(RuntimeError) as ei:
+            start_browser("k1bto3j4")
+    assert "code=-1" in str(ei.value)
+    logs = [r.getMessage() for r in caplog.records if "browser/start 실패" in r.getMessage()]
+    assert len(logs) == 1
+    msg = logs[0]
+    assert "code=-1" in msg and "paid subscriptions" in msg and "user=k1bto3j4" in msg
+
+
+def test_start_browser_logs_when_debug_port_missing(caplog):
+    """data는 있으나 debug_port가 비어도 동일하게 진단 후 실패한다."""
+    bad = {"code": 0, "msg": "success", "data": {}}
+    with caplog.at_level("ERROR"), patch("urllib.request.urlopen", _urlopen_returning(bad)):
+        with pytest.raises(RuntimeError):
+            start_browser("k1bto3j4")
+    assert any("browser/start 실패" in r.getMessage() for r in caplog.records)
+
+
+def test_start_browser_log_truncates_long_msg(caplog):
+    """msg가 길어도 120자로 절단해 로그 폭주를 막는다."""
+    bad = {"code": -1, "msg": "x" * 500}
+    with caplog.at_level("ERROR"), patch("urllib.request.urlopen", _urlopen_returning(bad)):
+        with pytest.raises(RuntimeError):
+            start_browser("k1bto3j4")
+    logs = [r.getMessage() for r in caplog.records if "browser/start 실패" in r.getMessage()]
+    assert "x" * 120 in logs[0] and "x" * 121 not in logs[0]

@@ -70,7 +70,18 @@ def start_browser(adspower_user_id: str = "k1bto3j4"):
         timeout=10,
     )
     data = json.loads(r.read())
-    return data["data"]["debug_port"]
+    # 260928 — 실패 시 KeyError('data') 문자열만 남아 원인 판별이 불가능했다
+    # (09-27 07:16~ 크롤·친구요청 전면 정지, 전 로그에 code/msg 0건). AdsPower가
+    # HTTP 200으로 실패 응답을 주는 경우를 구분해 code/msg만 남긴다 — 응답에
+    # 토큰·개인정보는 없으며 msg는 120자로 절단한다. 정상 경로는 무변경.
+    port = (data.get("data") or {}).get("debug_port")
+    if not port:
+        logger.error(
+            "[AdsPower] browser/start 실패 | user=%s | code=%s | msg=%s | keys=%s",
+            adspower_user_id, data.get("code"), str(data.get("msg"))[:120], sorted(data.keys()),
+        )
+        raise RuntimeError(f"adspower browser/start failed: code={data.get('code')}")
+    return port
 
 
 def stop_browser(adspower_user_id: str) -> None:
