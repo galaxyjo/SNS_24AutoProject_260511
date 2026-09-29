@@ -2932,7 +2932,7 @@ push: 완료 260917 — origin/master 72d376a..2a554f6
 
 **4) Soak 결과(FAIL):** 09-26 00:00 시작, 58시간 25분 경과 시점 중단. 게시 5성공/2실패(9004)/4스킵(ImgBB). Runtime 실증 — HEAD 재시도가 09-26 19:01 실제 발동해 20:00 슬롯 구제, content_id 회수가 동일 패키지를 4회 정확히 회수.
 
-**5) AdsPower(ERR-140/FP-101/INC-062):** 09-27 14:18~ 20시간 정지. 원인 `Exceeding open daily limit`. 유료화 오판 2회 후 철회, 진단 로그로 확정. 회장 재구독 완료, **Canary 미실행**.
+**5) AdsPower(ERR-140/FP-101/INC-062):** 09-27 14:18~ 20시간 정지. 원인 `Exceeding open daily limit`. 유료화 오판 2회 후 철회, 진단 로그로 확정. **정정(260929): 재구독 완료 기록은 사실 아님 — 유료 결제 미실행, 10월 예정.** Canary 미실행, Hard Blocker 지속. 무료 한도 실측 약 19회/24h(09-29). **회장 결정: (b) 현상 수용 — 빈도·그룹 무변경, 10월 유료 결제로 해소.**
 
 **미해결:** ImgBB HEAD 지속 실패(슬롯 4건) / Meta 9004 Root Cause UNKNOWN(Soak 중 2건, 둘 다 08:00 슬롯) / 크롤 소스 고갈 / AdsPower Health 판정 기준.
 
