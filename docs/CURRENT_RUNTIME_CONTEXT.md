@@ -1,3 +1,48 @@
+# 2026-10-04 06:40 ICT — 7일 Soak 재시작 Baseline (회장 Hanoi 귀가, 09-29~10-04 노트북 전원 off)
+
+_기록 시각: 2026-10-04 06:40 ICT · **시스템 Timezone이 KST→ICT(+0700)로 변경됨** · HEAD=origin/master=`75d0400` · 상태: launcher·SNS_Watchdog 모두 Running, AC 연결(68%)_
+
+## 판정
+
+**IN_PROGRESS / 착수 전 1건 선결** — 7일 Soak 재시작 Baseline은 확보됐다. 다만 Timezone 변경 때문에 **watchdog Heartbeat 판정이 전원 오판 중(ERR-141)** 이라 현재 상태로 Soak에 들어가면 "장애를 탐지하는 쪽"이 먼지 신호로 가려진다. `SNS_Watchdog` 재시작 1건이 선결 조건이다.
+
+## Baseline FACT (261004 06:40 ICT)
+
+| 항목 | 값 |
+|---|---|
+| 전원 off 구간 | 09-29 14:00 KST ~ 10-04 05:44 ICT — 로그 공백 확인(09-30~10-03 활동 0건, 중간 매칭은 `next run at` 필드 오탐) |
+| 기동 | watchdog 05:44:29 → launcher 재시작 05:44:57 → launcher 첫 로그 05:44:53 |
+| Timezone | `SE Asia Standard Time` (+0700). **aijomoojin 슬롯/프로듀서 Cron은 `timezone="Asia/Bangkok"` 명시** → 절대 시각 변동 없음(06/09/12/15/18 ICT 게시, 1시간 전 Producer) |
+| 스케줄러 | 잡 17종 등록(슬롯 5 + 프로듀서 5 + 크롤/업로드/KPI/engagement/댓글/친구요청 등) |
+| 크롤 | attach 성공 **8건**(05:46·05:47×2·05:48, 06:16·06:17·06:18), `browser/start` 실패 **0건** — AdsPower 한도 창이 05:46에 새로 시작됨 |
+| 게시 | 06:00 ICT 슬롯 `ready 후보 없음 — 스킵`(05:00 Producer 시각에 launcher 미기동). 다음 Producer 08:00 / 슬롯 09:00 ICT |
+| vault | `vault/content/*.md` 167개, `channel_status: pending` **0건**(회수 대기 없음) |
+| 오류 | 10-04 `logs/error/error.log` **0건** |
+| watchdog | **ERR-141 — Heartbeat 전원 오판**, ALERT 200건/WARN 208건(1시간). 자동 재시작은 하지 않으므로 운영 중단은 없음 |
+
+## 변경 없음을 확인한 항목
+
+- 코드·`.env`·Airtable 변경 0건. HEAD=origin/master=`75d0400`, 작업트리 깨끗(untracked `db/*.json` 4개만).
+- AdsPower 방침은 **결정 (b) 현상 수용** 유지 — 빈도·그룹 무변경. 오늘도 약 19회 소진 후 멈출 것으로 예상(ERR-140).
+
+## 알아둘 변화 (결함 아님)
+
+- 친구요청 활동창 `OUTBOUND_FRIEND_HOUR_START=8 / END=23`은 **로컬시각 기준**이므로 이제 08:00~23:00 **ICT**다(이전 KST 기준 대비 절대시각 +2시간). 베트남 현지 시간대에 맞춰진 셈이며 의도적 변경은 아니다.
+- `logs/watchdog.log` 시각은 KST, `logs/summary/app.log` 시각은 ICT로 **2시간 어긋나 있다**(ERR-141). 재시작 전까지 두 로그를 같은 축으로 읽지 않는다.
+- `python-dotenv could not parse statement starting at line 17/18/45` 경고는 **기존 문제**(09-27·09-28·09-29·10-04 매 기동 발생). `.env` 17·18·45행이 `#` 없는 한글 메모 줄이라 발생. 동작 영향 없음 — 백로그.
+
+## 다음 단계 (순서 고정)
+
+1. **`SNS_Watchdog` 재시작**(회장, 관리자 권한) → watchdog 시각이 ICT로 일치하고 Heartbeat 오판·Slack 폭주가 멈추는지 확인 = ERR-141 해소 검증
+2. 확인 후 **7일 Soak 공식 시작 시각 확정**(261004 ~06:40 ICT 기준) 및 일일 점검 항목 고정: 게시 성공/실패/스킵 · 중복게시 0 · 오계정 0 · MissedSlot · 크롤 attach 수 · AdsPower 차단 시각 · ImgBB HEAD 재시도 · 신규 ERROR
+3. **HOLD 유지**: ImgBB HEAD 지속 실패 / Meta 9004(UNKNOWN) / AdsPower Health 판정 기준 / ERR-141 구조적 수정(코드)
+
+## 관련
+
+ERR-141(신규) · FP-102(신규) · ERR-140(ACCEPTED) · INC-062
+
+---
+
 # 2026-09-29 11:32 KST — 정정: AdsPower 유료 재구독은 **미실행(10월 예정)** / 무료 한도 실측 약 19회 = Hard Blocker 진행 중
 
 _기록 시각: 2026-09-29 11:32 KST · Runtime: launcher·`SNS_Watchdog` 모두 Running · HEAD=origin/master=`2f226fc` · 상태: 크롤·친구요청 차단 지속, 게시 경로 정상_

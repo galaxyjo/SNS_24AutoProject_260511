@@ -2728,3 +2728,33 @@ POST 2/3는 원문 자체가 공백(텍스트 없는 게시물)이라 정상 제
 **상태:** ACCEPTED(10월 결제까지 현상 수용) — Root Cause 확정·한도 수치 실측·관측 보강 완료. **회장 결정(260929 14:51, ACCEPT):** (b) **현상 수용** — 크롤 빈도·그룹 수를 바꾸지 않고, 하루 약 19회 한도 안에서 오전 구간만 수집되는 상태를 그대로 받아들인다. 해소는 **2026년 10월 유료 결제**로 처리한다. (a) 빈도 조정 / (c) 그룹 축소는 채택하지 않았으므로 **실행 금지**. 260928 기록의 PARTIAL·재구독 완료 서술은 260929 정정됨.
 
 **관련:** FP-101, INC-062, `modules/sns/facebook_crawler.py:start_browser()`
+
+---
+
+## ERR-141 | Timezone 변경(KST→ICT)으로 watchdog Heartbeat 판정이 전원 False Negative — 1시간에 ALERT 200건, 실제 스케줄러는 정상
+
+**발견 경위:** 261004 06:40 ICT, 7일 Soak 재시작 Baseline 점검 중 `logs/watchdog.log` 마지막 줄이 `[ALERT] SchedulerHeartbeatDm 연속 101회 실패 — 수동 점검 필요`인 것을 확인. 그러나 `logs/summary/app.log`에는 같은 시각까지 `[SchedulerHeartbeat][dm] alive`가 **55회 정상 기록**(마지막 06:40:02)돼 있었다.
+
+**Raw:**
+- 시스템 시각 `2026-10-04 06:40:12 +0700` / TimeZone `SE Asia Standard Time`
+- `logs/watchdog.log` 마지막 줄 `[2026-10-04 08:39:47] [HEARTBEAT] alive` → **watchdog 프로세스는 +0900(KST)으로 기록 중, 정확히 +2시간 차이**
+- 10-04 watchdog 액션 집계: `[WARN] 208 / [ALERT] 200 / [HEARTBEAT] 102 / [INFO] 2 / [RECOVER] 1`
+- 첫 실패 `[2026-10-04 07:46:03] [ALERT] SchedulerHeartbeatDm 연속 3회 실패`(= 05:46 ICT, launcher 기동 직후부터 계속)
+- `Scheduler(main)`도 동일하게 `Heartbeat 끊김(7분 초과)` 반복
+
+**Root Cause (Confirmed):** `watchdog.ps1`의 `Test-SchedulerHeartbeat`가 app.log의 wall-clock 문자열을 `[datetime]::ParseExact`로 **Timezone 없는 naive 값**으로 읽고, 그것을 자기 프로세스의 `(Get-Date)`와 그대로 뺀다.
+```
+$ts = [datetime]::ParseExact($matches[1], "yyyy-MM-dd HH:mm:ss", $null)
+return (((Get-Date) - $ts).TotalMinutes -lt $staleMinutes)   # $HEARTBEAT_STALE_MIN = 7
+```
+launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 계산하므로 차이가 항상 +120분 → `7분` 임계값을 무조건 초과 → `fail-closed`로 false 반환. `.NET`은 `TimeZoneInfo.Local`을 프로세스 단위로 캐시하므로, Timezone이 바뀐 시점 이후에도 해당 프로세스는 옛 KST를 계속 쓴다(watchdog 서비스는 TZ 변경 직전에 기동된 것으로 보임 — 기동 05:44:29 ICT, launcher 재기동 05:44:57 ICT).
+
+**영향:**
+- `Register-Failure`가 임계값(3회) 초과 후 **매 체크마다** `Send-SlackAlert ... "error"`를 호출 → 1시간에 약 200건 Slack 오류 알림 시도. **경보 채널이 사실상 무력화**(crying wolf).
+- 반면 **운영 중단은 없다** — 해당 분기는 `자동 재시작 없음, 수동 확인 필요`로만 처리되므로 launcher 재시작 루프는 발생하지 않았다. 실제 스케줄러·게시·크롤 경로는 정상.
+
+**Fix:** 미실행. 즉시 조치는 `SNS_Watchdog` 서비스 재시작(새 프로세스가 현재 TZ=ICT를 읽어 양쪽 시각이 일치) — **구조적 수정 아님**. 근본 수정(ParseExact 결과를 TZ-aware로 비교하거나, launcher가 Heartbeat를 UTC/epoch로 기록)은 코드 변경이므로 별도 승인 대상.
+
+**상태:** OPEN — Root Cause 확정, 조치 미실행.
+
+**관련:** ERR-089(Heartbeat 판정 도입), FP-102, `watchdog.ps1:105` `Test-SchedulerHeartbeat`
