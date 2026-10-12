@@ -8,7 +8,7 @@
 
 로그 라우팅:
     - 콘솔              : INFO+
-    - logs/summary/app.log  : INFO+  (RotatingFileHandler, 5MB × 5)
+    - logs/summary/app.log  : INFO+  (RotatingFileHandler, 5MB × 12)
     - logs/error/error.log  : ERROR+ (RotatingFileHandler, 5MB × 5)
     - logs/function/{name}.log : DEBUG+ (모듈별, RotatingFileHandler, 2MB × 3)
 """
@@ -40,7 +40,9 @@ def _make_handler(path: Path, level: int, max_bytes: int = 5 * 1024 * 1024, back
     h.setFormatter(_formatter)
     return h
 
-_summary_handler = _make_handler(_SUMMARY_DIR / "app.log", logging.INFO)
+# 261012 — app.log 실측 약 5.8MB/일 → 5MB×5(약 5일)로는 7일 검증 Evidence 부족.
+# backup 12(최대 65MB, 현재 속도 약 11일). 크기 기준이라 일수 보장은 아님.
+_summary_handler = _make_handler(_SUMMARY_DIR / "app.log", logging.INFO, backup=12)
 _error_handler   = _make_handler(_ERROR_DIR   / "error.log", logging.ERROR)
 
 _console_handler = logging.StreamHandler()
