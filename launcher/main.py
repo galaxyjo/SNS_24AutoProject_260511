@@ -157,7 +157,13 @@ def _job_fb_crawl(
     data_classification: str,
     canary_run_id: str = "",
 ):
-    from modules.sns.facebook_crawler import adspower_opens_today, run_all_accounts
+    from modules.sns.facebook_crawler import (
+        adspower_open_blocked_until, adspower_opens_today, run_all_accounts)
+    # 261012 P5 — AdsPower가 알려준 한도 해제 시각 전에는 Open을 시도하지 않는다.
+    blocked_until = adspower_open_blocked_until()
+    if blocked_until:
+        logger.info(f"[Main] fb_crawl 스킵 — AdsPower Open 한도 초과, {blocked_until}까지 보류")
+        return
     # 261012 P3 — 무료 한도(실측 20회/일) 중 나머지를 친구요청 몫으로 남긴다.
     opens = adspower_opens_today()
     if opens >= _CRAWL_OPEN_CEILING:
@@ -1638,6 +1644,13 @@ def _job_yuna_friend_request():
             f"[YunaFriend] 활동시간대 밖({hour}시) — 스킵 "
             f"({_FRIEND_ACTIVE_HOUR_START}~{_FRIEND_ACTIVE_HOUR_END}시만 발송)"
         )
+        return
+
+    # 261012 P5 — AdsPower Open 한도 초과 기록이 있으면 해제 시각까지 브라우저를 열지 않는다.
+    from modules.sns.facebook_crawler import adspower_open_blocked_until
+    open_blocked_until = adspower_open_blocked_until()
+    if open_blocked_until:
+        logger.info(f"[YunaFriend] AdsPower Open 한도 초과 — {open_blocked_until}까지 스킵(브라우저 미기동)")
         return
 
     from modules.infra.airtable_repository import AirtableRepository

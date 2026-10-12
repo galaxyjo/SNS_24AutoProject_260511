@@ -3,7 +3,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from dotenv import load_dotenv
@@ -71,27 +71,66 @@ def is_blocked_supplier(author_name: str, blocklist: list) -> dict:
 _ADSPOWER_OPEN_DAILY_PATH = Path(__file__).resolve().parents[2] / "db" / "adspower_open_daily.json"
 
 
-def adspower_opens_today() -> int:
-    """오늘(로컬 날짜) 성공한 AdsPower browser/start 횟수. 파일 없음·손상·날짜 다름은 0."""
+# 261012 P5 — 한도 초과 응답의 "recovery after N hours"를 blocked_until로 같은 파일에
+# 남겨, 그 시각 전에는 크롤·친구 잡이 Open을 시도하지 않게 한다(반복 실패·중복 경보 억제).
+# 문구를 해석하지 못하면 기록하지 않는다(기존 동작 유지). 차단은 최대 24시간.
+_OPEN_LIMIT_MAX_BLOCK_HOURS = 24
+_OPEN_STATE_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _read_open_state() -> dict:
     try:
         data = json.loads(_ADSPOWER_OPEN_DAILY_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return 0
+        return {}
+
+
+def _write_open_state(data: dict) -> None:
+    _ADSPOWER_OPEN_DAILY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _ADSPOWER_OPEN_DAILY_PATH.write_text(json.dumps(data), encoding="utf-8")
+
+
+def adspower_opens_today() -> int:
+    """오늘(로컬 날짜) 성공한 AdsPower browser/start 횟수. 파일 없음·손상·날짜 다름은 0."""
+    data = _read_open_state()
     if data.get("date") != datetime.now().strftime("%Y-%m-%d"):
         return 0
     return int(data.get("count", 0))
 
 
+def adspower_open_blocked_until() -> str:
+    """한도 초과로 기록된 해제 시각이 아직 미래면 그 문자열, 아니면 ""."""
+    until = _read_open_state().get("blocked_until", "")
+    try:
+        return until if datetime.now() < datetime.strptime(until, _OPEN_STATE_TS_FMT) else ""
+    except Exception:
+        return ""
+
+
 def _record_adspower_open() -> None:
     try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        count = adspower_opens_today() + 1
-        _ADSPOWER_OPEN_DAILY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _ADSPOWER_OPEN_DAILY_PATH.write_text(
-            json.dumps({"date": today, "count": count}), encoding="utf-8"
-        )
+        data = _read_open_state()
+        data["count"] = adspower_opens_today() + 1
+        data["date"] = datetime.now().strftime("%Y-%m-%d")
+        data.pop("blocked_until", None)  # Open 성공 = 한도 여유 있음
+        _write_open_state(data)
     except Exception as exc:
         logger.warning(f"[AdsPower] Open 카운트 기록 실패(Open은 계속) | {type(exc).__name__}: {exc}")
+
+
+def _record_open_limit(msg: str) -> None:
+    m = re.search(r"Exceeding open daily limit.*?recovery after (\d+) hours?", msg or "")
+    if not m:
+        return
+    try:
+        hours = min(int(m.group(1)), _OPEN_LIMIT_MAX_BLOCK_HOURS)
+        data = _read_open_state()
+        data["blocked_until"] = (datetime.now() + timedelta(hours=hours)).strftime(_OPEN_STATE_TS_FMT)
+        _write_open_state(data)
+        logger.warning(f"[AdsPower] Open 한도 초과 — {data['blocked_until']}까지 크롤·친구 Open 보류")
+    except Exception as exc:
+        logger.warning(f"[AdsPower] 한도 차단 시각 기록 실패 | {type(exc).__name__}: {exc}")
 
 
 def start_browser(adspower_user_id: str = "k1bto3j4"):
@@ -111,6 +150,7 @@ def start_browser(adspower_user_id: str = "k1bto3j4"):
             "[AdsPower] browser/start 실패 | user=%s | code=%s | msg=%s | keys=%s",
             adspower_user_id, data.get("code"), str(data.get("msg"))[:120], sorted(data.keys()),
         )
+        _record_open_limit(str(data.get("msg")))
         raise RuntimeError(f"adspower browser/start failed: code={data.get('code')}")
     _record_adspower_open()
     return port
