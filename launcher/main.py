@@ -772,6 +772,9 @@ def _job_insta_upload():
                 "[Main] OUTCOME_UNKNOWN — 수동 확인 필요 | rid=%s | creation_id=%s | account_ref=%s | stage=media_publish",
                 post_id, raw.get("creation_id", ""), account_code_ref or "legacy",
             )
+            _record_publish_pending(post_id, "outcome_unknown", creation_id=raw.get("creation_id", ""),
+                                    credential_key=account["credential_key"], api_host=api_host,
+                                    caption=caption, account_code_ref=account_code_ref)
             if _slack:
                 _slack(
                     f"[긴급] Instagram 게시 결과 불명 — 수동 확인 필요\n"
@@ -808,6 +811,8 @@ def _job_insta_upload():
                     "수동 확인 필요 | rid=%s | ig_media_id=%s | %s",
                     post_id, raw.get("ig_media_id", ""), exc,
                 )
+                _record_publish_pending(post_id, "posted_unrecorded", ig_media_id=raw.get("ig_media_id", ""),
+                                        account_code_ref=account_code_ref)
                 if _slack:
                     _slack(
                         f"[긴급] IG 게시 성공, Airtable 상태 기록 실패 — 수동 확인 필요\n"
@@ -818,6 +823,7 @@ def _job_insta_upload():
                     "[Main] 게시 실패 상태 기록도 실패 — uploading에 고착 | rid=%s | %s",
                     post_id, exc,
                 )
+                _record_publish_pending(post_id, "failed_unrecorded", account_code_ref=account_code_ref)
             continue
 
 
@@ -1018,6 +1024,9 @@ def _job_aijomoojin_scheduled_post():
             "[AijomoojinSlot] OUTCOME_UNKNOWN — 자동재게시 금지, 수동확인 필요 | rid=%s | creation_id=%s",
             post_id, raw.get("creation_id", ""),
         )
+        _record_publish_pending(post_id, "outcome_unknown", creation_id=raw.get("creation_id", ""),
+                                credential_key=account["credential_key"], api_host=provider_conf["host"],
+                                caption=caption, account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE)
         if _slack:
             _slack(
                 f"[긴급] aijomoojin 슬롯 게시 결과 불명 — 수동 확인 필요\n"
@@ -1044,6 +1053,8 @@ def _job_aijomoojin_scheduled_post():
                 "수동 확인 필요 | rid=%s | ig_media_id=%s | %s",
                 post_id, raw.get("ig_media_id", ""), exc,
             )
+            _record_publish_pending(post_id, "posted_unrecorded", ig_media_id=raw.get("ig_media_id", ""),
+                                    account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE)
             if _slack:
                 _slack(
                     f"[긴급] aijomoojin 슬롯 게시 성공, Airtable 상태 기록 실패 — 수동 확인 필요\n"
@@ -1053,6 +1064,167 @@ def _job_aijomoojin_scheduled_post():
             logger.error(
                 "[AijomoojinSlot] 게시 실패 상태 기록도 실패 — uploading 고착 | rid=%s | %s", post_id, exc,
             )
+            _record_publish_pending(post_id, "failed_unrecorded", account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+
+
+# ── 261012 게시 결과 회수(uploading 고착) ──────────────────────────────────────
+# OUTCOME_UNKNOWN·Airtable 기록 실패로 uploading에 격리된 건의 회수 단서(creation_id 등)가
+# 로그·Slack에만 남아 21건이 두 달 넘게 고착됐다(ERR-148). 격리 시점에 단서를 json에 남기고,
+# 30분 뒤 Graph GET으로만 확인해 확정 가능한 건만 Airtable에 반영한다. 재게시는 절대 하지 않는다.
+_PUBLISH_PENDING_PATH = _ROOT / "db" / "publish_outcome_pending.json"
+_RECONCILE_MIN_AGE_MIN = 30          # publish_single 최악 약 280초 + 5분 poll 여유
+_RECONCILE_MATCH_WINDOW_SEC = 300    # PUBLISHED 진단 후보 탐색 범위(+캡션 일치) — 자동 확정에는 쓰지 않음
+_RECONCILE_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _load_publish_pending() -> dict:
+    import json as _json
+    try:
+        data = _json.loads(_PUBLISH_PENDING_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_publish_pending(data: dict) -> None:
+    import json as _json
+    _PUBLISH_PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _PUBLISH_PENDING_PATH.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _caption_sha(caption: str) -> str:
+    import hashlib
+    return hashlib.sha256((caption or "").strip().encode("utf-8")).hexdigest()
+
+
+def _record_publish_pending(rid: str, kind: str, *, creation_id: str = "", ig_media_id: str = "",
+                            credential_key: str = "", api_host: str = "", caption: str = "",
+                            account_code_ref: str = "") -> None:
+    """kind: outcome_unknown / posted_unrecorded / failed_unrecorded. 기록 실패는 경고만.
+    캡션 원문은 저장하지 않고 해시만 남긴다(PUBLISHED media 식별용)."""
+    try:
+        data = _load_publish_pending()
+        data[rid] = {
+            "kind": kind, "creation_id": creation_id, "ig_media_id": ig_media_id,
+            "credential_key": credential_key, "api_host": api_host,
+            "caption_sha": _caption_sha(caption) if caption else "",
+            "account_code_ref": account_code_ref,
+            "at": datetime.now().strftime(_RECONCILE_TS_FMT), "alerted": False,
+        }
+        _save_publish_pending(data)
+    except Exception as exc:
+        logger.warning(f"[Reconcile] 회수 단서 기록 실패(수동 확인 필요) | rid={rid} | {type(exc).__name__}: {exc}")
+
+
+def _reconcile_decide(entry: dict) -> tuple[str, str, str]:
+    """(decision, media_id, reason). decision: posted / failed / hold. Graph GET만 사용."""
+    kind = entry.get("kind", "")
+    if kind == "posted_unrecorded" and entry.get("ig_media_id"):
+        return "posted", entry["ig_media_id"], "posted_unrecorded"
+    if kind == "failed_unrecorded":
+        return "failed", "", "failed_unrecorded"
+    if kind != "outcome_unknown" or not entry.get("creation_id"):
+        return "hold", "", "insufficient_evidence"
+
+    import requests as _req
+    from datetime import timezone as _tz
+    from modules.common.credential_resolver import resolve_credential
+    try:
+        cred = resolve_credential(entry.get("credential_key", ""))
+        host = entry.get("api_host") or "graph.facebook.com"
+        r = _req.get(f"https://{host}/v21.0/{entry['creation_id']}",
+                     params={"fields": "status_code", "access_token": cred.access_token}, timeout=20)
+        if r.status_code != 200:
+            return "hold", "", f"container_lookup_http_{r.status_code}"
+        status_code = (r.json() or {}).get("status_code", "")
+        if status_code in ("EXPIRED", "ERROR"):
+            return "failed", "", f"container_{status_code}"
+        if status_code != "PUBLISHED":
+            return "hold", "", f"container_{status_code or 'unknown'}"
+        if not entry.get("caption_sha"):
+            return "hold", "", "published_no_caption_evidence"
+        m = _req.get(f"https://{host}/v21.0/{cred.ig_user_id}/media",
+                     params={"fields": "id,timestamp,caption", "limit": 25, "access_token": cred.access_token}, timeout=20)
+        if m.status_code != 200:
+            return "hold", "", f"media_lookup_http_{m.status_code}"
+        at_utc = datetime.strptime(entry["at"], _RECONCILE_TS_FMT).astimezone(_tz.utc)
+        cands = []
+        for item in (m.json() or {}).get("data", []):
+            try:
+                ts = datetime.strptime(item["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
+            except Exception:
+                continue
+            # 진단용 후보 — 같은 계정·±5분·캡션 해시 완전 일치.
+            if (abs((ts - at_utc).total_seconds()) <= _RECONCILE_MATCH_WINDOW_SEC
+                    and _caption_sha(item.get("caption", "")) == entry["caption_sha"]):
+                cands.append(item["id"])
+        # 시각·캡션 후보는 creation_id ↔ media_id 직접 연결 증거가 아니므로 진단용으로만 남긴다
+        # (자동 posted 쓰기 금지 — 사람 확인 후 확정).
+        return "hold", "", f"published_unlinked_candidates={','.join(cands[:3]) or 'none'}"
+    except Exception as exc:
+        return "hold", "", f"lookup_failed:{type(exc).__name__}: {redact_sensitive(str(exc))[:120]}"
+
+
+def _fetch_post_state(rid: str) -> tuple[str, str] | None:
+    """Airtable 현재 (post_status, account_code_ref). 조회 실패는 None(=쓰기 보류)."""
+    import requests as _req
+    from modules.infra.airtable_repository import _headers, _url
+    try:
+        r = _req.get(_url("Instagram_Posts", rid), headers=_headers(), timeout=30)
+        if r.status_code != 200:
+            return None
+        fields = (r.json() or {}).get("fields", {})
+        status = fields.get("post_status", "")
+        if isinstance(status, dict):
+            status = status.get("name", "")
+        return str(status), str(fields.get("account_code_ref", "") or "")
+    except Exception:
+        return None
+
+
+@handle_errors(task="publish_reconcile", notify_fn=_slack)
+def _job_publish_reconcile():
+    pending = _load_publish_pending()
+    if not pending:
+        return
+    from modules.infra.airtable_repository import AirtableRepository
+    from modules.infra.repository_interface import PostPublishResult
+    repo = None
+    now = datetime.now()
+    changed = False
+    for rid, entry in list(pending.items()):
+        try:
+            age_min = (now - datetime.strptime(entry.get("at", ""), _RECONCILE_TS_FMT)).total_seconds() / 60
+        except Exception:
+            age_min = _RECONCILE_MIN_AGE_MIN
+        if age_min < _RECONCILE_MIN_AGE_MIN:
+            continue
+        decision, media_id, reason = _reconcile_decide(entry)
+        if decision in ("posted", "failed"):
+            # 현재 Airtable 상태가 uploading이고 계정이 단서와 같을 때만 쓴다(사람이 먼저 고친 건 덮어쓰지 않음).
+            state = _fetch_post_state(rid)
+            if state is None:
+                decision, reason = "hold", f"state_lookup_failed({reason})"
+            elif state[0] != "uploading" or (entry.get("account_code_ref") and state[1] != entry["account_code_ref"]):
+                decision, reason = "hold", f"state_conflict(status={state[0]})"
+        if decision in ("posted", "failed"):
+            try:
+                repo = repo or AirtableRepository()
+                repo.mark_post_result(rid, PostPublishResult(status=decision, platform_post_id=media_id, error_code=""))
+            except Exception as exc:
+                logger.warning(f"[Reconcile] Airtable 반영 실패 — 다음 회차 재시도 | rid={rid} | {type(exc).__name__}")
+                continue
+            del pending[rid]
+            changed = True
+            logger.info(f"[Reconcile] 회수 완료 | rid={rid} | {decision} | media_id={media_id or '-'} | {reason}")
+        elif not entry.get("alerted"):
+            entry["alerted"] = True
+            changed = True
+            logger.warning(f"[Reconcile] 확정 불가 — uploading 유지, 수동 확인 필요 | rid={rid} | {reason}")
+            if _slack:
+                _slack(f"[알림] 게시 결과 회수 보류 — uploading 유지, 수동 확인 필요\nrid={rid} | {reason}")
+    if changed:
+        _save_publish_pending(pending)
 
 
 AIJOMOOJIN_PRODUCER_ACCOUNT_CODE = "IDN-000036"
@@ -1771,6 +1943,9 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     sched.add_job(_job_scheduler_heartbeat_main, "interval", seconds=60,
                   id="scheduler_heartbeat_main", next_run_time=now + timedelta(seconds=10),
                   max_instances=1, coalesce=True)
+    # 261012 — uploading 고착 회수(Graph GET만, 재게시 없음). 단서 파일이 비어 있으면 즉시 종료.
+    sched.add_job(_job_publish_reconcile, "interval", minutes=30,
+                  id="publish_reconcile", max_instances=1, coalesce=True)
     # 260804 Track B 6G — aijomoojin 전용 3슬롯(06:00/10:00/17:00 ICT) 정식 운영모드.
     # 기본 false(미등록) — 다른 계정·기존 insta_upload Job과 완전히 분리된 신규
     # Job이라, 이 Flag를 끄면 이 3줄이 사라진다. 단, 이 등록은 launcher 기동
