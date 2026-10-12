@@ -2995,3 +2995,11 @@ push: 미실행 — origin/master=1ec92a7
 
 commit: be8bc2a
 push: 미실행 — origin/master=1ec92a7
+
+---
+
+### ERR-144 / INC-064 후속 결정 (261012 16:42 ICT, 회장 확정)
+
+- **결정: Credential 교체하지 않고 현 상태로 진행(Accept).** ImgBB Key·YUNA token(`YUNA_INSTA_ACCESS_TOKEN`=`INSTA_ACCESS_TOKEN`) 모두 현재 유효·정상 작동 확인(261012 14:01 ImgBB 업로드 성공, token 인증 오류 code 190 0건).
+- 교체 여부는 **시스템 완성 후 회장이 다시 판단**한다. 그 전까지 이 항목은 Blocker가 아니며, Acceptance 검증(261013 06:00~)은 교체 없이 진행한다.
+- 수용한 위험: 해당 값이 과거 로컬 로그에 평문으로 남았었고(현재 마스킹 완료), ImgBB Key는 261012 세션 대화 기록에 1회 노출됨. 로그의 PC 외부 유출 Evidence 0건(git·백업·OneDrive).
