@@ -16,6 +16,7 @@ Provider 무관 로직(Visual Brief/Image Prompt)은 modules.sns.visual_brief에
 import base64
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,10 @@ PROVIDER_NAME = "cloudflare_workers_ai"
 MODEL_NAME = "@cf/black-forest-labs/flux-1-schnell"
 DAILY_IMAGE_CAP = 50
 REQUEST_TIMEOUT = 30
+# 261012 P2 — requests Timeout/ConnectionError일 때만 재시도 전 대기(초).
+# 값은 retry_queue._BACKOFF 앞 2개 재사용(P1 a822908과 동일). HTTP 응답이
+# 온 실패(4xx/5xx)·그 외 예외는 재시도 없이 기존처럼 즉시 Fail-closed.
+_REQUEST_RETRY_WAITS = (10, 60)
 
 _DB_PATH = Path(__file__).resolve().parents[2] / "db" / "image_gen_quota.db"
 
@@ -120,16 +125,27 @@ def generate_image(
         # 파라미터는 하위호환을 위해 계속 받되 payload에는 절대 넣지 않는다.
         payload = {"prompt": prompt_text, "steps": max(1, min(steps, 8))}
 
-        try:
-            resp = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {api_token}"},
-                json=payload,
-                timeout=REQUEST_TIMEOUT,
-            )
-        except Exception as exc:
-            logger.warning(f"[ImageProvider] 요청 실패 | {exc}")
-            return ProviderResult(success=False, error_code="REQUEST_FAILED")
+        for attempt in range(1, len(_REQUEST_RETRY_WAITS) + 2):
+            try:
+                resp = requests.post(
+                    url,
+                    headers={"Authorization": f"Bearer {api_token}"},
+                    json=payload,
+                    timeout=REQUEST_TIMEOUT,
+                )
+                break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                if attempt > len(_REQUEST_RETRY_WAITS):
+                    logger.warning(f"[ImageProvider] 요청 실패 | attempt={attempt} | {exc}")
+                    return ProviderResult(success=False, error_code="REQUEST_FAILED")
+                wait = _REQUEST_RETRY_WAITS[attempt - 1]
+                logger.warning(
+                    f"[ImageProvider] 요청 재시도 | attempt={attempt} | reason={type(exc).__name__} | next_wait={wait}s"
+                )
+                time.sleep(wait)
+            except Exception as exc:
+                logger.warning(f"[ImageProvider] 요청 실패 | {exc}")
+                return ProviderResult(success=False, error_code="REQUEST_FAILED")
 
         if resp.status_code != 200:
             logger.warning(f"[ImageProvider] HTTP {resp.status_code} | {resp.text[:200]}")
