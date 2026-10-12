@@ -2879,3 +2879,21 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 **상태:** RESOLVED(데이터 정합) — 20건 재게시 여부는 HOLD.
 
 **관련:** ERR-107
+
+---
+
+## ERR-149 | 고착 회수 Target Test 첫 실행이 실제 `db/`에 가짜 회수 단서 파일을 생성함(Claude Code 테스트 격리 누락)
+
+**발견 경위:** 261012 16:07 ICT, 6단계(고착 회수) 회귀 확인 중 `db/publish_outcome_pending.json`이 실제 프로젝트 `db/`에 존재하는 것을 발견.
+
+**Raw:** 파일 생성 15:55:57, 212 bytes, 내용 `{"rec1": kind=outcome_unknown, creation_id=C1, credential_key=AI}` — 테스트 고정값과 일치. 당시 운영 launcher는 이 파일을 읽는 코드가 없는 이전 버전(`3773f2c`)이었다.
+
+**Root Cause:** Confirmed — `tests/test_publish_reconcile.py`의 fixture가 `launcher.main`을 fixture 안에서 처음 import했다. `tests/conftest.py`의 `_isolate_production_state_paths`(autouse)는 그 시점에 이미 로드된 모듈의 `Path` 상수만 tmp로 바꾸므로, 늦게 import된 `_PUBLISH_PENDING_PATH`는 격리되지 않고 실제 경로를 썼다.
+
+**영향:** 운영 영향 0(읽는 코드 미배포 상태). 단 재시작 후였다면 회수 잡이 가짜 `rec1`로 Graph·Airtable 조회를 반복했을 위험.
+
+**조치:** 16:07 Claude Code가 해당 파일 삭제(테스트 산출물, 사본 없음). fixture에서 `_PUBLISH_PENDING_PATH`를 `tmp_path`로 직접 격리 + autouse `_real_db_guard`(실제 파일이 테스트 전후로 생기거나 바뀌면 FAIL) 추가 → `be8bc2a`. 재실행 후 실제 파일 없음 확인.
+
+**상태:** RESOLVED — 단, 같은 "fixture 안 늦은 import" 패턴의 다른 테스트 존재 여부는 미조사(UNKNOWN).
+
+**관련:** FP-108, ERR-148

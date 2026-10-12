@@ -1342,3 +1342,13 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **예방:** tail 판정은 현재 파일에 표지가 없을 때 직전 로테이션 파일(`.1`)까지 확인하거나, 로테이션과 무관한 별도 상태 파일(epoch 기록)을 쓴다.
 
 **관련:** ERR-147, FP-102
+
+---
+
+## FP-108 | 테스트 격리가 "이미 import된 모듈"에만 적용되는데, fixture 안에서 처음 import하면 실제 운영 경로에 쓴다
+
+**증상:** conftest의 autouse 경로 격리 이후에 `launcher.main`을 처음 import한 테스트가 실제 `db/`에 파일을 생성(ERR-149).
+
+**예방:** (1) 새 상태 파일 경로를 쓰는 테스트는 해당 경로 상수를 `tmp_path`로 직접 monkeypatch한다. (2) 실제 경로가 테스트 전후로 바뀌면 실패하는 guard를 둔다. (3) 테스트 실행 전후로 `git status --short db/`를 비교해 새 파일이 생기지 않았는지 확인한다.
+
+**관련:** ERR-149

@@ -2978,3 +2978,20 @@ push: 미실행 — origin/master=1ec92a7
 
 commit: 1bc2462, 9729301, efa4e2c, 60557dc, a33a0c9, 3773f2c
 push: 미실행 — origin/master=1ec92a7
+
+---
+
+## 261012 (오후) — 6단계 고착 회수 잡 / Acceptance 정의 보완 / 테스트 db 침범 사고
+
+**코드:** `be8bc2a` — uploading 고착 회수(ledger + 30분 잡, Graph GET만, 재게시 없음). 검수 반영 2회: ①시각·캡션 후보로 posted 확정 금지(진단용만) ②Airtable 현재 상태 확인 후 충돌 시 보류. Target 20 passed. 전체 Suite 63 failed/1604 passed 분류: P1 baseline 11 + HEAD에서도 실패 51(ProgramData 권한·.env 플래그 의존) + flaky 1 → 신규 0.
+
+**Runtime:** 회장 재시작 → boot `be8bc2a` 16:19:56, `_job_publish_reconcile` 등록, 오류 0, 단일 launcher.
+
+**문서:** VALIDATION_STATUS `acceptance_criteria_v1_definitions_261012`(기간 [10-13 06:00, 10-20 06:00) ICT·35슬롯, A급 수동개입·오계정 대조·UNKNOWN 규칙) + `p6_publish_reconcile_job_261012`.
+
+**사고:** ERR-149 — 첫 Target Test 실행이 실제 `db/publish_outcome_pending.json`(가짜 rec1) 생성, Claude Code가 16:07 삭제 후 격리·guard 추가.
+
+**미해결:** ImgBB Key·YUNA token 교체 / Push 미실행 / 회수 잡 운영 효과 UNKNOWN / 늦은 import 패턴의 다른 테스트 미조사.
+
+commit: be8bc2a
+push: 미실행 — origin/master=1ec92a7
