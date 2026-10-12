@@ -58,6 +58,7 @@ init_logging()
 logger = get_logger(__name__)
 
 CRAWL_INTERVAL_MIN = int(os.getenv("CRAWL_INTERVAL_MINUTES", "30"))
+_CRAWL_OPEN_CEILING = int(os.getenv("CRAWL_OPEN_CEILING", "10"))
 UPLOAD_POLL_MIN    = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
 WEBHOOK_PORT       = int(os.getenv("WEBHOOK_PORT", "5000"))
 PRODUCT_PUBLISH_ACCOUNT_CODE = "IDN-000041"
@@ -156,7 +157,12 @@ def _job_fb_crawl(
     data_classification: str,
     canary_run_id: str = "",
 ):
-    from modules.sns.facebook_crawler import run_all_accounts
+    from modules.sns.facebook_crawler import adspower_opens_today, run_all_accounts
+    # 261012 P3 — 무료 한도(실측 20회/일) 중 나머지를 친구요청 몫으로 남긴다.
+    opens = adspower_opens_today()
+    if opens >= _CRAWL_OPEN_CEILING:
+        logger.info(f"[Main] fb_crawl 스킵 — 오늘 AdsPower Open {opens}회 ≥ 크롤 상한 {_CRAWL_OPEN_CEILING}")
+        return
     summary = run_all_accounts(
         target_publish_account_code_ref=target_publish_account_code_ref,
         data_classification=data_classification,

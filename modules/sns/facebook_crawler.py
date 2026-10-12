@@ -3,6 +3,8 @@ import json
 import os
 import re
 import time
+from datetime import datetime
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -63,6 +65,35 @@ def is_blocked_supplier(author_name: str, blocklist: list) -> dict:
     return None
 
 
+# 261012 P3 — AdsPower 무료 플랜 일일 Open 한도(실측 20회)를 크롤이 오전에 전부
+# 소진해 친구요청이 막히는 문제. 실제 Open 성공 횟수만 날짜별로 기록하고, 크롤 잡이
+# 이 값을 보고 상한에서 멈춘다(launcher _job_fb_crawl). 기록 실패는 Open을 막지 않는다.
+_ADSPOWER_OPEN_DAILY_PATH = Path(__file__).resolve().parents[2] / "db" / "adspower_open_daily.json"
+
+
+def adspower_opens_today() -> int:
+    """오늘(로컬 날짜) 성공한 AdsPower browser/start 횟수. 파일 없음·손상·날짜 다름은 0."""
+    try:
+        data = json.loads(_ADSPOWER_OPEN_DAILY_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    if data.get("date") != datetime.now().strftime("%Y-%m-%d"):
+        return 0
+    return int(data.get("count", 0))
+
+
+def _record_adspower_open() -> None:
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        count = adspower_opens_today() + 1
+        _ADSPOWER_OPEN_DAILY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _ADSPOWER_OPEN_DAILY_PATH.write_text(
+            json.dumps({"date": today, "count": count}), encoding="utf-8"
+        )
+    except Exception as exc:
+        logger.warning(f"[AdsPower] Open 카운트 기록 실패(Open은 계속) | {type(exc).__name__}: {exc}")
+
+
 def start_browser(adspower_user_id: str = "k1bto3j4"):
     import urllib.request
     r = urllib.request.urlopen(
@@ -81,6 +112,7 @@ def start_browser(adspower_user_id: str = "k1bto3j4"):
             adspower_user_id, data.get("code"), str(data.get("msg"))[:120], sorted(data.keys()),
         )
         raise RuntimeError(f"adspower browser/start failed: code={data.get('code')}")
+    _record_adspower_open()
     return port
 
 
