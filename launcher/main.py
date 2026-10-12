@@ -1306,7 +1306,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
         if not upload.get("success"):
             logger.error(
                 "[AijomoojinProducer] imgbb 업로드 실패 — pending 유지, 재시도 없음 | "
-                "content_id=%s | %s", content_id, upload.get("error"),
+                "content_id=%s | %s", content_id, redact_sensitive(str(upload.get("error"))),
             )
             if _slack:
                 _slack(

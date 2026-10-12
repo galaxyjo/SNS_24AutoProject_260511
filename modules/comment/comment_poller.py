@@ -18,6 +18,7 @@ from pathlib import Path
 
 from modules.comment import comment_poll_targets
 from modules.comment.comment_auto_reply import process_comment_event, CommentProcessResult
+from modules.common.log_sanitizer import redact_sensitive
 from modules.common.meta_graph import messaging_graph_url
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def get_recent_media_ids() -> list[str]:
             return []
         return [item["id"] for item in data.get("data", [])]
     except Exception as exc:
-        logger.error(f"[CommentPoll] media 조회 예외 | {exc}")
+        logger.error(f"[CommentPoll] media 조회 예외 | {redact_sensitive(str(exc))}")
         return []
 
 
@@ -256,7 +257,7 @@ def _poll_allowlist(processed: set[str]) -> tuple[set[str], int]:
             continue
         except Exception as exc:
             failures = comment_poll_targets.record_poll_failure(media_id)
-            logger.error(f"[CommentPoll] media 조회 예외(다른 media는 계속 진행) | media={media_id} | {exc} (연속 실패 {failures}회)")
+            logger.error(f"[CommentPoll] media 조회 예외(다른 media는 계속 진행) | media={media_id} | {redact_sensitive(str(exc))} (연속 실패 {failures}회)")
             _alert_consecutive_failures(media_id, failures)
             continue
 

@@ -11,7 +11,13 @@ Graph API 등 외부 호출 실패 시 requests/urllib3가 만드는 예외 문�
 
 import re
 
-_SENSITIVE_KEYS = r"(access[_-]?token|api[_-]?key|authorization|token)"
+# 261012 — 단독 `key`(ImgBB `?key=` 등) 추가. 앞에 영숫자·`_`가 붙은 식별자
+# (예: idempotency_key)는 비밀값이 아니므로 lookbehind로 제외한다. 단 URL-encoded
+# 구분자(%3F='?', %26='&') 바로 뒤의 key는 포함한다.
+_SENSITIVE_KEYS = (
+    r"(access[_-]?token|api[_-]?key|authorization|token"
+    r"|(?:(?<![A-Za-z0-9_])|(?<=%3[Ff])|(?<=%26))key)"
+)
 
 # 쿼리스트링 형태: key=value / key%3Dvalue (URL-encoded '=')
 # value는 다음 구분자 전까지: & / %26(encoded '&') / 공백 / 따옴표 / 닫는 괄호 / 문자열 끝
