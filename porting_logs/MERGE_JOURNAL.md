@@ -2956,3 +2956,25 @@ push: 완료 — origin/master=56f4b5f
 
 commit: a822908
 push: 미실행 — origin/master=1ec92a7
+
+---
+
+## 261012 — P2~P6 안정장치 보완 / 로그 보존·마스킹 / Acceptance 기준 확정
+
+**코드 수정(전부 Target Test + 기존 회귀 비교, 신규 실패 0):**
+- `1bc2462` P2 Cloudflare Timeout 재시도(ERR-143)
+- `9729301` 로그 비밀정보 마스킹(ERR-144)
+- `efa4e2c` app.log 보존 5→12(ERR-145)
+- `60557dc` P3 크롤 AdsPower Open 상한 / `3773f2c` P5 한도초과 blocked_until(ERR-146)
+- `a33a0c9` P4 watchdog Heartbeat 로테이션·TZ 보완(ERR-147)
+
+**Runtime:** 회장 `Restart-Service SNS_Watchdog` 각 변경마다 실행, 최종 boot `3773f2c` 261012 14:27:56, Heartbeat 정상·단일 launcher·오류 0.
+
+**데이터:** 로그 7개 파일 비밀값 in-place 마스킹(INC-064). Airtable `Instagram_Posts` uploading 21건 Graph GET 대조 후 20→failed, 1→posted(ERR-148).
+
+**Acceptance 기준 v1 확정:** VALIDATION_STATUS `acceptance_criteria_v1_261012`.
+
+**미해결:** ImgBB Key·YUNA token 교체(B, 회장) / P1·P2·P3·P5 운영 효과 UNKNOWN / AdsPower 결제(A안) 미결정 / failed 20건 재게시 여부 HOLD / 기존 publish job 테스트 11건 실패(원인 미조사) / 261012 11:01 Producer IMAGE_GENERATION_FAILED 1건(P2 이전, 미조사).
+
+commit: 1bc2462, 9729301, efa4e2c, 60557dc, a33a0c9, 3773f2c
+push: 미실행 — origin/master=1ec92a7

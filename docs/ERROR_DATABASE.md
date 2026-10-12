@@ -2788,3 +2788,94 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 **상태:** PARTIAL — 구현·테스트·Runtime 반영 SUCCESS / **운영 효과 UNKNOWN**(다음 9004 자연 발생 시 회복 여부로 판정). Push 미실행.
 
 **관련:** FP-103, INC-063, `launcher/main.py` `publish_single()` / `_is_meta_media_fetch_error()`
+
+---
+
+## ERR-143 | Cloudflare 이미지 생성 요청이 1회 Timeout이면 재시도 없이 슬롯이 손실됨
+
+**발견 경위:** 261012 P2 Read-only 진단(Soak 2차 손실 1건, INC-063).
+
+**Root Cause:** Confirmed — `modules/sns/image_provider_cloudflare.py` `generate_image()`는 `requests.post`(timeout 30초) 1회만 시도하고 예외 시 즉시 `REQUEST_FAILED` → `content_package_builder`가 `IMAGE_GENERATION_FAILED`로 종료 → Producer(슬롯 1시간 전 cron 1회)도 재시도 없음 → 해당 슬롯 손실. 게시까지 약 59분 여유를 쓰지 않았다. Hypothesis: Cloudflare 응답 지연은 일시적. UNKNOWN: Timeout 실제 원인·재시도 회복 여부.
+
+**Fix:** `1bc2462` — `requests.Timeout`/`ConnectionError`일 때만 10초→60초 대기 후 최대 2회 재시도(값은 `retry_queue._BACKOFF` 재사용). HTTP 4xx/5xx·그 외 예외·상한 초과는 기존처럼 즉시 Fail-closed. 최악 소요 약 160초. Target Test 9 passed, 기존 관련 63 passed. Runtime 반영 261012 13:36:03.
+
+**상태:** PARTIAL — 구현·Runtime 반영 SUCCESS / 운영 효과 UNKNOWN.
+
+**관련:** INC-063, FP-103
+
+---
+
+## ERR-144 | ImgBB API Key·Meta access_token이 오류 로그에 평문으로 기록됨
+
+**발견 경위:** 261012 2단계(오류 기록 보완) Read-only 확인.
+
+**Raw(값 미기재):** `error.log`에 ImgBB `key=` 3건(마지막 261010 17:01, Producer imgbb 업로드 실패 로그), `comment_poller` 오류 로그에 Meta `access_token=` 4건(마지막 260921). 전체 `logs/` 재스캔 시 7개 파일 103건. 해시 대조: ImgBB key = 현재 `IMGBB_API_KEY`, token 1종 = 현재 `YUNA_INSTA_ACCESS_TOKEN`, 1종은 현재 미사용.
+
+**Root Cause:** Confirmed — `log_sanitizer._SENSITIVE_KEYS`에 단독 `key`가 없었고, `launcher/main.py` Producer imgbb 실패 로그와 `comment_poller.py` 예외 로그 2곳이 `redact_sensitive()`를 거치지 않았다.
+
+**노출 범위:** `logs/`는 git 미추적·백업/OneDrive 사본 0건. 단 로컬 인증 사용자·`CodexSandboxUsers`가 읽기 가능. **261012 세션 초반 Claude Code가 ImgBB 오류 로그 1줄을 출력하면서 ImgBB Key 전체가 대화 기록에 노출됨**(Meta token은 앞 6자만).
+
+**Fix:** `9729301` — sanitizer에 단독 `key`(식별자 접미어 제외, `%3F`/`%26` 뒤 포함) 추가 + 3개 로그 지점 `redact_sensitive()` 적용. Target Test 6 passed, 기존 42 passed. Runtime 반영 261012 13:54:54. 기존 로그 7개 파일 in-place 마스킹(사본 없음, 삭제 없음) → 재스캔 0건.
+
+**상태:** PARTIAL — 신규 로그 마스킹·기존 로그 정리 완료 / **ImgBB Key 교체(필수)·YUNA token 교체(권장) 미실행**(B 분류, 회장 직접).
+
+**관련:** INC-064, FP-104
+
+---
+
+## ERR-145 | app.log 보존이 약 5.2일로 7일 검증 기간보다 짧음
+
+**Root Cause:** Confirmed — `modules/common/logger.py` `app.log` 5MB×5(30MB), 실측 약 5.8MB/일. Soak 2차에서 10-07 이전 raw가 소실돼 이전 세션 집계값에 의존했다.
+
+**Fix:** `efa4e2c` — `app.log` backup 5→12(최대 65MB, 현재 속도 약 11일). `error.log`·모듈별 로그 무변경. Target Test 3 passed. Runtime 반영 261012 14:04:45. 크기 기준이라 일수 보장 아님.
+
+**상태:** PARTIAL — 반영 SUCCESS / 7일 보존 실효 UNKNOWN.
+
+**관련:** FP-105
+
+---
+
+## ERR-146 | AdsPower 무료 한도(실측 20회/일)를 크롤이 오전에 모두 소진 → 친구요청 사실상 정지, 한도 소진 후 반복 실패·경보 폭주
+
+**Raw:** 10-10·10-11·10-12 Open 성공 각 정확히 20회(06:19~08:51), 이후 `Exceeding open daily limit` 약 183회/일. 친구요청 3일간 성공 1건(10-10 08:24)·실패 26건. Slack 오류 알림 `fb_crawl` 42~43건/일 + 친구 11건/일(`handle_errors` 중복억제 없음).
+
+**Root Cause:** Confirmed — 크롤(30분×대상 4)과 친구요청이 같은 `start_browser()`를 공유, 크롤이 06:19 리셋 직후 먼저 소진. 한도 소진 상태를 기억하지 않아 계속 호출. AdsPower 응답의 `recovery after N hours`는 버려지고 있었다.
+
+**Fix:**
+- `60557dc`(P3) — `start_browser()` 성공 시만 `db/adspower_open_daily.json` 날짜별 카운트, `_job_fb_crawl`이 `CRAWL_OPEN_CEILING`(기본 10) 이상이면 스킵. 잡 단위 판정이라 최대 13회까지 가능. Target Test 7 passed, 관련 265 passed.
+- `3773f2c`(P5) — 한도 초과 응답 시 `blocked_until`(N시간, 최대 24h) 기록, 크롤·친구 잡이 그 전엔 Open 미시도. Open 성공 시 해제. Target Test 13 passed, 관련 278 passed.
+- Runtime 반영 261012 14:15:33(P3)·14:27:56(P5).
+
+**상태:** PARTIAL — 반영 SUCCESS / 운영 효과 UNKNOWN(10-13~ 관찰: 친구 ≥1건/일, 크롤 Open ≤13/일, 실패호출·알림 약 1건/일). 결제(A안)는 미결정.
+
+**관련:** ERR-140, FP-106
+
+---
+
+## ERR-147 | app.log 로테이션 직후 watchdog Heartbeat 오판 WARN
+
+**Raw:** 10-04 이후 `Heartbeat 끊김` WARN이 10-08 14:31 / 10-09 11:28 / 10-10 08:10 / 10-11 04:48 / 10-12 00:56 — 전부 `app.log` 로테이션 시각과 일치.
+
+**Root Cause:** Confirmed — `watchdog.ps1` `Test-SchedulerHeartbeat`가 `app.log` tail 300줄만 읽어, 로테이션 직후 새 파일에 태그가 없으면 false. 같은 함수가 naive 시각을 `Get-Date`와 빼는 구조(ERR-141)도 그대로였다.
+
+**Fix:** `a33a0c9` — 태그가 없으면 `app.log.1`도 확인 + `Get-Date` 직전 `[System.TimeZoneInfo]::ClearCachedData()`. UTF-8 BOM 유지. Target Test 5 passed(수정 전 코드로는 로테이션 케이스 FAIL 확인), 기존 watchdog 23 passed. Runtime 반영 261012 14:20:31(watchdog), 이후 Heartbeat WARN 0건.
+
+**상태:** PARTIAL — 반영 SUCCESS / 다음 로테이션 WARN 0건 확인 대기, TZ 변경 경로는 재현 불가(UNKNOWN).
+
+**관련:** ERR-141, FP-102, FP-107
+
+---
+
+## ERR-148 | Instagram_Posts `uploading` 고착 21건(yuna, 2026-08) — 실제 게시 여부 미대조
+
+**Raw:** `post_status=uploading` 21건 전부 `IDN-000041`·production·`ig_media_id` 공란·생성 08-04~08-31. 로그 마지막 줄 전부 `OUTCOME_UNKNOWN — 수동 확인 필요`(creation_id 기록). 9월 이후 신규 고착 0건.
+
+**대조(Graph API GET만):** 컨테이너 20건 `EXPIRED`("Finished: ready to be published" 후 만료 = 미게시, Confirmed). 1건 `recqFh6R88KOplE4m` `PUBLISHED` — OUTCOME_UNKNOWN 05:41:42 UTC와 media `17954697153246503`(05:41:39 UTC) 3초 차(Inference). 중복 게시 0건.
+
+**Root Cause:** Hypothesis — 08-04~08-10 집중으로 보아 ERR-107(컨테이너 IN_PROGRESS 상태에서 발행 → 400) 시기 산물. OUTCOME_UNKNOWN 격리 장치는 정상 동작(자동 재게시 없음).
+
+**Fix(데이터):** 261012 Airtable — Canary 1건(`posted` + `ig_media_id`) 후 20건 `failed`. 변경 필드 `post_status`·`ig_media_id`만. 사후 `uploading` 0건. 재게시·삭제 없음.
+
+**상태:** RESOLVED(데이터 정합) — 20건 재게시 여부는 HOLD.
+
+**관련:** ERR-107
