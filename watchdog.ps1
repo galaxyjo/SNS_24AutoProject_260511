@@ -104,12 +104,20 @@ function Test-Http {
 # 사유) 태그 자체가 최근 구간에 없으면 stale(=false)로 fail-closed 처리한다.
 function Test-SchedulerHeartbeat {
     param([string]$tag, [int]$staleMinutes = $HEARTBEAT_STALE_MIN)
-    if (-not (Test-Path -LiteralPath $APP_LOG_PATH)) { return $false }
-    $lastLine = Get-Content -LiteralPath $APP_LOG_PATH -Tail 300 -ErrorAction SilentlyContinue |
-        Select-String -Pattern $tag -SimpleMatch | Select-Object -Last 1
+    # 261012 P4 — app.log 로테이션 직후 새 파일에 태그가 아직 없으면 app.log.1도 확인
+    # (10-08~10-12 WARN 5건이 전부 로테이션 시각과 일치).
+    $lastLine = $null
+    foreach ($path in @($APP_LOG_PATH, "$APP_LOG_PATH.1")) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $lastLine = Get-Content -LiteralPath $path -Tail 300 -ErrorAction SilentlyContinue |
+            Select-String -Pattern $tag -SimpleMatch | Select-Object -Last 1
+        if ($lastLine) { break }
+    }
     if (-not $lastLine) { return $false }
     if ($lastLine.Line -match '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})') {
         $ts = [datetime]::ParseExact($matches[1], "yyyy-MM-dd HH:mm:ss", $null)
+        # 261012 P4 — ERR-141: 프로세스가 캐시한 옛 Timezone 대신 현재 Timezone으로 now 계산
+        [System.TimeZoneInfo]::ClearCachedData()
         return (((Get-Date) - $ts).TotalMinutes -lt $staleMinutes)
     }
     return $false
