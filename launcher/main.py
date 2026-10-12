@@ -342,6 +342,28 @@ def _extract_meta_error_detail(exc_or_resp) -> str:
     return ""
 
 
+# 261012 P1 — Meta 9004/2207052(이미지 다운로드 실패로 추정) 응답일 때만 Phase A
+# 재시도 사이 대기(초). 값은 retry_queue._BACKOFF 앞 2개를 재사용. 그 외 오류·
+# 응답 불명은 대기 없이 기존 동작 그대로.
+_MEDIA_9004_RETRY_WAITS = (10, 60)
+
+
+def _is_meta_media_fetch_error(exc) -> bool:
+    """_extract_meta_error_detail()과 같은 원천(exc.response.json()["error"])에서
+    code/error_subcode를 정확히 비교한다. 응답 없음·파싱 실패는 False."""
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return False
+    try:
+        body = resp.json()
+    except Exception:
+        return False
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return False
+    return str(err.get("code")) == "9004" and str(err.get("error_subcode")) == "2207052"
+
+
 def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="graph.facebook.com"):
     """
     단일 Record 게시 실행 함수.
@@ -399,6 +421,8 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             if attempt == 3:
                 logger.error(f"[publish_single] 3회 실패 최종(media 생성) | rid={rid}{detail}")
                 return {"ok": False, "error": str(e), "detail": detail}
+            if _is_meta_media_fetch_error(e):
+                _time.sleep(_MEDIA_9004_RETRY_WAITS[attempt - 1])
 
     # ── Phase A.5: 컨테이너 처리 완료 대기 (status_code=FINISHED) — 아직 Phase B(발행)를
     # 호출하지 않았으므로 여기서 반환하는 실패는 확정 실패다(outcome_unknown 아님).
