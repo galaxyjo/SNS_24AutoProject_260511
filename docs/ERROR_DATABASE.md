@@ -2758,3 +2758,33 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 **상태:** OPEN — Root Cause 확정, 조치 미실행.
 
 **관련:** ERR-089(Heartbeat 판정 도입), FP-102, `watchdog.ps1:105` `Test-SchedulerHeartbeat`
+
+---
+
+## ERR-142 | Meta `/media` 9004/2207052 응답에 Phase A 재시도가 대기 없이 연속 실행돼 일시 실패 구간을 넘기지 못함 — Soak 슬롯 손실 2건
+
+**발견 경위:** 261012 12:53 ICT P1-2 Soak(261004 06:47~261011 06:47 ICT) 종료 보고 후 P1 Read-only 진단.
+
+**Raw (Soak 구간 9004/2207052 전수 4건, 2계정):**
+- `rec4JgTFw3rflkO1A`(aijomoojin `17841467725643424`) 261004 12:00:30/12:00:39/12:00:48 3회 연속 실패 → 슬롯 손실 (`fbtrace_id=ATnojhHdIHejj1GDT-GMrs9`)
+- `rec3iz5BHO3GxiMZv`(aijomoojin) 261005 06:00:55/06:01:04/06:01:14 3회 연속 실패 → 슬롯 손실 (`fbtrace_id=ANDGTq197Y8rmFd3dgyIArc`)
+- `recvbZA0AYHHZFIuB`(yuna `17841476202821375`) 261005 05:50:21·05:50:31 실패 → 05:50:45 **3차 성공** (`18113880104096322`)
+- `recKSdLPxLwh5I4cc`(aijomoojin) 261005 09:00:30 실패 → 09:00:44 **2차 성공** (`17945831379076002`)
+- 메시지 전부 `Only photo or video can be accepted as media type.`, image_url 전부 `i.ibb.co`. 261005 09:00 이후 261011 06:47까지 재발 0건.
+- 코드: `launcher/main.py` Phase A `for attempt in range(1, 4)` — 시도 사이 sleep 없음, 요청 timeout 30초 → 실측 시도 간격 약 9~10초, 3회가 약 18초 안에 소진.
+
+**Root Cause:**
+- **Confirmed:** 회복 2건은 image_url·caption 등 요청 변경 없이 재시도로 성공 — 콘텐츠·형식 결함 아님.
+- **Hypothesis:** Meta 측 이미지 다운로드(`i.ibb.co`)의 일시 실패, 그리고 짧은 재시도 간격의 영향. (2207052는 과거 fbcdn 사례에서 "Meta 이미지 다운로드 실패"로 확정된 이력 — FAILURE_PATTERN.md:380)
+- **UNKNOWN:** 실패 2건의 실제 원인(Meta가 받은 응답), 발생이 261004~261005(및 이전 Soak 09-26·09-27 08:00 슬롯)에 몰린 이유, 대기 추가의 실효.
+
+**Fix:** `a822908` fix: back off Meta media fetch retries for 9004/2207052 (`launcher/main.py` +24줄, 신규 `tests/test_publish_single_9004_backoff.py`).
+- `exc.response.json()["error"]`의 `code`/`error_subcode`가 정확히 `9004`/`2207052`일 때만 1차 실패 후 10초·2차 실패 후 60초 대기(값은 `retry_queue._BACKOFF` 앞 2개 재사용). 3차 실패 후 대기 없음.
+- 기존 3회 재시도·timeout 30초·Phase B 게시 재시도 무변경. 응답 없음(ConnectTimeout/ReadTimeout)·JSON 파싱 실패·다른/유사 code·subcode는 대기 0회(기존 동작).
+- 레코드 1건 최악 소요 추산 약 210초 → 약 280초(배치 전체 poll 예산 보장 아님).
+
+**검증:** Target Test 11 passed(HTTP·sleep mock, Live 0건). publish 관련 기존 11개 파일 변경 전후 `11 failed, 116 passed` 동일, 실패 ID 목록 diff IDENTICAL(기존 실패 11건은 job/batch 계열, 원인 미조사). `git diff --check` 통과, BOM 없음·LF 유지. Runtime 반영: 261012 13:14:31 launcher 재기동, `launcher_boot_state.commit=a822908`, main Heartbeat 분당 1회 정상, 부팅 후 오류 0건.
+
+**상태:** PARTIAL — 구현·테스트·Runtime 반영 SUCCESS / **운영 효과 UNKNOWN**(다음 9004 자연 발생 시 회복 여부로 판정). Push 미실행.
+
+**관련:** FP-103, INC-063, `launcher/main.py` `publish_single()` / `_is_meta_media_fetch_error()`

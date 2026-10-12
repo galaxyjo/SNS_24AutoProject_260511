@@ -2938,3 +2938,21 @@ push: 완료 260917 — origin/master 72d376a..2a554f6
 
 commit: 15105bc, 1be5cb0, c809f8c, 71f36d0, 56f4b5f (전부 push 완료)
 push: 완료 — origin/master=56f4b5f
+
+---
+
+## 261012 — P1-2 Soak 2차 종료 보고 / P1 Meta 9004 재시도 대기 최소수정
+
+**1) Soak 종료(INC-063):** 261004 06:47~261011 06:47 ICT. 경과 35 = 성공 31 / 실패 2(9004) / 스킵 2(Cloudflare 1·ImgBB 1). 완주, 운영 Acceptance 미충족. 안전지표 전부 0건.
+
+**2) P1 진단(ERR-142):** 9004/2207052 4건(2계정) 중 회복 2건이 요청 변경 없이 성공 → 일시 실패 Confirmed. Phase A 재시도에 대기가 없어 약 18초 안에 3회 소진. 실제 원인·대기 효과는 UNKNOWN.
+
+**3) 코드 수정 1건:**
+- `a822908` — `launcher/main.py` +24줄: `_is_meta_media_fetch_error()`(code/error_subcode 정확 비교) + Phase A 9004/2207052 한정 10초→60초 대기(`retry_queue._BACKOFF` 값 재사용). 기존 3회 재시도·timeout·Phase B 무변경. 신규 `tests/test_publish_single_9004_backoff.py` 11 tests. 회귀 비교 전후 동일(`11 failed, 116 passed`, 기존 실패 11건).
+
+**4) Runtime:** 261012 13:14 회장 `Restart-Service SNS_Watchdog` → 13:14:31 launcher 재기동, boot commit `a822908`, Heartbeat 정상.
+
+**미해결:** 9004 대기 운영 효과 UNKNOWN / ImgBB ConnectTimeout(10-10 18:00 스킵) / 261012 11:01 Producer `IMAGE_GENERATION_FAILED` → 12:00 슬롯 스킵(Soak 종료 후, 미조사) / 기존 publish job·batch 테스트 11건 실패(원인 미조사) / watchdog Heartbeat WARN 3건(원인 UNKNOWN).
+
+commit: a822908
+push: 미실행 — origin/master=1ec92a7
