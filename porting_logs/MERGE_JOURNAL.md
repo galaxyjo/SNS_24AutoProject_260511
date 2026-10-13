@@ -3025,3 +3025,11 @@ push: 미실행 — origin/master=1ec92a7
 - **참조 무결성:** Read-only 검증 PASS, GPT 검수로 Gate 종료(재검사 불필요). 상세: VALIDATION_STATUS `airtable_reference_integrity_261013`.
 - **16계정 준비도:** 게시 가능한 계정은 036 하나뿐 → HOLD. 대표 4계정 토큰 준비는 회장이 계정당 1회 진행(B). Freeze가 끝나면 Canary 순서로 연결. 상세: `sixteen_account_automation_readiness_261013`, ERR-151.
 - **Airtable·코드·.env·Runtime 변경:** 0건(이 항목 범위).
+
+---
+
+### 261013 후속 2 — Airtable 계정 준비 칸 사용 규칙 확정 (변경 없음)
+
+- 페이지 URL → Platform_Accounts(FacebookPAGE 행) `profile_url`·`platform_status` / 페이지 ID → `fb_page_id` / 인스타 ID → `ig_user_id` / 토큰 준비 완료 → `credential_key` + `api_provider`(확인 후 기입). 토큰 값은 Airtable 금지.
+- "Unnamed record" 표시 원인: Account_Registry 대표 필드 `account_code` 공란(44계정). 링크는 정상. account_code 채우기는 Freeze 종료 후 승인 받고 진행.
+- Airtable·코드·.env·Runtime 변경 0건. 상세: VALIDATION_STATUS `airtable_provisioning_field_convention_261013`.
