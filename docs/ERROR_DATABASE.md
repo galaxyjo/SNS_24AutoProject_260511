@@ -2926,3 +2926,21 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 **상태:** RESOLVED(데이터) — Platform 🔴 120건 사전 검수는 하지 않기로 회장 결정(자동화·매출 우선, 오류 발생 시 개별 수정).
 
 **관련:** FP-109
+
+---
+
+## ERR-151 | IDN-000038·039 credential_key가 resolver 형식 규칙 위반(`tour3934@g` 등) — 자격증명 조회 시 Fail-closed
+
+**발견 경위:** 261013 16계정 자동화 착수 준비도 Read-only 점검.
+
+**Evidence:** Account_Registry 038 `credential_key=tour3934@g`, 039 `help.kovi@g` (둘 다 account_code·automation_enabled=TRUE). `modules/common/credential_resolver.py`는 `^[A-Z0-9_]+$`만 허용 → 이 두 계정의 Instagram 자격증명을 조회하면 형식 오류로 거부. `.env`에도 대응 토큰 없음(`AI`·`YUNA` 2쌍만 존재).
+
+**Root Cause:** Confirmed — 260907 엑셀 값(이메일 앞부분)이 credential_key 형식 검증 없이 Airtable에 들어감.
+
+**영향:** 운영 영향 0 — 두 계정 모두 게시용 토큰이 없어 게시 대상이 아니다. 오히려 Fail-closed로 잘못된 게시를 막는 상태.
+
+**조치(계획, 미실행):** 토큰 준비 후 Freeze가 끝나면 `TOUR` 등 형식에 맞는 키로 교체(대표 4계정 토큰 체크리스트에 포함).
+
+**상태:** OPEN(차단 아님)
+
+**관련:** ERR-150
