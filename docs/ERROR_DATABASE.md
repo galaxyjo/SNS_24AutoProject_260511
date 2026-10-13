@@ -2905,3 +2905,24 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **결정: Credential 교체하지 않고 현 상태로 진행(Accept).** ImgBB Key·YUNA token(`YUNA_INSTA_ACCESS_TOKEN`=`INSTA_ACCESS_TOKEN`) 모두 현재 유효·정상 작동 확인(261012 14:01 ImgBB 업로드 성공, token 인증 오류 code 190 0건).
 - 교체 여부는 **시스템 완성 후 회장이 다시 판단**한다. 그 전까지 이 항목은 Blocker가 아니며, Acceptance 검증(261013 06:00~)은 교체 없이 진행한다.
 - 수용한 위험: 해당 값이 과거 로컬 로그에 평문으로 남았었고(현재 마스킹 완료), ImgBB Key는 261012 세션 대화 기록에 1회 노출됨. 로그의 PC 외부 유출 Evidence 0건(git·백업·OneDrive).
+
+---
+
+## ERR-150 | 엑셀→Airtable 계정 이관 중 번호 불일치·MED 대표 레코드 오삭제·Platform 번호 엇갈림
+
+**발견 경위:** 261013 아바타 확장(엑셀 `페르소나_Account_Registry_이관작업_260814_v2.xlsx` → Airtable 이관) 세션.
+
+**Raw / Evidence (Airtable Read-only 재조회 기준):**
+- 이관 전 엑셀 IDN 번호 ≠ Airtable IDN 번호 — 이메일 1:1 일치 24명 중 22명 번호 상이(예: 엑셀 IDN-000002=ehchogalaxy, Airtable IDN-000002=esther jin). Airtable 내부에도 IDN-000037·039 각 2명 사용, 같은 이메일 3쌍(atqvtg·tour3934·help.kovi), identity_id 공란 1건.
+- 회장 결정으로 엑셀 번호 기준 이관 실행 → "이메일 표기 깨짐" 3행(017·021·040) 제외 규칙이 MED 대표 `sk50723934@gmail.com'`(끝 따옴표 1개)까지 제외하고, 기존 Airtable 레코드를 삭제함. 16계정 검증에서 "MED 대표 NOT IN AIRTABLE"로 발견.
+- Platform_Accounts.identity_id는 Linked Record가 아닌 텍스트라 Account_Registry 번호 변경 시 따라가지 않음 → 31건 중 28건이 다른 사람/없는 번호를 가리킴.
+
+**Root Cause:** Confirmed — ①두 원본이 서로 다른 번호 체계로 관리됨 ②형식 필터가 "고칠 수 있는 오타"와 "쓸 수 없는 값"을 구분하지 않고 일괄 제외·삭제 ③계정 간 참조가 텍스트 키라 재번호 시 연쇄 갱신이 없음.
+
+**영향:** 운영 영향 0 — 런타임은 account_code로 계정을 찾고 identity_id·Platform_Accounts·category·account_role을 읽지 않음(코드 grep 0건). 운영 2계정(IDN-000041·036) 운영 필드는 백업 대비 변경 0.
+
+**조치:** 017·021·040 이메일 수정 후 재생성, Platform 28건 백업 이메일 기준 재연결 후 엑셀 3번 시트 기준 재구성(31→122건, 🔴 notes 표시), 전 단계 실행 전 백업(`backup/airtable_261013_pre_migration` / `_pre_fill` / `_pre_role`) + 실행 후 재조회 검증.
+
+**상태:** RESOLVED(데이터) — Platform 🔴 120건 사전 검수는 하지 않기로 회장 결정(자동화·매출 우선, 오류 발생 시 개별 수정).
+
+**관련:** FP-109

@@ -3003,3 +3003,17 @@ push: 미실행 — origin/master=1ec92a7
 - **결정: Credential 교체하지 않고 현 상태로 진행(Accept).** ImgBB Key·YUNA token(`YUNA_INSTA_ACCESS_TOKEN`=`INSTA_ACCESS_TOKEN`) 모두 현재 유효·정상 작동 확인(261012 14:01 ImgBB 업로드 성공, token 인증 오류 code 190 0건).
 - 교체 여부는 **시스템 완성 후 회장이 다시 판단**한다. 그 전까지 이 항목은 Blocker가 아니며, Acceptance 검증(261013 06:00~)은 교체 없이 진행한다.
 - 수용한 위험: 해당 값이 과거 로컬 로그에 평문으로 남았었고(현재 마스킹 완료), ImgBB Key는 261012 세션 대화 기록에 1회 노출됨. 로그의 PC 외부 유출 Evidence 0건(git·백업·OneDrive).
+
+---
+
+### 261013 아바타 확장 — 엑셀 → Airtable 계정·페르소나·플랫폼 이관 (ERR-150)
+
+**범위:** Airtable 데이터·스키마만(코드·.env·Runtime 변경 0, Acceptance Freeze 위반 없음). 회장 결정: 이관 완료 후 계정·페르소나 원본(SSOT)은 Airtable.
+
+**실행:** ①엑셀 번호 기준 Account_Registry 수정 27·신규 14·삭제 7(엑셀에 없는 3명·중복 구레코드 3·이메일 오류 1) → 이후 누락분 017·021·040·048~050 추가 → 49건 ②Persona PER-003~049 생성(active=FALSE) ③Platform 재연결 28건 → 엑셀 3번 시트 기준 재구성 122건 ④빈칸 보완(target_language AI=KR/나머지 EN, content_theme 6, category 13, handle 8) ⑤`account_role`·`secondary_tags` 필드 생성, category D_AI·E_AESTHETIC 추가, 대표/서브 17계정 표시.
+
+**백업:** `backup/airtable_261013_pre_migration/`, `_pre_fill/`, `_pre_role/` (gitignore, 원복용).
+
+**검증:** 단계마다 실행 후 재조회 — 번호·이메일·링크 중복 0, 운영 2계정 변경 0.
+
+**미해결:** Platform 🔴 120건 사전 검수 안 함(회장 결정, 운영 중 오류 시 개별 수정). platform_account_id 일부는 옛 이름 유지(Review 4건).
