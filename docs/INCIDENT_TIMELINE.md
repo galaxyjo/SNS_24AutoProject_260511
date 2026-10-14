@@ -1093,3 +1093,13 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **잔여:** ImgBB Key 교체(필수), YUNA token 교체(권장) — 회장 직접(B).
 
 **관련:** ERR-144, FP-104
+
+---
+
+## INC-065 | aijomoojin 게시 정지(10-12 17:00 ~ 10-14 현재) — Producer Lock 고착
+
+**발생:** 2026-10-12 17:00 ICT, Producer 실행 중 watchdog FATAL(17:00:37)로 프로세스가 종료돼 Lock이 남음.
+**발견:** 2026-10-14 20:45 ICT(약 52시간 후), Acceptance 중간 집계 중 발견.
+**영향:** aijomoojin 슬롯 10/10 스킵(10-13 06:00 ~ 10-14 18:00), 게시 0건. YUNA 정상.
+**추가 관찰:** 10-14 16:37 watchdog FATAL이 다시 발생해 16:41 launcher 재시작(Acceptance 기간 중 계획에 없던 재기동 1건).
+**해결:** 미해결 — Lock 해제 승인 대기. 상세: ERR-152, FP-110.

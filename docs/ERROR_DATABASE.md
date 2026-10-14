@@ -2944,3 +2944,31 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 **상태:** OPEN(차단 아님)
 
 **관련:** ERR-150
+
+---
+
+## ERR-152 | aijomoojin Producer Lock이 10-12 17:00부터 풀리지 않아 Acceptance 기간 슬롯 10/10 스킵(게시 0건)
+
+**발견 경위:** 261014 20:45 ICT, 회장 요청으로 Acceptance v1 중간 결과를 집계하다 발견(Read-only).
+
+**Raw / Evidence:**
+- `db/producer_lock.db`: `aijomoojin_content_producer | owner=1039d405… | acquired_at=2026-10-12T10:00:00.043752+00:00`(= 10-12 17:00 ICT), 파일 수정 시각 10-12 17:00 이후 변화 없음.
+- `logs/watchdog.log`: `[2026-10-12 17:00:37] [FATAL] watchdog.ps1 최상위 종료됨` → 17:01:46 watchdog 재기동 → 17:02:15 launcher 재시작. 17:00에 시작한 Producer 실행이 Lock을 해제하기 전에 프로세스가 종료됨.
+- 이후 Producer는 매 실행마다 `Lock 선점 실패(다른 실행 진행 중) — 이번 실행 스킵`(10-13 08·11·14·17시, 10-14 05·08·11·14·17시). 슬롯은 `ready 후보 없음 — 이번 슬롯 스킵`(10-13 06·09·12·15·18시, 10-14 06·09·12·15·18시) = 10/10.
+- `modules/common/producer_lock.py` 계약: "자동 만료 없음 — Lease/Heartbeat/TTL을 의도적으로 만들지 않음. Crash로 Lock이 풀리지 않으면 사람이 force_release()로 수동 해제".
+
+**Root Cause:** Confirmed — Producer 실행 도중 watchdog FATAL로 프로세스가 강제 종료됐고, TTL 없는 Lock 설계라 그 뒤 자동 회복 경로가 없음. watchdog FATAL 자체의 원인은 UNKNOWN(ERR-050/051 계열).
+
+**영향:** aijomoojin 게시 10-12 17:00 이후 0건(Acceptance 핵심 기준 "슬롯 손실 ≤1" 이미 위반). YUNA 일반 경로는 정상(10-14 07:14 게시 성공 `18347390650271603`). 중복·오계정 게시 0.
+
+**조치(미실행, 승인 대기):** `force_release()`로 Lock 해제 → 다음 Producer 실행에서 콘텐츠 생성 확인. 재발 방지(Lock 만료·알림 강화)는 별도 설계·승인 필요.
+
+**상태:** OPEN
+
+**관련:** FP-110, INC-065
+
+### ERR-152 후속 (261014 21:12 ICT)
+
+- **Root Cause 문구 정정:** `[FATAL] watchdog.ps1 최상위 종료됨`은 비정상 종료뿐 아니라 **정상적인 `Restart-Service SNS_Watchdog` 때도 찍힌다**(20:54:07 회장 재시작에서 직접 관측). 따라서 10-12 17:00:37과 10-14 16:37 종료가 사람이 재시작한 것인지 비정상 종료인지는 UNKNOWN이다. 확정된 사실은 "17:00 Producer 실행 중 프로세스가 종료됐고 Lock이 남았다"는 것까지다.
+- **조치 완료(회장 승인 261014):** `force_release()` 실행(직전 holder: 10-12 10:00 UTC 획득 → 해제 후 None). 백업: `backup/pre_fix_261014/producer_lock.db`.
+- **남은 확인:** 다음 Producer 실행에서 콘텐츠가 생성되는지, 다음 슬롯이 게시되는지.

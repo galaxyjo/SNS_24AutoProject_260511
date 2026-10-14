@@ -3033,3 +3033,22 @@ push: 미실행 — origin/master=1ec92a7
 - 페이지 URL → Platform_Accounts(FacebookPAGE 행) `profile_url`·`platform_status` / 페이지 ID → `fb_page_id` / 인스타 ID → `ig_user_id` / 토큰 준비 완료 → `credential_key` + `api_provider`(확인 후 기입). 토큰 값은 Airtable 금지.
 - "Unnamed record" 표시 원인: Account_Registry 대표 필드 `account_code` 공란(44계정). 링크는 정상. account_code 채우기는 Freeze 종료 후 승인 받고 진행.
 - Airtable·코드·.env·Runtime 변경 0건. 상세: VALIDATION_STATUS `airtable_provisioning_field_convention_261013`.
+
+---
+
+### 261014 — Meta 앱 공용화 결정 + YUNA 2단계 인증 (코드·Airtable·.env 변경 없음)
+
+- 40계정은 YUNA 앱(Galaxy International, 860604299884476) 하나로 확장. 신규 계정은 `docs/Instagram_토큰발급_매뉴얼.md` 4단계에서 이 앱을 고른다.
+- YUNA 데이터 접근 기한 2026-10-23 → 그 전에 회장이 Graph API Explorer에서 같은 앱·같은 FB 계정으로 재승인 1회 → Claude Code가 기존 토큰을 debug_token으로 다시 조회해 기한이 늘어났는지 확인.
+- YUNA FB 계정 Google Authenticator 2단계 인증 설정 완료(회장 보고).
+- 상세: VALIDATION_STATUS `meta_app_reuse_40_accounts_261014`.
+
+---
+
+### 261014 21:00 ICT — Acceptance v1 조기 FAIL → Producer Lock 해제 + YUNA System User Token 교체 (ERR-152)
+
+- **Acceptance v1 중간 판정 FAIL:** 슬롯 10 = 성공 0 + 실패 0 + 스킵 10. 원인은 10-12 17:00 Producer 실행 중 프로세스가 종료되면서 TTL 없는 Lock이 남은 것(FP-110, INC-065). 회장 승인으로 Freeze 종료.
+- **실행(회장 승인):** ①`producer_lock.force_release()` ②`.env` 2줄(INSTA_ACCESS_TOKEN·YUNA_INSTA_ACCESS_TOKEN)을 insta_auto_bot System User Token으로 교체(SYSTEM_USER, 토큰 만료·데이터 접근 기한 모두 없음) ③회장 `Restart-Service SNS_Watchdog` → 20:54:41 부팅, ERROR 0, Engagement 결과 교체 전과 동일.
+- **코드 변경:** 0건. **백업:** `backup/pre_fix_261014/`(env.bak, producer_lock.db).
+- **남은 확인:** 다음 Producer 생성, aijomoojin 슬롯 게시, YUNA 실게시 1건, DM 1건. 확인되면 임시 토큰 파일 삭제.
+- 상세: ERR-152(+후속), FP-110, INC-065, VALIDATION_STATUS `acceptance_v1_interim_261014` · `yuna_system_user_token_swap_261014` · `meta_app_reuse_40_accounts_261014`.
