@@ -3052,3 +3052,13 @@ push: 미실행 — origin/master=1ec92a7
 - **코드 변경:** 0건. **백업:** `backup/pre_fix_261014/`(env.bak, producer_lock.db).
 - **남은 확인:** 다음 Producer 생성, aijomoojin 슬롯 게시, YUNA 실게시 1건, DM 1건. 확인되면 임시 토큰 파일 삭제.
 - 상세: ERR-152(+후속), FP-110, INC-065, VALIDATION_STATUS `acceptance_v1_interim_261014` · `yuna_system_user_token_swap_261014` · `meta_app_reuse_40_accounts_261014`.
+
+---
+
+### 261014~15 — 048 연결정보 입력 + YUNA Threads 토큰 저장 + Threads 토큰 자동갱신 구현
+
+- **048 kbeautiquewholesale(회장 승인):** System User Token으로 Read-only 검증 PASS(Page `117100271340451`, IG `17841403029540647`). Airtable 048에 5칸 입력, `.env`에 `SALE1_INSTA_*` 2줄 추가. automation_enabled는 off, 재시작 안 함. 백업 `backup/pre_048_261014/`.
+- **Threads 점검:** 게시 경로는 처음부터 미구현이었음(Confirmed). Facebook 토큰으로는 Threads API를 쓸 수 없음 → 회장이 Threads 전용 토큰 발급 → `.env`에 `YUNA_THREADS_*` 2줄 저장(id `29240365478903959`, 만료 12-14). 백업 `backup/pre_threads_261015/`.
+- **Threads 토큰 자동갱신:** 커밋 `d89420b`(기본 off, 회귀 0). 활성화는 10-16 15:00 이후 별도로 진행.
+- **남은 일:** Threads 게시 모듈 + Instagram_Posts `threads_media_id` 칸(별도 승인), 50계정 연결 반복 작업.
+- 상세: VALIDATION_STATUS `kbeautique_048_api_mapping_261014` · `yuna_threads_token_saved_261015` · `threads_token_auto_refresh_261015`.
