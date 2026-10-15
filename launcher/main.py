@@ -1907,6 +1907,29 @@ def _on_aijomoojin_job_missed(event) -> None:
         )
 
 
+def _threads_refresh_keys() -> list:
+    raw = os.getenv("THREADS_TOKEN_REFRESH_KEYS", "YUNA")
+    return [k.strip() for k in raw.split(",") if k.strip()]
+
+
+@handle_errors(task="threads_token_refresh", notify_fn=_slack)
+def _job_threads_token_refresh():
+    """261015 — Threads 장기 토큰(60일) 자동 갱신. 하루 1회 실행되고, 실제 갱신은
+    마지막 갱신 후 7일이 지났을 때만 한다(modules.common.threads_token). 실패하면
+    기존 토큰을 그대로 두고 Slack 1건을 보낸다. 게시·DM 동작은 바꾸지 않는다.
+
+    Flag: THREADS_TOKEN_REFRESH_ENABLED=true 여야 _build_scheduler 에서 등록된다."""
+    if os.getenv("THREADS_TOKEN_REFRESH_ENABLED", "false").strip().lower() != "true":
+        return
+    from modules.common.threads_token import refresh_threads_token
+    for key in _threads_refresh_keys():
+        result = refresh_threads_token(key)
+        logger.info(f"[ThreadsToken] 정기 점검 | key={key} | result={result}")
+        if result == "failed" and _slack:
+            _slack(f"[경고] Threads 토큰 갱신 실패 — key={key}\n"
+                   f"60일 안에 갱신하지 못하면 토큰을 되살릴 수 없습니다. 내일 다시 시도합니다.")
+
+
 def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     now = datetime.now()
     sched = BackgroundScheduler(timezone="Asia/Seoul")
@@ -2025,6 +2048,15 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
             id="adspower_health",
             next_run_time=now + timedelta(seconds=45),
             max_instances=1, coalesce=True,
+        )
+    # 261015 — Threads 장기 토큰 자동 갱신. 기본 false(미등록). 하루 1회 03:30,
+    # 실제 갱신은 7일마다. 원복(끄기)은 `.env` 수정 + launcher 재시작.
+    if os.getenv("THREADS_TOKEN_REFRESH_ENABLED", "false").strip().lower() == "true":
+        sched.add_job(
+            _job_threads_token_refresh, "cron",
+            hour=3, minute=30, timezone="Asia/Bangkok",
+            id="threads_token_refresh",
+            max_instances=1, coalesce=True, misfire_grace_time=3600,
         )
     sched.add_listener(_on_aijomoojin_job_missed, EVENT_JOB_MISSED)
     return sched
