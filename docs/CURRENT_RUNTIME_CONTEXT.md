@@ -1,3 +1,29 @@
+# 2026-10-16 15:40 ICT — 다계정 연결·Threads 준비 상태 스냅샷
+
+_기록 시각: 2026-10-16 15:40 ICT · HEAD=`c3d58c0`(Push 미실행) · 회장 지시 "해당 .md 모두 업데이트"._
+
+## 판정
+
+**연결 단계 SUCCESS / 실게시 전 HOLD.** Acceptance v1은 10-14 조기 FAIL로 종료(ERR-152), Freeze 해제 상태.
+
+## 현재 상태 (사실만)
+
+- **계정 원본:** Airtable(Account_Registry 50 · Persona 49 · Platform 122+). 대표/서브 표시는 `account_role`·`secondary_tags`.
+- **인스타 토큰:** YUNA·048·017·011·051·014는 insta_auto_bot System User 토큰(만료 없음) 공용, aijomoojin(036)은 별도 앱 토큰(데이터 접근 12-24). 신규 IG 5개 연결 완료, `automation_enabled`는 전부 off.
+- **Threads:** 토큰 6개(YUNA 기존 + 신규 5) `.env` 저장, 만료 12-14~15. 자동갱신 코드(`d89420b`)는 비활성 — 10/17 12:30 ICT 이후 신규 5개만 별도 승인으로 활성화(YUNA 제외). 게시 모듈(`c3d58c0`)은 스위치 OFF.
+- **도구:** `tools/onboard_meta_accounts.py`(`258f8a5`) — 회장이 공유·배정만 하면 나머지 자동 연결(기본 dry-run).
+- **producer Lock:** 10-14 force_release 후 정상(ERR-152).
+
+## 남은 일 (각각 별도 승인)
+
+1. 10/17 12:30 이후 Threads 자동갱신 활성화(신규 5개).
+2. Threads 스위치 + 1계정 Canary 실게시.
+3. 신규 IG 계정 실게시 Canary(automation_enabled + 게시물 준비).
+4. 나머지 계정 연결 반복(회장 공유·배정 → 도구).
+5. Push(미실행 커밋 누적).
+
+---
+
 # 2026-10-12 16:52 ICT — Acceptance v1 시작 전 상태 확정 / Freeze 시작 대기(10-13 06:00)
 
 _기록 시각: 2026-10-12 16:52 ICT · HEAD=`a359555`(origin/master=`1ec92a7`보다 12커밋 앞섬, **Push 미실행**) · 운영 boot=`be8bc2a`(16:19:56) · 작업트리: 이 파일 + untracked `db/*.json` 5개 · 회장 승인: 261012 16:46 "Acceptance 계획 확정 SUCCESS", 16:50 ".md 기록 업데이트" 지시._

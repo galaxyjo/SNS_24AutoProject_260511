@@ -273,3 +273,14 @@ Restart-Service SNS_Watchdog
 - `docs/CURRENT_RUNTIME_CONTEXT.md` — 계정별 provider 현황
 - `modules/common/credential_resolver.py` — `credential_key` → `.env` 변수 매핑 규칙
 - `launcher/main.py` `PROVIDER_CONFIG` — provider별 Graph API 호스트
+
+## 부록 D. 2026-10 다계정 표준(System User 토큰 + 연결 도구 + Threads)
+
+> 261014~16 확정. 계정마다 페이지 토큰을 따로 받는 위 1~9단계 대신, 신규 계정은 아래 방식이 표준이다.
+
+1. **인스타 토큰은 공용 1개:** Galaxy 비즈니스의 시스템 사용자 `insta_auto_bot` 토큰(SYSTEM_USER, 토큰 만료·데이터 접근 기한 모두 없음)을 모든 계정이 같이 쓴다. 계정마다 인스타 토큰을 새로 발급하지 않는다.
+2. **사람이 할 일(계정당 1회, B):** ① 페이지·IG를 Galaxy 비즈니스에 공유 승인 ② `insta_auto_bot`에 페이지 자산 배정(콘텐츠·메시지·커뮤니티 활동·인사이트 4개, MANAGE 불필요).
+3. **Page ID 주의:** `profile.php?id=` 주소창 번호는 Page ID가 아니다(014 실사례: 61558082801666 ≠ 286105297916998). Airtable `fb_page_id`에는 `me/accounts` 결과 값만 넣는다.
+4. **나머지는 도구:** `tools/onboard_meta_accounts.py`(기본 dry-run) → 결과가 `ready`이면 `--apply --only IDN-0000xx`. Airtable 빈칸(account_code·ig_user_id·credential_key·api_provider)과 `.env` `{credential_key}_INSTA_*` 2줄을 채운다. 페이지가 없는 IG 전용 계정(예: 051)은 도구 대상이 아니라 승인 후 직접 입력하며, 이 경우 DM·댓글 답장은 막힌다.
+5. **Threads 토큰은 계정별:** Galaxy 앱 → 이용 사례 → Threads API → 설정 → 사용자 토큰 생성기(계정마다 Threads 테스터 등록 필요)로 발급한다. `/me`로 실제 계정을 확인한 뒤 `.env`에 `{credential_key}_THREADS_USER_ID`·`_THREADS_ACCESS_TOKEN`으로 저장한다. 만료는 60일이며 자동갱신은 `THREADS_TOKEN_REFRESH_ENABLED`·`THREADS_TOKEN_REFRESH_KEYS`로 켠다.
+6. **토큰·비밀번호는 채팅·메모장에 남기지 않는다.** 임시 파일은 `backup/token_candidate/`(git 제외)에만 두고, `.env`로 옮긴 뒤 비밀번호 줄은 지운다.

@@ -3062,3 +3062,24 @@ push: 미실행 — origin/master=1ec92a7
 - **Threads 토큰 자동갱신:** 커밋 `d89420b`(기본 off, 회귀 0). 활성화는 10-16 15:00 이후 별도로 진행.
 - **남은 일:** Threads 게시 모듈 + Instagram_Posts `threads_media_id` 칸(별도 승인), 50계정 연결 반복 작업.
 - 상세: VALIDATION_STATUS `kbeautique_048_api_mapping_261014` · `yuna_threads_token_saved_261015` · `threads_token_auto_refresh_261015`.
+
+---
+
+### 261015~16 — 50계정 연결 도구 + Canary 2계정 + 매핑 정정 + STEP 9 확정
+
+- 도구: `tools/onboard_meta_accounts.py` + 테스트 33개(커밋 `258f8a5`). Codex FAIL 3건(중복 축약, 미배정 페이지 식별, Timeout 원복 기록) 수정 반영.
+- 연결 완료(신규): 017 petit, 011 ssada(`--apply --only` 각 1회). 기존: 048 sale1.
+- 정정: 012 중복 격리, 051 fb_page_id NULL, 048 fb_page_id 원복(모두 회장 승인, 백업 보관).
+- STEP 9 확정: IG 3 PASS / IG 051·Threads 2 FAIL(별도 해결 대상). 상세: VALIDATION_STATUS `onboard_tool_and_canaries_261015` · `multi_account_publish_dryrun_step9_261015`.
+- 코드·런타임 변경: 도구 커밋 외 0. 자동게시는 모두 off.
+
+---
+
+### 261016 — 051·014 IG 연결 + Threads 토큰 5개 저장 + Threads 최소 자동게시 구현(c3d58c0)
+
+- **IG 연결:** 051(IG 전용, credential 3칸 + .env 2줄), 014(fb_page_id 주소창 번호 → 실제 Page ID 교정 후 도구 apply). 신규 IG 5개 연결 완료, 자동게시 off.
+- **Threads 토큰:** 5개 계정 `{credential_key}_THREADS_*` 저장(GET /me 5/5 일치), YUNA 기존 유지. 자동갱신 활성화는 10/17 12:30 이후 별도 승인.
+- **Threads 게시:** External-First 비교 후 공식 REST 최소 구현(커밋 `c3d58c0`, 기본 OFF, IG posted 뒤에만 호출, 재시도 없음, 계정 ID 확인, 중복 방지 `threads_media_id`). Airtable 칸 1개 추가.
+- **백업:** `backup/pre_051_credential_261016` · `pre_014_pageid_fix_261016` · `pre_onboard_261016_020409` · `pre_threads_tokens_261016`.
+- **다음:** 자동갱신 활성화(10/17), Threads 스위치 + 1계정 Canary 실게시, IG 실게시 Canary — 각각 별도 승인.
+- 상세: VALIDATION_STATUS `ig_051_014_connect_261016` · `threads_tokens_5_saved_261016` · `threads_refresh_activation_plan_261016` · `threads_publish_min_impl_261016`.
