@@ -2972,3 +2972,45 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **Root Cause 문구 정정:** `[FATAL] watchdog.ps1 최상위 종료됨`은 비정상 종료뿐 아니라 **정상적인 `Restart-Service SNS_Watchdog` 때도 찍힌다**(20:54:07 회장 재시작에서 직접 관측). 따라서 10-12 17:00:37과 10-14 16:37 종료가 사람이 재시작한 것인지 비정상 종료인지는 UNKNOWN이다. 확정된 사실은 "17:00 Producer 실행 중 프로세스가 종료됐고 Lock이 남았다"는 것까지다.
 - **조치 완료(회장 승인 261014):** `force_release()` 실행(직전 holder: 10-12 10:00 UTC 획득 → 해제 후 None). 백업: `backup/pre_fix_261014/producer_lock.db`.
 - **남은 확인:** 다음 Producer 실행에서 콘텐츠가 생성되는지, 다음 슬롯이 게시되는지.
+
+---
+
+## ERR-153 | estherjin037332 — Meta Business에 Instagram 연결 시 사용자명 불일치·OAuth 콜백 오류
+
+**발견 경위:** 261016 계정 확장 STEP 15, 회장이 Meta Business에서 Instagram 계정 연결을 시도하다 발생(회장 보고 261016 11:34pm ICT).
+
+**Evidence:** 회장 보고 — 연결 과정에서 사용자명 불일치 표시 + OAuth 콜백 오류. IG·FB 계정 자체는 정상 로그인·사용 가능. Claude Code가 직접 확인한 Runtime/API Evidence 없음(오류 화면 원문 미수집).
+
+**Root Cause:** UNKNOWN.
+
+**영향 범위:** estherjin037332 1계정의 신규 연결만 막힘. 이미 연결된 계정·운영 게시 경로 영향 0(코드·`.env`·Airtable·Runtime 변경 0).
+
+**Risk:** 같은 연결을 반복 시도하면 Meta 인증 제한(일시 차단)이 걸릴 수 있음 → 원인 조사 전 반복 시도 자제.
+
+**재검토 조건:** ①다른 계정 연결이 끝나고 여유가 생겼을 때 ②오류 화면 원문(스크린샷·오류 문구)이 확보됐을 때 ③Meta 쪽 계정 경고·제한 알림이 생겼을 때. 조사 시간은 15~30분으로 제한.
+
+**상태:** HOLD(DEFER — 병목 방지 원칙에 따라 기록 후 계정 확장 계속)
+
+**관련:** ERR-154
+
+---
+
+## ERR-154 | ubk_office — Threads가 Galaxy `insta_auto_bot` 자산 목록에 표시되지 않음(API 권한은 정상)
+
+**발견 경위:** 261016 계정 확장 STEP 15. ubk_office Instagram은 Eco Cho 비즈니스에서 Galaxy로 파트너 공유를 마쳤지만, Threads는 Galaxy 봇의 Threads 자산 목록에 없고 Threads 설정에 [파트너 할당] 버튼도 없음(회장 보고 261016 11:28pm ICT).
+
+**Evidence (Read-only, 261016 11:40pm ICT):**
+- `graph.threads.net/v1.0/me` → 200, `id=28845840408379652`, `username=ubk_office` (`.env` `SALE1_THREADS_*`, 10-16 Galaxy 앱 Threads 토큰 생성기로 발급).
+- `/{uid}/threads_publishing_limit` → 200, `quota_usage=0`, `quota_total=250`/86400초(게시 권한 `threads_content_publish`가 필요한 엔드포인트).
+
+**Root Cause:** Confirmed(설계 차이) — Threads API 게시는 계정별 OAuth 사용자 토큰으로 권한을 받으며, 비즈니스 관리자 자산 할당과 무관. 자산 목록에 없는 것은 UI 표시 문제일 뿐.
+
+**영향 범위:** API 자동게시 차단 아님(NON-BLOCKER). 코드·`.env`·Airtable·Runtime 변경 0.
+
+**Risk:** 실제 Threads 게시 성공은 미검증(module_verified 단계). 토큰 만료 2026-12-15 — 자동갱신 활성화(10/17 12:30 이후, 별도 승인) 필요.
+
+**재검토 조건:** ①Threads 1계정 Canary 실게시에서 권한 오류가 나올 때 ②토큰 재발급이 필요할 때(경로: Galaxy 앱 → 앱 역할 → 역할 → Threads 테스터 추가 → Threads 앱 설정 → 계정 → 웹사이트 권한 → 초대 수락) ③자산 목록 등록이 운영상 필요해질 때.
+
+**상태:** RESOLVED(권한) / UI 표시 NON-BLOCKER / 실게시 미검증
+
+**관련:** ERR-153, VALIDATION_STATUS `threads_tokens_5_saved_261016`
