@@ -575,6 +575,50 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
 
 
 @handle_errors(task="insta_upload", notify_fn=_slack)
+def _maybe_publish_threads(repo, post_id: str, credential_key: str, account_code_ref: str,
+                           image_url: str, caption: str) -> None:
+    """261016 — Instagram 게시가 posted 로 기록된 뒤에만 호출. 기본 OFF.
+    어떤 예외도 밖으로 내보내지 않는다(Instagram 결과·나머지 게시물 처리에 영향 0).
+    재시도 없음. 결과 불명은 threads 전용 pending 파일 + Slack 으로만 남긴다."""
+    if os.getenv("THREADS_PUBLISH_ENABLED", "false").strip().lower() != "true":
+        return
+    try:
+        from modules.sns import threads_publisher as _tp
+        if not _tp.enabled_for(credential_key):
+            return
+        if repo.get_threads_media_id(post_id):
+            logger.info("[Threads] 이미 게시됨(threads_media_id 존재) — 건너뜀 | rid=%s", post_id)
+            return
+        res = _tp.publish_threads(credential_key=credential_key, image_url=image_url, text=caption)
+        status = res.get("status")
+        if status == "posted":
+            try:
+                repo.set_threads_media_id(post_id, res["threads_media_id"])
+                logger.info("[Threads] 게시 성공 | rid=%s | threads_media_id=%s", post_id, res["threads_media_id"])
+            except Exception as exc:
+                logger.error("[Threads] 게시 성공, Airtable 기록 실패 — 수동 확인 | rid=%s | threads_media_id=%s | %s",
+                             post_id, res["threads_media_id"], type(exc).__name__)
+                _tp.record_pending(post_id, credential_key=credential_key, creation_id=res.get("creation_id", ""),
+                                   error="POSTED_UNRECORDED:" + res["threads_media_id"], account_code_ref=account_code_ref)
+                if _slack:
+                    _slack(f"[긴급] Threads 게시 성공, Airtable 기록 실패 — rid={post_id} | threads_media_id={res['threads_media_id']}")
+        elif status == "outcome_unknown":
+            logger.error("[Threads] OUTCOME_UNKNOWN — 수동 확인 필요 | rid=%s | creation_id=%s | %s",
+                         post_id, res.get("creation_id", ""), res.get("error", ""))
+            _tp.record_pending(post_id, credential_key=credential_key, creation_id=res.get("creation_id", ""),
+                               error=res.get("error", ""), account_code_ref=account_code_ref)
+            if _slack:
+                _slack(f"[긴급] Threads 게시 결과 불명 — 수동 확인 필요\nrid={post_id} | creation_id={res.get('creation_id','')} | account_ref={account_code_ref}")
+        elif status == "failed":
+            logger.warning("[Threads] 게시 실패(재시도 없음) | rid=%s | %s", post_id, res.get("error", ""))
+            if _slack:
+                _slack(f"[알림] Threads 게시 실패(재시도 없음) — rid={post_id} | {res.get('error','')} | account_ref={account_code_ref}")
+        else:
+            logger.info("[Threads] 건너뜀 | rid=%s | %s", post_id, res.get("error", ""))
+    except Exception as exc:
+        logger.error("[Threads] 처리 중 예외 — Instagram 결과 무변경 | rid=%s | %s", post_id, type(exc).__name__)
+
+
 def _job_insta_upload():
     from modules.infra.airtable_repository import AirtableRepository
     from modules.infra.repository_interface import PostPublishResult
@@ -825,6 +869,10 @@ def _job_insta_upload():
                 )
                 _record_publish_pending(post_id, "failed_unrecorded", account_code_ref=account_code_ref)
             continue
+
+        # 261016 Threads — Instagram 게시가 posted 로 Airtable 에 기록된 경우에만(기본 OFF).
+        if raw.get("ok"):
+            _maybe_publish_threads(repo, post_id, account["credential_key"], account_code_ref, image_url, caption)
 
 
 AIJOMOOJIN_SLOT_ACCOUNT_CODE = "IDN-000036"

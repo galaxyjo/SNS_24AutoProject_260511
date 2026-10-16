@@ -344,6 +344,15 @@ class RepositoryInterface(ABC):
     def mark_post_result(self, post_id: str, result: PostPublishResult) -> None:
         """업로드 결과(성공/실패)를 게시물 레코드에 기록."""
 
+    # 261016 Threads 최소 자동게시 — Optional 확장(추상 메서드 아님: 기존 구현체·Fake 무수정).
+    def get_threads_media_id(self, post_id: str) -> str:
+        """게시물의 threads_media_id(없으면 ""). 미지원 구현체는 NotImplementedError."""
+        raise NotImplementedError
+
+    def set_threads_media_id(self, post_id: str, threads_media_id: str) -> None:
+        """Threads 게시 성공 시 threads_media_id 한 칸만 기록. 미지원 구현체는 NotImplementedError."""
+        raise NotImplementedError
+
     @abstractmethod
     def fetch_posted_with_media_id(self, limit: int = 10) -> list[dict]:
         """post_status='posted' AND ig_media_id!='' 인 게시물 최대 limit 건,

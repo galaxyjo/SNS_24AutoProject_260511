@@ -1055,6 +1055,31 @@ class AirtableRepository(RepositoryInterface):
         except requests.RequestException as e:
             raise RepositoryUnavailableError(str(e)) from e
 
+    def get_threads_media_id(self, post_id: str) -> str:
+        """261016 Threads — 레코드 1건의 threads_media_id 만 조회(중복 게시 방지용)."""
+        try:
+            r = requests.get(_url("Instagram_Posts", post_id), headers=_headers(),
+                             params={"fields[]": "threads_media_id"}, timeout=_TIMEOUT)
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "GET")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+        return (r.json().get("fields") or {}).get("threads_media_id", "") or ""
+
+    def set_threads_media_id(self, post_id: str, threads_media_id: str) -> None:
+        """261016 Threads — threads_media_id 한 칸만 PATCH(post_status·ig_media_id 무변경)."""
+        try:
+            r = requests.patch(_url("Instagram_Posts", post_id), headers=_headers(json_body=True),
+                               json={"fields": {"threads_media_id": threads_media_id}}, timeout=_TIMEOUT)
+            r.raise_for_status()
+            log_api_call("Instagram_Posts", "PATCH")
+        except requests.HTTPError as e:
+            _raise(e, "Instagram_Posts")
+        except requests.RequestException as e:
+            raise RepositoryUnavailableError(str(e)) from e
+
     def fetch_posted_with_media_id(self, limit: int = 10) -> list[dict]:
         try:
             r = requests.get(
