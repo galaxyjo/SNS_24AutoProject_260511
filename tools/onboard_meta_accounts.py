@@ -64,9 +64,23 @@ def _index(ar_records: list, field: str) -> dict:
     return m
 
 
+def merge_ig_only(pages: list, ig_accounts: list) -> list:
+    """261019 페이지 경로에 없는 비즈니스 IG(페이지 미연결, 051·052 방식)를 page_id=None 항목으로 덧붙인다.
+    같은 IG ID 는 페이지 경로 항목을 우선하고 1건만 남긴다(입력 순서 무관)."""
+    seen = {p.get("ig_id") for p in pages if p.get("ig_id")}
+    out = list(pages)
+    for a in ig_accounts:
+        ig = a.get("id")
+        if ig and ig not in seen:
+            seen.add(ig)
+            out.append({"page_id": None, "page_name": None, "assigned": True,
+                        "ig_id": ig, "ig_username": a.get("username")})
+    return out
+
+
 def build_plan(pages: list, ar_records: list, pa_records: list, env_text: str,
                only: "set | None" = None) -> list:
-    """pages: [{page_id, page_name, assigned(bool), ig_id, ig_username}]
+    """pages: [{page_id, page_name, assigned(bool), ig_id, ig_username}] — page_id=None 은 페이지 없는 IG
     ar_records: Airtable Account_Registry raw records, pa_records: Platform_Accounts raw records.
     반환: 계정별 계획 dict 목록(status = ready / no_change / skip).
     중복은 입력 순서와 무관하게 판정하며, 중복에 걸린 항목은 모두 skip(Fail-closed)."""
@@ -100,9 +114,10 @@ def build_plan(pages: list, ar_records: list, pa_records: list, env_text: str,
                 "ig_id": pg.get("ig_id"), "airtable_record_id": None,
                 "assign": not pg.get("assigned"), "status": "skip", "reason": "", "identity_id": None,
                 "airtable": {}, "env": []}
+        page_key = str(pg["page_id"]) if pg["page_id"] else ""      # 페이지 없는 IG 는 Page ID 매칭 없음
         c_ig = ig_candidates(pg.get("ig_username"))
         c_pg = page_candidates(pg["page_id"], pg.get("page_name"))
-        touched = c_ig | c_pg | used_ig.get(str(pg.get("ig_id") or ""), set()) | used_page.get(str(pg["page_id"]), set())
+        touched = c_ig | c_pg | used_ig.get(str(pg.get("ig_id") or ""), set()) | used_page.get(page_key, set())
         if touched & PROTECTED_IDS:
             item["identity_id"] = sorted(touched & PROTECTED_IDS)[0]
             item["reason"] = "운영 계정 보호(036·041 제외)"
@@ -110,7 +125,7 @@ def build_plan(pages: list, ar_records: list, pa_records: list, env_text: str,
             continue
         # 261015 ID 우선 매칭: Meta 고유 ID(IG ID → Page ID)로 Airtable과 1:1이면 확정.
         # 이름은 ID가 없을 때만 쓰고, ID가 있으면 보조 검증(이름 매칭이 있으면 그 안에 포함돼야 함).
-        c_id = (used_ig.get(str(pg.get("ig_id") or ""), set()) | used_page.get(str(pg["page_id"]), set()))
+        c_id = (used_ig.get(str(pg.get("ig_id") or ""), set()) | used_page.get(page_key, set()))
         c_id = {h for h in c_id if not h.startswith("(identity 없음")}
         names = c_ig | c_pg
         if len(c_id) > 1:
@@ -154,10 +169,12 @@ def build_plan(pages: list, ar_records: list, pa_records: list, env_text: str,
         key = f.get("credential_key") or default_key(idn)
         want = {"account_code": idn, "ig_user_id": pg["ig_id"], "fb_page_id": pg["page_id"],
                 "credential_key": key, "api_provider": "facebook_login"}
+        if not pg["page_id"]:
+            del want["fb_page_id"]      # 페이지 없는 IG: fb_page_id 는 쓰지도 비우지도 않는다(기존 값 보존)
         conflicts = [k for k, v in want.items() if f.get(k) and f.get(k) != v]
         if not KEY_RE.fullmatch(key):
             conflicts.append("credential_key 형식")
-        for label, idx, val in (("ig_user_id", used_ig, pg["ig_id"]), ("fb_page_id", used_page, pg["page_id"]),
+        for label, idx, val in (("ig_user_id", used_ig, pg["ig_id"]), ("fb_page_id", used_page, page_key),
                                 ("credential_key", used_key, key)):
             others = idx.get(str(val), set()) - {idn}
             if others:
@@ -304,7 +321,8 @@ def fetch_pages(token: str) -> list:
         iba = (a or {}).get("instagram_business_account") or {}
         pages.append({"page_id": pid, "page_name": (a or biz.get(pid) or {}).get("name"), "assigned": bool(a),
                       "ig_id": iba.get("id"), "ig_username": iba.get("username")})
-    return pages
+    # 261019 페이지에 연결되지 않은 IG(Galaxy 에 IG 만 공유) — 페이지 경로로는 보이지 않는다
+    return merge_ig_only(pages, get(f"{BUSINESS_ID}/instagram_accounts", fields="id,username", limit=100))
 
 
 def fetch_airtable(table: str) -> list:

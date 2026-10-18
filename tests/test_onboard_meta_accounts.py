@@ -339,3 +339,59 @@ def test_env_timeout_verified_applied_and_no_token_in_report():
     rep = _run(_ready_two(), append_env=bad_env, verify_env=lambda t: True)
     assert rep["failed_step"] == "env_append" and rep["failed_outcome"] == "applied"
     assert TOKEN not in str(rep)
+
+
+# ── 261019 페이지 없는 IG(Galaxy 에 IG 만 공유) ─────────────────────────────
+
+def by_ig(plan):
+    return {p["ig_id"]: p for p in plan}
+
+
+def test_page_path_unchanged_when_ig_only_list_added():
+    pages = ob.merge_ig_only([page("P17", "178PETIT", "Petit Phẫu Thuật")], [{"id": "178PETIT", "username": "x"}])
+    p = by_ig(ob.build_plan(pages, BASE_AR, BASE_PA, ENV))["178PETIT"]
+    assert p["status"] == "ready" and p["page_id"] == "P17" and p["airtable"]["fb_page_id"] == "P17"
+
+
+def test_ig_only_account_ready_without_fb_page_id():
+    ar2 = BASE_AR + [ar("r52", "IDN-000052", account_handle="helper.for_u")]
+    pages = ob.merge_ig_only([], [{"id": "178HELP", "username": "helper.for_u"}])
+    p = by_ig(ob.build_plan(pages, ar2, [], ENV))["178HELP"]
+    assert p["status"] == "ready" and p["page_id"] is None and not p["assign"]
+    assert p["airtable"] == {"account_code": "IDN-000052", "ig_user_id": "178HELP",
+                             "credential_key": "IDN_000052", "api_provider": "facebook_login"}
+    assert p["env"] == ["IDN_000052_INSTA_IG_USER_ID", "IDN_000052_INSTA_ACCESS_TOKEN"]
+
+
+def test_same_ig_on_both_paths_is_single_candidate():
+    pages = ob.merge_ig_only([page("117", "178KB", "kbeautiquewholesale")],
+                             [{"id": "178KB", "username": "kbeautiquewholesale"}, {"id": "178KB", "username": "dup"}])
+    assert len(pages) == 1 and pages[0]["page_id"] == "117"
+    plan = ob.build_plan(pages, BASE_AR, BASE_PA, ENV)
+    assert [(p["ig_id"], p["status"]) for p in plan] == [("178KB", "no_change")]
+
+
+def test_ig_only_rescan_is_no_change_and_keeps_existing_page():
+    ar2 = BASE_AR + [ar("r52", "IDN-000052", account_code="IDN-000052", ig_user_id="178HELP", fb_page_id="P999",
+                        credential_key="IDN_000052", api_provider="facebook_login", account_handle="helper.for_u")]
+    env = ENV + "IDN_000052_INSTA_IG_USER_ID=178HELP\nIDN_000052_INSTA_ACCESS_TOKEN=x\n"
+    plan = ob.build_plan(ob.merge_ig_only([], [{"id": "178HELP", "username": "helper.for_u"}]), ar2, [], env)
+    p = by_ig(plan)["178HELP"]
+    assert p["status"] == "no_change" and p["airtable"] == {} and p["env"] == []
+    calls = []
+    ob.apply_plan(plan, assign_page=calls.append, patch_airtable=lambda r, f: calls.append(r),
+                  append_env=calls.append, token=TOKEN, today="261019")
+    assert calls == []                                            # fb_page_id P999 를 비우거나 바꾸지 않음
+
+
+def test_ig_only_conflict_or_multi_match_skips_with_zero_writes():
+    ar2 = BASE_AR + [ar("r52", "IDN-000052", account_handle="helper.for_u", ig_user_id="178OTHER"),
+                     ar("rX", "IDN-000099", account_handle="twin"), ar("rY", "IDN-000098", account_handle="twin")]
+    pages = ob.merge_ig_only([], [{"id": "178HELP", "username": "helper.for_u"}, {"id": "178TWIN", "username": "twin"}])
+    plan = by_ig(ob.build_plan(pages, ar2, [], ENV))
+    assert plan["178HELP"]["status"] == "skip" and "충돌" in plan["178HELP"]["reason"]
+    assert plan["178TWIN"]["status"] == "skip" and "2건" in plan["178TWIN"]["reason"]
+    calls = []
+    done = ob.apply_plan(list(plan.values()), assign_page=calls.append, patch_airtable=lambda r, f: calls.append(r),
+                         append_env=calls.append, token=TOKEN, today="261019")
+    assert calls == [] and done == {"assigned": 0, "airtable": 0, "env_lines": 0}
