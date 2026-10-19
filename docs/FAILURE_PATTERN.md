@@ -1372,3 +1372,9 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 **재발 방지 방향(설계 필요):** Lock 보유 시간 상한(예: Producer 최대 실행시간 × 2) 초과 시 자동 회수 또는 즉시 경보. "Lock 선점 실패"가 연속 2회를 넘으면 ERROR로 올리고 Slack 경보.
 
 **사례:** ERR-152
+
+## FP-111 | 광고 제한(ad-restricted) Business Portfolio는 IG 자산 추가·Galaxy 파트너 승인을 거부한다
+- **패턴:** Meta Business Portfolio가 광고 정책으로 제한되면, 그 포트폴리오에 IG 자산 추가·파트너(Galaxy) 권한 승인·페이지 연결이 거부된다. 코드/자동화로 우회 불가(계정측 사유).
+- **사례:** ERR-155(IDN-000037 Echo classic 382299538300647 파트너 승인 실패) / ERR-157(IDN-000034 AI AUTO Business 1185380244669729 자산추가 거부) / IDN-000023 Business 3679490828985019 DEFER(261018 STEP21).
+- **대응:** HOLD/DEFER로 기록만 하고 계정 확장은 계속. 재검토 조건 = ①페이지·Business 없이 IG를 Galaxy에 직접 공유(페이지 없는 IG 경로) ②광고 제한 해제 ③Threads 토큰 생성기로 토큰 발급 후 /me·게시권한 Read-only 확인. 조사 15~30분 제한.
+- **관련:** ERR-155/157, FP(광고정책), [[feedback_bottleneck_timebox]]

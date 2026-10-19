@@ -1,4 +1,23 @@
-# 2026-10-16 15:40 ICT — 다계정 연결·Threads 준비 상태 스냅샷
+# 2026-10-19 15:40 ICT — 다계정 프로비저닝 중간 스냅샷(토큰 22 / Live 0)
+
+_기록 시각: 2026-10-19 ~15:40 ICT · HEAD=`e3fd4b0`(origin/master 동기화) · 회장 지시 "관련 .md 업데이트"._
+
+## 판정
+**데이터·토큰 준비 완료 / 운영(Live) 미연결.** 261017~19 회장 캡처 기반으로 다계정을 Airtable에 정리하고 Threads 토큰을 .env에 적재했으나, **자동게시(automation) ON 계정은 0건**이다.
+
+## 현황
+- **Threads 토큰 .env 저장 = 22계정**(`/me` 검증 OK): YUNA·SALE1 + IDN_000007/011/014/017/018/019/022/023/024/025/027/028/029/030/031/035/038/039/051/052.
+- **Airtable 정리:** Account_Registry에 IG/FB Page ID·Persona·MBTI 반영. Platform_Accounts에 IG·FacebookPAGE·Threads·FB개인 행 정리. 엑셀 오입력 username·중복행은 Review 격리(삭제 아님).
+- **신규 분리 IDN:** IDN-000051(@kbeautymcn/쎄원s1, 048에서 분리) · IDN-000052(@helper.for_u/Luxury Tour, 039에서 분리).
+- **운영 2계정 불변:** IDN-000041(yuna)·IDN-000036(aijomoojin).
+
+## HOLD / 오류
+- ERR-155(IDN-000037 Echo classic 광고정책 파트너 승인 실패) · ERR-156(IDN-000032/033 Facebook 계정 소실) · ERR-157(IDN-000034 AI AUTO Business 광고제한 IG 연결 불가) — 전부 HOLD(기록만). 공통 패턴 FP-111.
+
+## 다음 단계
+- 토큰 보유 22계정 중 Live 전환 대상·순서·성공기준·Rollback은 별도 승인(Canary). automation ON은 승인 전 금지.
+
+---# 2026-10-16 15:40 ICT — 다계정 연결·Threads 준비 상태 스냅샷
 
 _기록 시각: 2026-10-16 15:40 ICT · HEAD=`c3d58c0` → 문서 `d644075`, **origin/master 동기화 완료(261016, 22커밋 push, 회장 직접 실행)** · 회장 지시 "해당 .md 모두 업데이트"._
 

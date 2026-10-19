@@ -3090,3 +3090,12 @@ push: 미실행 — origin/master=1ec92a7
 
 - 회장이 직접 `git push origin master` 실행(Claude Code 실행은 자동 모드 안전장치가 차단): `1ec92a7..d644075`, 22커밋. 사전 점검 — origin 신규 커밋 0, 토큰 형태 문자열은 테스트용 가짜 4개뿐, `.env`·`backup/`·`*.db` 미포함. 사후 확인 ahead 0 / behind 0.
 - GPT 공유용 3줄 요약 전달(다계정 IG 5개 연결 · Threads 토큰 5개 + 최소 게시 구현 OFF · 다음 승인 단계).
+
+---
+
+### 261019 ~15:40 ICT — 다계정 프로비저닝(261017~19) + 오류기록 커밋
+
+- **Airtable(비-git):** 회장 캡처 기반 ~16계정 IG/FB/Threads 정리, Persona·MBTI 반영, IDN-000051·052 신규 분리. 엑셀 오입력·중복행 Review 격리.
+- **.env(gitignore):** Threads USER 토큰 누적 22계정 저장+`/me` 검증. automation ON 0건.
+- **git:** `e3fd4b0` docs/ERROR_DATABASE.md(ERR-155/156/157 HOLD) 커밋+push(origin/master). 이어서 FP-111·VALIDATION(`account_provisioning_261017_19`)·CURRENT_RUNTIME_CONTEXT·본 저널 .md 갱신(별도 커밋 예정).
+- **미해결:** ERR-155/156/157 HOLD(광고제한·FB계정 소실), Live 전환 Canary 승인 대기.
