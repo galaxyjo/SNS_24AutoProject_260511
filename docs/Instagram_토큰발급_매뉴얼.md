@@ -281,6 +281,36 @@ Restart-Service SNS_Watchdog
 1. **인스타 토큰은 공용 1개:** Galaxy 비즈니스의 시스템 사용자 `insta_auto_bot` 토큰(SYSTEM_USER, 토큰 만료·데이터 접근 기한 모두 없음)을 모든 계정이 같이 쓴다. 계정마다 인스타 토큰을 새로 발급하지 않는다.
 2. **사람이 할 일(계정당 1회, B):** ① 페이지·IG를 Galaxy 비즈니스에 공유 승인 ② `insta_auto_bot`에 페이지 자산 배정(콘텐츠·메시지·커뮤니티 활동·인사이트 4개, MANAGE 불필요).
 3. **Page ID 주의:** `profile.php?id=` 주소창 번호는 Page ID가 아니다(014 실사례: 61558082801666 ≠ 286105297916998). Airtable `fb_page_id`에는 `me/accounts` 결과 값만 넣는다.
-4. **나머지는 도구:** `tools/onboard_meta_accounts.py`(기본 dry-run) → 결과가 `ready`이면 `--apply --only IDN-0000xx`. Airtable 빈칸(account_code·ig_user_id·credential_key·api_provider)과 `.env` `{credential_key}_INSTA_*` 2줄을 채운다. 페이지가 없는 IG 전용 계정(예: 051)은 도구 대상이 아니라 승인 후 직접 입력하며, 이 경우 DM·댓글 답장은 막힌다.
+4. **나머지는 도구:** `tools/onboard_meta_accounts.py`(기본 dry-run) → 결과가 `ready`이면 `--apply --only IDN-0000xx`. Airtable 빈칸(account_code·ig_user_id·credential_key·api_provider)과 `.env` `{credential_key}_INSTA_*` 2줄을 채운다. 페이지가 없는 IG 전용 계정(예: 051·052)도 **261019 `c859047` 이후 도구가 Galaxy `instagram_accounts` 목록에서 자동으로 찾는다**(`fb_page_id`는 비우거나 기존 값 유지, 수동 입력 반복 금지). 이 경우 DM·댓글 답장은 막힌다.
 5. **Threads 토큰은 계정별:** Galaxy 앱 → 이용 사례 → Threads API → 설정 → 사용자 토큰 생성기(계정마다 Threads 테스터 등록 필요)로 발급한다. `/me`로 실제 계정을 확인한 뒤 `.env`에 `{credential_key}_THREADS_USER_ID`·`_THREADS_ACCESS_TOKEN`으로 저장한다. 만료는 60일이며 자동갱신은 `THREADS_TOKEN_REFRESH_ENABLED`·`THREADS_TOKEN_REFRESH_KEYS`로 켠다.
 6. **토큰·비밀번호는 채팅·메모장에 남기지 않는다.** 임시 파일은 `backup/token_candidate/`(git 제외)에만 두고, `.env`로 옮긴 뒤 비밀번호 줄은 지운다.
+
+## 부록 E. 계정 1개 등록 표준 절차 + 해결 사례 (261016~19 실작업 기록)
+
+> 부록 D를 계정 단위 순서로 풀어 쓴 것. 사람 작업(A~G)은 계정당 1회(B 분류), H부터는 Claude Code가 기존 도구로 처리한다. 실제 게시·자동화 활성화는 항상 별도 승인.
+
+| 단계 | 누가 | 어디서 | 할 일 |
+|---|---|---|---|
+| A | 회장 | 해당 Facebook 페이지 | Instagram 연결 확인(없으면 페이지에서 IG 직접 연결) |
+| B | 회장 | 소유 Meta Business | 페이지·IG 자산이 그 Business에 있는지 확인 |
+| C | 회장 | 소유 Business → 자산 → 파트너 할당 | Galaxy International(Business ID `24274599308882640`)에 필요한 권한만 부여. 페이지 없는 IG는 [Instagram 계정] → 해당 IG → 파트너 할당 |
+| D | 회장 | Galaxy → 사용자 → 시스템 사용자 → `insta_auto_bot` | 공유 자산 확인, 페이지 배정(4권한) |
+| E | 회장 | Galaxy 앱(`860604299884476`) → 앱 역할 | 해당 계정을 Threads(필요 시 IG) 테스터로 등록 |
+| F | 회장 | 해당 Threads/IG 앱 → 설정 → 웹사이트 권한 → 초대 | 테스터 초대 수락 |
+| G | 회장 | Galaxy 앱 → Threads API → 사용자 토큰 생성기 | 해당 계정으로 로그인 후 토큰 발급 → `backup/token_candidate/` 임시 파일에 이메일 라벨과 함께 붙여넣기 |
+| H | Claude Code | 로컬 | "`.env 이관`" → 신규 토큰만 `/me` 검증 후 저장 → "검증" → onboard dry-run → 오류 없으면 apply → `.env`에서 재조회 |
+
+**해결 사례·예외**
+
+| 증상 | 처리 | 근거 |
+|---|---|---|
+| Threads 오류 1349245 | Threads 테스터 초대 수락·로그인 세션 확인 후 토큰 재발급 | 회장 보고 기준(문서 Evidence 없음) |
+| mu901001 Meta OAuth 오류 | Facebook 페이지 화면에서 IG를 직접 연결해 해결 | 회장 보고 기준(문서 Evidence 없음) |
+| Threads가 Galaxy 자산 목록에 안 보임 | OAuth `/me` + `threads_publishing_limit` 200이면 자산 할당을 따로 요구하지 않음 | ERR-154 |
+| 페이지 없는 IG가 dry-run 0건 | 도구의 IG 전용 경로 사용(`c859047`), 수동 우회 반복 금지 | VALIDATION `onboard_ig_only_path_261019` |
+| 비즈니스 화면 Threads ID ≠ API ID | 게시는 `/me` 사용자 ID 사용, 비즈니스 자산 ID는 메모로만 보존 | 261018 IDN-000018 |
+| 페이지에 IG가 이미 다른 계정으로 묶임 | 페이지 1개 = IG 1개. 두 번째 IG는 IG 전용 경로(DM·댓글 답장 불가) | 261019 IDN-000039/052 |
+| `credential_key`에 `@` 등 | `IDN_000NNN` 규칙으로 정정 후 등록 | ERR-151 |
+| 광고 제한 Business(Echo classic, AI AUTO) | 광고 제한 ≠ IG API 게시 차단. 토큰으로 실제 API를 확인하기 전까지 UNKNOWN, HOLD | ERR-155/157, FP-111 |
+| Threads 토큰 정상 | IG 자동게시 가능성과 별개로 판정(IG는 onboard 재조회로 따로 확인) | 261018~19 |
+| IDN-000004 Airtable 관계 정리 | 회장이 정리 완료 보고 | 회장 보고 기준(문서 Evidence 없음) |

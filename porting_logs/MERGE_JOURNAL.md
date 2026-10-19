@@ -3099,3 +3099,14 @@ push: 미실행 — origin/master=1ec92a7
 - **.env(gitignore):** Threads USER 토큰 누적 22계정 저장+`/me` 검증. automation ON 0건.
 - **git:** `e3fd4b0` docs/ERROR_DATABASE.md(ERR-155/156/157 HOLD) 커밋+push(origin/master). 이어서 FP-111·VALIDATION(`account_provisioning_261017_19`)·CURRENT_RUNTIME_CONTEXT·본 저널 .md 갱신(별도 커밋 예정).
 - **미해결:** ERR-155/156/157 HOLD(광고제한·FB계정 소실), Live 전환 Canary 승인 대기.
+
+---
+
+### 261019 ~15:10 ICT — 261016~19 계정확장 날짜별 이력 + 매뉴얼 보강
+
+- **10/16:** estherjin037332 Meta Business IG 연결 시 사용자명 불일치·OAuth 콜백 오류(ERR-153 HOLD). ubk_office Threads가 Galaxy 자산 목록에 없으나 `/me`·게시 한도 200 → 권한 PASS(ERR-154).
+- **10/17:** hsy00718g(IDN-000007) Threads 토큰 저장·`/me` 검증. Threads 오류 1349245 해결, IDN-000004 Airtable 관계 정리 — 회장 보고 기준(문서 Evidence 없음).
+- **10/18:** 다계정 FB·IG·Threads를 Galaxy 파트너·`insta_auto_bot`에 연결, 018·019·022·023·024·025·027·028·029·030·031·035 onboard apply. mu901001 Meta OAuth 오류를 Facebook 페이지 연결 화면에서 해결 — 회장 보고 기준.
+- **10/18~19:** Echo classic 광고 제한·파트너 승인 실패(ERR-155 HOLD).
+- **10/19:** 038(credential_key·fb_page_id 정정)·039(credential_key·handle 정정) apply. helper.for_u(052) 누락 원인 확정 → 수동 등록 후 onboard 도구 보완 `c859047`(38 passed, 052 dry-run no_change=1). 032·033 FB 계정 소실(ERR-156), 034 badaj188 AI AUTO 광고 제한 Business 연결 거부·토큰 없음으로 API 확인 불가(ERR-157). 페르소나 1차 22계정 마감, 다음 29계정 확장 계획 확정 — 회장 보고 기준.
+- **문서:** `docs/Instagram_토큰발급_매뉴얼.md` 부록 D 4번 정정(IG 전용 계정도 도구가 탐색) + 부록 E(절차 A~H·해결 사례표) 추가, FP-111 "광고 제한 ≠ API 게시 차단(UNKNOWN)" 정정, VALIDATION `onboard_ig_only_path_261019` 추가. Commit 별도 승인 대기.
