@@ -3014,3 +3014,29 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 **상태:** RESOLVED(권한) / UI 표시 NON-BLOCKER / 실게시 미검증
 
 **관련:** ERR-153, VALIDATION_STATUS `threads_tokens_5_saved_261016`
+
+## ERR-155 | IDN-000037(조엔/atqvtg) Echo classic 페이지 Galaxy 파트너 권한 승인 실패 (광고정책 제한) — HOLD
+- **발견:** 261019, 회장 캡처 기반 계정 정리 중.
+- **증상:** 조엔(atqvtg@gmail.com) 소유 FB Page **Echo classic (Page ID 382299538300647)** 를 Galaxy 파트너로 연결하려 했으나 Meta Business 광고 정책 제한으로 **파트너 권한 승인 실패**.
+- **영향:** 해당 페이지 경유 IG @antigue_eu(IG ID 17841403954674064)·Threads **자동게시 가능 여부 UNKNOWN**. IG는 Meta 화면상 '로그인 필요' 상태.
+- **조치:** 기존 자산 유지. **해결 보류(HOLD)** — 광고정책 제한은 계정측 사유로 코드/자동화로 해소 불가. 회장 재판단 대기.
+- **관련 자산(정상):** FB Page Opera house(363544510181094), Business Portfolio 조엔(837032261582282) — Airtable PLT-FBP-IDN-000037/IDN-000037에 반영됨.
+- **유사 선례:** ERR(광고제한 Business) — IDN-000023 Business 3679490828985019 DEFER(261018 STEP21), 동일 계열(광고정책 제한→DEFER/HOLD).
+
+## ERR-156 | IDN-000032(이소라)·IDN-000033(탁수림) — Facebook 계정 "찾을 수 없음", FB 페이지 소실 (IG·Threads는 정상) — HOLD
+- **발견:** 261019, 회장 보고(Facebook 로그인 시도 + 엑셀 표기 "페이스북계정없어짐").
+- **Evidence:** `facebook.com/login/identify`에 soorimtak@gmail.com 입력 → "계정을 찾을 수 없습니다" (회장 캡처). si2687656@gmail.com도 같은 증상(회장 보고). Claude Code가 직접 확인한 Meta API Evidence는 없음.
+- **대상:** IDN-000032 이소라 si2687656@gmail.com(피부과-상담실장, 010-9633-3934) / IDN-000033 탁수림 soorimtak@gmail.com(화장품-리뷰 리더겐, 010-6534-3934).
+- **Root Cause:** UNKNOWN(계정 삭제·비활성화·Meta 정지 여부 미확인).
+- **영향 범위:** 두 계정의 Facebook 개인 계정과 FB 페이지 경로가 없어짐 → 페이지 기반 IG 연결(facebook_login) 불가. 회장 보고상 IG·Threads 자체는 정상. 운영 중인 계정·코드·.env·Runtime 영향 0.
+- **재검토 조건:** ①IG를 페이지 없이 Galaxy에 공유할 때(c859047 페이지 없는 IG 경로로 등록 가능 여부 확인) ②Meta에서 계정 정지·복구 안내를 받았을 때 ③FB 계정을 새로 만들지 결정할 때. 조사 시간은 15~30분 이내로 제한.
+- **상태:** HOLD(기록만, 계정 확장 계속)
+
+## ERR-157 | IDN-000034(정바다, badaj188@gmail.com, 분야 AI) — Instagram↔Facebook/Business 연결 안 됨(AI AUTO Business 광고 제한) — HOLD
+- **발견:** 261019 02:12pm, 회장 캡처(계정센터·Business Portfolio) + 엑셀 표기 "인스타-페북연결안됨".
+- **Evidence:** 계정센터에 IG badaj188 / FB 개인 정바다 / Threads badaj188 연결. FB Page AI AUTO와 IG @badaj188은 연결돼 있으나, 광고 제한된 Business Portfolio **AI AUTO(ID 1185380244669729)**에 IG 자산 추가가 거부됨(회장 보고). Read-only 확인(261019): Galaxy 공유 IG 22개·insta_auto_bot 페이지 목록에 badaj188 없음, `.env`·임시 토큰 파일에 badaj188 토큰 없음.
+- **Root Cause:** UNKNOWN(광고 제한 Business가 자산 추가를 막는 것으로 보이나 Meta 응답 원문 미확보). ERR-155(IDN-000037 Echo classic 광고정책 제한)와 같은 계열.
+- **영향 범위:** IDN-000034의 IG·Threads 자동게시 연결 불가. IG·Page 숫자 ID 미확인. 운영 중인 계정·코드·.env·Runtime 영향 0.
+- **재검토 조건:** ①Galaxy 앱 Threads 토큰 생성기로 badaj188 토큰을 발급해 `/me`·게시 권한을 Read-only로 조회할 때 ②IG를 페이지·Business 없이 Galaxy에 직접 공유할 때(c859047 페이지 없는 IG 경로) ③광고 제한이 풀렸을 때. 조사 시간은 15~30분 이내로 제한.
+- **관련:** ERR-155, ERR-156(IDN-000032·033 Facebook 계정 소실 — 같은 날 같은 묶음)
+- **상태:** HOLD(기록만, 계정 확장 계속)
