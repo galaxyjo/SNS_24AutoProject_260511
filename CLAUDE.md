@@ -1137,9 +1137,9 @@ Rollback 없이 변경하지 않는다.
 
 > 근거: 260805 Track B 7B-1~7B-6 세션(Sourcebook SSOT 이탈 발견·복구, 페르소나별 Gemini Credential 분리, Live E2E SUCCESS `media_id=18114764641935575`) 종료 시 회장이 "같은 설계 이탈·Credential 혼용·잘못된 원인판정이 재발하지 않도록" 명시적으로 확정한 16개 규칙이다. 이 섹션 이전의 모든 규칙(Runtime Governance/Silicon Valley Execution Standard 등)과 충돌하지 않으며, 이번 세션에서 실제로 발생한 이탈·오판 사례에서 도출된 재발방지 규칙이므로 **최고 우선순위**로 적용한다. 근본원인 A~I 및 AI 판단오류 6건의 상세 판정은 `docs/ERROR_DATABASE.md`의 `ERR-105`를 참조한다.
 
-1. aijomoojin의 콘텐츠 원천은 `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`만 허용한다.
-2. 회장 명시 승인 없이는 Google Search Grounding·URL Context·전체 인터넷 검색을 생산 경로에 추가하지 않는다.
-3. Sourcebook에서 유효한 내용을 선택하지 못하면 외부 검색하지 말고 Fail-closed한다.
+1. aijomoojin의 콘텐츠 원천은 `docs/design/SNS_AI_STARTUP_CONTENT_SOURCEBOOK_260723.md`만 허용한다. **(261022 회장 개정: 최신 미국 AI 소식·신규 앱·실무 스킬을 위해 인터넷 검색 원천도 허용 — 아래 2·3번 개정 참조)**
+2. 회장 명시 승인 없이는 Google Search Grounding·URL Context·전체 인터넷 검색을 생산 경로에 추가하지 않는다. **(261022 회장 승인 "검색하라 푼다": aijomoojin 생산 경로에 인터넷 검색을 허용한다. 단 ① 검색 결과는 원문 URL로만 채택하고 core_message는 그 원문 내용에만 근거 ② 원문 URL·출처·날짜를 Vault에 보존 ③ 접근 실패·근거 불일치·Safety 위반은 Fail-closed ④ 구현·검색 방식·비용은 Target Test와 별도 승인 후 적용 — 이 개정만으로 코드가 바뀌지는 않는다)**
+3. Sourcebook에서 유효한 내용을 선택하지 못하면 외부 검색하지 말고 Fail-closed한다. **(261022 개정: 승인된 검색 경로가 구현된 뒤에는 검색 원천으로 넘어갈 수 있다. 검색 원천도 실패하면 Fail-closed)**
 4. Sourcebook는 사용 횟수·최근 사용일 기준으로 순환하며 앞 항목만 반복 선택하지 않는다.
 5. 같은 원천의 재사용은 허용하되 동일 Caption·동일 fingerprint 콘텐츠는 차단한다.
 6. 모든 콘텐츠에 source section ID·title·URL을 보존한다.
