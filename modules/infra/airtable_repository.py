@@ -759,6 +759,10 @@ class AirtableRepository(RepositoryInterface):
         if isinstance(reply_mode, dict):  # singleSelect는 {"name": ...} 형태로 올 수 있음
             reply_mode = reply_mode.get("name", "")
 
+        category = f.get("category", "")
+        if isinstance(category, dict):  # singleSelect는 {"name": ...} 형태로 올 수 있음
+            category = category.get("name", "")
+
         # 260730 계정별 Kill Switch(Fail-closed): Airtable checkbox는 unchecked를 키
         # 생략으로 표현해 missing과 false를 구분하지 않는다 — 명시적으로 체크(true)
         # 안 된 계정은 전부 automation_enabled=False로 취급한다(회장 승인, 우회 방지
@@ -771,6 +775,7 @@ class AirtableRepository(RepositoryInterface):
             automation_enabled=f.get("automation_enabled", False),
             fb_page_id=f.get("fb_page_id", ""),
             reply_mode=reply_mode,
+            category=category,
         )
 
     _IG_USER_ID_PATTERN = re.compile(r"^[0-9]+$")

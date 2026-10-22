@@ -129,10 +129,12 @@ class PublishAccountV2(PublishAccount, total=False):
     """PublishAccount + automation_enabled(계정별 Kill Switch, 260730)
     + fb_page_id(Multi-account DM Routing, 260730)
     + reply_mode(계정별 DM 자동응답 모드, 260730) — 전부 옵션 필드,
-    기존 4개 필수 필드는 그대로라 기존 호출부·Fake/Mock과 100% 호환된다."""
+    기존 4개 필수 필드는 그대로라 기존 호출부·Fake/Mock과 100% 호환된다.
+    + category(계정 사업 분류, 261022 B1 — 발행 Gate의 도메인 판정용) 옵션 필드."""
     automation_enabled: bool
     fb_page_id: str
     reply_mode: str
+    category: str
 
 
 class PersonaProfile(TypedDict, total=False):

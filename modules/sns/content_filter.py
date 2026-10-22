@@ -114,6 +114,12 @@ ACCOUNT_DOMAIN_POLICY = {
     "IDN-000036": "AI_CONTENT",   # aijomoojin — Track B AI 생성 콘텐츠
 }
 
+# 261022 B1 — 위 계정 dict에 없는 계정은 Account_Registry.category로만 도메인을 정한다.
+# 계정 dict가 항상 우선이며, 여기에 없는 category(빈 값 포함)는 기존처럼 Fail-closed.
+CATEGORY_DOMAIN_POLICY = {
+    "A_BEAUTY": "PRODUCT",
+}
+
 
 _AI_CONTENT_REQUIRED_ACCOUNT = "IDN-000036"
 _AI_CONTENT_REQUIRED_PERSONA = "PER-002"
@@ -190,6 +196,7 @@ def resolve_publish_gate(
     safety_client=None,
     safety_throttle=None,
     safety_model=None,
+    account_category: str = "",
 ) -> tuple[bool, str]:
     """발행 직전 계정별 콘텐츠 Gate.
 
@@ -206,7 +213,11 @@ def resolve_publish_gate(
     인자(260801 Gate v0/v1)다 — PRODUCT 도메인 기존 호출부(2-인자)는 그대로
     동작한다(하위호환). safety_client/safety_throttle(260805 Codex 리뷰 P0)/
     safety_model(260805 회장 지시)도 선택 인자이며 생략 시 기존과 100% 동일 —
-    passes_ai_content_gate_v0()로 그대로 전달만 한다."""
+    passes_ai_content_gate_v0()로 그대로 전달만 한다.
+
+    account_category(261022 B1)는 ACCOUNT_DOMAIN_POLICY에 없는 계정에만 쓰인다 —
+    CATEGORY_DOMAIN_POLICY로 도메인을 정하고, 생략·미등록 category는 기존과 같이
+    UNKNOWN_DOMAIN이다."""
     try:
         account_code_ref = (account_code_ref or "").strip()
         caption = caption or ""
@@ -215,6 +226,8 @@ def resolve_publish_gate(
             return False, "GLOBAL_SAFETY_REJECTED"
 
         domain = ACCOUNT_DOMAIN_POLICY.get(account_code_ref)
+        if domain is None:
+            domain = CATEGORY_DOMAIN_POLICY.get((account_category or "").strip())
         if domain is None:
             return False, "UNKNOWN_DOMAIN"
 

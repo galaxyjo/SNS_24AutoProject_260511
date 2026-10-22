@@ -748,6 +748,7 @@ def _job_insta_upload():
                 source_url=post.get("source_url", ""),
                 persona_code=_persona_code,
                 required_language=_required_language,
+                account_category=account.get("category", ""),
             )
             if not allowed:
                 logger.info(f"[PublishGate] {gate_result} | rid={post_id}")
