@@ -1292,6 +1292,30 @@ AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY = "AI"
 AIJOMOOJIN_PRODUCER_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
+def _aijomoojin_news_hours() -> set:
+    """AIJOMOOJIN_NEWS_PRODUCER_HOURS(예: "8,14"). 비어 있거나 숫자가 아닌 값은 무시(빈 집합=OFF)."""
+    hours = set()
+    for part in os.getenv("AIJOMOOJIN_NEWS_PRODUCER_HOURS", "").split(","):
+        part = part.strip()
+        if part.isdigit() and 0 <= int(part) <= 23:
+            hours.add(int(part))
+    return hours
+
+
+def _ict_now() -> datetime:
+    from datetime import timezone as _tz
+    return datetime.now(_tz(timedelta(hours=7)))
+
+
+def _try_aijomoojin_news_topic(repo) -> tuple:
+    """(SourceTopic | None, code) — 후보 선택(중복 확인, Gemini 없음) → 원문 분석."""
+    from modules.sns.research_to_topic_adapter import analyze_news_url, select_news_candidate
+    candidate, code = select_news_candidate(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, repo)
+    if candidate is None:
+        return None, code
+    return analyze_news_url(candidate)
+
+
 @handle_errors(task="aijomoojin_content_producer", notify_fn=_slack)
 def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
     """260804 Track B 6G — aijomoojin 전용 콘텐츠 Producer(Sourcebook Topic →
@@ -1494,12 +1518,32 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             hero_card_enabled = (
                 os.getenv("AIJOMOOJIN_HERO_CARD_ENABLED", "false").strip().lower() == "true"
             )
-            result = create_content_package(
+            package_kwargs = dict(
                 target_language="ko", slot_role=slot_role, template_type=template_type,
                 gemini_client=aijomoojin_gemini_client,
                 gemini_model=AIJOMOOJIN_PRODUCER_GEMINI_MODEL,
                 hero_card_enabled=hero_card_enabled,
             )
+            # 261022 STEP 4-G — 미국 AI 뉴스(Sourcebook 14.x 피드). Flag가 비어 있으면
+            # 이 분기에 들어가지 않아 기존 호출과 같다. 스케줄러는 producer_hour를
+            # 넘기지 않으므로 실행 시각(ICT)으로 판정한다.
+            news_hours = _aijomoojin_news_hours()
+            run_hour = producer_hour if producer_hour is not None else _ict_now().hour
+            if news_hours and run_hour in news_hours:
+                news_topic, news_code = _try_aijomoojin_news_topic(repo)
+                if news_code == "NEWS_QUOTA":
+                    logger.error("[AijomoojinProducer] NEWS_QUOTA — Gemini 한도 소진, 이번 실행 종료"
+                                 "(Sourcebook Fallback 없음)")
+                    if _slack:
+                        _slack("[알림] aijomoojin Producer NEWS_QUOTA — Gemini 한도 소진으로 이번 슬롯 콘텐츠를 "
+                               "만들지 않습니다(Sourcebook Fallback 없음).")
+                    return
+                if news_topic is not None:
+                    logger.info(f"[AijomoojinProducer] 뉴스 Topic 사용 | url={news_topic.source_url}")
+                    package_kwargs["injected_topic"] = news_topic
+                else:
+                    logger.info(f"[AijomoojinProducer] 뉴스 Topic 없음({news_code}) — Sourcebook으로 진행")
+            result = create_content_package(**package_kwargs)
             if not result.success and result.error_code == "NO_SELECTABLE_TOPIC":
                 # 260805 회장 지시(Sourcebook SSOT 복구) — Research-to-Topic
                 # Adapter(Google Search Grounding/URL Context) fallback을 생산

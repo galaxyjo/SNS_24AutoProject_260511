@@ -518,6 +518,8 @@ def create_content_package(
         # (기존 Vault 파일 Backfill 금지 — 표식은 신규 생성분에만 기록한다).
         "idempotency_version": IDEMPOTENCY_VERSION,
     }
+    if getattr(topic, "source_published_at", ""):
+        frontmatter["source_published_at"] = topic.source_published_at
     if carousel is not None:
         frontmatter["content_fingerprint"] = carousel.content_fingerprint
         frontmatter["slot_role"] = carousel.slot_role

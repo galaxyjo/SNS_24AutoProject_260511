@@ -51,6 +51,8 @@ class SourceTopic:
     source_url: str
     core_message: str
     prohibited_expression: str
+    # 261022 STEP 4-G — 뉴스 원천(Sourcebook 14.x 피드)에서 온 Topic만 채운다(원문 게시 시각, ISO).
+    source_published_at: str = ""
 
 
 def _extract_url(body: str) -> str:

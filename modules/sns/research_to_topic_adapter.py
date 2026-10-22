@@ -339,3 +339,212 @@ def research_next_topic(
         core_message=core_message,
         prohibited_expression="",
     )
+
+
+# ── 261022 STEP 4-G — 미국 AI 뉴스 원천(Sourcebook 14.x 피드) ─────────────────
+# 위 research_next_topic()은 Runtime 호출자가 없다(260805 생산 경로에서 제거).
+# 아래 함수들이 뉴스 전용 경로이며, google_search Grounding은 쓰지 않는다
+# (무료 키에서 429 — ERR-104). url_context 하나만 쓴다.
+#
+# 결과 코드: NEWS_CANDIDATE / NEWS_READY / NEWS_NO_CANDIDATE / NEWS_FEED_ERROR /
+#            NEWS_DEDUP_UNAVAILABLE / NEWS_URL_FAIL / NEWS_IRRELEVANT / NEWS_SAFETY / NEWS_QUOTA
+
+NEWS_SECTION_PREFIX = "14."
+NEWS_MAX_AGE_HOURS = 72
+_NEWS_AI_KEYWORDS = re.compile(
+    r"(?i)(\bA\.?I\b|artificial intelligence|\bLLMs?\b|\bGPT|chatgpt|openai|anthropic|claude|"
+    r"gemini|copilot|\bagents?\b|agentic|machine learning|generative|genai|"
+    r"hugging ?face|deepmind|\bmodels?\b)"
+)
+_NEWS_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "relevant": {"type": "boolean"},
+        "source_title": {"type": "string"},
+        "core_message": {"type": "string"},
+    },
+    "required": ["relevant", "source_title", "core_message"],
+}
+
+
+def _parse_feed_time(value):
+    from email.utils import parsedate_to_datetime
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        dt = parsedate_to_datetime(value) if "," in value else datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def fetch_feed_items(feed_url: str, timeout: int = 15) -> list:
+    """RSS/Atom에서 [{title, link, published}]를 읽는다. 실패하면 예외."""
+    import xml.etree.ElementTree as ET
+
+    import requests
+
+    resp = requests.get(feed_url, headers={"User-Agent": "Mozilla/5.0 (compatible; SNS24-news/1.0)"},
+                        timeout=timeout)
+    resp.raise_for_status()
+    atom = "{http://www.w3.org/2005/Atom}"
+    root = ET.fromstring(resp.content)
+    items = []
+    for it in root.findall(".//item"):
+        items.append({"title": it.findtext("title") or "", "link": (it.findtext("link") or "").strip(),
+                      "published": _parse_feed_time(it.findtext("pubDate"))})
+    for it in root.findall(f".//{atom}entry"):
+        link_el = it.find(f"{atom}link")
+        items.append({"title": it.findtext(f"{atom}title") or "",
+                      "link": ((link_el.get("href") if link_el is not None else "") or "").strip(),
+                      "published": _parse_feed_time(it.findtext(f"{atom}published") or it.findtext(f"{atom}updated"))})
+    return items
+
+
+def select_news_candidate(account_code: str, repo, *, sourcebook_path=None, vault_root=None, now=None,
+                          fetch=None) -> tuple:
+    """(SourceTopic | None, code). Gemini를 부르기 전에 날짜 간 중복을 확인한다.
+    중복 이력을 확인할 수 없으면 '중복 없음'으로 보지 않고 NEWS_DEDUP_UNAVAILABLE을 돌려준다."""
+    from modules.sns.content_package_builder import scan_source_url_last_used
+
+    fetch = fetch or fetch_feed_items
+    root = vault_root or DEFAULT_VAULT_ROOT
+    try:
+        if not (root / "content").exists():
+            raise FileNotFoundError("vault content directory missing")
+        vault_history = scan_source_url_last_used(root)
+    except Exception as exc:
+        logger.warning("[NewsSource] NEWS_DEDUP_UNAVAILABLE | vault | %s", type(exc).__name__)
+        return None, "NEWS_DEDUP_UNAVAILABLE"
+
+    feeds = [t for t in parse_sourcebook(sourcebook_path or DEFAULT_SOURCEBOOK_PATH)
+             if t.topic_id.startswith(NEWS_SECTION_PREFIX) and t.source_url]
+    now = now or datetime.now(timezone.utc)
+    items, failed = [], 0
+    for feed in feeds:
+        try:
+            for it in fetch(feed.source_url):
+                items.append((feed, it))
+        except Exception as exc:
+            failed += 1
+            logger.warning("[NewsSource] 피드 읽기 실패 | %s | %s", feed.topic_id, type(exc).__name__)
+    if not feeds or failed == len(feeds):
+        logger.warning("[NewsSource] NEWS_FEED_ERROR | feeds=%s failed=%s", len(feeds), failed)
+        return None, "NEWS_FEED_ERROR"
+
+    fresh = []
+    for feed, it in items:
+        link, title, published = it.get("link") or "", it.get("title") or "", it.get("published")
+        if not re.match(r"^https?://\S+$", link) or published is None:
+            continue
+        age_h = (now - published).total_seconds() / 3600
+        if age_h < -1 or age_h > NEWS_MAX_AGE_HOURS:
+            continue
+        if not _NEWS_AI_KEYWORDS.search(title) or link in vault_history:
+            continue
+        fresh.append((published, feed, title, link))
+    fresh.sort(key=lambda x: x[0], reverse=True)
+
+    seen = set()
+    for published, feed, title, link in fresh:
+        if link in seen:
+            continue
+        seen.add(link)
+        try:
+            exists = repo.find_account_post_by_source_url(account_code, link)
+        except Exception as exc:
+            logger.warning("[NewsSource] NEWS_DEDUP_UNAVAILABLE | airtable | %s", type(exc).__name__)
+            return None, "NEWS_DEDUP_UNAVAILABLE"
+        if exists:
+            continue
+        return SourceTopic(topic_id=feed.topic_id, title=title.strip(), status="NEWS", source_url=link,
+                           core_message="", prohibited_expression="",
+                           source_published_at=published.isoformat(timespec="seconds")), "NEWS_CANDIDATE"
+    logger.info("[NewsSource] NEWS_NO_CANDIDATE | items=%s fresh=%s", len(items), len(fresh))
+    return None, "NEWS_NO_CANDIDATE"
+
+
+def _build_news_prompt(candidate) -> str:
+    return (
+        "You are screening ONE US AI news article for a Korean Instagram channel that teaches "
+        "Korean small-business owners and solo entrepreneurs new AI apps, tools and practical skills.\n\n"
+        f"Article URL (read it with the URL context tool): {candidate.source_url}\n"
+        f"Feed headline: {candidate.title}\n\n"
+        "Rules:\n"
+        "1. Set relevant=true ONLY if the article is about an AI app, tool, model release or a practical AI "
+        "skill/use case a Korean business owner could learn or apply. Security incidents, lawsuits, funding "
+        "rounds, politics, entertainment and general corporate news are relevant=false.\n"
+        "2. core_message must be grounded ONLY in what that exact page says, written in Korean in 2-3 "
+        "sentences: what it is and how it can be used. Do not add any statistic or claim not on the page.\n"
+        "3. If the page cannot be read or relevant=false, leave core_message empty.\n"
+        "Return JSON in the exact schema."
+    )
+
+
+def analyze_news_url(candidate) -> tuple:
+    """(SourceTopic | None, code). url_context만 사용한다. 429 소진만 NEWS_QUOTA, UNSAFE만
+    NEWS_SAFETY, 그 밖의 실패(비-429 재시도 소진·영구 오류·원문 접근 실패)는 NEWS_URL_FAIL."""
+    from dataclasses import replace as _replace
+
+    config = genai_types.GenerateContentConfig(
+        tools=[genai_types.Tool(url_context=genai_types.UrlContext())],
+        response_mime_type="application/json",
+        response_json_schema=_NEWS_RESPONSE_SCHEMA,
+    )
+    response, last_category, last_retryable = None, "", False
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            _throttle()
+            response = _get_client().models.generate_content(
+                model=RESEARCH_MODEL, contents=_build_news_prompt(candidate), config=config,
+            )
+            break
+        except Exception as exc:
+            last_retryable, last_category = _classify_retry(exc)
+            logger.warning("[NewsSource] Gemini 호출 실패 | attempt=%s/%s | category=%s | url=%s",
+                           attempt, _MAX_ATTEMPTS, last_category, candidate.source_url)
+            if last_retryable and attempt < _MAX_ATTEMPTS:
+                time.sleep(_next_retry_delay(attempt - 1, exc))
+                continue
+            break
+    if response is None:
+        if last_retryable and last_category == "provider_http_429":
+            return None, "NEWS_QUOTA"
+        return None, "NEWS_URL_FAIL"
+
+    cands = getattr(response, "candidates", None) or []
+    url_ctx = getattr(cands[0], "url_context_metadata", None) if cands else None
+    url_entries = getattr(url_ctx, "url_metadata", None) or []
+    if not any(getattr(e, "retrieved_url", "") == candidate.source_url
+               and getattr(e, "url_retrieval_status", None)
+               == genai_types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS
+               for e in url_entries):
+        logger.warning("[NewsSource] NEWS_URL_FAIL | 원문 접근 실패/미확인 | url=%s", candidate.source_url)
+        return None, "NEWS_URL_FAIL"
+    try:
+        data = json.loads(response.text)
+    except (ValueError, AttributeError, TypeError):
+        logger.warning("[NewsSource] NEWS_URL_FAIL | 구조화 응답 파싱 실패 | url=%s", candidate.source_url)
+        return None, "NEWS_URL_FAIL"
+    core_message = (data.get("core_message") or "").strip()
+    if data.get("relevant") is not True or not core_message:
+        logger.info("[NewsSource] NEWS_IRRELEVANT | url=%s", candidate.source_url)
+        return None, "NEWS_IRRELEVANT"
+
+    status, reason = check_caption_safety(
+        core_message, client=_get_client(), throttle_fn=_throttle, model=RESEARCH_MODEL,
+    )
+    if status == "RETRY_EXHAUSTED" and reason == "provider_http_429":
+        return None, "NEWS_QUOTA"
+    if status == "UNSAFE":
+        logger.warning("[NewsSource] NEWS_SAFETY | url=%s | reason=%s", candidate.source_url, reason)
+        return None, "NEWS_SAFETY"
+    if status != "SAFE":
+        logger.warning("[NewsSource] NEWS_URL_FAIL | safety status=%s reason=%s | url=%s",
+                       status, reason, candidate.source_url)
+        return None, "NEWS_URL_FAIL"
+    title = (data.get("source_title") or "").strip() or candidate.title
+    return _replace(candidate, title=title, core_message=core_message, status="VERIFIED FACT"), "NEWS_READY"

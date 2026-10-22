@@ -706,6 +706,28 @@ a16z가 제시한 "LTV:CAC 3배 개선 시 가치 3배" 수치를 우리 사업�
 
 ---
 
+## 14. US AI News Feeds (뉴스 원천 목록 — 콘텐츠 주제 아님)
+
+261022 회장 승인(CLAUDE.md 260805 규칙 1~3 개정): aijomoojin 생산 Flag `AIJOMOOJIN_NEWS_PRODUCER_HOURS`에 지정한 시각에만 아래 피드에서 72시간 이내 AI 관련 기사 1건을 골라, 그 기사 원문만 근거로 한국어 콘텐츠를 만든다(url_context 사용, google_search 미사용). 각 소섹션은 피드 URL 1개만 가진다. 상태·핵심 메시지 줄을 두지 않으므로 기존 Topic 선택(3.x)과 Research 대상(4.x·5.x)에 섞이지 않는다. 피드를 추가·삭제할 때는 소섹션 1개 = URL 1개 형식을 지킨다.
+
+### 14.1 TechCrunch — Artificial Intelligence
+URL: https://techcrunch.com/category/artificial-intelligence/feed/
+
+### 14.2 The Verge — AI
+URL: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+
+### 14.3 OpenAI News
+URL: https://openai.com/news/rss.xml
+
+### 14.4 Google — AI Blog
+URL: https://blog.google/technology/ai/rss/
+
+### 14.5 Hugging Face Blog
+URL: https://huggingface.co/blog/feed.xml
+
+### 14.6 MIT Technology Review — AI
+URL: https://www.technologyreview.com/topic/artificial-intelligence/feed
+
 ## 변경 이력
 
 | 날짜 | 내용 |
@@ -716,3 +738,4 @@ a16z가 제시한 "LTV:CAC 3배 개선 시 가치 3배" 수치를 우리 사업�
 | 260807 | 2차 GPT 검수 결과 12.5(SaleAI)가 주제는 일치하나 자사 홍보성 블로그로 `VERIFIED FACT` Evidence 등급 미달 판정(FAIL) — 대체 원천을 찾아 채우지 않고 12.5 섹션 자체를 삭제. 금(무역업무) 요일은 확실한 원천이 확보될 때까지 미배정 상태로 남긴다. 12.1~12.4·12.6은 무수정. |
 | 260811 | 회장 지시로 3.1(Netflix Culture Memo) 섹션 및 관련 언급(Safe Claims 2건, Forbidden Claims 1건, Content Series Backlog 1건) 전량 삭제 — 대체 원천 없이 제거(12.5 삭제 선례와 동일 처리, 번호 재배열 없음). 3.2~3.6은 무수정. |
 | 260811 | 섹션 13 신규 추가 — 회장 지시로 콘텐츠 비중을 "AI 기술 실제 적용 사례" 중심으로 확대. 5개 페르소나 축(Beauty/Commerce/Marketing/Sales/Growth) 원천 각 1건씩 WebSearch로 공식 출처 확인 후 등록(L'Oréal Beauty Genius / Google·Shopify UCP / HubSpot Loop Marketing / Intercom Fin for Sales / a16z 16 Startup Metrics). 기존 3.x/12.x는 무수정. 페르소나별 계정 배정은 별도 결정 대상으로 이번 범위 밖. |
+| 261022 | 섹션 14 신규 추가 — 미국 AI 뉴스 RSS 피드 6개. 콘텐츠 주제가 아닌 뉴스 원천 목록이며, 회장 승인에 따른 CLAUDE.md 규칙 1~3 개정(커밋 d4769c9) 기준. VentureBeat는 XML 파싱 오류로 제외. |
