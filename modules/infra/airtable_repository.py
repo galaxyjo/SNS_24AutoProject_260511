@@ -255,6 +255,8 @@ class AirtableRepository(RepositoryInterface):
                 "fields[3]": "keyword",
                 "fields[4]": "category_code",
                 "fields[5]": "max_posts",
+                "fields[6]": "publish_account_code",
+                "fields[7]": "collection_purpose",
                 "pageSize": 100,
             }
             if offset:
@@ -280,11 +282,14 @@ class AirtableRepository(RepositoryInterface):
                     result.append(
                         CrawlTarget(
                             target_url=f["target_url"],
-                            platform=f.get("platform", "facebook"),
+                            # 261022 B2 — platform 공란을 facebook으로 간주하지 않는다.
+                            platform=f.get("platform", ""),
                             target_id=f.get("target_id", ""),
                             keyword=f.get("keyword", ""),
                             category_code=f.get("category_code", ""),
                             max_posts=int(f.get("max_posts", 10)),
+                            publish_account_code=f.get("publish_account_code", ""),
+                            collection_purpose=f.get("collection_purpose", ""),
                         )
                     )
             offset = data.get("offset")

@@ -959,6 +959,58 @@ class FacebookCrawlAllTargetsFailedError(RuntimeError):
     사이클의 자연 재시도로 흡수) — 모든 URL이 실패해 계정이 완전히 공쳤을 때만 사용한다."""
 
 
+_PUBLISH_ACCOUNT_CODE_RE = re.compile(r"^IDN-\d{6}$")
+
+
+def _route_crawl_targets(targets: list[dict], max_posts, data_classification: str, canary_run_id: str) -> list:
+    """261022 B2 — Crawl_Target별 (url, max_posts, 게시 계정)을 정한다. 하나라도 어긋나면
+    그 대상만 건너뛴다(Fail-closed). 공란이어도 다른 계정(IDN-000041 등)으로 보내지 않는다."""
+    from modules.sns.content_filter import ACCOUNT_DOMAIN_POLICY, CATEGORY_DOMAIN_POLICY
+
+    checked: dict[str, str] = {}   # account_code -> "" (OK) 또는 Skip 코드, 계정당 1회 검증
+    routes = []
+    for t in targets:
+        url = t.get("target_url", "")
+        tid = t.get("target_id", "")
+        code = (t.get("publish_account_code") or "").strip()
+
+        def _skip(reason):
+            logger.warning(f"[FB Crawler] 크롤 대상 건너뜀 | {reason} | target={tid} | url={url}")
+
+        if (t.get("collection_purpose") or "").strip() != "production":
+            _skip("CRAWL_TARGET_NOT_OPERATIONAL")
+            continue
+        if not code:
+            _skip("CRAWL_TARGET_BLANK")
+            continue
+        if not _PUBLISH_ACCOUNT_CODE_RE.fullmatch(code):
+            _skip("CRAWL_TARGET_INVALID")
+            continue
+        try:
+            target_max = int(t.get("max_posts"))
+        except (TypeError, ValueError):
+            target_max = 0
+        if target_max < 1:
+            _skip("CRAWL_TARGET_INVALID_MAX_POSTS")
+            continue
+
+        if code not in checked:
+            try:
+                account = _validate_publish_context(code, data_classification, canary_run_id)
+            except Exception as exc:
+                logger.warning(f"[FB Crawler] 게시 계정 검증 실패 | account={code} | {type(exc).__name__}: {exc}")
+                checked[code] = "CRAWL_TARGET_NOT_FOUND"
+            else:
+                category = (account.get("category") or "").strip()
+                domain = ACCOUNT_DOMAIN_POLICY.get(code) or CATEGORY_DOMAIN_POLICY.get(category)
+                checked[code] = "" if domain == "PRODUCT" else "CRAWL_TARGET_DOMAIN_MISMATCH"
+        if checked[code]:
+            _skip(f"{checked[code]} | account={code}")
+            continue
+        routes.append((url, min(target_max, max_posts), code))
+    return routes
+
+
 def run_all_accounts(
     max_posts=MAX_POSTS,
     *,
@@ -966,31 +1018,43 @@ def run_all_accounts(
     data_classification: str,
     canary_run_id: str = "",
 ) -> dict:
-    """활성 계정 전체의 crawl_urls를 순회하며 크롤링."""
+    """활성 계정 전체의 crawl_urls를 순회하며 크롤링.
+
+    계정에 crawl_targets(Airtable 방식)가 있으면 대상별 publish_account_code로 게시 계정을
+    정하고, 없으면 기존처럼 전달받은 계정 1개로 처리한다. 전달받은 계정 검증은 두 경우 모두 먼저 한다."""
     from modules.common.account_manager import get_active_accounts
     _validate_publish_context(
         target_publish_account_code_ref,
         data_classification,
         canary_run_id,
     )
+    accounts = get_active_accounts()
     summary = {}
     fully_failed_accounts: list[str] = []
-    for acct in get_active_accounts():
-        if not acct.crawl_urls:
+    for acct in accounts:
+        if getattr(acct, "crawl_targets", None):
+            routes = _route_crawl_targets(acct.crawl_targets, max_posts, data_classification, canary_run_id)
+            if not routes:
+                logger.warning(f"[FB Crawler] 게시 가능한 크롤 대상 없음 — skip | account={acct.name}")
+                summary[acct.name] = 0
+                continue
+        elif acct.crawl_urls:
+            routes = [(url, max_posts, target_publish_account_code_ref) for url in acct.crawl_urls]
+        else:
             logger.warning(f"[FB Crawler] crawl_urls 없음 — skip | account={acct.name}")
             continue
         acct_results = []
         proxy_opts = acct.selenium_proxy_options()
-        total_urls = len(acct.crawl_urls)
+        total_urls = len(routes)
         failed_urls: list[str] = []
-        for url in acct.crawl_urls:
+        for url, url_max_posts, publish_code in routes:
             try:
                 acct_results.extend(run(
                     url,
-                    max_posts,
+                    url_max_posts,
                     acct.adspower_user_id,
                     proxy_opts,
-                    target_publish_account_code_ref=target_publish_account_code_ref,
+                    target_publish_account_code_ref=publish_code,
                     data_classification=data_classification,
                     canary_run_id=canary_run_id,
                 ))

@@ -157,6 +157,9 @@ class CrawlTarget(TypedDict, total=False):
     keyword:       str
     category_code: str
     max_posts:     int
+    # 261022 B2 — 크롤 결과를 게시할 계정(account_ref=크롤 브라우저 ID와 별개)과 운영 구분.
+    publish_account_code: str
+    collection_purpose:   str
 
 
 class PostPublishResult(TypedDict):

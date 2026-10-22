@@ -63,6 +63,9 @@ class Account:
     crawl_urls: list[str] = field(default_factory=list)
     telegram_chat_id: str = ""
     proxy: dict = field(default_factory=dict)
+    # 261022 B2 — CRAWL_TARGET_SOURCE=airtable일 때만 채워진다. URL별 게시 계정·운영 구분·max_posts.
+    # 비어 있으면 run_all_accounts는 기존 crawl_urls 경로(전달받은 게시 계정 1개)를 그대로 쓴다.
+    crawl_targets: list[dict] = field(default_factory=list)
 
     def as_env(self) -> dict:
         """계정 설정을 환경변수 딕셔너리로 반환 (기존 코드와 호환)."""
@@ -101,16 +104,37 @@ class Account:
 
 # ── Airtable Crawl_Targets 로더 ───────────────────────────────────────────────
 
-def _load_crawl_urls_from_airtable() -> list[str]:
-    """Airtable Crawl_Targets에서 active facebook URL 목록 반환.
+def _load_crawl_targets_from_airtable() -> list[dict]:
+    """Airtable Crawl_Targets에서 active facebook 대상(URL + 게시 계정 설정) 목록 반환.
     조회 자체가 실패하면 예외를 그대로 전파한다 — 정상 0건과 조회 실패를 동일한 빈
     리스트로 뭉뚱그리지 않기 위함(호출자가 실패/캐시 고정 여부를 각자 판단)."""
     from modules.infra.airtable_repository import AirtableRepository
     repo = AirtableRepository()
     targets = repo.fetch_active_crawl_targets()
-    urls = [t['target_url'] for t in targets if t.get('platform') == 'facebook' and t.get('target_url')]
-    logger.info(f'[AccountManager] Airtable crawl_urls 로드 | {len(urls)}건')
-    return urls
+    routes = [
+        {
+            "target_url":           t["target_url"],
+            "target_id":            t.get("target_id", ""),
+            "publish_account_code": t.get("publish_account_code", ""),
+            "collection_purpose":   t.get("collection_purpose", ""),
+            "max_posts":            t.get("max_posts"),
+        }
+        for t in targets if t.get("platform") == "facebook" and t.get("target_url")
+    ]
+    logger.info(f'[AccountManager] Airtable crawl_urls 로드 | {len(routes)}건')
+    return routes
+
+
+# 직전 _load_crawl_urls_from_airtable() 호출이 읽은 대상 설정(_get_all이 crawl_targets로 옮긴다).
+_last_crawl_targets: list[dict] = []
+
+
+def _load_crawl_urls_from_airtable() -> list[str]:
+    global _last_crawl_targets
+    _last_crawl_targets = []
+    routes = _load_crawl_targets_from_airtable()
+    _last_crawl_targets = routes
+    return [t["target_url"] for t in routes]
 
 
 def _shadow_compare(json_urls: list[str], airtable_urls: list[str]) -> None:
@@ -180,7 +204,7 @@ _cache: list[Account] | None = None
 
 
 def _get_all() -> list[Account]:
-    global _cache
+    global _cache, _last_crawl_targets
     if _cache is None:
         _cache = _load_from_json() or _load_from_env()
         if not _cache:
@@ -195,6 +219,7 @@ def _get_all() -> list[Account]:
             else:
                 _shadow_compare(_cache[0].crawl_urls, at_urls)
         elif source == "airtable" and _cache:
+            _last_crawl_targets = []
             try:
                 at_urls = _load_crawl_urls_from_airtable()
             except Exception as exc:
@@ -205,6 +230,7 @@ def _get_all() -> list[Account]:
                 logger.error(f"[AccountManager] Airtable crawl_urls 로드 실패 — 계정 목록 사용 불가 | {exc}")
                 raise
             _cache[0].crawl_urls = at_urls
+            _cache[0].crawl_targets = list(_last_crawl_targets)
             logger.info(f"[AccountManager] crawl_urls → Airtable 방식 적용 | {len(at_urls)}건")
     return _cache
 
