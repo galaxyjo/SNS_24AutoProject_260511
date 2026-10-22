@@ -258,6 +258,7 @@ class TestSuccessPath:
         assert saved["image_url"] == "https://i.ibb.co/new.jpg"
         assert saved["caption"] == "hello"
         assert saved["source_url"] == "https://new.example/a"
+        assert saved["hashtag"] == "#x"                   # 261022 — Vault hashtags → Airtable hashtag
 
         fields = cpb.read_frontmatter("new-content-1", vault_root)
         assert fields["channel_status"] == "queued"

@@ -1532,6 +1532,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             logger.error(f"[AijomoojinProducer] frontmatter 재읽기 실패 — 이번 실행 중단 | content_id={content_id}")
             return
         caption = fields.get("caption", "")
+        hashtags = (fields.get("hashtags") or "").strip()
         source_url = fields.get("source_url", "")
         _, img_path = _content_paths(content_id, DEFAULT_VAULT_ROOT)
 
@@ -1562,6 +1563,8 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
                 "account_code_ref": AIJOMOOJIN_PRODUCER_ACCOUNT_CODE,
                 "image_url": image_url,
                 "caption": caption,
+                # 261022 — Vault hashtags를 게시용 hashtag 칸에도 저장(슬롯 게시가 caption+hashtag로 합침).
+                "hashtag": hashtags or None,
                 "post_status": "ready",
                 "data_classification": "production",
                 "source_url": source_url,
