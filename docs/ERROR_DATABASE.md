@@ -3069,3 +3069,13 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **관련:** `docs/Instagram_토큰발급_매뉴얼.md`, ERR-090(토큰 노출, 별건)
 - **해결(261022 17:01 ICT):** 회장이 앱 AI Strategist에서 `instagram_manage_insights` 권한을 추가·승인한 뒤, `.env`의 기존 PAGE 토큰(sha256 앞 8자리 `fe3b6ce7`, 교체 없음)을 `debug_token`으로 다시 보니 scope 27개에 `instagram_manage_insights`·`instagram_content_publish` 포함. 같은 미디어 17999248584046085 Insights GET HTTP 200, 지표 9개 응답(값 전부 0). 토큰 교체·`.env` 수정·재시작 없음. 후보 파일 11행 단기 사용자 토큰(18:00 ICT 만료)은 사용하지 않음.
 - **상태:** RESOLVED(기존 토큰 유지)
+
+## ERR-160 | Claude Code가 `.env` 변경 검증 중 `diff`로 `.env` 전체 내용(토큰 포함)을 tool 출력에 노출 — OPEN(교체 안 함, 회장 결정)
+- **발견:** 261023 00:2x ICT, STEP 4-G에서 `.env`에 `AIJOMOOJIN_NEWS_PRODUCER_HOURS=`(빈값, OFF) 2줄(주석 1 + 값 1)을 추가한 뒤 "추가한 줄만 바뀌었는지" 확인하려고 `diff <(grep -v ... .env) backup/pre_news_flag_261023/env.bak`를 실행. `.env`는 CRLF, 비교 쪽은 줄 끝 처리가 달라 모든 줄이 "다름"으로 나왔고, 그 결과 `.env` 전체 줄(THREADS·INSTA 계열 access token 원문 포함)이 tool 출력에 찍혔다.
+- **Evidence:** 같은 세션 tool 출력(로컬 대화 기록). 이후 바이트 단위 재검증(값 출력 없음): 백업 파일이 새 `.env`의 앞부분과 정확히 같고(`prefix identical: True`) 추가된 바이트는 115바이트, 즉 Flag 2줄뿐 — `.env` 내용 자체는 의도대로 바뀌었다.
+- **Root Cause:** ① `.env`에 값을 보여주는 명령(`diff`·`grep`·`cat`)을 토큰 줄 제외 없이 사용 ② CRLF/LF 차이로 diff가 전체 줄을 출력할 수 있다는 점을 실행 전에 고려하지 않음. ERR-090(260730 `grep`으로 토큰 노출)과 같은 클래스의 재발.
+- **영향 범위:** 로컬 대화 기록(및 그 대화를 처리한 모델 API)에만 노출. 외부 게시·커밋·로그 파일 기록 없음(`.env`는 git 미추적, 백업은 `backup/`로 gitignore). Runtime·Airtable 변경 0.
+- **회장 결정(261023):** 토큰 교체는 하지 않는다(261012 Credential 노출 Accept 결정과 같은 방침 — 시스템 완성 후 재판단).
+- **재발방지(즉시 적용):** `.env` 변경 검증은 값을 출력하지 않는 방법만 쓴다 — 백업과 바이트 비교(`startswith`), sha256 비교, 줄 수/키 이름만 출력. `.env`에 `diff`·`cat`·패턴 없는 `grep` 금지. 키 확인이 필요하면 `=` 앞 키 이름만 잘라서 출력.
+- **관련:** ERR-090, ERR-144, FP-113
+- **상태:** OPEN(토큰 교체 안 함 — Accept, 재발방지 규칙 적용)
