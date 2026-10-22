@@ -3120,3 +3120,12 @@ push: 미실행 — origin/master=1ec92a7
 - **발견:** ①Insights는 YUNA만 가능, JOMOOJIN scope 누락(ERR-159 HOLD, 회장 261022 결정: 토큰 변경 안 함·확장 우선) ②확장 Blocker 3종(도메인 정책 하드코딩·크롤 대상 고정·JOMOOJIN 전용 잡) ③운영 error.log 테스트 혼입은 260916 격리(`b9d7c09`) 이전 기록.
 - **메모:** YURA 표기는 YUNA 오타(회장 확정). CLAUDE.md의 YURA 표기는 별도 승인 전 미수정.
 - **다음:** 확장 Blocker 해소 설계(별도 승인).
+
+---
+
+### 261022 — B1 도메인 정책 설정화 + STEP 3-B Insights 수집 (커밋 `98ee1a9`, `1141687`)
+
+- **B1(`98ee1a9`):** 발행 Gate가 계정 dict에 없는 계정을 `Account_Registry.category`로 판정(A_BEAUTY→PRODUCT). 4파일 +23/−2 + Target Test.
+- **STEP 3-B(`1141687`):** Insights 수집을 `engagement_tracker.py` 1파일에 Flag 뒤로 추가. Airtable 필드 6개·`.env` OFF Flag 2줄은 비-git(회장 승인 261022).
+- **ERR-159 RESOLVED:** 앱 권한 승인 후 기존 토큰 scope 27개로 확장, Insights HTTP 200(토큰 교체 없음).
+- **미실행(별도 승인):** push, Flag ON, launcher 재시작, 첫 Canary.

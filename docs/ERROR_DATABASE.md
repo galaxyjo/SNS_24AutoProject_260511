@@ -3058,7 +3058,7 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **관련:** FP-112, [[feedback_unattended_operation]]
 - **상태:** RESOLVED(회장 보고 기준)
 
-## ERR-159 | aijomoojin(IDN-000036) AI 토큰에 `instagram_manage_insights` scope 없음 — Insights 조회 code 10 — HOLD
+## ERR-159 | aijomoojin(IDN-000036) AI 토큰에 `instagram_manage_insights` scope 없음 — Insights 조회 code 10 — RESOLVED
 - **발견:** 261021 16:40 ICT, STEP 2 읽기 전용 Canary(`GET /17999248584046085/insights`) → HTTP 400 `OAuthException code 10 "Application does not have permission for this action"`. 같은 호출이 YUNA 토큰(media 18213920224362571)은 HTTP 200(지표 9개 응답).
 - **Evidence:** `debug_token`(261022 00:45 / 08:19 / 15:34 ICT 3회 동일) — PAGE 토큰, 앱 AI Strategist(4522543077982497), Page 345212562017606 → IG 17841467725643424 연결 정상, 미디어 소유자 aijomoojin(FEED IMAGE), 발급 2026-09-25 13:26 UTC, 만료 없음, 데이터 접근 만료 2026-12-24. scopes 8개(`pages_show_list`, `business_management`, `instagram_basic`, `instagram_manage_comments`, `instagram_content_publish`, `instagram_manage_messages`, `pages_read_engagement`, `public_profile`)에 `instagram_manage_insights` 없음.
 - **261022 15:25 `.env` 수정 후 재검증:** 발급 시각·scope가 이전과 동일 → code 10 지속(미해결). 토큰 문자열 동일 여부는 이전 해시 미보관으로 UNKNOWN(현재 sha256 앞 8자리 `fe3b6ce7`).
@@ -3067,4 +3067,5 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **회장 결정(261022):** 자동화 확장 우선. 토큰 변경은 하지 않고 기록만 한다.
 - **재개 조건:** Graph API Explorer(앱 AI Strategist)에서 `instagram_manage_insights` 체크 후 사용자 → 장기 → 페이지 토큰 재발급(B분류 1회) → `debug_token` scope 확인 → `.env` 교체 → launcher 재시작(별도 승인) → 게시 1건 Canary.
 - **관련:** `docs/Instagram_토큰발급_매뉴얼.md`, ERR-090(토큰 노출, 별건)
-- **상태:** HOLD(기록만, 확장 작업 계속)
+- **해결(261022 17:01 ICT):** 회장이 앱 AI Strategist에서 `instagram_manage_insights` 권한을 추가·승인한 뒤, `.env`의 기존 PAGE 토큰(sha256 앞 8자리 `fe3b6ce7`, 교체 없음)을 `debug_token`으로 다시 보니 scope 27개에 `instagram_manage_insights`·`instagram_content_publish` 포함. 같은 미디어 17999248584046085 Insights GET HTTP 200, 지표 9개 응답(값 전부 0). 토큰 교체·`.env` 수정·재시작 없음. 후보 파일 11행 단기 사용자 토큰(18:00 ICT 만료)은 사용하지 않음.
+- **상태:** RESOLVED(기존 토큰 유지)
