@@ -3110,3 +3110,13 @@ push: 미실행 — origin/master=1ec92a7
 - **10/18~19:** Echo classic 광고 제한·파트너 승인 실패(ERR-155 HOLD).
 - **10/19:** 038(credential_key·fb_page_id 정정)·039(credential_key·handle 정정) apply. helper.for_u(052) 누락 원인 확정 → 수동 등록 후 onboard 도구 보완 `c859047`(38 passed, 052 dry-run no_change=1). 032·033 FB 계정 소실(ERR-156), 034 badaj188 AI AUTO 광고 제한 Business 연결 거부·토큰 없음으로 API 확인 불가(ERR-157). 페르소나 1차 22계정 마감, 다음 29계정 확장 계획 확정 — 회장 보고 기준.
 - **문서:** `docs/Instagram_토큰발급_매뉴얼.md` 부록 D 4번 정정(IG 전용 계정도 도구가 탐색) + 부록 E(절차 A~H·해결 사례표) 추가, FP-111 "광고 제한 ≠ API 게시 차단(UNKNOWN)" 정정, VALIDATION `onboard_ig_only_path_261019` 추가. Commit 별도 승인 대기.
+
+---
+
+### 261021~22 — 22계정 확장 STEP 1~2-3 (Read-only 감사 + Insights Canary)
+
+- **코드·Runtime 변경 0.** Read-only 조사, 승인된 Meta GET만 실행(Insights 2회 + debug_token·me·media·page 조회).
+- **Airtable(비-git):** IDN-000041 `owner_name`=yuna18253, PLT-IG-000036 `username` 끝 `/` 제거 — 회장 지시, 재조회 확인.
+- **발견:** ①Insights는 YUNA만 가능, JOMOOJIN scope 누락(ERR-159 HOLD, 회장 261022 결정: 토큰 변경 안 함·확장 우선) ②확장 Blocker 3종(도메인 정책 하드코딩·크롤 대상 고정·JOMOOJIN 전용 잡) ③운영 error.log 테스트 혼입은 260916 격리(`b9d7c09`) 이전 기록.
+- **메모:** YURA 표기는 YUNA 오타(회장 확정). CLAUDE.md의 YURA 표기는 별도 승인 전 미수정.
+- **다음:** 확장 Blocker 해소 설계(별도 승인).
