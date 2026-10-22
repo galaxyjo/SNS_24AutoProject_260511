@@ -1378,3 +1378,9 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 - **사례:** ERR-155(IDN-000037 Echo classic 382299538300647 파트너 승인 실패) / ERR-157(IDN-000034 AI AUTO Business 1185380244669729 자산추가 거부) / IDN-000023 Business 3679490828985019 DEFER(261018 STEP21).
 - **대응:** HOLD/DEFER로 기록만 하고 계정 확장은 계속. 재검토 조건 = ①페이지·Business 없이 IG를 Galaxy에 직접 공유(페이지 없는 IG 경로) ②광고 제한 해제 ③Threads 토큰 생성기로 토큰 발급 후 /me·게시권한 Read-only 확인. 조사 15~30분 제한.
 - **관련:** ERR-155/157, FP(광고정책), [[feedback_bottleneck_timebox]]
+
+## FP-112 | 한 브라우저(프로필)에서 여러 Meta 계정 동시 로그인 → 세션 충돌·리디렉션 루프
+- **패턴:** 같은 크롬 프로필의 여러 창/탭으로 서로 다른 FB·IG 계정에 동시 로그인하면, 계정센터 세션이 꼬여 `business.facebook.com` 무한 리디렉션·`work.meta.com` 오리디렉션·권한 화면 진입 실패가 생긴다. 쿠키 삭제·시크릿 창·재부팅으로는 안 풀린다.
+- **사례:** ERR-158(261022 aijomoojin 관리 계정 무한 리디렉션).
+- **대응:** ①**1 브라우저 프로필 = 1 Meta 계정**(크롬 프로필 분리 또는 AdsPower 프로필별 계정 고정) ②오류 시 URL 파라미터 제거 + 직통 주소 진입 ③계정센터 세션 정리 ④비밀번호 변경은 자동화 세션도 끊으므로 마지막 수단.
+- **관련:** ERR-158, ERR-153(OAuth 콜백 오류 — 다계정 작업 중 Meta 화면 오류 계열), [[feedback_unattended_operation]]

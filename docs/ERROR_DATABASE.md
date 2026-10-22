@@ -3040,3 +3040,20 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **재검토 조건:** ①Galaxy 앱 Threads 토큰 생성기로 badaj188 토큰을 발급해 `/me`·게시 권한을 Read-only로 조회할 때 ②IG를 페이지·Business 없이 Galaxy에 직접 공유할 때(c859047 페이지 없는 IG 경로) ③광고 제한이 풀렸을 때. 조사 시간은 15~30분 이내로 제한.
 - **관련:** ERR-155, ERR-156(IDN-000032·033 Facebook 계정 소실 — 같은 날 같은 묶음)
 - **상태:** HOLD(기록만, 계정 확장 계속)
+
+## ERR-158 | aijomoojin(IDN-000036) 관리 계정 — business.facebook.com 접속 시 무한 리디렉션(ERR_TOO_MANY_REDIRECTS) — RESOLVED
+- **발생·해결:** 261022 14:44 ICT, 회장 직접 처리(Gemini 협업). 관리자 계정 moojin Jo(nguyenknv15@gmail.com).
+- **증상:** `business.facebook.com` 접속 시 화면이 열리지 않고 "리디렉션한 횟수가 너무 많습니다"(ERR_TOO_MANY_REDIRECTS). 일부 시도는 `work.meta.com`(Workplace)으로 잘못 넘어가 인증 실패.
+- **효과 없던 조치:** 쿠키 삭제 / 시크릿 창 / PC 재부팅.
+- **Evidence:** 회장 제공 해결 보고서(텍스트) 기준. Claude Code가 직접 확인한 브라우저·Meta API Evidence 없음.
+- **Root Cause:** Hypothesis(회장·Gemini 판단, 미분리검증) — ①한 PC의 여러 크롬 창에서 서로 다른 FB/IG 계정(David·otter·minjiqwerty 등)에 동시 로그인 → 계정센터 세션 충돌 ②같은 계정센터 묶음의 서브 프로필(David)·여러 IG 프로필 간 Business 권한 세션 꼬임 ③주소창 리디렉션 파라미터(`?ir_qe_exposed=1...`)가 남은 채 재접속 → 루프. 셋 중 무엇이 결정적이었는지 UNKNOWN(세 조치를 한 번에 적용).
+- **해결 절차(실제 수행):**
+  1. `https://accountscenter.facebook.com` → 로그인 활동에서 다른 기기·세션 로그아웃, 자동화에 불필요한 서브 프로필(David) 비활성화·불필요한 계정 묶음 분리.
+  2. `https://www.facebook.com` 먼저 접속해 본인 인증·알림 이상 확인, 메인 계정(Jo Moo Jin)↔IG aijomoojin 1:1 연결 정상 확인.
+  3. 주소창 파라미터를 모두 지우고 Business 설정 직통 주소 `https://business.facebook.com/latest/settings/business_users?business_id=<ID>`로 직접 진입 → 루프 우회.
+- **결과:** Business 포트폴리오 설정 > 사용자 > 사람 정상 진입, moojin Jo 전체 액세스 활성 확인.
+- **영향 범위:** 관리 화면(Business Suite) 접근만 막힘. 자동게시 Runtime·토큰·코드·.env 영향은 확인되지 않음(Evidence 없음 = UNKNOWN, 장애 보고 없음).
+- **다음에 같은 증상이면(순서대로):** ①주소창 `?` 뒤 파라미터 전부 삭제 후 `https://business.facebook.com/select` 또는 `/latest/inbox`·위 설정 직통 주소로 진입 ②계정센터에서 다른 세션 로그아웃 ③그래도 안 되면 비밀번호 변경으로 서버 세션 전체 리셋.
+- **주의:** ③비밀번호 변경은 AdsPower 프로필·자동화 브라우저 세션까지 끊을 수 있다 — 운영 계정(yuna·aijomoojin)에서는 회장 판단 후 마지막 수단으로만(무인 운영 원칙: 재로그인 필요 시 B 프로비저닝 재수행).
+- **관련:** FP-112, [[feedback_unattended_operation]]
+- **상태:** RESOLVED(회장 보고 기준)
