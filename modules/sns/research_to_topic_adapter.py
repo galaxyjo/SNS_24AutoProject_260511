@@ -407,15 +407,25 @@ def fetch_feed_items(feed_url: str, timeout: int = 15) -> list:
     return items
 
 
+def news_domain(url: str) -> str:
+    """URL의 호스트(소문자, 앞의 www. 제거). 261023 STEP 4-R — 같은 매체 후보를 건너뛰는 데 쓴다."""
+    from urllib.parse import urlparse
+
+    host = (urlparse(url or "").netloc or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
 def select_news_candidate(account_code: str, repo, *, sourcebook_path=None, vault_root=None, now=None,
-                          fetch=None, exclude_urls=None) -> tuple:
+                          fetch=None, exclude_urls=None, exclude_domains=None) -> tuple:
     """(SourceTopic | None, code). Gemini를 부르기 전에 날짜 간 중복을 확인한다.
     중복 이력을 확인할 수 없으면 '중복 없음'으로 보지 않고 NEWS_DEDUP_UNAVAILABLE을 돌려준다.
-    exclude_urls: 이번 실행에서 이미 원문을 못 읽은 URL(261023 STEP 4-M). 영구 차단이 아니다."""
+    exclude_urls: 이번 실행에서 이미 원문을 못 읽은 URL(261023 STEP 4-M). 영구 차단이 아니다.
+    exclude_domains: 이번 실행에서 원문을 못 읽은 매체(news_domain 기준, 261023 STEP 4-R)."""
     from modules.sns.content_package_builder import scan_source_url_last_used
 
     fetch = fetch or fetch_feed_items
     exclude_urls = exclude_urls or set()
+    exclude_domains = exclude_domains or set()
     root = vault_root or DEFAULT_VAULT_ROOT
     try:
         if not (root / "content").exists():
@@ -449,6 +459,8 @@ def select_news_candidate(account_code: str, repo, *, sourcebook_path=None, vaul
         if age_h < -1 or age_h > NEWS_MAX_AGE_HOURS:
             continue
         if not _NEWS_AI_KEYWORDS.search(title) or link in vault_history or link in exclude_urls:
+            continue
+        if exclude_domains and news_domain(link) in exclude_domains:
             continue
         fresh.append((published, feed, title, link))
     fresh.sort(key=lambda x: x[0], reverse=True)

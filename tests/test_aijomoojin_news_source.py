@@ -519,6 +519,132 @@ class TestUnreadableNextCandidate:
         assert [c[1] for c in repo.checks] == ["https://news.example/b"]
 
 
+TC1 = "https://techcrunch.com/2026/10/22/first-ai-agent-story/"
+TC2 = "https://techcrunch.com/2026/10/22/second-ai-model-story/"
+HF_OK = "https://huggingface.co/blog/new-open-ai-model"
+
+
+def _now_item(title, link, hours_ago):
+    return {"title": title, "link": link, "published": datetime.now(timezone.utc) - timedelta(hours=hours_ago)}
+
+
+def _unreadable_response(url):
+    meta = SimpleNamespace(url_metadata=[SimpleNamespace(
+        retrieved_url=url, url_retrieval_status=genai_types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_ERROR)])
+    return SimpleNamespace(candidates=[SimpleNamespace(url_context_metadata=meta)], text="{}")
+
+
+class _ReadOnlyRepo:
+    """find_account_post_by_source_url(GET)만 허용. 쓰기·게시 관련 메서드는 호출되면 실패."""
+
+    def __init__(self, known=frozenset()):
+        self.known, self.checks = known, []
+
+    def find_account_post_by_source_url(self, account_code_ref, source_url):
+        self.checks.append((account_code_ref, source_url))
+        return source_url in self.known
+
+    def __getattr__(self, name):
+        pytest.fail(f"ReadOnlyRepo: {name} 호출되면 안 됨")
+
+
+class TestOtherDomainCandidate:
+    """261023 STEP 4-S — 실제 _try_aijomoojin_news_topic(repo) + 실제 select_news_candidate.
+    피드·Gemini·Safety만 Fake. 저장·게시·Threads·Producer 전체 실행은 Sentinel로 막는다."""
+
+    @pytest.fixture(autouse=True)
+    def _guards(self, monkeypatch, sourcebook, vault):
+        from launcher import main as launcher_main
+        import modules.sns.threads_publisher as threads_publisher
+
+        monkeypatch.setattr(adapter, "DEFAULT_SOURCEBOOK_PATH", sourcebook)
+        monkeypatch.setattr(adapter, "DEFAULT_VAULT_ROOT", vault)
+        monkeypatch.setattr(launcher_main, "publish_single", lambda *a, **k: pytest.fail("publish_single 호출"))
+        monkeypatch.setattr(threads_publisher, "publish_threads", lambda *a, **k: pytest.fail("Threads 게시 호출"))
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("Sourcebook 생성 호출"))
+        self.main, self.vault = launcher_main, vault
+        self.select_calls = []
+        real_select = adapter.select_news_candidate
+
+        def _spy_select(*a, **k):
+            self.select_calls.append(set(k.get("exclude_domains") or ()))
+            return real_select(*a, **k)
+
+        monkeypatch.setattr(adapter, "select_news_candidate", _spy_select)
+
+    def _feeds(self, monkeypatch, mapping):
+        monkeypatch.setattr(adapter, "fetch_feed_items", lambda url: mapping[url])
+
+    def _vault_files(self):
+        return sorted(p.name for p in (self.vault / "content").glob("*"))
+
+    def test_a_d_e_f_first_techcrunch_unreadable_then_other_domain(self, monkeypatch):
+        _write_vault_package(self.vault, "old-hf", "https://huggingface.co/blog/already-used")
+        before = self._vault_files()
+        self._feeds(monkeypatch, {
+            "https://feed.example/one.xml": [_now_item("OpenAI ships new AI agent", TC1, 1),
+                                             _now_item("New AI model release", TC2, 2)],
+            "https://feed.example/two.xml": [
+                _now_item("Hugging Face AI model already posted", "https://huggingface.co/blog/already-used", 3),
+                _now_item("Open AI model on Hugging Face", HF_OK, 4),
+                _now_item("Gardening tips for autumn", "https://huggingface.co/blog/garden", 2),
+                _now_item("Old AI model news", "https://huggingface.co/blog/old", 80),
+                _now_item("AI tool already on Airtable", "https://huggingface.co/blog/in-airtable", 3),
+            ],
+        })
+        models, safety_calls = _patch_client(monkeypatch, [_unreadable_response(TC1), _ok_response(HF_OK)])
+        repo = _ReadOnlyRepo(known={"https://huggingface.co/blog/in-airtable"})
+
+        topic, code = self.main._try_aijomoojin_news_topic(repo)
+
+        assert code == "NEWS_READY" and topic.source_url == HF_OK
+        assert self.select_calls == [set(), {"techcrunch.com"}]        # 후보 2건, 두 번째는 다른 도메인
+        assert models.calls == 2 and len(safety_calls) == 1
+        checked = [c[1] for c in repo.checks]
+        assert TC2 not in checked                                      # 같은 도메인 건너뜀
+        assert "https://huggingface.co/blog/garden" not in checked      # 키워드 미달
+        assert "https://huggingface.co/blog/old" not in checked         # 72시간 초과
+        assert "https://huggingface.co/blog/already-used" not in checked  # Vault 중복
+        assert checked.count(TC1) == 1                                 # 같은 URL 재시도 없음
+        assert self._vault_files() == before                           # Vault 쓰기 0
+
+    def test_b_no_other_domain_no_extra_gemini(self, monkeypatch):
+        self._feeds(monkeypatch, {
+            "https://feed.example/one.xml": [_now_item("OpenAI ships new AI agent", TC1, 1)],
+            "https://feed.example/two.xml": [_now_item("New AI model release", TC2, 2)],
+        })
+        models, safety_calls = _patch_client(monkeypatch, [_unreadable_response(TC1)])
+
+        topic, code = self.main._try_aijomoojin_news_topic(_ReadOnlyRepo())
+
+        assert (topic, code) == (None, "NEWS_URL_UNREADABLE")
+        assert self.select_calls == [set(), {"techcrunch.com"}]
+        assert models.calls == 1 and safety_calls == []                # 추가 Gemini 0회
+
+    def test_c_second_candidate_quota_stops_producer(self, monkeypatch, producer_env):
+        """두 번째(다른 도메인) 후보 429 → Gemini 추가 0회, Sourcebook 0회, Slack Quota 1회."""
+        monkeypatch.setattr(adapter, "DEFAULT_VAULT_ROOT", self.vault)
+        monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("Sourcebook 호출"))
+        monkeypatch.setenv("AIJOMOOJIN_NEWS_PRODUCER_HOURS", "8")
+        monkeypatch.setattr(producer_env.main, "_ict_now", lambda: datetime(2026, 10, 23, 8, 5))
+        self._feeds(monkeypatch, {
+            "https://feed.example/one.xml": [_now_item("OpenAI ships new AI agent", TC1, 1)],
+            "https://feed.example/two.xml": [_now_item("Open AI model on Hugging Face", HF_OK, 4)],
+        })
+        models, safety_calls = _patch_client(monkeypatch, [_unreadable_response(TC1), _api_error(429)])
+
+        producer_env.main._job_aijomoojin_content_producer()
+
+        assert self.select_calls == [set(), {"techcrunch.com"}]
+        assert models.calls == 1 + adapter._MAX_ATTEMPTS and safety_calls == []
+        assert producer_env.repo.saved == []
+        assert len(producer_env.slack) == 1 and "NEWS_QUOTA" in producer_env.slack[0]
+
+    def test_news_domain_normalizes_host(self):
+        assert adapter.news_domain("https://www.TechCrunch.com/x") == "techcrunch.com"
+        assert adapter.news_domain("https://huggingface.co/blog/a") == "huggingface.co"
+
+
 class TestFrontmatterPublishedAt:
     @pytest.fixture(autouse=True)
     def _mock_pipeline(self, monkeypatch):

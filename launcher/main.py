@@ -1311,18 +1311,23 @@ def _try_aijomoojin_news_topic(repo) -> tuple:
     """(SourceTopic | None, code) — 후보 선택(중복 확인, Gemini 없음) → 원문 분석.
     261023 STEP 4-M — 원문을 못 읽은 경우(NEWS_URL_UNREADABLE)에만 그 URL을 빼고 다음 후보
     1건을 더 본다. NEWS_QUOTA 등 나머지 코드는 몇 번째 후보든 바로 돌려준다. Slack은 보내지
-    않는다(호출자 producer가 결과 코드로 1회 처리)."""
-    from modules.sns.research_to_topic_adapter import analyze_news_url, select_news_candidate
-    excluded = set()
+    않는다(호출자 producer가 결과 코드로 1회 처리).
+    261023 STEP 4-R — 다음 후보는 첫 후보와 다른 매체(도메인)에서만 고른다. 없으면 Gemini를 더
+    부르지 않고 첫 실패 코드(NEWS_URL_UNREADABLE)를 돌려줘 Sourcebook으로 넘어간다."""
+    from modules.sns.research_to_topic_adapter import (
+        analyze_news_url, news_domain, select_news_candidate)
+    excluded, excluded_domains = set(), set()
     code = "NEWS_NO_CANDIDATE"
-    for _ in range(2):
-        candidate, code = select_news_candidate(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, repo, exclude_urls=excluded)
+    for attempt in range(2):
+        candidate, select_code = select_news_candidate(
+            AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, repo, exclude_urls=excluded, exclude_domains=excluded_domains)
         if candidate is None:
-            return None, code
+            return None, (code if attempt and select_code == "NEWS_NO_CANDIDATE" else select_code)
         topic, code = analyze_news_url(candidate)
         if code != "NEWS_URL_UNREADABLE":
             return topic, code
         excluded.add(candidate.source_url)
+        excluded_domains.add(news_domain(candidate.source_url))
     return None, code
 
 
