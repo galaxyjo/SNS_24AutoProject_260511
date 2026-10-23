@@ -507,3 +507,119 @@ class TestShortCarousel:
             _short_payload(n, cover="AI 영업 자동화, 지금 저장하세요"))))
         result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
         assert result.error_code == "CTA_NOT_LAST_SLIDE"
+
+
+# ── 261023 STEP 4-AI — 짧은 캐러셀 CTA 위치 정규화(순수 CTA만 이동·중복 제거) ──────────
+
+import logging
+
+
+def _norm_payload(slides_text, caption=None):
+    slides = [{"index": i + 1, "role": "r", "text": t} for i, t in enumerate(slides_text)]
+    return {
+        "slides": slides,
+        "caption": caption or "반복 업무를 줄이는 방법입니다.\n\n무료 등급 제한도 함께 정리했습니다.\n\n저장해두세요.",
+        "hashtags": ["AI자동화", "업무자동화", "AI툴", "소상공인", "생산성"],
+    }
+
+
+def _run_short(monkeypatch, payload, n):
+    models = _FakeModels(response=_FakeResponse(payload))
+    _patch_gemini(monkeypatch, models)
+    result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
+    return result, models
+
+
+class TestShortCtaNormalization:
+    def test_middle_slide_pure_cta_moves_to_last(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "무료 등급은 검색이 제한됩니다. 지금 저장하세요.",
+                                 "하루 3건 자동 게시로 업무를 줄입니다."])
+        result, models = _run_short(monkeypatch, payload, 3)
+        assert result.success is True, result.error_code
+        texts = [s.text for s in result.content.slides]
+        assert texts[1] == "무료 등급은 검색이 제한됩니다."
+        assert texts[2].endswith("지금 저장하세요.")
+        assert [builder._count_cta_sentences(t) for t in texts] == [0, 0, 1]
+        assert len(models.calls) == 1                                   # Gemini 재호출 없음
+
+    def test_cover_cta_is_not_moved_and_fails(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화, 지금 저장하세요", "핵심 사실입니다.", "필요할 때 다시 보도록 저장하세요."])
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.error_code == "CTA_NOT_LAST_SLIDE"
+
+    def test_duplicate_cta_keeps_exactly_one_on_last(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "무료 등급은 검색이 제한됩니다. 공유해 주세요.",
+                                 "하루 3건 자동 게시가 됩니다. 필요할 때 다시 보도록 저장하세요."])
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.success is True, result.error_code
+        texts = [s.text for s in result.content.slides]
+        assert [builder._count_cta_sentences(t) for t in texts] == [0, 0, 1]
+        assert texts[2].endswith("필요할 때 다시 보도록 저장하세요.")
+
+    def test_last_slide_multiple_pure_ctas_keeps_last(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "하루 3건 자동 게시로 업무를 줄입니다. 지금 저장하세요. 친구에게 공유해 주세요."])
+        result, _ = _run_short(monkeypatch, payload, 2)
+        assert result.success is True, result.error_code
+        assert result.content.slides[1].text == "하루 3건 자동 게시로 업무를 줄입니다. 친구에게 공유해 주세요."
+
+    def test_mixed_keyword_sentence_is_not_moved_and_fails(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "데이터를 저장해 두면 비교가 쉽습니다.",
+                                 "필요할 때 다시 보도록 저장하세요."])
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.error_code == "CTA_NOT_LAST_SLIDE"
+
+    def test_slide_that_is_only_cta_is_not_emptied(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "지금 저장하세요.", "하루 3건 자동 게시가 됩니다."])
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.error_code == "CTA_NOT_LAST_SLIDE"
+
+    def test_caption_pure_cta_on_earlier_line_is_removed(self, monkeypatch):
+        caption = "반복 업무를 줄이는 방법입니다. 팔로우하세요.\n\n무료 등급 제한도 정리했습니다.\n\n저장해두세요."
+        payload = _norm_payload(["AI 영업 자동화 시작", "핵심 사실입니다.", "필요할 때 다시 보도록 저장하세요."], caption)
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.success is True, result.error_code
+        assert result.content.caption == "반복 업무를 줄이는 방법입니다.\n\n무료 등급 제한도 정리했습니다.\n\n저장해두세요."
+
+    def test_caption_cta_only_on_earlier_line_moves_to_end(self, monkeypatch):
+        caption = "반복 업무를 줄이는 방법입니다. 지금 저장하세요.\n\n무료 등급 제한도 정리했습니다."
+        payload = _norm_payload(["AI 영업 자동화 시작", "핵심 사실입니다.", "필요할 때 다시 보도록 저장하세요."], caption)
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.success is True, result.error_code
+        assert result.content.caption.splitlines()[-1].endswith("지금 저장하세요.")
+
+    def test_caption_mixed_line_still_fails(self, monkeypatch):
+        caption = "데이터를 저장해 두면 비교가 쉽습니다.\n\n무료 등급 제한도 정리했습니다.\n\n저장해두세요."
+        payload = _norm_payload(["AI 영업 자동화 시작", "핵심 사실입니다.", "필요할 때 다시 보도록 저장하세요."], caption)
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.error_code == "CAPTION_CTA_NOT_LAST"
+
+    def test_safety_runs_on_normalized_text(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "무료 등급은 검색이 제한됩니다. 지금 저장하세요.",
+                                 "하루 3건 자동 게시로 업무를 줄입니다."])
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+        seen = []
+        monkeypatch.setattr(builder, "check_caption_safety", lambda text, **k: (seen.append(text), ("UNSAFE", "x"))[1])
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "SAFETY_BLOCKED:x" and "줄입니다. 지금 저장하세요." in seen[0]
+
+    def test_fabrication_check_still_applies(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "매출이 300% 늘었습니다. 지금 저장하세요.", "하루 3건 자동 게시가 됩니다."])
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.error_code == "POSSIBLE_FABRICATION"
+
+    def test_failure_log_has_positions_without_text(self, monkeypatch, caplog):
+        payload = _norm_payload(["AI 영업 자동화 시작", "데이터를 저장해 두면 비교가 쉽습니다.", "필요할 때 다시 보도록 저장하세요."])
+        with caplog.at_level(logging.WARNING):
+            result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.error_code == "CTA_NOT_LAST_SLIDE"
+        log = " ".join(r.getMessage() for r in caplog.records if "CarouselContent" in r.getMessage())
+        assert "slide_cta=[0, 1, 1]" in log and "caption_line_cta=" in log
+        assert "데이터를 저장해" not in log
+
+    def test_eight_slide_path_is_not_normalized(self, monkeypatch):
+        models = _FakeModels(response=_FakeResponse(_valid_payload()))
+        _patch_gemini(monkeypatch, models)
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT")
+        assert result.success is True and len(result.content.slides) == 8
+        assert [s.text for s in result.content.slides] == [s["text"] for s in _valid_slides()]

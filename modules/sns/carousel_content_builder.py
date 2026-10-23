@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 
 from google.genai import types as genai_types
 
+from modules.common.logger import get_logger
 from modules.sns.caption_generator import (
     _MAX_ATTEMPTS,
     _classify_retry,
@@ -47,6 +48,8 @@ from modules.sns.caption_generator import (
     _throttle,
     check_caption_safety,
 )
+
+logger = get_logger(__name__)
 
 # ── 슬롯 역할 매핑(REUSE — launcher/main.py의 기존 (5,9,16)/(6,10,17) 튜플과 위치 대응) ──
 SLOT_ROLE_BY_PRODUCER_HOUR = {5: "REACH", 9: "ENGAGEMENT", 16: "SAVE_SHARE"}
@@ -195,6 +198,75 @@ def _count_cta_sentences(text: str) -> int:
         1 for s in sentences
         if s.strip() and any(keyword in s for keyword in _CTA_KEYWORDS)
     )
+
+
+_SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
+_IMPERATIVE_END_RE = re.compile(r"세요[.!?]*$")
+
+
+def _sentences(text: str) -> "list[str]":
+    return [s.strip() for s in _SENTENCE_RE.findall(text or "") if s.strip()]
+
+
+def _is_pure_cta_sentence(sentence: str) -> bool:
+    """CTA 키워드가 있고 '~세요'로 끝나는 독립 문장만 순수 CTA로 본다(혼합 문장은 아님)."""
+    return _count_cta_sentences(sentence) == 1 and bool(_IMPERATIVE_END_RE.search(sentence.strip()))
+
+
+def _move_pure_ctas(blocks: "list[str]") -> "list[str]":
+    """마지막 블록을 뺀 블록에서 순수 CTA 문장만 떼어 내 마지막 블록 끝에 1개만 둔다.
+    혼합 문장(키워드는 있지만 순수 CTA가 아님)은 건드리지 않는다 — 검증이 그대로 Fail-closed한다.
+    떼어 내면 블록이 비는 경우도 건드리지 않는다."""
+    if not blocks:
+        return blocks
+    moved = []
+    out = []
+    for block in blocks[:-1]:
+        kept, taken = [], []
+        for s in _sentences(block):
+            (taken if _is_pure_cta_sentence(s) else kept).append(s)
+        if taken and kept:
+            out.append(" ".join(kept))
+            moved.extend(taken)
+        else:
+            out.append(block)
+    last_sentences = _sentences(blocks[-1])
+    last_ctas = [s for s in last_sentences if _is_pure_cta_sentence(s)]
+    keep_cta = last_ctas[-1] if last_ctas else (moved[-1] if moved else None)
+    last_body = [s for s in last_sentences if not _is_pure_cta_sentence(s)]
+    if keep_cta is None or (not moved and len(last_ctas) <= 1):
+        out.append(blocks[-1])               # 바로잡을 것이 없으면 원문 그대로
+    else:
+        out.append(" ".join(last_body + [keep_cta]))
+    return out
+
+
+def _normalize_short_cta(payload: dict) -> dict:
+    """261023 STEP 4-AI — 짧은 캐러셀(2~4장)의 순수 CTA 문장 위치만 바로잡는다(Gemini 재호출 없음).
+    표지(1장)는 제목 한 줄이라 건드리지 않는다(CTA가 있으면 검증이 Fail-closed). 본문 장과 캡션 줄에서
+    순수 CTA 문장을 떼어 마지막 장·마지막 줄 끝에 정확히 1개만 남긴다. 검증 규칙은 그대로이고,
+    정규화 뒤 텍스트로 날조·Safety 검사를 한다."""
+    slides = payload.get("slides")
+    if not isinstance(slides, list) or len(slides) < 2:
+        return payload
+    ordered = sorted((dict(s) for s in slides), key=lambda s: s.get("index", -1))
+    body_texts = _move_pure_ctas([s.get("text", "") for s in ordered[1:]])
+    for slide, text in zip(ordered[1:], body_texts):
+        slide["text"] = text
+    caption = payload.get("caption", "")
+    lines = [line for line in caption.splitlines() if line.strip()]
+    fixed = _move_pure_ctas(lines)
+    if lines and fixed != lines:
+        caption = ("\n\n" if "\n\n" in caption else "\n").join(fixed)
+    return {**payload, "slides": ordered, "caption": caption}
+
+
+def _cta_location_summary(payload: dict) -> str:
+    """실패 위치 로그용 — 본문 없이 장·줄별 CTA 문장 수만."""
+    slides = sorted(payload.get("slides") or [], key=lambda s: s.get("index", -1))
+    slide_counts = [_count_cta_sentences(s.get("text", "")) for s in slides]
+    lines = [line for line in (payload.get("caption") or "").splitlines() if line.strip()]
+    return f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]}"
 
 
 def _validate_short_contract(payload: dict, slide_count: int) -> "str | None":
@@ -434,10 +506,14 @@ def generate_carousel_content(
     except (ValueError, AttributeError, TypeError):
         return CarouselResult(success=False, error_code="RESPONSE_PARSE_FAILED")
 
+    if short:
+        payload = _normalize_short_cta(payload)
     contract_error = (
         _validate_short_contract(payload, slide_count) if short else _validate_contract(payload)
     )
     if contract_error:
+        if short:
+            logger.warning(f"[CarouselContent] 계약 실패 | {contract_error} | {_cta_location_summary(payload)}")
         return CarouselResult(success=False, error_code=contract_error)
 
     slides = tuple(
