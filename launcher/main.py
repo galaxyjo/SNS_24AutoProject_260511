@@ -1315,12 +1315,13 @@ def _try_aijomoojin_news_topic(repo) -> tuple:
     261023 STEP 4-R — 다음 후보는 첫 후보와 다른 매체(도메인)에서만 고른다. 없으면 Gemini를 더
     부르지 않고 첫 실패 코드(NEWS_URL_UNREADABLE)를 돌려줘 Sourcebook으로 넘어간다."""
     from modules.sns.research_to_topic_adapter import (
-        analyze_news_url, news_domain, select_news_candidate)
+        NEWS_PREFERRED_DOMAINS, analyze_news_url, news_domain, select_news_candidate)
     excluded, excluded_domains = set(), set()
     code = "NEWS_NO_CANDIDATE"
     for attempt in range(2):
         candidate, select_code = select_news_candidate(
-            AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, repo, exclude_urls=excluded, exclude_domains=excluded_domains)
+            AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, repo, exclude_urls=excluded, exclude_domains=excluded_domains,
+            preferred_domains=NEWS_PREFERRED_DOMAINS)
         if candidate is None:
             return None, (code if attempt and select_code == "NEWS_NO_CANDIDATE" else select_code)
         topic, code = analyze_news_url(candidate)
