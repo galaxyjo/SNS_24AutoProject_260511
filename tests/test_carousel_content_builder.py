@@ -403,3 +403,107 @@ class TestInsufficientEvidence:
         assert result.success is False
         assert result.error_code == "INSUFFICIENT_SOURCE_EVIDENCE"
         assert models.calls == []
+
+
+# ── 261023 STEP 4-AE — 2~4장 짧은 카드뉴스 계약 ─────────────────────────────
+
+def _short_payload(n, cover="AI 영업 DM, 이제 자동으로 처리하세요"):
+    middle = [
+        {"index": 2, "role": "facts", "text": "무료 등급은 검색 기능이 제한된다는 점을 먼저 알아두세요"},
+        {"index": 3, "role": "apply", "text": "하루 3건 자동 게시로 반복 업무를 줄일 수 있습니다"},
+    ]
+    last = {"role": "cta", "text": "필요할 때 다시 보도록 저장하세요"}
+    slides = [{"index": 1, "role": "cover", "text": cover}] + middle[: n - 2]
+    slides.append({"index": n, **last})
+    return {
+        "slides": slides,
+        "caption": "반복 업무를 줄이는 방법입니다.\n\n무료 등급 제한도 함께 확인했습니다.\n\n저장해두세요.",
+        "hashtags": ["AI자동화", "업무자동화", "AI툴", "소상공인", "생산성"],
+    }
+
+
+class TestShortCarousel:
+    @pytest.mark.parametrize("n", [2, 3, 4])
+    def test_two_to_four_slides_pass(self, monkeypatch, n):
+        models = _FakeModels(response=_FakeResponse(_short_payload(n)))
+        _patch_gemini(monkeypatch, models)
+
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
+
+        assert result.success is True, result.error_code
+        assert [s.index for s in result.content.slides] == list(range(1, n + 1))
+        assert result.content.slides[0].text == "AI 영업 DM, 이제 자동으로 처리하세요"
+        prompt = models.calls[0]["contents"]
+        assert f"exactly {n} slides" in prompt and "8-slide" not in prompt
+
+    @pytest.mark.parametrize("n", [0, 1, 5, 7, 9])
+    def test_unsupported_slide_count_fails_without_gemini(self, monkeypatch, n):
+        models = _FakeModels(response=_FakeResponse(_short_payload(3)))
+        _patch_gemini(monkeypatch, models)
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
+        assert (result.success, result.error_code) == (False, "SLIDE_COUNT_UNSUPPORTED")
+        assert models.calls == []
+
+    def test_default_slide_count_is_still_eight(self, monkeypatch):
+        models = _FakeModels(response=_FakeResponse(_short_payload(3)))
+        _patch_gemini(monkeypatch, models)
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT")
+        assert result.error_code == "SLIDE_COUNT_INVALID"           # 8장 계약으로 검사
+        assert "8-slide" in models.calls[0]["contents"]
+
+    def test_returned_count_must_match_requested(self, monkeypatch):
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(_short_payload(4))))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "SLIDE_COUNT_INVALID"
+
+    @pytest.mark.parametrize("cover", ["", "   ", "첫 줄\n둘째 줄", "가" * 41])
+    def test_cover_title_constraint(self, monkeypatch, cover):
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(_short_payload(3, cover=cover))))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "COVER_TITLE_INVALID"
+
+    def test_cover_title_at_limit_passes(self, monkeypatch):
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(_short_payload(3, cover="가" * 40))))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.success is True
+
+    def test_cta_only_on_last_slide(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][1]["text"] = "이 내용을 저장하세요"
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(payload)))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "CTA_NOT_LAST_SLIDE"
+
+    def test_last_slide_needs_exactly_one_cta(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][2]["text"] = "하루 3건 자동 게시가 가능합니다"
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(payload)))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "LAST_SLIDE_CTA_COUNT_INVALID"
+
+    def test_long_body_slide_rejected(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][1]["text"] = "단어 " * 31
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(payload)))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "BODY_SLIDE_TOO_LONG"
+
+    def test_fabrication_guard_still_applies(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][1]["text"] = "매출이 300% 늘었습니다"
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(payload)))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "POSSIBLE_FABRICATION"
+
+    def test_safety_still_applies(self, monkeypatch):
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(_short_payload(3))))
+        monkeypatch.setattr(builder, "check_caption_safety", lambda text, **kwargs: ("UNSAFE", "blocked"))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert result.error_code == "SAFETY_BLOCKED:blocked"
+
+    @pytest.mark.parametrize("n", [2, 3])
+    def test_cta_on_cover_rejected(self, monkeypatch, n):
+        _patch_gemini(monkeypatch, _FakeModels(response=_FakeResponse(
+            _short_payload(n, cover="AI 영업 자동화, 지금 저장하세요"))))
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
+        assert result.error_code == "CTA_NOT_LAST_SLIDE"

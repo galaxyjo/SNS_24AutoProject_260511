@@ -77,6 +77,11 @@ _CAPTION_MAX_CHARS = 400
 _HASHTAG_MIN = 5
 _HASHTAG_MAX = 8
 _SLIDE_COUNT = 8
+# 261023 STEP 4-AE — AIJOMOOJIN 2~4장 카드뉴스. 기본값은 기존 8장 그대로 두고, 호출자가
+# slide_count로 2~4를 고를 때만 짧은 계약을 쓴다. 1장 텍스트는 표지 제목 한 줄이며,
+# 히어로카드 headline 한 줄 상한(hero_card_content_builder._HEADLINE_MAX_CHARS=40)과 맞춘다.
+SHORT_SLIDE_COUNTS = (2, 3, 4)
+_COVER_TITLE_MAX_CHARS = 40
 
 _CAROUSEL_RESPONSE_SCHEMA = {
     "type": "object",
@@ -192,6 +197,57 @@ def _count_cta_sentences(text: str) -> int:
     )
 
 
+def _validate_short_contract(payload: dict, slide_count: int) -> "str | None":
+    """261023 STEP 4-AE — 2~4장 계약. 1장은 표지 제목 한 줄, 나머지 장은 짧은 본문,
+    마지막 장에만 CTA 1개. 캡션·해시태그 계약은 8장과 같다."""
+    slides = payload.get("slides")
+    if not isinstance(slides, list) or len(slides) != slide_count:
+        return "SLIDE_COUNT_INVALID"
+
+    ordered = sorted(slides, key=lambda s: s.get("index", -1))
+    if [s.get("index") for s in ordered] != list(range(1, slide_count + 1)):
+        return "SLIDE_INDEX_INVALID"
+
+    cover_title = ordered[0].get("text", "")
+    if (not cover_title.strip() or "\n" in cover_title.strip()
+            or len(cover_title.strip()) > _COVER_TITLE_MAX_CHARS):
+        return "COVER_TITLE_INVALID"
+
+    for slide in ordered[1:]:
+        text = slide.get("text", "")
+        if not text.strip():
+            return "SLIDE_TEXT_EMPTY"
+        if len(text.split()) > _BODY_MAX_WORDS:
+            return "BODY_SLIDE_TOO_LONG"
+
+    for slide in ordered[:-1]:
+        if _count_cta_sentences(slide.get("text", "")) > 0:
+            return "CTA_NOT_LAST_SLIDE"
+    if _count_cta_sentences(ordered[-1].get("text", "")) != 1:
+        return "LAST_SLIDE_CTA_COUNT_INVALID"
+
+    return _validate_caption_and_hashtags(payload)
+
+
+def _validate_caption_and_hashtags(payload: dict) -> "str | None":
+    caption = payload.get("caption", "")
+    if not caption or len(caption) > _CAPTION_MAX_CHARS:
+        return "CAPTION_LENGTH_INVALID"
+
+    hashtags = payload.get("hashtags")
+    if not isinstance(hashtags, list) or not (_HASHTAG_MIN <= len(hashtags) <= _HASHTAG_MAX):
+        return "HASHTAG_COUNT_INVALID"
+
+    caption_lines = [line for line in caption.splitlines() if line.strip()]
+    last_line = caption_lines[-1] if caption_lines else ""
+    if _count_cta_sentences(last_line) != 1:
+        return "CAPTION_CTA_COUNT_INVALID"
+    other_lines_cta = sum(_count_cta_sentences(line) for line in caption_lines[:-1])
+    if other_lines_cta > 0:
+        return "CAPTION_CTA_NOT_LAST"
+    return None
+
+
 def _validate_contract(payload: dict) -> "str | None":
     """구조 계약 위반 시 error_code를 반환한다(문제 없으면 None)."""
     slides = payload.get("slides")
@@ -271,16 +327,63 @@ def _build_prompt(
     )
 
 
+_SHORT_SLIDE_PLANS = {
+    2: ("   Slide 1: cover title — one line, at most 40 Korean characters, the reader's problem or "
+        "benefit (not a generic description).\n"
+        "   Slide 2: how a Korean business owner or office worker can use it, ending with exactly "
+        "one call to action.\n"),
+    3: ("   Slide 1: cover title — one line, at most 40 Korean characters, the reader's problem or "
+        "benefit (not a generic description).\n"
+        "   Slide 2: the verified key facts or features, explained simply, at most 30 words.\n"
+        "   Slide 3: how a Korean business owner or office worker can apply it, at most 30 words, "
+        "ending with exactly one call to action.\n"),
+    4: ("   Slide 1: cover title — one line, at most 40 Korean characters, the reader's problem or "
+        "benefit (not a generic description).\n"
+        "   Slide 2: the verified key facts or features, explained simply, at most 30 words.\n"
+        "   Slide 3: how a Korean business owner or office worker can apply it, at most 30 words.\n"
+        "   Slide 4: a short checklist or why it is worth saving, ending with exactly one call to "
+        "action.\n"),
+}
+
+
+def _build_short_prompt(core_message: str, title: str, slot_role: str, template_type: str,
+                        slide_count: int) -> str:
+    return (
+        f"You are writing a {slide_count}-slide Instagram carousel (card-news) for Korean small-business "
+        "owners and office workers who want to use AI tools, using ONLY the source content below.\n\n"
+        f"Source title: {title}\n"
+        f"Source content (the ONLY allowed source of facts/numbers/claims): {core_message}\n\n"
+        f"Slot role: {slot_role}. Sentence template: {template_type}.\n\n"
+        "Rules:\n"
+        "1. Do NOT invent any fact, statistic, name, or claim not present in the source content above. "
+        "Paraphrase — do not copy sentences verbatim.\n"
+        f"2. Produce exactly {slide_count} slides. Only the last slide may contain a call to action.\n"
+        + _SHORT_SLIDE_PLANS[slide_count] +
+        "3. No exaggeration, fear-mongering, or unsupported performance numbers. No long paragraphs.\n"
+        "4. Also produce a Korean caption (<=400 chars). Its first two lines explain the practical value "
+        "for the reader instead of repeating the slides. Exactly one CTA, on the last line. Then 5-8 "
+        "relevant hashtags (array, separate from the caption body, Korean search terms related to this "
+        "content are preferred).\n"
+        "Return the result in the exact JSON schema provided."
+    )
+
+
 def generate_carousel_content(
     topic, slot_role: str, template_type: str,
     *, client=None, throttle_fn=None, model=None,
     existing_fingerprints: "set | None" = None,
+    slide_count: int = _SLIDE_COUNT,
 ) -> CarouselResult:
     """Sourcebook `topic`(source_selector.SourceTopic 또는 동일 필드를 가진
     객체) + 슬롯 역할 + 문장 템플릿으로 8-Slide 카드뉴스 구조화 콘텐츠 1건을
     생성한다. Google Search/URL Context Tool을 전혀 쓰지 않는다(topic.
     core_message는 이미 Sourcebook에 있는 값 — 이 함수 자신은 인터넷에
-    접근하지 않는다)."""
+    접근하지 않는다).
+
+    261023 STEP 4-AE — slide_count: 기본 8(기존 계약 그대로). 2~4를 주면 짧은 계약
+    (_validate_short_contract)과 짧은 프롬프트를 쓴다. 그 밖의 값은 Gemini 호출 없이 실패."""
+    if slide_count != _SLIDE_COUNT and slide_count not in SHORT_SLIDE_COUNTS:
+        return CarouselResult(success=False, error_code="SLIDE_COUNT_UNSUPPORTED")
     if slot_role not in VALID_SLOT_ROLES:
         return CarouselResult(success=False, error_code="SLOT_ROLE_UNKNOWN")
     if template_type not in TEMPLATE_TYPES:
@@ -292,7 +395,11 @@ def generate_carousel_content(
         response_mime_type="application/json",
         response_json_schema=_CAROUSEL_RESPONSE_SCHEMA,
     )
-    prompt = _build_prompt(topic.core_message, topic.title, slot_role, template_type)
+    short = slide_count in SHORT_SLIDE_COUNTS
+    prompt = (
+        _build_short_prompt(topic.core_message, topic.title, slot_role, template_type, slide_count)
+        if short else _build_prompt(topic.core_message, topic.title, slot_role, template_type)
+    )
     active_throttle = throttle_fn or _throttle
     # 260805 7B-4 Live Canary에서 발견된 결함 수정 — model=None을 그대로 SDK에
     # 넘기면 요청 URL에 "{model}"이 문자 그대로 들어가 404가 난다(실제 Runtime
@@ -322,7 +429,9 @@ def generate_carousel_content(
     except (ValueError, AttributeError, TypeError):
         return CarouselResult(success=False, error_code="RESPONSE_PARSE_FAILED")
 
-    contract_error = _validate_contract(payload)
+    contract_error = (
+        _validate_short_contract(payload, slide_count) if short else _validate_contract(payload)
+    )
     if contract_error:
         return CarouselResult(success=False, error_code=contract_error)
 
