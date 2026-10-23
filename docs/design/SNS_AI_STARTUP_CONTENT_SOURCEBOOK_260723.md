@@ -728,6 +728,9 @@ URL: https://huggingface.co/blog/feed.xml
 ### 14.6 MIT Technology Review — AI
 URL: https://www.technologyreview.com/topic/artificial-intelligence/feed
 
+### 14.7 GitHub Blog — AI & ML
+URL: https://github.blog/ai-and-ml/feed/
+
 ## 변경 이력
 
 | 날짜 | 내용 |
@@ -739,3 +742,4 @@ URL: https://www.technologyreview.com/topic/artificial-intelligence/feed
 | 260811 | 회장 지시로 3.1(Netflix Culture Memo) 섹션 및 관련 언급(Safe Claims 2건, Forbidden Claims 1건, Content Series Backlog 1건) 전량 삭제 — 대체 원천 없이 제거(12.5 삭제 선례와 동일 처리, 번호 재배열 없음). 3.2~3.6은 무수정. |
 | 260811 | 섹션 13 신규 추가 — 회장 지시로 콘텐츠 비중을 "AI 기술 실제 적용 사례" 중심으로 확대. 5개 페르소나 축(Beauty/Commerce/Marketing/Sales/Growth) 원천 각 1건씩 WebSearch로 공식 출처 확인 후 등록(L'Oréal Beauty Genius / Google·Shopify UCP / HubSpot Loop Marketing / Intercom Fin for Sales / a16z 16 Startup Metrics). 기존 3.x/12.x는 무수정. 페르소나별 계정 배정은 별도 결정 대상으로 이번 범위 밖. |
 | 261022 | 섹션 14 신규 추가 — 미국 AI 뉴스 RSS 피드 6개. 콘텐츠 주제가 아닌 뉴스 원천 목록이며, 회장 승인에 따른 CLAUDE.md 규칙 1~3 개정(커밋 d4769c9) 기준. VentureBeat는 XML 파싱 오류로 제외. |
+| 261023 | 14.7 GitHub Blog — AI & ML 피드 추가. 같은 날 Gemini url_context 진단에서 이 피드 기사 1건이 URL_RETRIEVAL_STATUS_SUCCESS(STEP 4-X). 기존 14.1~14.6은 그대로 둔다. |
