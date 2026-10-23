@@ -436,6 +436,19 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             if _is_meta_media_fetch_error(e):
                 _time.sleep(_MEDIA_9004_RETRY_WAITS[attempt - 1])
 
+    wait_error = _wait_container_finished(rid, creation_id, access_token, api_host)
+    if wait_error is not None:
+        return wait_error
+
+    return _publish_ready_container(rid, creation_id, access_token, ig_user_id, api_host)
+
+def _wait_container_finished(rid, creation_id, access_token, api_host):
+    """261023 STEP 4-AG — publish_single()의 Phase A.5를 그대로 옮긴 함수(동작 무변경).
+    또한 publish_carousel()이 자식·부모 컨테이너에 재사용한다. 준비되면 None, 아니면 확정 실패 dict.
+    """
+    import requests as _req
+    import time as _time
+
     # ── Phase A.5: 컨테이너 처리 완료 대기 (status_code=FINISHED) — 아직 Phase B(발행)를
     # 호출하지 않았으므로 여기서 반환하는 실패는 확정 실패다(outcome_unknown 아님).
     # Codex 리뷰(260810) P1/P2 반영: 전체 대기를 monotonic 기반 deadline으로 제한하고,
@@ -500,6 +513,14 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
             f"rid={rid} | creation_id={creation_id}"
         )
         return {"ok": False, "error": "container_finished_timeout", "creation_id": creation_id}
+
+    return None
+
+
+def _publish_ready_container(rid, creation_id, access_token, ig_user_id, api_host):
+    """261023 STEP 4-AG — publish_single()의 Phase B를 그대로 옮긴 함수(동작 무변경).
+    publish_carousel()도 부모 컨테이너 발행에 재사용한다."""
+    import requests as _req
 
     # ── Phase B: 발행 (/media_publish) — creation_id 확보 후 새 컨테이너 생성 절대 금지 ──
     for attempt in range(1, 4):
@@ -572,6 +593,98 @@ def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="
 
     # 이론상 도달 불가(각 분기가 continue/return으로 종료) — 안전망
     return {"ok": False, "error": "outcome_unknown", "outcome_unknown": True, "creation_id": creation_id}
+
+
+
+CAROUSEL_MIN_ITEMS, CAROUSEL_MAX_ITEMS = 2, 4   # 261023 STEP 4-AG — AIJOMOOJIN 2~4장
+
+
+def publish_carousel(rid, image_urls, caption, access_token, ig_user_id, api_host="graph.facebook.com",
+                     *, on_parent_created=None):
+    """261023 STEP 4-AG — Instagram CAROUSEL 게시(Meta Content Publishing 계약).
+
+    1) 이미지마다 자식 컨테이너(is_carousel_item=true)를 순서대로 만든다.
+    2) 자식이 모두 FINISHED인지 확인한다. 하나라도 실패하면 부모를 만들지 않는다.
+    3) 부모 컨테이너(media_type=CAROUSEL, children 순서 그대로, caption 1개)를 만든다.
+    4) on_parent_created(parent_id)가 True를 돌려줘야(원장 기록 성공) 다음으로 간다. 기록에
+       실패하면 media_publish를 호출하지 않는다(게시되지 않은 확정 실패).
+    5) 부모 FINISHED 확인 후 publish_single()과 같은 Phase B로 1회 발행한다.
+    1~4와 부모 대기 실패는 아직 발행 전이므로 확정 실패, Phase B의 모호한 결과는 outcome_unknown.
+    이미지는 이미 4:5로 렌더링돼 있어 _preprocess_image()를 거치지 않는다(순서·URL 그대로)."""
+    import requests as _req
+
+    urls = list(image_urls or [])
+    if not (CAROUSEL_MIN_ITEMS <= len(urls) <= CAROUSEL_MAX_ITEMS) or not all(
+            isinstance(u, str) and u.startswith("https://") for u in urls) or len(set(urls)) != len(urls):
+        logger.error(f"[publish_carousel] 이미지 목록 오류 — 게시 안 함 | rid={rid} | count={len(urls)}")
+        return {"ok": False, "error": "carousel_items_invalid"}
+
+    def _create(params, label):
+        for attempt in range(1, 4):
+            try:
+                r = _req.post(f"https://{api_host}/v21.0/{ig_user_id}/media",
+                              params={**params, "access_token": access_token}, timeout=30)
+                r.raise_for_status()
+                cid = r.json().get("id")
+                if cid:
+                    return cid
+                raise ValueError("container id 없음")
+            except Exception as e:
+                detail = _extract_meta_error_detail(e)
+                logger.warning(f"[publish_carousel] {label} 생성 시도 {attempt}/3 실패 | rid={rid} | "
+                               f"{redact_sensitive(str(e))}{detail}")
+        return None
+
+    child_ids = []
+    for i, url in enumerate(urls, 1):
+        child_id = _create({"image_url": url, "is_carousel_item": "true"}, f"child{i}")
+        if not child_id:
+            return {"ok": False, "error": f"child_create_failed_{i}"}
+        child_ids.append(child_id)
+    for i, child_id in enumerate(child_ids, 1):
+        wait_error = _wait_container_finished(rid, child_id, access_token, api_host)
+        if wait_error is not None:
+            return {"ok": False, "error": f"child{i}_{wait_error.get('error', 'not_ready')}"}
+
+    parent_id = _create({"media_type": "CAROUSEL", "children": ",".join(child_ids), "caption": caption}, "parent")
+    if not parent_id:
+        return {"ok": False, "error": "parent_create_failed"}
+    try:
+        recorded = bool(on_parent_created(parent_id)) if on_parent_created else True
+    except Exception as exc:
+        logger.error(f"[publish_carousel] 부모 creation_id 기록 예외 | rid={rid} | {type(exc).__name__}")
+        recorded = False
+    if not recorded:
+        logger.error(f"[publish_carousel] 부모 creation_id 원장 기록 실패 — 발행 안 함 | rid={rid} | "
+                     f"creation_id={parent_id}")
+        return {"ok": False, "error": "ledger_write_failed", "creation_id": parent_id}
+
+    wait_error = _wait_container_finished(rid, parent_id, access_token, api_host)
+    if wait_error is not None:
+        return wait_error
+    result = _publish_ready_container(rid, parent_id, access_token, ig_user_id, api_host)
+    result.setdefault("creation_id", parent_id)
+    return result
+
+
+def fetch_media_summary(media_id, access_token, api_host="graph.facebook.com") -> dict:
+    """261023 STEP 4-AG — 게시 후 확인용 읽기 전용 GET(media_type·children 수·permalink).
+    실패해도 게시 결과를 바꾸지 않는다({} 반환)."""
+    import requests as _req
+    try:
+        r = _req.get(f"https://{api_host}/v21.0/{media_id}",
+                     params={"fields": "id,media_type,permalink,username,owner{id},children{id}",
+                             "access_token": access_token},
+                     timeout=20)
+        r.raise_for_status()
+        d = r.json()
+        return {"id": d.get("id", ""), "media_type": d.get("media_type", ""),
+                "permalink": d.get("permalink", ""), "username": d.get("username", ""),
+                "owner_id": (d.get("owner") or {}).get("id", ""),
+                "children": len((d.get("children") or {}).get("data", []))}
+    except Exception as exc:
+        logger.warning(f"[MediaSummary] 조회 실패 | media_id={media_id} | {type(exc).__name__}")
+        return {}
 
 
 @handle_errors(task="insta_upload", notify_fn=_slack)
@@ -1060,13 +1173,30 @@ def _job_aijomoojin_scheduled_post():
             logger.warning("[AijomoojinSlot] Binding 검증 실패 — 이번 슬롯 스킵 | rid=%s", post_id)
             return
 
+    # 261023 STEP 4-AG — 게시 형식 판별(claim 전). 정상 v2만 single, 정상 v3만 carousel, 나머지는 HOLD.
+    post_kind, carousel_urls = _resolve_aijomoojin_slot_package(post)
+    if post_kind == "hold":
+        logger.error(f"[AijomoojinSlot] 게시 형식 HOLD — claim·게시 안 함 | rid={post_id} | {carousel_urls}")
+        if _slack:
+            _slack(f"[HOLD] aijomoojin 슬롯 게시 형식 확인 필요 — 게시하지 않음\n"
+                   f"rid={post_id} | content_id={post.get('content_id', '')} | {carousel_urls}")
+        return
+
     if not repo.claim_post_for_upload(post_id):
         logger.info("[AijomoojinSlot] claim 실패(이미 선점됨) — 이번 슬롯 스킵 | rid=%s", post_id)
         return
 
-    raw = publish_single(
-        post_id, image_url, caption, cred.access_token, cred.ig_user_id, api_host=provider_conf["host"],
-    )
+    if post_kind == "carousel":
+        raw = publish_carousel(
+            post_id, carousel_urls, caption, cred.access_token, cred.ig_user_id, api_host=provider_conf["host"],
+            on_parent_created=lambda parent_id: _record_publish_pending(
+                post_id, "in_flight", creation_id=parent_id, credential_key=account["credential_key"],
+                api_host=provider_conf["host"], caption=caption, account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE),
+        )
+    else:
+        raw = publish_single(
+            post_id, image_url, caption, cred.access_token, cred.ig_user_id, api_host=provider_conf["host"],
+        )
 
     if raw.get("outcome_unknown"):
         logger.error(
@@ -1090,6 +1220,14 @@ def _job_aijomoojin_scheduled_post():
     )
     try:
         repo.mark_post_result(post_id, pub_result)
+        if post_kind == "carousel":
+            # 결과가 Airtable에 확정 기록됐으므로 발행 직전 남긴 in_flight 단서를 지운다.
+            _clear_publish_pending(post_id)
+            if raw.get("ok"):
+                summary = fetch_media_summary(raw.get("ig_media_id", ""), cred.access_token, provider_conf["host"])
+                logger.info(f"[AijomoojinSlot] 캐러셀 게시 확인 | rid={post_id} | media_id={summary.get('id', '')} "
+                            f"| owner_id={summary.get('owner_id', '')} | media_type={summary.get('media_type', '')} "
+                            f"| children={summary.get('children', '')} | permalink={summary.get('permalink', '')}")
         if not raw.get("ok") and _slack:
             _slack(
                 f"[알림] aijomoojin 슬롯 게시 실패 확정\n"
@@ -1136,9 +1274,72 @@ def _load_publish_pending() -> dict:
 
 
 def _save_publish_pending(data: dict) -> None:
+    # 261023 STEP 4-AG — 반쯤 쓰인 JSON이 남지 않도록 tmp에 쓴 뒤 os.replace(같은 볼륨 원자 교체).
+    # tmp 이름은 프로세스·호출마다 다르게 만들어 동시 저장끼리 같은 tmp를 쓰지 않는다.
+    # Windows에서 대상 파일이 다른 프로세스에 열려 있으면 PermissionError — 호출자가 기록 실패로 처리.
     import json as _json
+    import uuid as _uuid
     _PUBLISH_PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _PUBLISH_PENDING_PATH.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = _PUBLISH_PENDING_PATH.with_name(
+        f"{_PUBLISH_PENDING_PATH.name}.{os.getpid()}.{_uuid.uuid4().hex[:8]}.tmp")
+    try:
+        tmp.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, _PUBLISH_PENDING_PATH)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+_PUBLISH_PENDING_LOCK_TIMEOUT_SEC = 15
+
+
+def _mutate_publish_pending(mutator) -> bool:
+    """261023 STEP 4-AG — 원장 갱신을 직렬화한다. 슬롯(스케줄러 스레드)·reconcile·수동 게시 도구(별도
+    프로세스)가 같은 파일을 load→수정→save하면 늦게 저장한 쪽이 먼저 쓴 기록을 지운다(lost update).
+    SQLite `BEGIN IMMEDIATE`(표준 라이브러리, 같은 db 파일을 쓰는 모든 프로세스·스레드 사이의 쓰기
+    잠금, 프로세스가 죽으면 OS가 잠금을 푼다)로 잠근 상태에서 최신 파일을 다시 읽고 mutator(data)를
+    적용해 저장한다. mutator가 False를 돌려주면 저장하지 않는다. 잠금 시간초과·파일 손상·저장 실패면
+    False(기존 파일은 그대로)."""
+    import json as _json
+    import sqlite3 as _sqlite3
+
+    lock_path = _PUBLISH_PENDING_PATH.with_name(_PUBLISH_PENDING_PATH.name + ".lock.db")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = None
+    try:
+        conn = _sqlite3.connect(str(lock_path), timeout=_PUBLISH_PENDING_LOCK_TIMEOUT_SEC, isolation_level=None)
+        conn.execute("BEGIN IMMEDIATE")
+        if _PUBLISH_PENDING_PATH.exists():
+            data = _json.loads(_PUBLISH_PENDING_PATH.read_text(encoding="utf-8"))  # 손상 시 예외 — 덮어쓰지 않음
+            if not isinstance(data, dict):
+                raise ValueError("publish pending ledger is not a JSON object")
+        else:
+            data = {}
+        if mutator(data) is False:
+            return True
+        _save_publish_pending(data)
+        return True
+    except Exception as exc:
+        logger.warning(f"[Reconcile] 원장 갱신 실패 — 기존 파일 유지 | {type(exc).__name__}: {exc}")
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            conn.close()
+
+
+def _clear_publish_pending(rid: str) -> None:
+    """261023 STEP 4-AG — 결과가 확정된 캐러셀 in_flight 단서를 지운다. 실패는 경고만(reconcile이 처리)."""
+    def _pop(data):
+        return data.pop(rid, None) is not None
+    if not _mutate_publish_pending(_pop):
+        logger.warning(f"[Reconcile] in_flight 단서 정리 실패 | rid={rid}")
 
 
 def _caption_sha(caption: str) -> str:
@@ -1148,21 +1349,24 @@ def _caption_sha(caption: str) -> str:
 
 def _record_publish_pending(rid: str, kind: str, *, creation_id: str = "", ig_media_id: str = "",
                             credential_key: str = "", api_host: str = "", caption: str = "",
-                            account_code_ref: str = "") -> None:
-    """kind: outcome_unknown / posted_unrecorded / failed_unrecorded. 기록 실패는 경고만.
+                            account_code_ref: str = "") -> bool:
+    """kind: outcome_unknown / posted_unrecorded / failed_unrecorded / in_flight(261023 캐러셀 부모
+    creation_id, 발행 직전). 기록 실패는 경고만 남기고 False(기존 호출부는 반환값을 쓰지 않음).
     캡션 원문은 저장하지 않고 해시만 남긴다(PUBLISHED media 식별용)."""
-    try:
-        data = _load_publish_pending()
-        data[rid] = {
-            "kind": kind, "creation_id": creation_id, "ig_media_id": ig_media_id,
-            "credential_key": credential_key, "api_host": api_host,
-            "caption_sha": _caption_sha(caption) if caption else "",
-            "account_code_ref": account_code_ref,
-            "at": datetime.now().strftime(_RECONCILE_TS_FMT), "alerted": False,
-        }
-        _save_publish_pending(data)
-    except Exception as exc:
-        logger.warning(f"[Reconcile] 회수 단서 기록 실패(수동 확인 필요) | rid={rid} | {type(exc).__name__}: {exc}")
+    entry = {
+        "kind": kind, "creation_id": creation_id, "ig_media_id": ig_media_id,
+        "credential_key": credential_key, "api_host": api_host,
+        "caption_sha": _caption_sha(caption) if caption else "",
+        "account_code_ref": account_code_ref,
+        "at": datetime.now().strftime(_RECONCILE_TS_FMT), "alerted": False,
+    }
+
+    def _put(data):
+        data[rid] = entry
+    if not _mutate_publish_pending(_put):
+        logger.warning(f"[Reconcile] 회수 단서 기록 실패(수동 확인 필요) | rid={rid} | kind={kind}")
+        return False
+    return True
 
 
 def _reconcile_decide(entry: dict) -> tuple[str, str, str]:
@@ -1172,7 +1376,8 @@ def _reconcile_decide(entry: dict) -> tuple[str, str, str]:
         return "posted", entry["ig_media_id"], "posted_unrecorded"
     if kind == "failed_unrecorded":
         return "failed", "", "failed_unrecorded"
-    if kind != "outcome_unknown" or not entry.get("creation_id"):
+    # 261023 STEP 4-AG — in_flight(캐러셀 부모 creation_id를 발행 직전 기록)도 같은 컨테이너 판정을 쓴다.
+    if kind not in ("outcome_unknown", "in_flight") or not entry.get("creation_id"):
         return "hold", "", "insufficient_evidence"
 
     import requests as _req
@@ -1240,7 +1445,7 @@ def _job_publish_reconcile():
     from modules.infra.repository_interface import PostPublishResult
     repo = None
     now = datetime.now()
-    changed = False
+    resolved, alerted = {}, {}   # rid → 판정에 쓴 snapshot 항목(저장은 잠금 안에서 최신 파일에 반영)
     for rid, entry in list(pending.items()):
         try:
             age_min = (now - datetime.strptime(entry.get("at", ""), _RECONCILE_TS_FMT)).total_seconds() / 60
@@ -1263,17 +1468,29 @@ def _job_publish_reconcile():
             except Exception as exc:
                 logger.warning(f"[Reconcile] Airtable 반영 실패 — 다음 회차 재시도 | rid={rid} | {type(exc).__name__}")
                 continue
-            del pending[rid]
-            changed = True
+            resolved[rid] = dict(entry)
             logger.info(f"[Reconcile] 회수 완료 | rid={rid} | {decision} | media_id={media_id or '-'} | {reason}")
         elif not entry.get("alerted"):
-            entry["alerted"] = True
-            changed = True
+            alerted[rid] = dict(entry)
             logger.warning(f"[Reconcile] 확정 불가 — uploading 유지, 수동 확인 필요 | rid={rid} | {reason}")
             if _slack:
                 _slack(f"[알림] 게시 결과 회수 보류 — uploading 유지, 수동 확인 필요\nrid={rid} | {reason}")
-    if changed:
-        _save_publish_pending(pending)
+    if not resolved and not alerted:
+        return
+
+    def _apply(data):
+        # 261023 STEP 4-AG — 판정하는 동안 다른 쪽(슬롯 등)이 같은 rid를 새로 기록했으면 그 기록을 지우지 않는다.
+        changed = False
+        for rid, seen in resolved.items():
+            if data.get(rid) == seen:
+                del data[rid]
+                changed = True
+        for rid, seen in alerted.items():
+            if data.get(rid) == seen:
+                data[rid]["alerted"] = True
+                changed = True
+        return changed
+    _mutate_publish_pending(_apply)
 
 
 AIJOMOOJIN_PRODUCER_ACCOUNT_CODE = "IDN-000036"
@@ -1305,6 +1522,116 @@ def _aijomoojin_news_hours() -> set:
 def _ict_now() -> datetime:
     from datetime import timezone as _tz
     return datetime.now(_tz(timedelta(hours=7)))
+
+
+AIJOMOOJIN_CAROUSEL_SLIDE_COUNT = 3   # 261023 STEP 4-AF 회장 확정: 기본 3장(2~4 허용)
+
+
+_CAROUSEL_ONLY_FIELDS = ("post_format", "carousel_required", "slide_count", "slide_texts",
+                         "slide_image_paths", "carousel_image_urls")
+
+
+def _classify_aijomoojin_package(content_id: str, fields: dict) -> str:
+    """261023 STEP 4-AF — Producer가 Airtable ready로 넘기기 전 패키지 형식 판별.
+    "legacy_single" / "carousel" / "hold:<사유>". 자동 single 판정은 v2 정상 패키지뿐이다."""
+    from modules.sns.content_package_builder import CAROUSEL_SLIDE_COUNTS, carousel_slide_image_paths
+
+    raw = fields.get("idempotency_version")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return "hold:VERSION_MISSING_OR_INVALID"
+    if raw == 2:
+        if any(k in fields for k in _CAROUSEL_ONLY_FIELDS):
+            return "hold:V2_HAS_CAROUSEL_FIELDS"
+        return "legacy_single"
+    if raw != 3:
+        return f"hold:VERSION_UNSUPPORTED_{raw}"
+    if fields.get("post_format") != "carousel":
+        return "hold:V3_POST_FORMAT_INVALID"
+    if fields.get("carousel_required") is not True:
+        return "hold:V3_CAROUSEL_REQUIRED_INVALID"
+    n = fields.get("slide_count")
+    if isinstance(n, bool) or n not in CAROUSEL_SLIDE_COUNTS:
+        return "hold:V3_SLIDE_COUNT_INVALID"
+    texts, paths, urls = (fields.get("slide_texts"), fields.get("slide_image_paths"),
+                          fields.get("carousel_image_urls"))
+    if not isinstance(texts, list) or len(texts) != n:
+        return "hold:V3_SLIDE_TEXTS_INVALID"
+    if paths != carousel_slide_image_paths(content_id, n):
+        return "hold:V3_SLIDE_PATHS_INVALID"
+    if not isinstance(urls, list) or len(urls) not in (0, n):
+        return "hold:V3_CAROUSEL_URLS_INVALID"
+    return "carousel"
+
+
+def _resolve_aijomoojin_slot_package(post: dict) -> tuple:
+    """261023 STEP 4-AG — 슬롯 게시 직전(claim 전) Vault 재조회. ("legacy_single", None) /
+    ("carousel", [url...]) / ("hold", 사유). Airtable과 Vault가 어긋나거나 형식을 확정할 수 없으면 hold."""
+    from modules.sns.content_package_builder import DEFAULT_VAULT_ROOT, read_frontmatter
+
+    content_id = (post.get("content_id") or "").strip()
+    if not content_id:
+        return "hold", "CONTENT_ID_MISSING"
+    try:
+        fields = read_frontmatter(content_id, DEFAULT_VAULT_ROOT)
+    except Exception as exc:
+        return "hold", f"VAULT_READ_FAILED:{type(exc).__name__}"
+    if fields is None:
+        return "hold", "VAULT_READ_FAILED"
+    kind = _classify_aijomoojin_package(content_id, fields)
+    if kind.startswith("hold:"):
+        return "hold", kind[5:]
+    if kind == "legacy_single":
+        return "legacy_single", None
+
+    urls = fields.get("carousel_image_urls") or []
+    n = fields.get("slide_count")
+    if len(urls) != n:
+        return "hold", "CAROUSEL_URLS_MISSING"
+    if len(set(urls)) != n or not all(isinstance(u, str) and u.startswith("https://") for u in urls):
+        return "hold", "CAROUSEL_URLS_INVALID"
+    if urls[0] != post.get("image_url", ""):
+        return "hold", "COVER_URL_MISMATCH"
+    if (post.get("caption", "") != fields.get("caption", "")
+            or (post.get("hashtag") or "").strip() != (fields.get("hashtags") or "").strip()):
+        return "hold", "CAPTION_MISMATCH"
+    return "carousel", list(urls)
+
+
+def _upload_aijomoojin_carousel(content_id: str, fields: dict) -> str:
+    """261023 STEP 4-AF — v3 캐러셀 패키지의 N장을 순서대로 imgbb에 올리고, URL 목록을 Vault
+    frontmatter(carousel_image_urls)에 원자적으로 기록한다. 성공하면 1장(표지) URL을, 실패하면 ""
+    를 돌려준다(호출자는 pending을 유지하고 Airtable에 쓰지 않는다)."""
+    from modules.sns.content_package_builder import (
+        CAROUSEL_SLIDE_COUNTS, DEFAULT_VAULT_ROOT, carousel_slide_image_paths, update_frontmatter_fields)
+    from modules.sns.image_hosting import upload_local_file_to_imgbb
+
+    def _fail(reason):
+        logger.error(f"[AijomoojinProducer] 캐러셀 업로드 중단 — pending 유지 | content_id={content_id} | {reason}")
+        if _slack:
+            _slack(f"[알림] aijomoojin Producer 캐러셀 업로드 실패 — pending 유지, 수동 확인 필요\n"
+                   f"content_id={content_id} | {reason}")
+        return ""
+
+    slide_count = fields.get("slide_count")
+    paths = fields.get("slide_image_paths")
+    texts = fields.get("slide_texts")
+    if (str(fields.get("idempotency_version")) != "3" or slide_count not in CAROUSEL_SLIDE_COUNTS
+            or not isinstance(paths, list) or not isinstance(texts, list)
+            or len(paths) != slide_count or len(texts) != slide_count
+            or paths != carousel_slide_image_paths(content_id, slide_count)):
+        return _fail("CAROUSEL_PACKAGE_INVALID")
+
+    urls = []
+    for rel in paths:
+        upload = upload_local_file_to_imgbb(str(DEFAULT_VAULT_ROOT / rel))
+        if not upload.get("success"):
+            return _fail(f"UPLOAD_FAILED slide={len(urls) + 1} | {redact_sensitive(str(upload.get('error')))}")
+        urls.append(upload.get("public_url", ""))
+    if len(set(urls)) != slide_count or not all(str(u).startswith("https://") for u in urls):
+        return _fail("CAROUSEL_URLS_INVALID")
+    if not update_frontmatter_fields(content_id, {"carousel_image_urls": urls}, DEFAULT_VAULT_ROOT):
+        return _fail("VAULT_URL_WRITE_FAILED")
+    return urls[0]
 
 
 def _try_aijomoojin_news_topic(repo) -> tuple:
@@ -1540,6 +1867,10 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
                 gemini_model=AIJOMOOJIN_PRODUCER_GEMINI_MODEL,
                 hero_card_enabled=hero_card_enabled,
             )
+            # 261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지. 기본 false(off): 슬롯 게시가 캐러셀을
+            # 판별·게시하는 단계(4-AG)가 들어가기 전에는 켜지 않는다.
+            if os.getenv("AIJOMOOJIN_CAROUSEL_ENABLED", "false").strip().lower() == "true":
+                package_kwargs["carousel_slide_count"] = AIJOMOOJIN_CAROUSEL_SLIDE_COUNT
             # 261022 STEP 4-G — 미국 AI 뉴스(Sourcebook 14.x 피드). Flag가 비어 있으면
             # 이 분기에 들어가지 않아 기존 호출과 같다. 스케줄러는 producer_hour를
             # 넘기지 않으므로 실행 시각(ICT)으로 판정한다.
@@ -1596,20 +1927,36 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
         source_url = fields.get("source_url", "")
         _, img_path = _content_paths(content_id, DEFAULT_VAULT_ROOT)
 
-        upload = upload_local_file_to_imgbb(str(img_path))
-        if not upload.get("success"):
-            logger.error(
-                "[AijomoojinProducer] imgbb 업로드 실패 — pending 유지, 재시도 없음 | "
-                "content_id=%s | %s", content_id, redact_sensitive(str(upload.get("error"))),
-            )
+        package_kind = _classify_aijomoojin_package(content_id, fields)
+        if package_kind.startswith("hold:"):
+            # 261023 STEP 4-AF — 형식을 확정할 수 없는 패키지는 업로드·Airtable 쓰기 없이 pending 유지.
+            logger.error(f"[AijomoojinProducer] 패키지 형식 HOLD — 업로드·저장 안 함 | "
+                         f"content_id={content_id} | {package_kind}")
             if _slack:
-                _slack(
-                    f"[알림] aijomoojin Producer imgbb 업로드 실패 — pending 유지, 수동 확인 필요\n"
-                    f"content_id={content_id}"
-                )
+                _slack(f"[HOLD] aijomoojin Producer 패키지 형식 확인 필요 — 업로드·저장하지 않음\n"
+                       f"content_id={content_id} | {package_kind}")
             return
+        if package_kind == "carousel":
+            # 261023 STEP 4-AF — v3 캐러셀: N장 모두 순서대로 업로드·검증·Vault 기록에 성공해야
+            # Airtable에 저장한다. 하나라도 실패하면 pending 유지(단일 이미지로 대체하지 않음).
+            image_url = _upload_aijomoojin_carousel(content_id, fields)
+            if not image_url:
+                return
+        else:
+            upload = upload_local_file_to_imgbb(str(img_path))
+            if not upload.get("success"):
+                logger.error(
+                    "[AijomoojinProducer] imgbb 업로드 실패 — pending 유지, 재시도 없음 | "
+                    "content_id=%s | %s", content_id, redact_sensitive(str(upload.get("error"))),
+                )
+                if _slack:
+                    _slack(
+                        f"[알림] aijomoojin Producer imgbb 업로드 실패 — pending 유지, 수동 확인 필요\n"
+                        f"content_id={content_id}"
+                    )
+                return
 
-        image_url = upload["public_url"]
+            image_url = upload["public_url"]
 
         if repo.exists_post_by_image_url(image_url):
             logger.warning(

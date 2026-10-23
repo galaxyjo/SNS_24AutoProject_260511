@@ -821,3 +821,169 @@ def test_hero_card_gemini_client_forwarded(tmp_path, monkeypatch):
 
     assert result.success is True
     assert captured["client"] is sentinel_client
+
+
+# ── 261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지(렌더링·Vault 저장) ─────────────────
+
+from io import BytesIO
+from types import SimpleNamespace
+
+from PIL import Image
+
+from modules.sns.carousel_content_builder import CarouselContent, CarouselResult, Slide
+from modules.sns.hero_card_content_builder import HeroBlockText, HeroCardTextContent, HeroCardTextResult
+
+
+def _png_bytes(color=(10, 20, 30)):
+    buf = BytesIO()
+    Image.new("RGB", (1080, 1350), color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _carousel(n, cover="AI 영업 DM, 이제 자동으로 처리하세요"):
+    body = ["핵심 사실 설명", "실무 활용 방법", "체크리스트 정리"][: n - 2]
+    texts = [cover] + body + ["필요할 때 다시 보도록 저장하세요"]
+    return CarouselContent(
+        slot_role="REACH", template_type="HOOK_IMPACT", source_section_id="3.1",
+        source_title="Example Topic", source_url="https://example.com/topic-1",
+        slides=tuple(Slide(index=i + 1, role="r", text=t) for i, t in enumerate(texts)),
+        caption="반복 업무를 줄이는 방법입니다.\n\n저장해두세요.",
+        hashtags=("AI자동화", "업무자동화", "AI툴", "소상공인", "생산성"),
+        content_fingerprint="fp-" + str(n),
+    )
+
+
+@pytest.fixture
+def carousel_env(monkeypatch):
+    calls = {"carousel": [], "hero_override": [], "hook_caption": 0}
+
+    def _fake_carousel(topic, slot_role, template_type, **kw):
+        calls["carousel"].append(kw.get("slide_count"))
+        return CarouselResult(success=True, content=_carousel(kw["slide_count"]))
+
+    def _fake_hero(topic, brief, **kw):
+        calls["hero_override"].append(kw.get("headline_override"))
+        return _png_bytes()
+
+    def _no_hook(*a, **k):
+        calls["hook_caption"] += 1
+        return ("x", "#x")
+
+    monkeypatch.setattr(builder, "generate_carousel_content", _fake_carousel)
+    monkeypatch.setattr(builder, "_build_hero_card_image", _fake_hero)
+    monkeypatch.setattr(builder, "generate_hook_caption", _no_hook)
+    return calls
+
+
+def _vault_files(root):
+    return sorted(p.name for p in root.rglob("*") if p.is_file())
+
+
+@pytest.mark.parametrize("n", [2, 3, 4])
+def test_carousel_package_v3_written_in_order(tmp_path, carousel_env, n):
+    result = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=n)
+
+    assert result.success is True and result.carousel is not None
+    cid = result.content_id
+    paths = builder.carousel_slide_image_paths(cid, n)
+    assert paths[0] == f"images/{cid}.png" and len(paths) == n
+    for rel in paths:
+        with Image.open(tmp_path / rel) as im:
+            assert im.size == (1080, 1350)
+    fields = builder.read_frontmatter(cid, tmp_path)
+    assert fields["idempotency_version"] == 3 and fields["post_format"] == "carousel"
+    assert fields["carousel_required"] is True and fields["slide_count"] == n
+    assert fields["slide_image_paths"] == paths and fields["image_path"] == paths[0]
+    assert fields["slide_texts"] == [s.text for s in result.carousel.slides]
+    assert fields["caption"] == result.carousel.caption
+    assert fields["hashtags"] == " ".join(result.carousel.hashtags)
+    assert fields["carousel_image_urls"] == [] and fields["channel_status"] == "pending"
+    assert carousel_env["hero_override"] == [result.carousel.slides[0].text]   # 표지 = Slide 1
+    assert carousel_env["carousel"] == [n] and carousel_env["hook_caption"] == 0
+    assert not list(tmp_path.rglob("*.tmp-*"))
+
+
+@pytest.mark.parametrize("n", [0, 1, 5, 8])
+def test_carousel_slide_count_out_of_range_blocked(tmp_path, carousel_env, n):
+    result = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=n)
+    assert (result.success, result.error_code) == (False, "CAROUSEL_SLIDE_COUNT_INVALID")
+    assert carousel_env["carousel"] == [] and _vault_files(tmp_path) == []
+
+
+def test_carousel_text_failure_writes_nothing_and_no_single_fallback(tmp_path, carousel_env, monkeypatch):
+    monkeypatch.setattr(builder, "generate_carousel_content",
+                        lambda *a, **k: CarouselResult(success=False, error_code="SAFETY_BLOCKED:x"))
+    monkeypatch.setattr(builder, "generate_image", lambda *a, **k: pytest.fail("단일 이미지 생성 호출"))
+    result = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=3)
+    assert result.success is False and result.error_code == "CAROUSEL_TEXT_FAILED:SAFETY_BLOCKED:x"
+    assert carousel_env["hook_caption"] == 0 and _vault_files(tmp_path) == []
+
+
+def test_carousel_cover_failure_writes_nothing(tmp_path, carousel_env, monkeypatch):
+    monkeypatch.setattr(builder, "_build_hero_card_image", lambda *a, **k: None)
+    result = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=3)
+    assert result.error_code == "IMAGE_GENERATION_FAILED" and _vault_files(tmp_path) == []
+
+
+def test_carousel_body_render_failure_writes_nothing(tmp_path, carousel_env, monkeypatch):
+    def _boom(content):
+        raise ValueError("render failed")
+    monkeypatch.setattr(builder, "render_card", _boom)
+    result = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=3)
+    assert result.error_code == "IMAGE_GENERATION_FAILED" and _vault_files(tmp_path) == []
+
+
+def test_carousel_atomic_write_failure_leaves_no_files(tmp_path, carousel_env, monkeypatch):
+    real_replace = builder.os.replace
+    count = {"n": 0}
+
+    def _flaky(src, dst):
+        count["n"] += 1
+        if count["n"] == 3:
+            raise OSError("disk full")
+        return real_replace(src, dst)
+    monkeypatch.setattr(builder.os, "replace", _flaky)
+    result = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=3)
+    assert result.error_code == "ATOMIC_WRITE_FAILED"
+    assert _vault_files(tmp_path) == []
+
+
+def test_carousel_duplicate_caption_blocked(tmp_path, carousel_env, monkeypatch):
+    first = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=3)
+    assert first.success is True
+    # 같은 날 같은 원천이면 content_id가 같으므로, 다른 원천 URL로 같은 캡션이 나오는 경우를 만든다.
+    monkeypatch.setattr(builder, "select_next_topic",
+                        lambda used, topics=None: _fake_topic(source_url="https://example.com/topic-1"))
+    builder.update_frontmatter_fields(first.content_id, {"source_url": "https://example.com/topic-1"}, tmp_path)
+    (tmp_path / "content" / f"{first.content_id}.md").rename(tmp_path / "content" / "renamed-old.md")
+    for p in (tmp_path / "images").glob("*.png"):
+        p.rename(p.with_name("old-" + p.name))
+    second = builder.create_content_package(vault_root=tmp_path, carousel_slide_count=3)
+    assert second.error_code == "DUPLICATE_CAPTION_TEXT"
+
+
+def test_hero_card_headline_override_is_rendered(monkeypatch):
+    captured = {}
+    text = HeroCardTextContent(headline="Gemini가 만든 다른 제목", subheadline="부제",
+                               blocks=tuple(HeroBlockText(f"t{i}", f"d{i}") for i in range(4)),
+                               tagline="태그", content_fingerprint="fp")
+    monkeypatch.setattr(builder, "generate_hero_card_content",
+                        lambda *a, **k: HeroCardTextResult(success=True, content=text))
+    monkeypatch.setattr(builder, "build_background_only_prompt",
+                        lambda brief: SimpleNamespace(prompt_text="p", negative_prompt="n"))
+    monkeypatch.setattr(builder, "generate_image",
+                        lambda *a, **k: ProviderResult(success=True, image_bytes=_png_bytes()))
+
+    def _render(content):
+        captured["headline"] = content.headline
+        return b"png"
+    monkeypatch.setattr(builder, "render_hero_card", _render)
+    out = builder._build_hero_card_image(_fake_topic(), object(), headline_override="AI 영업 DM 자동화")
+    assert out == b"png" and captured["headline"] == "AI 영업 DM 자동화"
+
+
+def test_default_package_path_unchanged_without_carousel_count(tmp_path, carousel_env):
+    result = builder.create_content_package(vault_root=tmp_path)
+    fields = builder.read_frontmatter(result.content_id, tmp_path)
+    assert result.success is True and carousel_env["carousel"] == []
+    assert fields["idempotency_version"] == 2 and "post_format" not in fields

@@ -55,6 +55,15 @@ import modules.infra.airtable_repository  # noqa: F401,E402
 import launcher.main  # noqa: F401,E402
 
 
+@pytest.fixture(autouse=True)
+def _legacy_single_package(monkeypatch):
+    """261023 STEP 4-AG — 이 파일의 게시물 fixture는 content_id 없이 단일 게시 흐름을 시험한다.
+    형식 판별(Vault 재조회)은 test_aijomoojin_carousel_publish.py가 따로 검증하므로 여기서는
+    정상 v2(legacy_single)로 고정한다."""
+    monkeypatch.setattr(launcher.main, "_resolve_aijomoojin_slot_package",
+                        lambda post: ("legacy_single", None))
+
+
 BANGKOK = ZoneInfo("Asia/Bangkok")
 
 AI_ACCOUNT = {

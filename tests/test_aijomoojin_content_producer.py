@@ -233,7 +233,7 @@ class TestSuccessPath:
         import modules.sns.research_to_topic_adapter as adapter
 
         def _fake_create(target_language="ko", **kwargs):
-            _write_fixture_package(vault_root, "new-content-1", source_url="https://new.example/a", caption="hello")
+            _write_fixture_package(vault_root, "new-content-1", source_url="https://new.example/a", caption="hello", idempotency_version=2)
             return cpb.PackageResult(success=True, content_id="new-content-1", status="complete")
 
         monkeypatch.setattr(cpb, "create_content_package", _fake_create)
@@ -353,7 +353,7 @@ class TestPersonaGeminiCredential:
         def _fake_create(target_language="ko", **kwargs):
             create_calls.append(kwargs)
             _write_fixture_package(
-                vault_root, "cred-content-1", source_url="https://cred.example/a", caption="c",
+                vault_root, "cred-content-1", source_url="https://cred.example/a", caption="c", idempotency_version=2,
             )
             return cpb.PackageResult(success=True, content_id="cred-content-1", status="complete")
 
@@ -514,7 +514,7 @@ class TestPendingFailureNoRetry:
         from launcher import main as launcher_main
 
         def _fake_create(target_language="ko", **kwargs):
-            _write_fixture_package(vault_root, "imgbb-fail-1", source_url="https://x.example/imgbb")
+            _write_fixture_package(vault_root, "imgbb-fail-1", source_url="https://x.example/imgbb", idempotency_version=2)
             return cpb.PackageResult(success=True, content_id="imgbb-fail-1", status="complete")
 
         monkeypatch.setattr(cpb, "create_content_package", _fake_create)
@@ -537,7 +537,7 @@ class TestPendingFailureNoRetry:
         from launcher import main as launcher_main
 
         def _fake_create(target_language="ko", **kwargs):
-            _write_fixture_package(vault_root, "airtable-fail-1", source_url="https://x.example/at")
+            _write_fixture_package(vault_root, "airtable-fail-1", source_url="https://x.example/at", idempotency_version=2)
             return cpb.PackageResult(success=True, content_id="airtable-fail-1", status="complete")
 
         monkeypatch.setattr(cpb, "create_content_package", _fake_create)
@@ -564,7 +564,7 @@ class TestPendingResumeAndStale:
         _write_fixture_package(vault_root, "stale-1", source_url="https://already.example/posted")
 
         def _fake_create(target_language="ko", **kwargs):
-            _write_fixture_package(vault_root, "brand-new-1", source_url="https://new.example/b")
+            _write_fixture_package(vault_root, "brand-new-1", source_url="https://new.example/b", idempotency_version=2)
             return cpb.PackageResult(success=True, content_id="brand-new-1", status="complete")
 
         create_calls = []
@@ -587,7 +587,7 @@ class TestPendingResumeAndStale:
     def test_genuine_pending_package_resumed_without_new_creation(self, monkeypatch, _flag_on, vault_root):
         from launcher import main as launcher_main
 
-        _write_fixture_package(vault_root, "resume-1", source_url="https://orphan.example/c", caption="resumed caption")
+        _write_fixture_package(vault_root, "resume-1", source_url="https://orphan.example/c", caption="resumed caption", idempotency_version=2)
 
         monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("새로 생성되면 안 됨(재개 대상 있음)"))
         monkeypatch.setattr(
@@ -613,7 +613,7 @@ class TestPendingResumeAndStale:
 
         # 파일명 정렬상 "aaa-stale"이 "zzz-genuine"보다 먼저 스캔되도록 이름을 고정.
         _write_fixture_package(vault_root, "aaa-stale", source_url="https://already.example/stale", caption="stale caption")
-        _write_fixture_package(vault_root, "zzz-genuine", source_url="https://orphan.example/genuine", caption="genuine caption")
+        _write_fixture_package(vault_root, "zzz-genuine", source_url="https://orphan.example/genuine", caption="genuine caption", idempotency_version=2)
 
         monkeypatch.setattr(cpb, "create_content_package", lambda *a, **k: pytest.fail("새로 생성되면 안 됨(재개 대상 있음)"))
         monkeypatch.setattr(
@@ -641,7 +641,7 @@ class TestEmptyRecordIdReadAfterWrite:
         from launcher import main as launcher_main
 
         def _fake_create(target_language="ko", **kwargs):
-            _write_fixture_package(vault_root, "emptyid-confirmed", source_url="https://x.example/confirmed")
+            _write_fixture_package(vault_root, "emptyid-confirmed", source_url="https://x.example/confirmed", idempotency_version=2)
             return cpb.PackageResult(success=True, content_id="emptyid-confirmed", status="complete")
 
         monkeypatch.setattr(cpb, "create_content_package", _fake_create)
@@ -666,7 +666,7 @@ class TestEmptyRecordIdReadAfterWrite:
         from launcher import main as launcher_main
 
         def _fake_create(target_language="ko", **kwargs):
-            _write_fixture_package(vault_root, "emptyid-unconfirmed", source_url="https://x.example/unconfirmed")
+            _write_fixture_package(vault_root, "emptyid-unconfirmed", source_url="https://x.example/unconfirmed", idempotency_version=2)
             return cpb.PackageResult(success=True, content_id="emptyid-unconfirmed", status="complete")
 
         monkeypatch.setattr(cpb, "create_content_package", _fake_create)
@@ -1018,3 +1018,223 @@ class TestContentIdIdempotency:
         assert cpb.IDEMPOTENCY_VERSION == 2
         _write_fixture_package(vault_root, "no-marker-1")
         assert "idempotency_version" not in cpb.read_frontmatter("no-marker-1", vault_root)
+
+
+# ── 261023 STEP 4-AF — 캐러셀 v3 패키지 업로드·Airtable 저장 ─────────────────────
+
+def _write_carousel_package(vault_root, content_id, n=3, *, version=3, paths=None):
+    (vault_root / "content").mkdir(parents=True, exist_ok=True)
+    (vault_root / "images").mkdir(parents=True, exist_ok=True)
+    rel_paths = paths if paths is not None else cpb.carousel_slide_image_paths(content_id, n)
+    for rel in cpb.carousel_slide_image_paths(content_id, n):
+        (vault_root / rel).write_bytes(b"png-" + rel.encode())
+    fields = {
+        "content_id": content_id, "topic_id": "3.9", "title": "t", "source_url": "https://news.example/c",
+        "claims": "m", "status": "complete", "caption": "캐러셀 캡션\n\n저장해두세요.",
+        "hashtags": "#AI자동화 #업무자동화", "image_path": f"images/{content_id}.png",
+        "created_at": "2026-10-23T00:00:00", "channel_status": "pending", "idempotency_version": version,
+        "post_format": "carousel", "carousel_required": True, "slide_count": n,
+        "slide_texts": [f"slide {i}" for i in range(1, n + 1)], "slide_image_paths": rel_paths,
+        "carousel_image_urls": [],
+    }
+    md_path, _ = cpb._content_paths(content_id, vault_root)
+    md_path.write_text(cpb._render_frontmatter(fields) + "\n캐러셀 캡션\n", encoding="utf-8")
+
+
+def _run_carousel_producer(monkeypatch, vault_root, *, upload=None, content_id="car-1", n=3, **pkg):
+    from launcher import main as launcher_main
+
+    _write_carousel_package(vault_root, content_id, n, **pkg)
+    monkeypatch.setattr(cpb, "create_content_package",
+                        lambda **k: cpb.PackageResult(success=True, content_id=content_id, status="complete"))
+    uploads = []
+
+    def _fake_upload(path):
+        uploads.append(path)
+        if upload:
+            return upload(len(uploads))
+        return {"success": True, "public_url": f"https://i.ibb.co/slide{len(uploads)}.jpg"}
+    monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb", _fake_upload)
+    repo, calls = _fake_repo(active_status="", save_record_id="recCAR1")
+    monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+    slack = []
+    monkeypatch.setattr(launcher_main, "_slack", lambda msg: slack.append(msg))
+    launcher_main._job_aijomoojin_content_producer()
+    return calls, uploads, slack, cpb.read_frontmatter(content_id, vault_root)
+
+
+class TestCarouselProducerUpload:
+    def test_uploads_in_order_records_urls_and_saves_cover(self, monkeypatch, _flag_on, vault_root):
+        calls, uploads, slack, fields = _run_carousel_producer(monkeypatch, vault_root)
+
+        assert [p.replace("\\", "/").split("/images/")[1] for p in uploads] == ["car-1.png", "car-1_2.png", "car-1_3.png"]
+        assert fields["carousel_image_urls"] == [f"https://i.ibb.co/slide{i}.jpg" for i in (1, 2, 3)]
+        assert len(calls["save"]) == 1
+        saved = calls["save"][0]
+        assert saved["image_url"] == "https://i.ibb.co/slide1.jpg" and saved["content_id"] == "car-1"
+        assert saved["caption"] == "캐러셀 캡션\n\n저장해두세요." and saved["hashtag"] == "#AI자동화 #업무자동화"
+        assert fields["channel_status"] == "queued" and slack == []
+
+    @pytest.mark.parametrize("n", [2, 4])
+    def test_two_and_four_slides(self, monkeypatch, _flag_on, vault_root, n):
+        calls, uploads, _, fields = _run_carousel_producer(monkeypatch, vault_root, n=n)
+        assert len(uploads) == n and len(fields["carousel_image_urls"]) == n and len(calls["save"]) == 1
+
+    def test_second_upload_failure_keeps_pending_no_airtable_no_single(self, monkeypatch, _flag_on, vault_root):
+        def _upload(i):
+            if i == 2:
+                return {"success": False, "error": "timeout"}
+            return {"success": True, "public_url": f"https://i.ibb.co/s{i}.jpg"}
+        calls, uploads, slack, fields = _run_carousel_producer(monkeypatch, vault_root, upload=_upload)
+        assert len(uploads) == 2 and calls["save"] == []
+        assert fields["carousel_image_urls"] == [] and fields["channel_status"] == "pending"
+        assert len(slack) == 1 and "UPLOAD_FAILED slide=2" in slack[0]
+
+    def test_duplicate_urls_rejected(self, monkeypatch, _flag_on, vault_root):
+        calls, _, slack, fields = _run_carousel_producer(
+            monkeypatch, vault_root, upload=lambda i: {"success": True, "public_url": "https://i.ibb.co/same.jpg"})
+        assert calls["save"] == [] and fields["carousel_image_urls"] == [] and "CAROUSEL_URLS_INVALID" in slack[0]
+
+    @pytest.mark.parametrize("pkg", [{"version": 2}, {"version": 4}, {"paths": ["images/x.png"]}])
+    def test_invalid_package_blocked_before_upload(self, monkeypatch, _flag_on, vault_root, pkg):
+        calls, uploads, slack, _ = _run_carousel_producer(monkeypatch, vault_root, **pkg)
+        assert uploads == [] and calls["save"] == [] and slack[0].startswith("[HOLD]")
+
+    def test_vault_url_write_failure_blocks_airtable(self, monkeypatch, _flag_on, vault_root):
+        monkeypatch.setattr(cpb, "update_frontmatter_fields", lambda *a, **k: False)
+        calls, uploads, slack, _ = _run_carousel_producer(monkeypatch, vault_root)
+        assert len(uploads) == 3 and calls["save"] == [] and "VAULT_URL_WRITE_FAILED" in slack[0]
+
+
+class TestCarouselFlag:
+    def _capture_kwargs(self, monkeypatch):
+        from launcher import main as launcher_main
+
+        captured = {}
+
+        def _fake_create(**kwargs):
+            captured.update(kwargs)
+            return cpb.PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
+        monkeypatch.setattr(cpb, "create_content_package", _fake_create)
+        repo, _ = _fake_repo(active_status="")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        monkeypatch.setattr(launcher_main, "_slack", lambda msg: None)
+        launcher_main._job_aijomoojin_content_producer()
+        return captured
+
+    def test_flag_off_does_not_request_carousel(self, monkeypatch, _flag_on, vault_root):
+        monkeypatch.delenv("AIJOMOOJIN_CAROUSEL_ENABLED", raising=False)
+        assert "carousel_slide_count" not in self._capture_kwargs(monkeypatch)
+
+    def test_flag_on_requests_three_slides(self, monkeypatch, _flag_on, vault_root):
+        monkeypatch.setenv("AIJOMOOJIN_CAROUSEL_ENABLED", "true")
+        assert self._capture_kwargs(monkeypatch)["carousel_slide_count"] == 3
+
+
+# ── 261023 STEP 4-AF 보완 — 패키지 형식 판별(v3 → single 오판 차단) ───────────────
+
+def _v3_fields(cid="cls-1", n=3, **over):
+    fields = {
+        "idempotency_version": 3, "post_format": "carousel", "carousel_required": True, "slide_count": n,
+        "slide_texts": [f"s{i}" for i in range(1, n + 1)],
+        "slide_image_paths": cpb.carousel_slide_image_paths(cid, n), "carousel_image_urls": [],
+    }
+    for k, v in over.items():
+        if v is _DROP:
+            fields.pop(k, None)
+        else:
+            fields[k] = v
+    return fields
+
+
+_DROP = object()
+
+
+class TestPackageClassification:
+    def _classify(self, fields, cid="cls-1"):
+        from launcher import main as launcher_main
+        return launcher_main._classify_aijomoojin_package(cid, fields)
+
+    def test_v2_normal_is_legacy_single(self):
+        assert self._classify({"idempotency_version": 2, "caption": "c"}) == "legacy_single"
+
+    @pytest.mark.parametrize("n", [2, 3, 4])
+    def test_v3_normal_is_carousel(self, n):
+        assert self._classify(_v3_fields(n=n)) == "carousel"
+        urls = [f"https://i.ibb.co/{i}.jpg" for i in range(n)]
+        assert self._classify(_v3_fields(n=n, carousel_image_urls=urls)) == "carousel"
+
+    @pytest.mark.parametrize("over, reason", [
+        ({"post_format": _DROP}, "V3_POST_FORMAT_INVALID"),
+        ({"post_format": "single"}, "V3_POST_FORMAT_INVALID"),
+        ({"carousel_required": _DROP}, "V3_CAROUSEL_REQUIRED_INVALID"),
+        ({"carousel_required": False}, "V3_CAROUSEL_REQUIRED_INVALID"),
+        ({"carousel_required": "true"}, "V3_CAROUSEL_REQUIRED_INVALID"),
+        ({"slide_count": 1}, "V3_SLIDE_COUNT_INVALID"),
+        ({"slide_count": 5}, "V3_SLIDE_COUNT_INVALID"),
+        ({"slide_count": True}, "V3_SLIDE_COUNT_INVALID"),
+        ({"slide_texts": ["a", "b"]}, "V3_SLIDE_TEXTS_INVALID"),
+        ({"slide_image_paths": ["images/x.png"]}, "V3_SLIDE_PATHS_INVALID"),
+        ({"carousel_image_urls": _DROP}, "V3_CAROUSEL_URLS_INVALID"),
+        ({"carousel_image_urls": ["https://i.ibb.co/1.jpg"]}, "V3_CAROUSEL_URLS_INVALID"),
+    ])
+    def test_v3_damaged_is_hold(self, over, reason):
+        assert self._classify(_v3_fields(**over)) == f"hold:{reason}"
+
+    @pytest.mark.parametrize("fields, reason", [
+        ({}, "VERSION_MISSING_OR_INVALID"),
+        ({"idempotency_version": "2"}, "VERSION_MISSING_OR_INVALID"),
+        ({"idempotency_version": True}, "VERSION_MISSING_OR_INVALID"),
+        ({"idempotency_version": 1}, "VERSION_UNSUPPORTED_1"),
+        ({"idempotency_version": 4}, "VERSION_UNSUPPORTED_4"),
+        ({"idempotency_version": 7, "post_format": "carousel"}, "VERSION_UNSUPPORTED_7"),
+        ({"idempotency_version": 2, "post_format": "carousel"}, "V2_HAS_CAROUSEL_FIELDS"),
+    ])
+    def test_unknown_or_mixed_version_is_hold(self, fields, reason):
+        assert self._classify(fields) == f"hold:{reason}"
+
+    @pytest.mark.parametrize("over", [{"post_format": _DROP}, {"carousel_required": False}, {"slide_count": 5}])
+    def test_producer_hold_means_no_upload_no_airtable_no_single(self, monkeypatch, _flag_on, vault_root, over):
+        from launcher import main as launcher_main
+
+        cid = "cls-hold-1"
+        _write_carousel_package(vault_root, cid, 3)
+        cpb.update_frontmatter_fields(cid, {k: v for k, v in over.items() if v is not _DROP}, vault_root)
+        if any(v is _DROP for v in over.values()):
+            md_path, _ = cpb._content_paths(cid, vault_root)
+            fields = cpb._parse_frontmatter(md_path.read_text(encoding="utf-8"))
+            for k, v in over.items():
+                if v is _DROP:
+                    fields.pop(k)
+            md_path.write_text(cpb._render_frontmatter(fields) + "\nc\n", encoding="utf-8")
+        monkeypatch.setattr(cpb, "create_content_package",
+                            lambda **k: cpb.PackageResult(success=True, content_id=cid, status="complete"))
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: pytest.fail("업로드 호출되면 안 됨"))
+        repo, calls = _fake_repo(active_status="")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        slack = []
+        monkeypatch.setattr(launcher_main, "_slack", lambda msg: slack.append(msg))
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert calls["save"] == [] and calls["image_url_checks"] == 0
+        assert len(slack) == 1 and slack[0].startswith("[HOLD]")
+        assert cpb.read_frontmatter(cid, vault_root)["channel_status"] == "pending"
+
+    def test_unmarked_package_is_held_not_single(self, monkeypatch, _flag_on, vault_root):
+        from launcher import main as launcher_main
+
+        _write_fixture_package(vault_root, "nomark-1", source_url="https://nomark.example/a")
+        monkeypatch.setattr(cpb, "create_content_package",
+                            lambda **k: cpb.PackageResult(success=True, content_id="nomark-1", status="complete"))
+        monkeypatch.setattr("modules.sns.image_hosting.upload_local_file_to_imgbb",
+                            lambda path: pytest.fail("업로드 호출되면 안 됨"))
+        repo, calls = _fake_repo(active_status="")
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        slack = []
+        monkeypatch.setattr(launcher_main, "_slack", lambda msg: slack.append(msg))
+
+        launcher_main._job_aijomoojin_content_producer()
+
+        assert calls["save"] == [] and "VERSION_MISSING_OR_INVALID" in slack[0]

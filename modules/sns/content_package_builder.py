@@ -39,7 +39,13 @@ from modules.sns.carousel_content_builder import (
 )
 from modules.sns.hero_card_content_builder import generate_hero_card_content
 from modules.sns.image_provider_cloudflare import generate_image
-from modules.sns.image_template_renderer import HeroBlock, HeroCardContent, render_hero_card
+from modules.sns.image_template_renderer import (
+    CardContent,
+    HeroBlock,
+    HeroCardContent,
+    render_card,
+    render_hero_card,
+)
 from modules.sns.source_selector import parse_sourcebook, select_next_topic
 from modules.sns.visual_brief import build_background_only_prompt, build_image_prompt, build_visual_brief
 
@@ -52,6 +58,10 @@ DEFAULT_VAULT_ROOT = Path(__file__).resolve().parents[2] / "vault"
 # 260924 P1-2 Sprint2 — pending 회수 판정 계약 버전(날짜 기준 분기 제거용 표식).
 # 신규 생성 패키지에만 frontmatter 로 기록되며, 표식이 없으면 레거시다.
 IDEMPOTENCY_VERSION = 2
+# 261023 STEP 4-AF — 2~4장 캐러셀 패키지 버전. v3은 post_format="carousel"을 반드시 가진다.
+# content_id 멱등 판정(launcher._is_legacy_package, "< 2"면 레거시)에는 v2와 똑같이 쓰인다.
+CAROUSEL_PACKAGE_VERSION = 3
+CAROUSEL_SLIDE_COUNTS = (2, 3, 4)
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 _FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
@@ -262,6 +272,13 @@ def mark_channel_status(content_id: str, new_status: str, vault_root: "Path | No
     구성(create_content_package의 frontmatter+본문 렌더링)과 동일한 Atomic
     Write 패턴(tmp 파일 → os.replace)을 사용한다. 파일이 없거나 파싱 실패
     시 False를 반환하고 아무것도 쓰지 않는다."""
+    return update_frontmatter_fields(content_id, {"channel_status": new_status}, vault_root)
+
+
+def update_frontmatter_fields(content_id: str, updates: dict, vault_root: "Path | None" = None) -> bool:
+    """261023 STEP 4-AF — 주어진 frontmatter 필드만 바꾸고 나머지·본문 caption은 보존한다.
+    mark_channel_status()와 같은 Atomic Write(tmp → os.replace). 파일이 없거나 파싱 실패,
+    쓰기 실패(Windows에서 대상 파일이 다른 프로세스에 열려 있으면 PermissionError)면 False."""
     root = vault_root or DEFAULT_VAULT_ROOT
     md_path, _ = _content_paths(content_id, root)
     if not md_path.exists():
@@ -271,7 +288,7 @@ def mark_channel_status(content_id: str, new_status: str, vault_root: "Path | No
         return False
 
     caption = fields.get("caption", "")
-    fields["channel_status"] = new_status
+    fields.update(updates)
     new_text = _render_frontmatter(fields) + f"\n{caption}\n"
 
     tmp_suffix = uuid.uuid4().hex[:8]
@@ -294,7 +311,8 @@ def _cleanup(*paths: Path) -> None:
             pass
 
 
-def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model=None) -> "bytes | None":
+def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model=None,
+                           headline_override: "str | None" = None) -> "bytes | None":
     """260811 Visual Type Wiring — 텍스트 생성(hero_card_content_builder)+
     텍스트없는 AI배경(visual_brief.build_background_only_prompt+generate_image)+
     Pillow 렌더링(render_hero_card)을 순서대로 실행한다. 어느 단계든 실패하면
@@ -327,7 +345,8 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
         for icon, b in zip(_HERO_ICON_SEQUENCE, text_content.blocks)
     )
     hero_content = HeroCardContent(
-        headline=text_content.headline,
+        # 261023 STEP 4-AF — 캐러셀 표지는 Slide 1 제목을 그대로 쓴다(히어로카드 Gemini 제목보다 우선).
+        headline=headline_override if headline_override else text_content.headline,
         subheadline=text_content.subheadline,
         blocks=blocks,
         tagline=text_content.tagline,
@@ -351,6 +370,106 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
         return None
 
 
+def carousel_slide_image_paths(content_id: str, slide_count: int) -> "list[str]":
+    """Vault 기준 상대경로. 1장(표지)은 기존 image_path와 같은 파일이다."""
+    return [f"images/{content_id}.png"] + [f"images/{content_id}_{i}.png" for i in range(2, slide_count + 1)]
+
+
+def _create_carousel_package(
+    topic, content_id: str, root: Path, slide_count: int, tone_style: str,
+    slot_role: str, template_type: str, *, client=None, throttle_fn=None, model=None,
+) -> PackageResult:
+    """261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지(.md + N장 PNG). 텍스트·Safety·렌더링·쓰기
+    중 하나라도 실패하면 파일을 하나도 남기지 않고 실패한다(단일 이미지로 대체하지 않음).
+    업로드 URL(carousel_image_urls)은 Producer가 업로드 후 update_frontmatter_fields로 채운다."""
+    try:
+        existing_fingerprints = scan_existing_fingerprints(root)
+        existing_captions = scan_captions_for_source_url(topic.source_url, root)
+    except VaultScanError:
+        return PackageResult(success=False, error_code="VAULT_SCAN_ERROR", content_id=content_id)
+
+    carousel_result = generate_carousel_content(
+        topic, slot_role, template_type,
+        client=client, throttle_fn=throttle_fn, model=model,
+        existing_fingerprints=existing_fingerprints, slide_count=slide_count,
+    )
+    if not carousel_result.success:
+        return PackageResult(success=False, error_code=f"CAROUSEL_TEXT_FAILED:{carousel_result.error_code}",
+                             content_id=content_id)
+    carousel = carousel_result.content
+    if carousel.caption.strip() in existing_captions:
+        return PackageResult(success=False, error_code="DUPLICATE_CAPTION_TEXT", content_id=content_id)
+
+    cover_title = carousel.slides[0].text.strip()
+    brief = build_visual_brief(
+        topic.topic_id, topic.core_message, topic.title, topic.prohibited_expression, tone_style
+    )
+    cover = _build_hero_card_image(topic, brief, client=client, throttle_fn=throttle_fn, model=model,
+                                   headline_override=cover_title)
+    if cover is None:
+        return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
+    images = [cover]
+    for slide in carousel.slides[1:]:
+        try:
+            images.append(render_card(CardContent(
+                template_type="SOURCE_CARD", hook=cover_title, core_message=slide.text,
+                source_label=topic.title,
+            )))
+        except (ValueError, OSError) as exc:
+            logger.warning(f"[CarouselPackage] 본문 장 렌더링 실패 | slide={slide.index} | {type(exc).__name__}")
+            return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
+
+    rel_paths = carousel_slide_image_paths(content_id, slide_count)
+    final_paths = [root / p for p in rel_paths]
+    md_path, _ = _content_paths(content_id, root)
+    if any(p.exists() for p in final_paths):
+        return PackageResult(success=False, error_code="DUPLICATE_CONTENT_ID", content_id=content_id)
+
+    hashtags = " ".join(carousel.hashtags)
+    frontmatter = {
+        "content_id": content_id,
+        "topic_id": topic.topic_id,
+        "title": topic.title,
+        "source_url": topic.source_url,
+        "claims": topic.core_message,
+        "status": "complete",
+        "caption": carousel.caption,
+        "hashtags": hashtags,
+        "image_path": rel_paths[0],
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "channel_status": "pending",
+        "idempotency_version": CAROUSEL_PACKAGE_VERSION,
+        "post_format": "carousel",
+        "carousel_required": True,
+        "slide_count": slide_count,
+        "slide_texts": [s.text for s in carousel.slides],
+        "slide_image_paths": rel_paths,
+        "carousel_image_urls": [],
+        "content_fingerprint": carousel.content_fingerprint,
+        "slot_role": carousel.slot_role,
+        "template_type": carousel.template_type,
+    }
+    if getattr(topic, "source_published_at", ""):
+        frontmatter["source_published_at"] = topic.source_published_at
+    md_text = _render_frontmatter(frontmatter) + f"\n{carousel.caption}\n"
+
+    tmp_suffix = uuid.uuid4().hex[:8]
+    tmp_md = md_path.parent / f"{content_id}.md.tmp-{tmp_suffix}"
+    tmp_imgs = [p.parent / f"{p.name}.tmp-{tmp_suffix}" for p in final_paths]
+    try:
+        tmp_md.write_text(md_text, encoding="utf-8")
+        for tmp, data in zip(tmp_imgs, images):
+            tmp.write_bytes(data)
+        for tmp, final in zip(tmp_imgs, final_paths):
+            os.replace(tmp, final)
+        os.replace(tmp_md, md_path)          # .md는 마지막 — .md가 있으면 이미지도 전부 있다
+    except Exception:
+        _cleanup(tmp_md, *tmp_imgs, md_path, *final_paths)
+        return PackageResult(success=False, error_code="ATOMIC_WRITE_FAILED", content_id=content_id)
+
+    return PackageResult(success=True, content_id=content_id, status="complete", carousel=carousel)
+
+
 def create_content_package(
     tone_style: str = "",
     target_language: str = "EN",
@@ -363,6 +482,7 @@ def create_content_package(
     slot_role: "str | None" = None,
     template_type: "str | None" = None,
     hero_card_enabled: bool = False,
+    carousel_slide_count: "int | None" = None,
 ) -> PackageResult:
     """260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
     Adapter(`modules/sns/research_to_topic_adapter.py`)가 이미 선정·검증한
@@ -407,6 +527,8 @@ def create_content_package(
     원본 Flux로 조용히 폴백하지 않고 기존과 동일한 `IMAGE_GENERATION_FAILED`로
     Fail-closed한다(실패를 숨기지 않는다, CLAUDE.md 9.1)."""
     root = vault_root or DEFAULT_VAULT_ROOT
+    if carousel_slide_count is not None and carousel_slide_count not in CAROUSEL_SLIDE_COUNTS:
+        return PackageResult(success=False, error_code="CAROUSEL_SLIDE_COUNT_INVALID")
     (root / "content").mkdir(parents=True, exist_ok=True)
     (root / "images").mkdir(parents=True, exist_ok=True)
 
@@ -435,6 +557,14 @@ def create_content_package(
     md_path, img_path = _content_paths(content_id, root)
     if md_path.exists() or img_path.exists():
         return PackageResult(success=False, error_code="DUPLICATE_CONTENT_ID", content_id=content_id)
+
+    # 261023 STEP 4-AF — 캐러셀 필수 경로. 지정되지 않으면(기존 모든 호출부) 아래 단일 이미지 경로 그대로.
+    if carousel_slide_count is not None:
+        return _create_carousel_package(
+            topic, content_id, root, carousel_slide_count, tone_style,
+            slot_role or "REACH", template_type or "HOOK_IMPACT",
+            client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
+        )
 
     caption, hashtags = generate_hook_caption(
         topic.title, topic.core_message, topic.prohibited_expression, tone_style, target_language,

@@ -547,6 +547,7 @@ class AirtableRepository(RepositoryInterface):
                     data_classification=f.get("data_classification", ""),
                     canary_run_id=f.get("canary_run_id", ""),
                     source_url=f.get("source_url", ""),
+                    content_id=f.get("content_id", ""),  # 261023 STEP 4-AG
                 )
             )
         return result

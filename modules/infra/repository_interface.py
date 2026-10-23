@@ -94,6 +94,7 @@ class InstagramPost(TypedDict, total=False):
     data_classification: str
     canary_run_id:    str
     source_url:       str
+    content_id:       str   # 261023 STEP 4-AG — Vault 패키지 식별자(선택 키, 슬롯 게시 형식 판별용)
 
 
 class _InstagramPostCreateRequired(TypedDict):
