@@ -293,9 +293,10 @@ class TestAnalyzeContract:
         assert adapter.analyze_news_url(_candidate()) == (None, "NEWS_URL_FAIL")
         assert models.calls == 1
 
-    def test_url_not_retrieved_is_url_fail(self, monkeypatch):
-        _patch_client(monkeypatch, [_ok_response("https://other.example/x")])
-        assert adapter.analyze_news_url(_candidate()) == (None, "NEWS_URL_FAIL")
+    def test_url_not_retrieved_is_url_unreadable(self, monkeypatch):
+        models, safety_calls = _patch_client(monkeypatch, [_ok_response("https://other.example/x")])
+        assert adapter.analyze_news_url(_candidate()) == (None, "NEWS_URL_UNREADABLE")
+        assert models.calls == 1 and safety_calls == []
 
     def test_irrelevant_article(self, monkeypatch):
         cand = _candidate()
@@ -406,7 +407,8 @@ class TestProducerWiring:
         assert len(producer_env.slack) == 1 and "NEWS_QUOTA" in producer_env.slack[0]
 
     @pytest.mark.parametrize("code", ["NEWS_DEDUP_UNAVAILABLE", "NEWS_NO_CANDIDATE", "NEWS_FEED_ERROR",
-                                      "NEWS_URL_FAIL", "NEWS_IRRELEVANT", "NEWS_SAFETY"])
+                                      "NEWS_URL_FAIL", "NEWS_URL_UNREADABLE", "NEWS_IRRELEVANT",
+                                      "NEWS_SAFETY"])
     def test_other_failures_fall_back_to_sourcebook(self, producer_env, monkeypatch, code):
         news_calls = _run_producer(producer_env, monkeypatch, hours="8", news_result=(None, code))
         assert len(news_calls) == 1
@@ -432,6 +434,89 @@ class TestProducerWiring:
         assert len(producer_env.create_calls) == 1
         assert producer_env.create_calls[0]["injected_topic"] is ready
         assert set(producer_env.create_calls[0]) == self._BASE_KEYS | {"injected_topic"}
+
+
+class TestUnreadableNextCandidate:
+    """261023 STEP 4-M — 원문을 못 읽은 경우에만 다음 후보 1건. 실제 _try_aijomoojin_news_topic +
+    producer 제어 흐름을 쓰고, 어댑터의 select/analyze만 Fake로 바꾼다."""
+
+    def _patch(self, producer_env, monkeypatch, analyze_codes):
+        monkeypatch.setenv("AIJOMOOJIN_NEWS_PRODUCER_HOURS", "8")
+        monkeypatch.setattr(producer_env.main, "_ict_now", lambda: datetime(2026, 10, 23, 8, 5))
+        cands = [_candidate("https://news.example/first"), _candidate("https://news.example/second"),
+                 _candidate("https://news.example/third")]
+        calls = {"select": [], "analyze": []}
+
+        def _fake_select(account_code, repo, *, exclude_urls=None, **kw):
+            calls["select"].append(set(exclude_urls or ()))
+            for c in cands:
+                if c.source_url not in (exclude_urls or ()):
+                    return c, "NEWS_CANDIDATE"
+            return None, "NEWS_NO_CANDIDATE"
+
+        def _fake_analyze(candidate):
+            calls["analyze"].append(candidate.source_url)
+            code = analyze_codes[len(calls["analyze"]) - 1]
+            if code == "NEWS_READY":
+                from dataclasses import replace
+                return replace(candidate, status="VERIFIED FACT", core_message="요약"), code
+            return None, code
+
+        monkeypatch.setattr(adapter, "select_news_candidate", _fake_select)
+        monkeypatch.setattr(adapter, "analyze_news_url", _fake_analyze)
+        return calls
+
+    def test_a_first_unreadable_second_ready(self, producer_env, monkeypatch):
+        calls = self._patch(producer_env, monkeypatch, ["NEWS_URL_UNREADABLE", "NEWS_READY"])
+        producer_env.main._job_aijomoojin_content_producer()
+        assert calls["select"] == [set(), {"https://news.example/first"}]
+        assert calls["analyze"] == ["https://news.example/first", "https://news.example/second"]
+        assert len(producer_env.create_calls) == 1
+        assert producer_env.create_calls[0]["injected_topic"].source_url == "https://news.example/second"
+        assert producer_env.slack == [] or all("NEWS_QUOTA" not in m for m in producer_env.slack)
+
+    def test_b_first_unreadable_second_quota_stops_everything(self, producer_env, monkeypatch):
+        calls = self._patch(producer_env, monkeypatch, ["NEWS_URL_UNREADABLE", "NEWS_QUOTA"])
+        monkeypatch.setattr(cpb, "create_content_package", lambda **k: pytest.fail("Sourcebook 호출되면 안 됨"))
+        producer_env.main._job_aijomoojin_content_producer()
+        assert len(calls["select"]) == 2                       # 세 번째 후보 선택 없음
+        assert calls["analyze"] == ["https://news.example/first", "https://news.example/second"]
+        assert producer_env.repo.saved == []
+        quota = [m for m in producer_env.slack if "NEWS_QUOTA" in m]
+        assert len(quota) == 1 and len(producer_env.slack) == 1
+
+    def test_b2_first_candidate_quota_stops_immediately(self, producer_env, monkeypatch):
+        calls = self._patch(producer_env, monkeypatch, ["NEWS_QUOTA"])
+        monkeypatch.setattr(cpb, "create_content_package", lambda **k: pytest.fail("Sourcebook 호출되면 안 됨"))
+        producer_env.main._job_aijomoojin_content_producer()
+        assert len(calls["select"]) == 1 and len(calls["analyze"]) == 1
+        assert len(producer_env.slack) == 1 and "NEWS_QUOTA" in producer_env.slack[0]
+
+    def test_c_both_unreadable_falls_back_to_sourcebook(self, producer_env, monkeypatch):
+        calls = self._patch(producer_env, monkeypatch, ["NEWS_URL_UNREADABLE", "NEWS_URL_UNREADABLE"])
+        producer_env.main._job_aijomoojin_content_producer()
+        assert len(calls["select"]) == 2                       # 추가 후보는 1건만
+        assert calls["analyze"] == ["https://news.example/first", "https://news.example/second"]
+        assert len(producer_env.create_calls) == 1
+        assert "injected_topic" not in producer_env.create_calls[0]
+        assert all("NEWS_QUOTA" not in m for m in producer_env.slack)
+
+    def test_url_fail_does_not_try_next_candidate(self, producer_env, monkeypatch):
+        calls = self._patch(producer_env, monkeypatch, ["NEWS_URL_FAIL"])
+        producer_env.main._job_aijomoojin_content_producer()
+        assert len(calls["select"]) == 1 and len(calls["analyze"]) == 1
+        assert len(producer_env.create_calls) == 1 and "injected_topic" not in producer_env.create_calls[0]
+
+    def test_select_respects_exclude_urls(self, sourcebook, vault):
+        mapping = {"https://feed.example/one.xml": [_item("New AI agent", "https://news.example/a", 1),
+                                                    _item("New AI model", "https://news.example/b", 2)],
+                   "https://feed.example/two.xml": []}
+        repo = _Repo()
+        topic, code = adapter.select_news_candidate(
+            AIJOMOOJIN, repo, sourcebook_path=sourcebook, vault_root=vault, now=NOW,
+            fetch=_fetch_from(mapping), exclude_urls={"https://news.example/a"})
+        assert code == "NEWS_CANDIDATE" and topic.source_url == "https://news.example/b"
+        assert [c[1] for c in repo.checks] == ["https://news.example/b"]
 
 
 class TestFrontmatterPublishedAt:

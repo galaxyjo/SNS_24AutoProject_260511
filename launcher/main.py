@@ -1308,12 +1308,22 @@ def _ict_now() -> datetime:
 
 
 def _try_aijomoojin_news_topic(repo) -> tuple:
-    """(SourceTopic | None, code) — 후보 선택(중복 확인, Gemini 없음) → 원문 분석."""
+    """(SourceTopic | None, code) — 후보 선택(중복 확인, Gemini 없음) → 원문 분석.
+    261023 STEP 4-M — 원문을 못 읽은 경우(NEWS_URL_UNREADABLE)에만 그 URL을 빼고 다음 후보
+    1건을 더 본다. NEWS_QUOTA 등 나머지 코드는 몇 번째 후보든 바로 돌려준다. Slack은 보내지
+    않는다(호출자 producer가 결과 코드로 1회 처리)."""
     from modules.sns.research_to_topic_adapter import analyze_news_url, select_news_candidate
-    candidate, code = select_news_candidate(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, repo)
-    if candidate is None:
-        return None, code
-    return analyze_news_url(candidate)
+    excluded = set()
+    code = "NEWS_NO_CANDIDATE"
+    for _ in range(2):
+        candidate, code = select_news_candidate(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, repo, exclude_urls=excluded)
+        if candidate is None:
+            return None, code
+        topic, code = analyze_news_url(candidate)
+        if code != "NEWS_URL_UNREADABLE":
+            return topic, code
+        excluded.add(candidate.source_url)
+    return None, code
 
 
 @handle_errors(task="aijomoojin_content_producer", notify_fn=_slack)

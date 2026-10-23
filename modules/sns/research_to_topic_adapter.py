@@ -347,7 +347,10 @@ def research_next_topic(
 # (무료 키에서 429 — ERR-104). url_context 하나만 쓴다.
 #
 # 결과 코드: NEWS_CANDIDATE / NEWS_READY / NEWS_NO_CANDIDATE / NEWS_FEED_ERROR /
-#            NEWS_DEDUP_UNAVAILABLE / NEWS_URL_FAIL / NEWS_IRRELEVANT / NEWS_SAFETY / NEWS_QUOTA
+#            NEWS_DEDUP_UNAVAILABLE / NEWS_URL_FAIL / NEWS_URL_UNREADABLE / NEWS_IRRELEVANT /
+#            NEWS_SAFETY / NEWS_QUOTA
+# NEWS_URL_UNREADABLE(261023 STEP 4-M): Gemini는 응답했지만 그 URL 원문을 읽지 못함 — 호출자가
+# 그 URL만 빼고 다음 후보를 볼 수 있다. NEWS_URL_FAIL(재시도 소진·영구 오류 등)과 구분한다.
 
 NEWS_SECTION_PREFIX = "14."
 NEWS_MAX_AGE_HOURS = 72
@@ -405,12 +408,14 @@ def fetch_feed_items(feed_url: str, timeout: int = 15) -> list:
 
 
 def select_news_candidate(account_code: str, repo, *, sourcebook_path=None, vault_root=None, now=None,
-                          fetch=None) -> tuple:
+                          fetch=None, exclude_urls=None) -> tuple:
     """(SourceTopic | None, code). Gemini를 부르기 전에 날짜 간 중복을 확인한다.
-    중복 이력을 확인할 수 없으면 '중복 없음'으로 보지 않고 NEWS_DEDUP_UNAVAILABLE을 돌려준다."""
+    중복 이력을 확인할 수 없으면 '중복 없음'으로 보지 않고 NEWS_DEDUP_UNAVAILABLE을 돌려준다.
+    exclude_urls: 이번 실행에서 이미 원문을 못 읽은 URL(261023 STEP 4-M). 영구 차단이 아니다."""
     from modules.sns.content_package_builder import scan_source_url_last_used
 
     fetch = fetch or fetch_feed_items
+    exclude_urls = exclude_urls or set()
     root = vault_root or DEFAULT_VAULT_ROOT
     try:
         if not (root / "content").exists():
@@ -443,7 +448,7 @@ def select_news_candidate(account_code: str, repo, *, sourcebook_path=None, vaul
         age_h = (now - published).total_seconds() / 3600
         if age_h < -1 or age_h > NEWS_MAX_AGE_HOURS:
             continue
-        if not _NEWS_AI_KEYWORDS.search(title) or link in vault_history:
+        if not _NEWS_AI_KEYWORDS.search(title) or link in vault_history or link in exclude_urls:
             continue
         fresh.append((published, feed, title, link))
     fresh.sort(key=lambda x: x[0], reverse=True)
@@ -486,7 +491,8 @@ def _build_news_prompt(candidate) -> str:
 
 def analyze_news_url(candidate) -> tuple:
     """(SourceTopic | None, code). url_context만 사용한다. 429 소진만 NEWS_QUOTA, UNSAFE만
-    NEWS_SAFETY, 그 밖의 실패(비-429 재시도 소진·영구 오류·원문 접근 실패)는 NEWS_URL_FAIL."""
+    NEWS_SAFETY, 원문을 읽지 못하면 NEWS_URL_UNREADABLE, 그 밖의 실패(비-429 재시도 소진·영구
+    오류·응답 파싱 실패)는 NEWS_URL_FAIL."""
     from dataclasses import replace as _replace
 
     config = genai_types.GenerateContentConfig(
@@ -522,8 +528,8 @@ def analyze_news_url(candidate) -> tuple:
                and getattr(e, "url_retrieval_status", None)
                == genai_types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS
                for e in url_entries):
-        logger.warning("[NewsSource] NEWS_URL_FAIL | 원문 접근 실패/미확인 | url=%s", candidate.source_url)
-        return None, "NEWS_URL_FAIL"
+        logger.warning("[NewsSource] NEWS_URL_UNREADABLE | 원문 접근 실패/미확인 | url=%s", candidate.source_url)
+        return None, "NEWS_URL_UNREADABLE"
     try:
         data = json.loads(response.text)
     except (ValueError, AttributeError, TypeError):
