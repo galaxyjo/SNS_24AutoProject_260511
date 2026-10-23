@@ -202,6 +202,9 @@ def _count_cta_sentences(text: str) -> int:
 
 _SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
 _IMPERATIVE_END_RE = re.compile(r"세요[.!?]*$")
+# 261023 STEP 4-AV — 비마지막 장 행동 요청 판정. 문장이 '~세요/~십시오'로 끝날 때만 본다('?'로 끝나는
+# 질문형 훅 '하고 계세요?'와 문장 중간·인용 속 '~하세요'는 제외).
+_NON_LAST_IMPERATIVE_RE = re.compile(r"(세요|십시오)[.!]*$")
 
 
 def _sentences(text: str) -> "list[str]":
@@ -297,6 +300,10 @@ def _validate_short_contract(payload: dict, slide_count: int) -> "str | None":
             return "CTA_NOT_LAST_SLIDE"
     if _count_cta_sentences(ordered[-1].get("text", "")) != 1:
         return "LAST_SLIDE_CTA_COUNT_INVALID"
+    # 261023 STEP 4-AV — CTA 키워드 없는 행동 요청('자동화하세요', '바꿔보세요')도 마지막 장에만 허용한다.
+    for slide in ordered[:-1]:
+        if any(_NON_LAST_IMPERATIVE_RE.search(s) for s in _sentences(slide.get("text", ""))):
+            return "IMPERATIVE_NOT_LAST_SLIDE"
 
     return _validate_caption_and_hashtags(payload)
 
@@ -399,23 +406,38 @@ def _build_prompt(
     )
 
 
+# 261023 STEP 4-AV — 회장 피드백: 설명형 카피는 노출·클릭이 안 나온다. 문제 제기 훅 → 공감(왜 힘든지)
+# → 해결 → 마지막 장 CTA 흐름으로 바꾼다. 장수·글자수·CTA 위치 계약(_validate_short_contract)은 그대로다.
+_SHORT_HOOK_SLIDE = (
+    "   Slide 1 (hook): one line, at most 40 Korean characters, a question that names a pain the reader "
+    "repeats every day so they stop scrolling and think 'that is me' (e.g. '아직도 ~ 직접 하고 계세요?'). "
+    "Not a description or a title of the source.\n"
+)
 _SHORT_SLIDE_PLANS = {
-    2: ("   Slide 1: cover title — one line, at most 40 Korean characters, the reader's problem or "
-        "benefit (not a generic description).\n"
-        "   Slide 2: how a Korean business owner or office worker can use it, ending with exactly "
-        "one call to action.\n"),
-    3: ("   Slide 1: cover title — one line, at most 40 Korean characters, the reader's problem or "
-        "benefit (not a generic description).\n"
-        "   Slide 2: the verified key facts or features, explained simply, at most 30 words.\n"
-        "   Slide 3: how a Korean business owner or office worker can apply it, at most 30 words, "
-        "ending with exactly one call to action.\n"),
-    4: ("   Slide 1: cover title — one line, at most 40 Korean characters, the reader's problem or "
-        "benefit (not a generic description).\n"
-        "   Slide 2: the verified key facts or features, explained simply, at most 30 words.\n"
-        "   Slide 3: how a Korean business owner or office worker can apply it, at most 30 words.\n"
-        "   Slide 4: a short checklist or why it is worth saving, ending with exactly one call to "
-        "action.\n"),
+    2: (_SHORT_HOOK_SLIDE +
+        "   Slide 2 (solution + CTA): what changes when a system handles it instead of a person, as short "
+        "concrete actions, at most 30 words, ending with exactly one call to action.\n"),
+    3: (_SHORT_HOOK_SLIDE +
+        "   Slide 2 (why it hurts): 3-4 concrete everyday situations of the problem in short phrases joined "
+        "by '·' (e.g. 매번 손으로 확인 · 같은 답변 반복), at most 30 words, so the reader feels what it costs "
+        "them to keep doing it by hand.\n"
+        "   Slide 3 (solution + CTA): how a system handles it instead, as 3-4 short concrete steps joined by "
+        "'·', at most 30 words, ending with exactly one call to action.\n"),
+    4: (_SHORT_HOOK_SLIDE +
+        "   Slide 2 (why it hurts): 3-4 concrete everyday situations of the problem in short phrases joined "
+        "by '·', at most 30 words.\n"
+        "   Slide 3 (how it works): the automated flow from start to finish in short steps (e.g. 시작 조건 → "
+        "처리 → 기록), at most 30 words. No call to action here.\n"
+        "   Slide 4 (CTA): one short line on why to act now, ending with exactly one call to action.\n"),
 }
+_SHORT_COPY_STYLE = (
+    "Copy style: readers are Korean business owners, CEOs, solo founders, small-shop owners and staff "
+    "scrolling Instagram. Write punchy, conversational Korean they would stop for — never report-style "
+    "or textbook sentences. Prefer a question hook over a description. Make them feel what they lose by "
+    "doing it by hand today, using only the source content (no invented numbers, results or guarantees). "
+    "Use plain everyday words, minimal technical jargon, and no vague buzzwords such as 혁신, 효율성 증대, "
+    "극대화, 획기적. Requests or imperative lines may appear only on the last slide.\n"
+)
 
 
 def _build_short_prompt(core_message: str, title: str, slot_role: str, template_type: str,
@@ -431,10 +453,12 @@ def _build_short_prompt(core_message: str, title: str, slot_role: str, template_
         "Paraphrase — do not copy sentences verbatim.\n"
         f"2. Produce exactly {slide_count} slides. Only the last slide may contain a call to action. "
         "The call to action is ONE separate final sentence that must contain one of these Korean words: "
-        "저장, 공유, 팔로우, 댓글 (e.g. '필요할 때 다시 보도록 저장하세요.'). No other sentence anywhere may use "
-        "those words or '확인해 보세요'.\n"
+        "저장, 공유, 팔로우, 댓글 — make it carry the action message too (e.g. '반복 업무를 시스템에 넘기는 법, "
+        "저장해 두고 하나씩 바꿔보세요.'). No other sentence anywhere may use those words or '확인해 보세요'.\n"
         + _SHORT_SLIDE_PLANS[slide_count] +
-        "3. No exaggeration, fear-mongering, or unsupported performance numbers. No long paragraphs.\n"
+        "3. A strong hook is fine, but no false claims, guarantees, or unsupported performance numbers. "
+        "No long paragraphs.\n"
+        + _SHORT_COPY_STYLE +
         "4. Also produce a Korean caption (<=400 chars) with at least three lines separated by line breaks. "
         "Its first two lines explain the practical value for the reader instead of repeating the slides. "
         "The last line is exactly one CTA sentence containing 저장, 공유, 팔로우 or 댓글; no other caption line "

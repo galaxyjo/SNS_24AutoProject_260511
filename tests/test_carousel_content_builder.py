@@ -407,9 +407,9 @@ class TestInsufficientEvidence:
 
 # ── 261023 STEP 4-AE — 2~4장 짧은 카드뉴스 계약 ─────────────────────────────
 
-def _short_payload(n, cover="AI 영업 DM, 이제 자동으로 처리하세요"):
+def _short_payload(n, cover="AI 영업 DM, 아직도 직접 처리하고 계세요?"):
     middle = [
-        {"index": 2, "role": "facts", "text": "무료 등급은 검색 기능이 제한된다는 점을 먼저 알아두세요"},
+        {"index": 2, "role": "facts", "text": "무료 등급은 검색 기능이 제한된다는 점을 먼저 알아야 합니다"},
         {"index": 3, "role": "apply", "text": "하루 3건 자동 게시로 반복 업무를 줄일 수 있습니다"},
     ]
     last = {"role": "cta", "text": "필요할 때 다시 보도록 저장하세요"}
@@ -432,7 +432,7 @@ class TestShortCarousel:
 
         assert result.success is True, result.error_code
         assert [s.index for s in result.content.slides] == list(range(1, n + 1))
-        assert result.content.slides[0].text == "AI 영업 DM, 이제 자동으로 처리하세요"
+        assert result.content.slides[0].text == "AI 영업 DM, 아직도 직접 처리하고 계세요?"
         prompt = models.calls[0]["contents"]
         assert f"exactly {n} slides" in prompt and "8-slide" not in prompt
 
@@ -623,3 +623,101 @@ class TestShortCtaNormalization:
         result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT")
         assert result.success is True and len(result.content.slides) == 8
         assert [s.text for s in result.content.slides] == [s["text"] for s in _valid_slides()]
+
+
+# ── 261023 STEP 4-AV — 짧은 캐러셀 클릭형 카피 규칙(훅 → 공감 → 해결 → CTA) ──────────
+
+class TestShortHookCopyRules:
+    def _prompt(self, monkeypatch, n):
+        models = _FakeModels(response=_FakeResponse(_short_payload(n)))
+        _patch_gemini(monkeypatch, models)
+        builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
+        return models.calls[0]["contents"]
+
+    @pytest.mark.parametrize("n", [2, 3, 4])
+    def test_hook_question_and_copy_style_in_prompt(self, monkeypatch, n):
+        prompt = self._prompt(monkeypatch, n)
+        assert "Slide 1 (hook)" in prompt and "a question that names a pain" in prompt
+        assert "Prefer a question hook over a description" in prompt
+        assert "혁신, 효율성 증대" in prompt and "never report-style" in prompt
+        assert "Requests or imperative lines may appear only on the last slide" in prompt
+        assert "explained simply" not in prompt                      # 기존 설명형 지시 제거
+        assert f"Slide {n} (solution + CTA)" in prompt or f"Slide {n} (CTA)" in prompt
+
+    def test_three_slide_plan_is_problem_then_solution(self, monkeypatch):
+        prompt = self._prompt(monkeypatch, 3)
+        assert "Slide 2 (why it hurts)" in prompt and "Slide 3 (solution + CTA)" in prompt
+
+    def test_four_slide_plan_has_flow_without_cta(self, monkeypatch):
+        prompt = self._prompt(monkeypatch, 4)
+        assert "Slide 3 (how it works)" in prompt and "No call to action here." in prompt
+        assert "Slide 4 (CTA)" in prompt
+
+    def test_grounding_rule_kept(self, monkeypatch):
+        prompt = self._prompt(monkeypatch, 3)
+        assert "Do NOT invent any fact" in prompt and "no false claims, guarantees" in prompt
+
+    def test_eight_slide_prompt_unchanged(self, monkeypatch):
+        models = _FakeModels(response=_FakeResponse(_valid_payload()))
+        _patch_gemini(monkeypatch, models)
+        builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT")
+        prompt = models.calls[0]["contents"]
+        assert "8-slide" in prompt and "Slide 1 (hook)" not in prompt and "Copy style:" not in prompt
+
+
+# ── 261023 STEP 4-AV — 비마지막 장 행동 요청(CTA 키워드 없는 명령형) 차단 ────────────
+
+class TestNonLastSlideImperative:
+    def _run(self, monkeypatch, payload, n):
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+        return builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
+
+    @pytest.mark.parametrize("cover", ["AI 영업 DM, 이제 자동화하세요", "반복 업무, 지금 자동화를 시작하세요!",
+                                       "반복 업무를 시스템에 맡기십시오"])
+    def test_two_slide_cover_imperative_fails(self, monkeypatch, cover):
+        result = self._run(monkeypatch, _short_payload(2, cover=cover), 2)
+        assert (result.success, result.error_code) == (False, "IMPERATIVE_NOT_LAST_SLIDE")
+
+    @pytest.mark.parametrize("middle", ["무료 등급 제한을 먼저 알아두세요.", "업무 흐름을 하나씩 바꿔보세요",
+                                        "검색 기능이 제한됩니다. 그래도 지금 확인해 보세요."])
+    def test_three_slide_middle_imperative_fails(self, monkeypatch, middle):
+        payload = _short_payload(3)
+        payload["slides"][1]["text"] = middle
+        result = self._run(monkeypatch, payload, 3)
+        assert result.success is False
+        assert result.error_code in ("IMPERATIVE_NOT_LAST_SLIDE", "CTA_NOT_LAST_SLIDE")
+        if "확인해 보세요" not in middle:
+            assert result.error_code == "IMPERATIVE_NOT_LAST_SLIDE"
+
+    def test_last_slide_cta_and_question_hook_pass(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][2]["text"] = "하루 3건 자동 게시로 업무를 줄입니다. 저장해 두고 하나씩 바꿔보세요."
+        result = self._run(monkeypatch, payload, 3)
+        assert result.success is True, result.error_code
+        assert result.content.slides[0].text.endswith("계세요?")
+
+    @pytest.mark.parametrize("middle", [
+        "무료 등급은 검색 기능이 제한됩니다",
+        "고객이 '빨리 처리해 주세요'라고 다시 묻는 일이 줄어듭니다.",
+        "직접 하고 계세요? 무료 등급은 검색이 제한됩니다.",
+    ])
+    def test_descriptive_or_quoted_sentences_pass(self, monkeypatch, middle):
+        payload = _short_payload(3)
+        payload["slides"][1]["text"] = middle
+        result = self._run(monkeypatch, payload, 3)
+        assert result.success is True, result.error_code
+
+    def test_middle_pure_cta_still_normalized_before_check(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][1]["text"] = "무료 등급은 검색 기능이 제한됩니다. 지금 저장하세요."
+        payload["slides"][2]["text"] = "하루 3건 자동 게시로 반복 업무를 줄일 수 있습니다."
+        result = self._run(monkeypatch, payload, 3)
+        assert result.success is True, result.error_code
+        assert result.content.slides[1].text == "무료 등급은 검색 기능이 제한됩니다."
+
+    def test_eight_slide_path_not_checked(self, monkeypatch):
+        payload = _valid_payload()
+        payload["slides"][1]["text"] = "이 기능을 꼭 써보세요"
+        result = self._run(monkeypatch, payload, 8)
+        assert result.error_code != "IMPERATIVE_NOT_LAST_SLIDE"
