@@ -27,6 +27,7 @@ Source에 없는 내용을 채워 넣지 않는다(Fail-closed) — 필수 필�
 ValueError.
 """
 
+import re
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -357,4 +358,138 @@ def render_hero_card(content: HeroCardContent) -> bytes:
 
     buf = BytesIO()
     canvas.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+# ── 261023 STEP 4-AM — 노트 손그림 캐러셀 카드 ─────────────────────────────────
+# 줄노트 종이 위에 장별 AI 손그림(sketch, 글자 없는 그림)을 붙이고, 그 장의 글을 Pillow로
+# 손글씨 폰트(나눔손글씨 펜, SIL OFL 1.1)로 쓴다. 기존 render_card/render_hero_card는 그대로다.
+_FONT_PEN = Path(__file__).resolve().parents[2] / "assets" / "fonts" / "nanumpen" / "NanumPenScript-Regular.ttf"
+_NOTE_PAPER = (250, 246, 234)
+_NOTE_LINE = (196, 214, 232)
+_NOTE_MARGIN_RED = (232, 150, 150)
+_NOTE_INK = (40, 48, 72)
+_NOTE_FOOT = (120, 130, 160)
+_NOTE_DOT_ON = (60, 140, 220)
+_NOTE_DOT_OFF = (200, 205, 215)
+_NOTE_HIGHLIGHT = (250, 200, 70)
+_NOTE_SIDE = 100
+# 261023 STEP 4-AW — 나눔손글씨 펜에는 '·'·'→'·'…' 등이 없어 빈칸으로 그려졌다(12-2 실패키지).
+# 자주 쓰는 기호는 이 폰트에 있는 모양으로 바꾸고, 그래도 없는 글자가 남으면 카드를 만들지 않는다.
+_NOTE_GLYPH_SUBSTITUTES = str.maketrans({
+    "·": "ㆍ", "•": "ㆍ", "∙": "ㆍ", "…": "...", "→": ">", "›": ">", "←": "<", "–": "-", "—": "-",
+})
+_NOTE_SOURCE_TAG_RE = re.compile(r"\s*\([^()]*\)\s*$")
+
+
+@dataclass(frozen=True)
+class NoteCardContent:
+    text: str
+    sketch: bytes
+    page: int
+    total: int
+    source_label: str
+    is_cover: bool = False
+    brand: str = BRAND_HANDLE
+
+
+def _wrap_words(draw, text: str, font, max_width: int) -> "list[str]":
+    """띄어쓰기 단위 줄바꿈 — 단어 중간에서 끊지 않는다(한 단어가 한 줄보다 길 때만 그대로 넘친다)."""
+    lines, current = [], ""
+    for word in text.split():
+        trial = f"{current} {word}".strip()
+        if current and draw.textlength(trial, font=font) > max_width:
+            lines.append(current)
+            current = word
+        else:
+            current = trial
+    return lines + ([current] if current else [])
+
+
+def _fit_sketch(sketch: Image.Image, width: int, height: int) -> Image.Image:
+    scale = max(width / sketch.width, height / sketch.height)
+    sketch = sketch.resize((round(sketch.width * scale), round(sketch.height * scale)), Image.LANCZOS)
+    left, top = (sketch.width - width) // 2, (sketch.height - height) // 2
+    return sketch.crop((left, top, left + width, top + height))
+
+
+def _note_pen_text(text: str) -> str:
+    """기호를 손글씨 폰트에 있는 모양으로 바꾼다. 폰트에 없는 글자가 남으면 ValueError(빈칸 카드 금지)."""
+    text = text.strip().translate(_NOTE_GLYPH_SUBSTITUTES)
+    probe = _load_font(_FONT_PEN, 64)
+    missing = sorted({ch for ch in text if not ch.isspace() and probe.getmask(ch).getbbox() is None})
+    if missing:
+        raise ValueError(f"손글씨 폰트에 없는 글자: {missing}")
+    return text
+
+
+def _note_source_text(draw, source_label: str, font, max_width: int) -> str:
+    """하단 출처 문구. Sourcebook 제목 끝의 '(요일 — 분류)' 태그는 빼고, 핸들과 겹치지 않게 말줄임한다."""
+    label = _NOTE_SOURCE_TAG_RE.sub("", source_label.strip()) or source_label.strip()
+    text = f"출처: {label}"
+    if draw.textlength(text, font=font) <= max_width:
+        return text
+    while label and draw.textlength(f"출처: {label}...", font=font) > max_width:
+        label = label[:-1]
+    return f"출처: {label.rstrip()}..."
+
+
+def render_note_card(content: NoteCardContent) -> bytes:
+    """NoteCardContent -> PNG bytes(1080x1350). 표지(is_cover)는 큰 손글씨 제목+형광펜 밑줄,
+    본문 장은 손글씨 본문. 글·출처·sketch가 비었거나 page가 범위를 벗어나거나 글이 영역에 다
+    들어가지 않으면 ValueError(Fail-closed, 글을 자르지 않는다)."""
+    if not content.text.strip() or not content.source_label.strip():
+        raise ValueError("text/source_label은 비어있을 수 없습니다")
+    if not content.sketch:
+        raise ValueError("sketch는 비어있을 수 없습니다")
+    if not (1 <= content.page <= content.total):
+        raise ValueError("page는 1..total 범위여야 합니다")
+    pen_text = _note_pen_text(content.text)
+
+    width, height = CANVAS_SIZE
+    canvas = Image.new("RGB", CANVAS_SIZE, _NOTE_PAPER)
+    draw = ImageDraw.Draw(canvas)
+    for y in range(120, height, 68):
+        draw.line([(0, y), (width, y)], fill=_NOTE_LINE, width=2)
+    draw.line([(60, 0), (60, height)], fill=_NOTE_MARGIN_RED, width=3)
+
+    sketch_h = 820 if content.is_cover else 760
+    sketch = _fit_sketch(Image.open(BytesIO(content.sketch)).convert("RGB"), width - 2 * _NOTE_SIDE, sketch_h)
+    mask = Image.new("L", sketch.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, sketch.width, sketch.height], radius=36, fill=255)
+    canvas.paste(sketch, (_NOTE_SIDE, 70), mask)
+
+    max_w = width - 2 * _NOTE_SIDE
+    text_top = 70 + sketch_h + (35 if content.is_cover else 40)
+    text_bottom = height - 130 - (40 if content.is_cover else 0)
+    start_size, min_size = (96, 64) if content.is_cover else (64, 44)
+    for size in range(start_size, min_size - 1, -4):
+        font = _load_font(_FONT_PEN, size)
+        line_h = round(size * (1.04 if content.is_cover else 1.06))
+        lines = _wrap_words(draw, pen_text, font, max_w)
+        if text_top + len(lines) * line_h <= text_bottom:
+            break
+    else:
+        raise ValueError("text가 카드 영역에 다 들어가지 않습니다")
+
+    y = text_top
+    for line in lines:
+        draw.text((_NOTE_SIDE, y), line, font=font, fill=_NOTE_INK)
+        y += line_h
+    if content.is_cover:
+        draw.line([(_NOTE_SIDE, y + 6), (_NOTE_SIDE + 300, y + 6)], fill=_NOTE_HIGHLIGHT, width=14)
+
+    footer_font = _load_font(_FONT_REGULAR, 24)
+    footer_y = height - 70
+    brand_w = draw.textlength(content.brand, font=footer_font)
+    source_text = _note_source_text(draw, content.source_label, footer_font, width - 2 * _NOTE_SIDE - brand_w - 40)
+    draw.text((_NOTE_SIDE, footer_y), source_text, font=footer_font, fill=_NOTE_FOOT)
+    draw.text((width - _NOTE_SIDE - brand_w, footer_y), content.brand, font=footer_font, fill=_NOTE_FOOT)
+    for i in range(content.total):
+        cx = width // 2 - (content.total - 1) * 18 + i * 36
+        fill = _NOTE_DOT_ON if i == content.page - 1 else _NOTE_DOT_OFF
+        draw.ellipse([cx - 7, footer_y - 34, cx + 7, footer_y - 20], fill=fill)
+
+    buf = BytesIO()
+    canvas.save(buf, format="PNG")
     return buf.getvalue()

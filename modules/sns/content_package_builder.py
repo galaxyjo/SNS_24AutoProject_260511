@@ -43,9 +43,12 @@ from modules.sns.image_template_renderer import (
     CardContent,
     HeroBlock,
     HeroCardContent,
+    NoteCardContent,
     render_card,
     render_hero_card,
+    render_note_card,
 )
+from modules.sns.image_text_checker import check_images_for_text_and_logo
 from modules.sns.source_selector import parse_sourcebook, select_next_topic
 from modules.sns.visual_brief import build_background_only_prompt, build_image_prompt, build_visual_brief
 
@@ -370,6 +373,71 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
         return None
 
 
+# 261023 STEP 4-AM — 노트 손그림 캐러셀. "template"(기본)은 기존 히어로 표지+SOURCE_CARD 본문 그대로다.
+CAROUSEL_STYLES = ("template", "note")
+# 장별 재생성 상한(최초 생성 1회 + 재생성 2회 = 장당 최대 3장, 3장 캐러셀이면 패키지당 최대 9장).
+NOTE_IMAGE_MAX_REGENERATIONS = 2
+# 261023 STEP 4-AS — 진단 Canary에서 "노트 페이지·마커" 화풍 문장이 책상 위 노트·마커 사진을 불러
+# 마커 몸통 글자가 반복됐다(걸린 그림 17장 확인). 노트 종이 느낌은 render_note_card가 그리므로
+# 그림 자체는 흰 배경 선화로만 요청한다.
+_NOTE_SKETCH_STYLE = (
+    " Simple hand-drawn black pen line illustration with flat sky blue and warm yellow color fills, "
+    "on a plain white background, loose casual line art, simple cute characters, white space around "
+    "the drawing. Absolutely no text, letters, numbers, labels, logos or watermarks anywhere."
+)
+# 재생성 때만 붙인다 — 261023 샘플에서 책상 위 형광펜·노트 스프링 같은 소품에 글자가 생겼다.
+_NOTE_SKETCH_RETRY_SUFFIX = (
+    " Keep it to a single simple scene of people and plain everyday objects, drawn as clean line art "
+    "on an empty white background with only a few flat color fills."
+)
+
+
+def _build_note_carousel_images(topic, carousel, *, client=None, throttle_fn=None, model=None
+                                ) -> "tuple[list[bytes] | None, str]":
+    """장별 image_scene으로 손그림을 만들고 Gemini로 글자·로고를 판독한다. 걸린 장만 다시 만들고
+    (장당 최대 NOTE_IMAGE_MAX_REGENERATIONS회), 끝까지 걸리거나 판독이 실패하면 (None, 사유)."""
+    slides = carousel.slides
+    sketches: "list[bytes]" = [b""] * len(slides)
+    regenerations = [0] * len(slides)
+    pending = list(range(len(slides)))
+    while pending:
+        for i in pending:
+            prompt = slides[i].image_scene + (_NOTE_SKETCH_RETRY_SUFFIX if regenerations[i] else "") + _NOTE_SKETCH_STYLE
+            result = generate_image(prompt)
+            if not result.success:
+                logger.warning(f"[NoteCarousel] 손그림 생성 실패 | slide={i + 1} | error_code={result.error_code}")
+                return None, "IMAGE_GENERATION_FAILED"
+            sketches[i] = result.image_bytes
+
+        check = check_images_for_text_and_logo(
+            [sketches[i] for i in pending], client=client, throttle_fn=throttle_fn, model=model,
+        )
+        if not check.success:
+            logger.warning(f"[NoteCarousel] 글자·로고 판독 실패 | error_code={check.error_code}")
+            return None, "IMAGE_CHECK_ERROR"
+        failed = [pending[c.index - 1] for c in check.checks if not c.passed]
+        for i in failed:
+            regenerations[i] += 1
+        if any(regenerations[i] > NOTE_IMAGE_MAX_REGENERATIONS for i in failed):
+            logger.warning(f"[NoteCarousel] 재생성 상한 초과 | slides={[i + 1 for i in failed]}")
+            return None, "IMAGE_TEXT_CHECK_FAILED"
+        if failed:
+            logger.info(f"[NoteCarousel] 글자·로고 검출 장 재생성 | slides={[i + 1 for i in failed]}")
+        pending = failed
+
+    images = []
+    for i, slide in enumerate(slides):
+        try:
+            images.append(render_note_card(NoteCardContent(
+                text=slide.text, sketch=sketches[i], page=i + 1, total=len(slides),
+                source_label=topic.title, is_cover=(i == 0),
+            )))
+        except (ValueError, OSError) as exc:
+            logger.warning(f"[NoteCarousel] 카드 렌더링 실패 | slide={i + 1} | {type(exc).__name__}")
+            return None, "IMAGE_GENERATION_FAILED"
+    return images, ""
+
+
 def carousel_slide_image_paths(content_id: str, slide_count: int) -> "list[str]":
     """Vault 기준 상대경로. 1장(표지)은 기존 image_path와 같은 파일이다."""
     return [f"images/{content_id}.png"] + [f"images/{content_id}_{i}.png" for i in range(2, slide_count + 1)]
@@ -378,6 +446,7 @@ def carousel_slide_image_paths(content_id: str, slide_count: int) -> "list[str]"
 def _create_carousel_package(
     topic, content_id: str, root: Path, slide_count: int, tone_style: str,
     slot_role: str, template_type: str, *, client=None, throttle_fn=None, model=None,
+    carousel_style: str = "template",
 ) -> PackageResult:
     """261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지(.md + N장 PNG). 텍스트·Safety·렌더링·쓰기
     중 하나라도 실패하면 파일을 하나도 남기지 않고 실패한다(단일 이미지로 대체하지 않음).
@@ -392,6 +461,7 @@ def _create_carousel_package(
         topic, slot_role, template_type,
         client=client, throttle_fn=throttle_fn, model=model,
         existing_fingerprints=existing_fingerprints, slide_count=slide_count,
+        with_image_scenes=(carousel_style == "note"),
     )
     if not carousel_result.success:
         return PackageResult(success=False, error_code=f"CAROUSEL_TEXT_FAILED:{carousel_result.error_code}",
@@ -400,24 +470,31 @@ def _create_carousel_package(
     if carousel.caption.strip() in existing_captions:
         return PackageResult(success=False, error_code="DUPLICATE_CAPTION_TEXT", content_id=content_id)
 
-    cover_title = carousel.slides[0].text.strip()
-    brief = build_visual_brief(
-        topic.topic_id, topic.core_message, topic.title, topic.prohibited_expression, tone_style
-    )
-    cover = _build_hero_card_image(topic, brief, client=client, throttle_fn=throttle_fn, model=model,
-                                   headline_override=cover_title)
-    if cover is None:
-        return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
-    images = [cover]
-    for slide in carousel.slides[1:]:
-        try:
-            images.append(render_card(CardContent(
-                template_type="SOURCE_CARD", hook=cover_title, core_message=slide.text,
-                source_label=topic.title,
-            )))
-        except (ValueError, OSError) as exc:
-            logger.warning(f"[CarouselPackage] 본문 장 렌더링 실패 | slide={slide.index} | {type(exc).__name__}")
+    if carousel_style == "note":
+        images, image_error = _build_note_carousel_images(
+            topic, carousel, client=client, throttle_fn=throttle_fn, model=model,
+        )
+        if images is None:
+            return PackageResult(success=False, error_code=image_error, content_id=content_id)
+    else:
+        cover_title = carousel.slides[0].text.strip()
+        brief = build_visual_brief(
+            topic.topic_id, topic.core_message, topic.title, topic.prohibited_expression, tone_style
+        )
+        cover = _build_hero_card_image(topic, brief, client=client, throttle_fn=throttle_fn, model=model,
+                                       headline_override=cover_title)
+        if cover is None:
             return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
+        images = [cover]
+        for slide in carousel.slides[1:]:
+            try:
+                images.append(render_card(CardContent(
+                    template_type="SOURCE_CARD", hook=cover_title, core_message=slide.text,
+                    source_label=topic.title,
+                )))
+            except (ValueError, OSError) as exc:
+                logger.warning(f"[CarouselPackage] 본문 장 렌더링 실패 | slide={slide.index} | {type(exc).__name__}")
+                return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
 
     rel_paths = carousel_slide_image_paths(content_id, slide_count)
     final_paths = [root / p for p in rel_paths]
@@ -449,6 +526,9 @@ def _create_carousel_package(
         "slot_role": carousel.slot_role,
         "template_type": carousel.template_type,
     }
+    if carousel_style == "note":
+        frontmatter["carousel_style"] = "note"
+        frontmatter["slide_image_scenes"] = [s.image_scene for s in carousel.slides]
     if getattr(topic, "source_published_at", ""):
         frontmatter["source_published_at"] = topic.source_published_at
     md_text = _render_frontmatter(frontmatter) + f"\n{carousel.caption}\n"
@@ -483,6 +563,7 @@ def create_content_package(
     template_type: "str | None" = None,
     hero_card_enabled: bool = False,
     carousel_slide_count: "int | None" = None,
+    carousel_style: str = "template",
 ) -> PackageResult:
     """260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
     Adapter(`modules/sns/research_to_topic_adapter.py`)가 이미 선정·검증한
@@ -529,6 +610,8 @@ def create_content_package(
     root = vault_root or DEFAULT_VAULT_ROOT
     if carousel_slide_count is not None and carousel_slide_count not in CAROUSEL_SLIDE_COUNTS:
         return PackageResult(success=False, error_code="CAROUSEL_SLIDE_COUNT_INVALID")
+    if carousel_style not in CAROUSEL_STYLES:
+        return PackageResult(success=False, error_code="CAROUSEL_STYLE_INVALID")
     (root / "content").mkdir(parents=True, exist_ok=True)
     (root / "images").mkdir(parents=True, exist_ok=True)
 
@@ -564,6 +647,7 @@ def create_content_package(
             topic, content_id, root, carousel_slide_count, tone_style,
             slot_role or "REACH", template_type or "HOOK_IMPACT",
             client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
+            carousel_style=carousel_style,
         )
 
     caption, hashtags = generate_hook_caption(

@@ -108,11 +108,57 @@ _CAROUSEL_RESPONSE_SCHEMA = {
 }
 
 
+# 261023 STEP 4-AM — 노트 손그림 캐러셀. with_image_scenes=True일 때만 slide마다 영어 장면 묘사를
+# 같은 Gemini 호출에서 함께 받는다(추가 호출 없음). 기존 호출은 이 스키마를 쓰지 않는다.
+_IMAGE_SCENE_MAX_WORDS = 45
+# 장면 묘사에 들어가면 이미지 모델이 글자·로고를 그려 넣기 쉬운 단어(260723 샘플 실측: 노트북 로고,
+# 카페 간판). 금지 지시도 단어를 불러오므로 "no text"처럼 부정형으로 쓰는 것도 막는다.
+_IMAGE_SCENE_FORBIDDEN_RE = re.compile(
+    r"\b(logos?|brand(?:s|ed|ing)?|texts?|letters?|words?|writing|written|signs?|signage|labels?|"
+    r"captions?|screens?|monitors?|laptops?|computers?|phones?|smartphones?|tablets?|posters?|"
+    r"banners?|newspapers?|documents?|notes?|notepads?|notebooks?|papers?|books?|speech\s+bubbles?|"
+    r"talking)\b|\d",
+    re.IGNORECASE,
+)
+_SHORT_SCENE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "slides": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "role": {"type": "string"},
+                    "text": {"type": "string"},
+                    "image_scene": {"type": "string"},
+                },
+                "required": ["index", "role", "text", "image_scene"],
+            },
+        },
+        "caption": {"type": "string"},
+        "hashtags": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["slides", "caption", "hashtags"],
+}
+_IMAGE_SCENE_RULE = (
+    "5. For EVERY slide also write image_scene: one plain English sentence (max 40 words) describing a "
+    "simple drawing that shows exactly what that slide's text says — who or what is in it and what is "
+    "happening. Use only ideas from that slide's text. Use generic people and everyday objects only. "
+    "Never mention company, product or brand names, numbers, or any screen, laptop, phone, computer, "
+    "document, poster, sign, note, notepad, notebook, paper, book or speech bubble, show conversations "
+    "as people facing each other and gesturing (never 'talking'), and do not write words such as text, "
+    "letters, logo or label at all "
+    "(not even to say 'no text').\n"
+)
+
+
 @dataclass(frozen=True)
 class Slide:
     index: int
     role: str
     text: str
+    image_scene: str = ""
 
 
 @dataclass(frozen=True)
@@ -308,6 +354,89 @@ def _validate_short_contract(payload: dict, slide_count: int) -> "str | None":
     return _validate_caption_and_hashtags(payload)
 
 
+def _validate_image_scenes(payload: dict) -> "str | None":
+    """261023 STEP 4-AM — 장별 image_scene 계약. 하나라도 비었거나 길거나 금지어가 있으면 실패."""
+    for slide in payload.get("slides") or []:
+        scene = slide.get("image_scene")
+        if not isinstance(scene, str) or not scene.strip():
+            return "IMAGE_SCENE_EMPTY"
+        if len(scene.split()) > _IMAGE_SCENE_MAX_WORDS:
+            return "IMAGE_SCENE_TOO_LONG"
+        if _IMAGE_SCENE_FORBIDDEN_RE.search(scene):
+            return "IMAGE_SCENE_FORBIDDEN_WORD"
+    return None
+
+
+# 261023 STEP 4-AQ — Canary 1회차에서 Gemini가 image_scene에 금지어를 써 패키지가 글 단계에서 멈췄다
+# (어떤 단어인지 로그가 없어 UNKNOWN). 걸린 단어·장 번호만 로그로 남기고, 그 장면만 1회 다시 받는다.
+_IMAGE_SCENE_FORBIDDEN_WORDS_TEXT = (
+    "logo, brand, text, letter, word, writing, written, sign, signage, label, caption, screen, monitor, "
+    "laptop, computer, phone, smartphone, tablet, poster, banner, newspaper, document, note, notepad, "
+    "notebook, paper, book, speech bubble, talking, and any digit"
+)
+_SCENE_REPAIR_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scenes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"index": {"type": "integer"}, "image_scene": {"type": "string"}},
+                "required": ["index", "image_scene"],
+            },
+        },
+    },
+    "required": ["scenes"],
+}
+
+
+def _forbidden_scene_hits(payload: dict) -> "list[tuple[int, str]]":
+    """(장 번호, 걸린 단어) 목록 — 로그·재요청 대상 판정용. 장면 문장 전체는 반환하지 않는다."""
+    hits = []
+    for slide in payload.get("slides") or []:
+        scene = slide.get("image_scene")
+        if isinstance(scene, str):
+            hits += [(slide.get("index"), m.group(0).lower()) for m in _IMAGE_SCENE_FORBIDDEN_RE.finditer(scene)]
+    return hits
+
+
+def _repair_forbidden_scenes(payload: dict, hits: "list[tuple[int, str]]", *, client, throttle_fn, model
+                             ) -> "dict | None":
+    """금지어가 걸린 장의 image_scene만 Gemini 1회로 다시 받는다(글은 그대로). 호출·파싱 실패나
+    요청하지 않은 장 번호가 오면 None — 재요청은 이 1회뿐이다."""
+    targets = sorted({index for index, _word in hits})
+    slides = sorted((dict(s) for s in payload.get("slides") or []), key=lambda s: s.get("index", -1))
+    lines = "\n".join(
+        f"- Slide {s['index']} text: {s.get('text', '')}\n  Previous image_scene: {s.get('image_scene', '')}"
+        for s in slides if s.get("index") in targets
+    )
+    prompt = (
+        "Rewrite the image_scene for each slide below. Each image_scene is one plain English sentence "
+        f"(max 40 words) describing a simple drawing that shows exactly what that slide's text says, using "
+        "generic people and everyday objects only. Never mention company, product or brand names.\n"
+        f"These words are FORBIDDEN in image_scene (do not use them in any form, not even negatively): "
+        f"{_IMAGE_SCENE_FORBIDDEN_WORDS_TEXT}.\n\n{lines}\n\n"
+        "Return only the slides listed above, in the exact JSON schema provided."
+    )
+    config = genai_types.GenerateContentConfig(
+        response_mime_type="application/json", response_json_schema=_SCENE_REPAIR_RESPONSE_SCHEMA,
+    )
+    try:
+        throttle_fn()
+        response = client.models.generate_content(model=model, contents=prompt, config=config)
+        scenes = {item["index"]: item["image_scene"] for item in json.loads(response.text)["scenes"]}
+    except Exception as exc:
+        logger.warning(f"[CarouselContent] image_scene 재요청 실패 | error_type={type(exc).__name__}")
+        return None
+    if sorted(scenes) != targets:
+        logger.warning(f"[CarouselContent] image_scene 재요청 장 번호 불일치 | requested={targets}")
+        return None
+    for slide in slides:
+        if slide.get("index") in scenes:
+            slide["image_scene"] = scenes[slide["index"]]
+    return {**payload, "slides": slides}
+
+
 def _validate_caption_and_hashtags(payload: dict) -> "str | None":
     caption = payload.get("caption", "")
     if not caption or len(caption) > _CAPTION_MAX_CHARS:
@@ -474,6 +603,7 @@ def generate_carousel_content(
     *, client=None, throttle_fn=None, model=None,
     existing_fingerprints: "set | None" = None,
     slide_count: int = _SLIDE_COUNT,
+    with_image_scenes: bool = False,
 ) -> CarouselResult:
     """Sourcebook `topic`(source_selector.SourceTopic 또는 동일 필드를 가진
     객체) + 슬롯 역할 + 문장 템플릿으로 8-Slide 카드뉴스 구조화 콘텐츠 1건을
@@ -485,6 +615,12 @@ def generate_carousel_content(
     (_validate_short_contract)과 짧은 프롬프트를 쓴다. 그 밖의 값은 Gemini 호출 없이 실패."""
     if slide_count != _SLIDE_COUNT and slide_count not in SHORT_SLIDE_COUNTS:
         return CarouselResult(success=False, error_code="SLIDE_COUNT_UNSUPPORTED")
+    if with_image_scenes and slide_count not in SHORT_SLIDE_COUNTS:
+        return CarouselResult(success=False, error_code="IMAGE_SCENE_UNSUPPORTED")
+    # 261023 STEP 4-AY(Codex BLOCKER) — note 경로는 페르소나 전용 client만 쓴다. 없으면 공유
+    # GEMINI_API_KEY(_get_client)로 넘어가지 않고 Gemini 호출 전에 실패한다(CLAUDE.md 규칙 9).
+    if with_image_scenes and client is None:
+        return CarouselResult(success=False, error_code="NOTE_CLIENT_MISSING")
     if slot_role not in VALID_SLOT_ROLES:
         return CarouselResult(success=False, error_code="SLOT_ROLE_UNKNOWN")
     if template_type not in TEMPLATE_TYPES:
@@ -494,13 +630,16 @@ def generate_carousel_content(
 
     config = genai_types.GenerateContentConfig(
         response_mime_type="application/json",
-        response_json_schema=_CAROUSEL_RESPONSE_SCHEMA,
+        response_json_schema=_SHORT_SCENE_RESPONSE_SCHEMA if with_image_scenes else _CAROUSEL_RESPONSE_SCHEMA,
     )
     short = slide_count in SHORT_SLIDE_COUNTS
     prompt = (
         _build_short_prompt(topic.core_message, topic.title, slot_role, template_type, slide_count)
         if short else _build_prompt(topic.core_message, topic.title, slot_role, template_type)
     )
+    if with_image_scenes:
+        prompt = prompt.replace("Return the result in the exact JSON schema provided.",
+                                _IMAGE_SCENE_RULE + "Return the result in the exact JSON schema provided.")
     active_throttle = throttle_fn or _throttle
     # 260805 7B-4 Live Canary에서 발견된 결함 수정 — model=None을 그대로 SDK에
     # 넘기면 요청 URL에 "{model}"이 문자 그대로 들어가 404가 난다(실제 Runtime
@@ -535,13 +674,29 @@ def generate_carousel_content(
     contract_error = (
         _validate_short_contract(payload, slide_count) if short else _validate_contract(payload)
     )
+    if not contract_error and with_image_scenes:
+        contract_error = _validate_image_scenes(payload)
+        if contract_error == "IMAGE_SCENE_FORBIDDEN_WORD":
+            hits = _forbidden_scene_hits(payload)
+            logger.warning(f"[CarouselContent] image_scene 금지어 — 장면만 1회 재요청 | hits={hits}")
+            repaired = _repair_forbidden_scenes(
+                payload, hits, client=client, throttle_fn=active_throttle, model=active_model,
+            )
+            if repaired is None:
+                contract_error = "IMAGE_SCENE_REPAIR_FAILED"
+            else:
+                payload = repaired
+                contract_error = _validate_image_scenes(payload)
+                if contract_error == "IMAGE_SCENE_FORBIDDEN_WORD":
+                    logger.warning(f"[CarouselContent] 재요청 후에도 금지어 | hits={_forbidden_scene_hits(payload)}")
     if contract_error:
         if short:
             logger.warning(f"[CarouselContent] 계약 실패 | {contract_error} | {_cta_location_summary(payload)}")
         return CarouselResult(success=False, error_code=contract_error)
 
     slides = tuple(
-        Slide(index=s["index"], role=s.get("role", ""), text=s["text"])
+        Slide(index=s["index"], role=s.get("role", ""), text=s["text"],
+              image_scene=s["image_scene"].strip() if with_image_scenes else "")
         for s in sorted(payload["slides"], key=lambda s: s["index"])
     )
     caption = payload["caption"]

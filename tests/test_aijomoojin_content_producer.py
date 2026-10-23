@@ -1130,6 +1130,28 @@ class TestCarouselFlag:
         monkeypatch.setenv("AIJOMOOJIN_CAROUSEL_ENABLED", "true")
         assert self._capture_kwargs(monkeypatch)["carousel_slide_count"] == 3
 
+    # 261023 STEP 4-AM — 노트 손그림 스위치
+    def test_style_note_requests_note_carousel(self, monkeypatch, _flag_on, vault_root):
+        monkeypatch.setenv("AIJOMOOJIN_CAROUSEL_ENABLED", "true")
+        monkeypatch.setenv("AIJOMOOJIN_CAROUSEL_STYLE", " Note ")
+        assert self._capture_kwargs(monkeypatch)["carousel_style"] == "note"
+
+    @pytest.mark.parametrize("style", [None, "", "hero"])
+    def test_style_unset_or_unknown_keeps_template(self, monkeypatch, _flag_on, vault_root, style):
+        monkeypatch.setenv("AIJOMOOJIN_CAROUSEL_ENABLED", "true")
+        if style is None:
+            monkeypatch.delenv("AIJOMOOJIN_CAROUSEL_STYLE", raising=False)
+        else:
+            monkeypatch.setenv("AIJOMOOJIN_CAROUSEL_STYLE", style)
+        kwargs = self._capture_kwargs(monkeypatch)
+        assert kwargs["carousel_slide_count"] == 3 and "carousel_style" not in kwargs
+
+    def test_style_note_ignored_when_carousel_off(self, monkeypatch, _flag_on, vault_root):
+        monkeypatch.delenv("AIJOMOOJIN_CAROUSEL_ENABLED", raising=False)
+        monkeypatch.setenv("AIJOMOOJIN_CAROUSEL_STYLE", "note")
+        kwargs = self._capture_kwargs(monkeypatch)
+        assert "carousel_style" not in kwargs and "carousel_slide_count" not in kwargs
+
 
 # ── 261023 STEP 4-AF 보완 — 패키지 형식 판별(v3 → single 오판 차단) ───────────────
 

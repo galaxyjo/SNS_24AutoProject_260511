@@ -1871,6 +1871,13 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             # 판별·게시하는 단계(4-AG)가 들어가기 전에는 켜지 않는다.
             if os.getenv("AIJOMOOJIN_CAROUSEL_ENABLED", "false").strip().lower() == "true":
                 package_kwargs["carousel_slide_count"] = AIJOMOOJIN_CAROUSEL_SLIDE_COUNT
+                # 261023 STEP 4-AM — "note"면 장별 노트 손그림 캐러셀. 비어 있으면 기존 템플릿 그대로.
+                carousel_style = os.getenv("AIJOMOOJIN_CAROUSEL_STYLE", "").strip().lower()
+                if carousel_style == "note":
+                    package_kwargs["carousel_style"] = "note"
+                elif carousel_style:
+                    logger.warning(f"[AijomoojinProducer] AIJOMOOJIN_CAROUSEL_STYLE 값 미지원 — 기존 템플릿 사용"
+                                   f" | value={carousel_style}")
             # 261022 STEP 4-G — 미국 AI 뉴스(Sourcebook 14.x 피드). Flag가 비어 있으면
             # 이 분기에 들어가지 않아 기존 호출과 같다. 스케줄러는 producer_hour를
             # 넘기지 않으므로 실행 시각(ICT)으로 판정한다.
