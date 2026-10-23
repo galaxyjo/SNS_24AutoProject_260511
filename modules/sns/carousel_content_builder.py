@@ -290,6 +290,23 @@ def _move_pure_ctas(blocks: "list[str]") -> "list[str]":
     return out
 
 
+def _move_cta_only_caption_lines(lines: "list[str]") -> "list[str]":
+    """261023 STEP 4-BA — 캡션은 슬라이드와 달리 줄을 통째로 옮겨도 빈 블록이 생기지 않는다.
+    마지막 줄이 아닌 곳에 순수 CTA만으로 된 줄이 있고 마지막 줄에 CTA가 없으면, 그 줄을 맨 끝으로
+    옮긴다(여러 줄이면 마지막 것 1개만). 운영 실패 caption_line_cta=[0, 0, 1, 0] 대응."""
+    if len(lines) < 2 or _count_cta_sentences(lines[-1]) > 0:
+        return lines
+
+    def cta_only(line: str) -> bool:
+        sentences = _sentences(line)
+        return bool(sentences) and all(_is_pure_cta_sentence(s) for s in sentences)
+
+    cta_lines = [line for line in lines[:-1] if cta_only(line)]
+    if not cta_lines:
+        return lines
+    return [line for line in lines[:-1] if not cta_only(line)] + [lines[-1], cta_lines[-1]]
+
+
 def _normalize_short_cta(payload: dict) -> dict:
     """261023 STEP 4-AI — 짧은 캐러셀(2~4장)의 순수 CTA 문장 위치만 바로잡는다(Gemini 재호출 없음).
     표지(1장)는 제목 한 줄이라 건드리지 않는다(CTA가 있으면 검증이 Fail-closed). 본문 장과 캡션 줄에서
@@ -304,7 +321,7 @@ def _normalize_short_cta(payload: dict) -> dict:
         slide["text"] = text
     caption = payload.get("caption", "")
     lines = [line for line in caption.splitlines() if line.strip()]
-    fixed = _move_pure_ctas(lines)
+    fixed = _move_cta_only_caption_lines(_move_pure_ctas(lines))
     if lines and fixed != lines:
         caption = ("\n\n" if "\n\n" in caption else "\n").join(fixed)
     return {**payload, "slides": ordered, "caption": caption}

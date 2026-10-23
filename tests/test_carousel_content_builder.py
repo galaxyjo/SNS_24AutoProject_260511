@@ -721,3 +721,40 @@ class TestNonLastSlideImperative:
         payload["slides"][1]["text"] = "이 기능을 꼭 써보세요"
         result = self._run(monkeypatch, payload, 8)
         assert result.error_code != "IMPERATIVE_NOT_LAST_SLIDE"
+
+
+# ── 261023 STEP 4-BA — 캡션 중간의 CTA 전용 줄을 마지막 줄로 이동 ─────────────────────
+
+class TestCaptionCtaOnlyLineMove:
+    _SLIDES = ["AI 영업 자동화, 아직도 직접 하고 계세요?", "핵심 사실입니다.", "필요할 때 다시 보도록 저장하세요."]
+
+    def test_cta_only_middle_line_moves_to_end(self, monkeypatch):
+        caption = "반복 업무를 줄이는 방법입니다.\n\n무료 등급 제한도 정리했습니다.\n\n지금 저장해 두세요.\n\n작은 업무부터 바꿔 볼 수 있습니다."
+        result, models = _run_short(monkeypatch, _norm_payload(self._SLIDES, caption), 3)
+        assert result.success is True, result.error_code
+        assert result.content.caption == ("반복 업무를 줄이는 방법입니다.\n\n무료 등급 제한도 정리했습니다.\n\n"
+                                          "작은 업무부터 바꿔 볼 수 있습니다.\n\n지금 저장해 두세요.")
+        assert len(models.calls) == 1                                    # Gemini 재호출 없음
+
+    def test_multiple_cta_only_lines_keep_last_one(self, monkeypatch):
+        caption = "팔로우하세요.\n\n반복 업무를 줄이는 방법입니다.\n\n지금 저장해 두세요.\n\n작은 업무부터 바꿔 볼 수 있습니다."
+        result, _ = _run_short(monkeypatch, _norm_payload(self._SLIDES, caption), 3)
+        assert result.success is True, result.error_code
+        lines = [l for l in result.content.caption.splitlines() if l.strip()]
+        assert lines[-1] == "지금 저장해 두세요." and "팔로우하세요." not in result.content.caption
+        assert [builder._count_cta_sentences(l) for l in lines] == [0, 0, 1]
+
+    def test_cta_already_on_last_line_unchanged_and_fails(self, monkeypatch):
+        caption = "반복 업무를 줄이는 방법입니다.\n\n팔로우하세요.\n\n저장해두세요."
+        result, _ = _run_short(monkeypatch, _norm_payload(self._SLIDES, caption), 3)
+        assert result.error_code == "CAPTION_CTA_NOT_LAST"
+
+    def test_mixed_middle_line_still_fails(self, monkeypatch):
+        caption = "반복 업무를 줄이는 방법입니다.\n\n데이터를 저장해 두면 비교가 쉽습니다.\n\n작은 업무부터 바꿔 볼 수 있습니다."
+        result, _ = _run_short(monkeypatch, _norm_payload(self._SLIDES, caption), 3)
+        assert result.success is False and result.error_code.startswith("CAPTION_CTA")
+
+    def test_slide_cta_only_body_still_not_moved(self, monkeypatch):
+        payload = _norm_payload(["AI 영업 자동화 시작", "지금 저장하세요.", "하루 3건 자동 게시가 됩니다."])
+        result, _ = _run_short(monkeypatch, payload, 3)
+        assert result.error_code == "CTA_NOT_LAST_SLIDE"
