@@ -70,6 +70,8 @@ def resolve_credential(credential_key: str) -> ResolvedCredential:
 # 이 표에 한 줄만 추가하면 된다(새 프로그램·Scheduler 불필요).
 _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY = {
     "AI": "AIJOMOOJIN",  # nguyenknv15@gmail.com / IDN-000036 / aijomoojin
+    # 261024 STEP 2 — 공통 엔진 Canary(IDN-000025). `.env`에 IDN_000025_GEMINI_API_KEY가 없으면 Fail-closed.
+    "IDN_000025": "IDN_000025",
 }
 
 

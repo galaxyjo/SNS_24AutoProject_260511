@@ -112,6 +112,7 @@ def keyword_filter_text(raw_text: str) -> str:
 ACCOUNT_DOMAIN_POLICY = {
     "IDN-000041": "PRODUCT",      # yuna18253 — 화장품 도매
     "IDN-000036": "AI_CONTENT",   # aijomoojin — Track B AI 생성 콘텐츠
+    "IDN-000025": "AI_CONTENT",   # 261024 STEP 2 공통 엔진 Canary(AI+쇼호스트·AI 콘텐츠·영화)
 }
 
 # 261022 B1 — 위 계정 dict에 없는 계정은 Account_Registry.category로만 도메인을 정한다.
@@ -123,6 +124,11 @@ CATEGORY_DOMAIN_POLICY = {
 
 _AI_CONTENT_REQUIRED_ACCOUNT = "IDN-000036"
 _AI_CONTENT_REQUIRED_PERSONA = "PER-002"
+# 261024 STEP 2 — AI_CONTENT 허용 계정과 그 계정의 Persona(1계정=1Persona). 목록에 없는 계정은 Fail-closed.
+_AI_CONTENT_PERSONA_BY_ACCOUNT = {
+    _AI_CONTENT_REQUIRED_ACCOUNT: _AI_CONTENT_REQUIRED_PERSONA,
+    "IDN-000025": "PER-024",
+}
 
 
 def passes_ai_content_gate_v0(
@@ -158,9 +164,10 @@ def passes_ai_content_gate_v0(
     check_caption_safety()가 기본 모델을 그대로 쓴다(기존 동작 100% 유지).
     aijomoojin 슬롯 Job만 research_to_topic_adapter.RESEARCH_MODEL을 명시
     전달한다."""
-    if account_code_ref != _AI_CONTENT_REQUIRED_ACCOUNT:
+    required_persona = _AI_CONTENT_PERSONA_BY_ACCOUNT.get(account_code_ref)
+    if required_persona is None:
         return False, "AI_CONTENT_ACCOUNT_MISMATCH"
-    if persona_code != _AI_CONTENT_REQUIRED_PERSONA:
+    if persona_code != required_persona:
         return False, "AI_CONTENT_PERSONA_MISMATCH"
     if not caption or not caption.strip():
         return False, "AI_CONTENT_EMPTY_CAPTION"

@@ -25,7 +25,16 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=str(_ROOT / ".env"), override=True)
 
-from launcher.main import _job_aijomoojin_content_producer
+import argparse
+
+from launcher.main import AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, CONTENT_ACCOUNTS, _job_aijomoojin_content_producer
 
 if __name__ == "__main__":
-    _job_aijomoojin_content_producer()
+    # 261024 STEP 2 — 공통 엔진 계정 선택(기본 IDN-000036). 목록에 없는 계정은 실행하지 않는다.
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--account-code", default=AIJOMOOJIN_PRODUCER_ACCOUNT_CODE)
+    args = parser.parse_args()
+    if args.account_code not in CONTENT_ACCOUNTS:
+        sys.exit(f"알 수 없는 account_code: {args.account_code} (허용: {', '.join(CONTENT_ACCOUNTS)})")
+    print(f"account_code={args.account_code}")
+    _job_aijomoojin_content_producer(account_code=args.account_code)

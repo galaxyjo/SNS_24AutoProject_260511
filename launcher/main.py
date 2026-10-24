@@ -27,6 +27,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # 프로젝트 루트를 sys.path에 추가 (launcher/ 하위에서 실행 시 필요)
+from dataclasses import dataclass
 from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
@@ -761,9 +762,12 @@ def _job_insta_upload():
         # 이 조건이 없으면 _job_aijomoojin_scheduled_post()(전용 Cron)와 이
         # 경로가 같은 레코드를 동시에 노려 슬롯 제한이 무력화되고 중복게시
         # 위험이 생긴다 — 다른 계정은 이 분기 자체에 영향받지 않는다.
-        if account_code_ref == "IDN-000036" and os.getenv(
-            "AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false"
-        ).strip().lower() == "true":
+        # 261024 STEP 2 — aijomoojin은 기존 규칙(SLOT_SCHEDULE Flag ON일 때 제외). 공통 엔진의 새 계정은
+        # Flag 값과 무관하게 항상 제외한다 — Flag를 꺼도 ready가 이 폴러로 새어 오프슬롯 게시되지 않게(Codex P1).
+        _content_acct = CONTENT_ACCOUNTS.get(account_code_ref)
+        if _content_acct is not None and (
+                _content_acct.vault_root is not None
+                or _account_flag(_content_acct, "SLOT_SCHEDULE_ENABLED") == "true"):
             logger.info(
                 "[Main] aijomoojin 슬롯 스케줄 모드 활성 — 5분 폴링에서 제외, "
                 "전용 Cron만 처리 | rid=%s", post_id,
@@ -1013,7 +1017,7 @@ def _is_legacy_package(frontmatter: "dict | None") -> bool:
 
 
 @handle_errors(task="aijomoojin_slot_post", notify_fn=_slack)
-def _job_aijomoojin_scheduled_post():
+def _job_aijomoojin_scheduled_post(account_code: str = AIJOMOOJIN_SLOT_ACCOUNT_CODE):
     """260804 Track B 6G — aijomoojin 전용 슬롯 게시(260810부터 5슬롯
     06:00/09:00/12:00/15:00/18:00 ICT, 이전 3슬롯 06:00/10:00/17:00에서 확대).
 
@@ -1050,10 +1054,29 @@ def _job_aijomoojin_scheduled_post():
     Publish Ledger(Step6B, `modules/common/publish_ledger.py`)는 260804 회장
     결정에 따라 의도적으로 쓰지 않는다(ISOLATED_UNAPPROVED·Live 미검증,
     별도 단계에서 재승인 여부 재검토 예정) — 대신 `_job_insta_upload()`와
-    동일한 계정 한정 조회·claim·게시 안전장치를 그대로 REUSE한다."""
-    if os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() != "true":
+    동일한 계정 한정 조회·claim·게시 안전장치를 그대로 REUSE한다.
+
+    261024 STEP 2 — `account_code`(기본 IDN-000036)로 CONTENT_ACCOUNTS의 계정 설정을 고른다.
+    목록에 없는 계정은 게시하지 않는다. 게시 직전 Safety도 그 계정 전용 Gemini Key로만 확인한다."""
+    acct = CONTENT_ACCOUNTS.get(account_code)
+    if acct is None:
+        logger.error(f"[AijomoojinSlot] 계정 설정 없음 — 이번 실행 스킵 | account_code={account_code}")
+        return
+    if _account_flag(acct, "SLOT_SCHEDULE_ENABLED") != "true":
         logger.info("[AijomoojinSlot] Flag 프로세스 환경값 false — 이번 실행 스킵")
         return
+    if not _require_own_gemini_key(acct, "AijomoojinSlot"):
+        return
+    # 261024 STEP 2(Codex 3차 P1) — 새 계정의 Persona(PER-xxx)·Safety·언어 확인은 Publish Gate가 맡는다.
+    # 전역 Gate Flag가 꺼져 있으면 확인 없이 게시될 수 있으므로 새 계정은 게시하지 않는다(aijomoojin은 기존 그대로).
+    # 기존 Binding Adapter는 aijomoojin 전용이라 새 계정을 그냥 통과시키므로, 새 계정에서 켜면 오해를 막기 위해 중단한다.
+    if acct.vault_root is not None:
+        if os.getenv("PUBLISH_TEXT_GATE_ENABLED", "false").lower() != "true":
+            logger.error(f"[AijomoojinSlot] Publish Gate OFF — Persona 확인 불가, 게시하지 않음 | account_code={account_code}")
+            return
+        if _account_flag(acct, "BINDING_ADAPTER_ENABLED") == "true":
+            logger.error(f"[AijomoojinSlot] Binding Adapter는 이 계정을 지원하지 않음 — 게시하지 않음 | account_code={account_code}")
+            return
 
     from modules.infra.airtable_repository import AirtableRepository
     from modules.infra.repository_interface import PostPublishResult
@@ -1068,7 +1091,7 @@ def _job_aijomoojin_scheduled_post():
     # 필터 방식은 다른 계정 레코드가 50건을 먼저 채우면 이 계정 후보가 결과에서
     # 밀려날 수 있었다. 계정 한정 서버측 쿼리로 전환해 다른 계정 후보 수와
     # 무관하게 항상 이 계정 것만 조회한다.
-    posts = repo.fetch_pending_posts_for_account(AIJOMOOJIN_SLOT_ACCOUNT_CODE, limit=1)
+    posts = repo.fetch_pending_posts_for_account(account_code, limit=1)
     if not posts:
         logger.info("[AijomoojinSlot] ready 후보 없음 — 이번 슬롯 스킵")
         return
@@ -1094,7 +1117,7 @@ def _job_aijomoojin_scheduled_post():
         logger.warning("[AijomoojinSlot] unverified ig_media_id detected — skip | post_id=%s", post_id)
         return
 
-    account = repo.get_publish_account(AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+    account = repo.get_publish_account(account_code)
     if account is None:
         logger.warning("[AijomoojinSlot] 계정 조회 실패(없음/중복/형식오류) — 이번 슬롯 스킵 | rid=%s", post_id)
         return
@@ -1109,7 +1132,7 @@ def _job_aijomoojin_scheduled_post():
         _persona_code = ""
         _required_language = ""
         try:
-            _persona = repo.get_active_persona_by_account_code_v2(AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+            _persona = repo.get_active_persona_by_account_code_v2(account_code)
             _persona_code = _persona.get("persona_code", "") if _persona else ""
             _required_language = _persona.get("language", "") if _persona else ""
         except Exception:
@@ -1121,7 +1144,17 @@ def _job_aijomoojin_scheduled_post():
         # 전역 GEMINI_API_KEY를 쓰면 "1이메일=1페르소나" 원칙이 깨진다).
         import modules.sns.research_to_topic_adapter as _research_adapter
         try:
-            _safety_client = _research_adapter._get_client()
+            if acct.vault_root is None:
+                _safety_client = _research_adapter._get_client()
+            else:
+                # 261024 STEP 2 — 새 계정은 자기 전용 Key만 쓴다(aijomoojin Key·전역 Key로 대체 금지).
+                from google import genai as _genai
+                from modules.common.credential_resolver import resolve_gemini_credential
+                try:
+                    _safety_client = _genai.Client(
+                        api_key=resolve_gemini_credential(acct.credential_key).api_key)
+                except CredentialResolutionError as exc:
+                    raise RuntimeError(str(exc)) from exc
         except RuntimeError as e:
             logger.warning(
                 f"[AijomoojinSlot] AIJOMOOJIN_GEMINI_API_KEY 미설정 — 이번 슬롯 스킵 | rid={post_id} | {e}"
@@ -1129,7 +1162,7 @@ def _job_aijomoojin_scheduled_post():
             return
 
         allowed, gate_result = resolve_publish_gate(
-            caption, AIJOMOOJIN_SLOT_ACCOUNT_CODE,
+            caption, account_code,
             source_url=post.get("source_url", ""),
             persona_code=_persona_code,
             required_language=_required_language,
@@ -1167,14 +1200,14 @@ def _job_aijomoojin_scheduled_post():
         )
         return
 
-    if os.getenv("AIJOMOOJIN_BINDING_ADAPTER_ENABLED", "false").strip().lower() == "true":
+    if _account_flag(acct, "BINDING_ADAPTER_ENABLED") == "true":
         from modules.common.aijomoojin_binding_adapter import verify_aijomoojin_binding
-        if not verify_aijomoojin_binding(AIJOMOOJIN_SLOT_ACCOUNT_CODE, repo):
+        if not verify_aijomoojin_binding(account_code, repo):
             logger.warning("[AijomoojinSlot] Binding 검증 실패 — 이번 슬롯 스킵 | rid=%s", post_id)
             return
 
     # 261023 STEP 4-AG — 게시 형식 판별(claim 전). 정상 v2만 single, 정상 v3만 carousel, 나머지는 HOLD.
-    post_kind, carousel_urls = _resolve_aijomoojin_slot_package(post)
+    post_kind, carousel_urls = _resolve_aijomoojin_slot_package(post, **_vault_kwargs(acct))
     if post_kind == "hold":
         logger.error(f"[AijomoojinSlot] 게시 형식 HOLD — claim·게시 안 함 | rid={post_id} | {carousel_urls}")
         if _slack:
@@ -1191,7 +1224,7 @@ def _job_aijomoojin_scheduled_post():
             post_id, carousel_urls, caption, cred.access_token, cred.ig_user_id, api_host=provider_conf["host"],
             on_parent_created=lambda parent_id: _record_publish_pending(
                 post_id, "in_flight", creation_id=parent_id, credential_key=account["credential_key"],
-                api_host=provider_conf["host"], caption=caption, account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE),
+                api_host=provider_conf["host"], caption=caption, account_code_ref=account_code),
         )
     else:
         raw = publish_single(
@@ -1205,7 +1238,7 @@ def _job_aijomoojin_scheduled_post():
         )
         _record_publish_pending(post_id, "outcome_unknown", creation_id=raw.get("creation_id", ""),
                                 credential_key=account["credential_key"], api_host=provider_conf["host"],
-                                caption=caption, account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+                                caption=caption, account_code_ref=account_code)
         if _slack:
             _slack(
                 f"[긴급] aijomoojin 슬롯 게시 결과 불명 — 수동 확인 필요\n"
@@ -1241,7 +1274,7 @@ def _job_aijomoojin_scheduled_post():
                 post_id, raw.get("ig_media_id", ""), exc,
             )
             _record_publish_pending(post_id, "posted_unrecorded", ig_media_id=raw.get("ig_media_id", ""),
-                                    account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+                                    account_code_ref=account_code)
             if _slack:
                 _slack(
                     f"[긴급] aijomoojin 슬롯 게시 성공, Airtable 상태 기록 실패 — 수동 확인 필요\n"
@@ -1251,7 +1284,7 @@ def _job_aijomoojin_scheduled_post():
             logger.error(
                 "[AijomoojinSlot] 게시 실패 상태 기록도 실패 — uploading 고착 | rid=%s | %s", post_id, exc,
             )
-            _record_publish_pending(post_id, "failed_unrecorded", account_code_ref=AIJOMOOJIN_SLOT_ACCOUNT_CODE)
+            _record_publish_pending(post_id, "failed_unrecorded", account_code_ref=account_code)
 
 
 # ── 261012 게시 결과 회수(uploading 고착) ──────────────────────────────────────
@@ -1509,6 +1542,63 @@ AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY = "AI"
 AIJOMOOJIN_PRODUCER_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
+# 261024 STEP 2 — 공통 콘텐츠 엔진의 계정별 설정. aijomoojin(IDN-000036)은 기존 상수·Flag 이름·
+# 공용 vault·Lock 이름을 그대로 쓴다(vault_root=None). 새 계정은 자기 Flag 접두사·vault·Lock을 쓰고,
+# 전용 Gemini Key가 없으면 Fail-closed. NEWS는 aijomoojin 전용 Key로 분석하므로 새 계정은 끈다.
+@dataclass(frozen=True)
+class ContentAccount:
+    account_code: str
+    credential_key: str
+    env_prefix: str
+    vault_root: "Path | None"
+    lock_name: str
+    news_enabled: bool
+    brand_handle: str = ""   # 카드 하단 핸들. aijomoojin은 렌더러 기본(@aijomoojin) 그대로
+
+
+CONTENT_ACCOUNTS = {
+    "IDN-000036": ContentAccount("IDN-000036", AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY, "AIJOMOOJIN", None,
+                                 "aijomoojin_content_producer", True),
+    "IDN-000025": ContentAccount("IDN-000025", "IDN_000025", "IDN_000025",
+                                 _ROOT / "vault" / "accounts" / "IDN-000025", "content_producer_IDN-000025", False,
+                                 brand_handle="@rhrl201010"),
+}
+
+
+def _account_flag(acct: ContentAccount, name: str, default: str = "false") -> str:
+    return os.getenv(f"{acct.env_prefix}_{name}", default).strip().lower()
+
+
+def _vault_kwargs(acct: ContentAccount) -> dict:
+    """aijomoojin은 빈 dict(기존 호출 인자 그대로), 새 계정만 vault_root를 넘긴다."""
+    return {} if acct.vault_root is None else {"vault_root": acct.vault_root}
+
+
+def _package_kwargs(acct: ContentAccount) -> dict:
+    """create_content_package 추가 인자 — aijomoojin은 빈 dict, 새 계정은 vault_root + brand_handle."""
+    if acct.vault_root is None:
+        return {}
+    return {**_vault_kwargs(acct), "brand_handle": acct.brand_handle}
+
+
+def _require_own_gemini_key(acct: ContentAccount, tag: str) -> bool:
+    """261024 STEP 2(Codex P1) — 새 계정은 pending 재개·게시 Gate 여부와 무관하게 전용 Gemini Key가
+    있어야만 진행한다(aijomoojin은 기존 흐름 그대로라 True). 없으면 로그·Slack 1회 후 False."""
+    if acct.vault_root is None:
+        return True
+    from modules.common.credential_resolver import CredentialResolutionError, resolve_gemini_credential
+    try:
+        resolve_gemini_credential(acct.credential_key)
+        return True
+    except CredentialResolutionError as exc:
+        logger.error(f"[{tag}] 전용 Gemini 자격증명 없음 — 진행하지 않음 | account_code={acct.account_code} "
+                     f"| error_code=MISSING_PERSONA_GEMINI_CREDENTIAL | {exc}")
+        if _slack:
+            _slack(f"[알림] {acct.account_code} — 전용 Gemini 자격증명(credential_key={acct.credential_key}) "
+                   "없음. 다른 Key로 대체하지 않고 중단합니다(MISSING_PERSONA_GEMINI_CREDENTIAL).")
+        return False
+
+
 def _aijomoojin_news_hours() -> set:
     """AIJOMOOJIN_NEWS_PRODUCER_HOURS(예: "8,14"). 비어 있거나 숫자가 아닌 값은 무시(빈 집합=OFF)."""
     hours = set()
@@ -1563,16 +1653,17 @@ def _classify_aijomoojin_package(content_id: str, fields: dict) -> str:
     return "carousel"
 
 
-def _resolve_aijomoojin_slot_package(post: dict) -> tuple:
+def _resolve_aijomoojin_slot_package(post: dict, vault_root: "Path | None" = None) -> tuple:
     """261023 STEP 4-AG — 슬롯 게시 직전(claim 전) Vault 재조회. ("legacy_single", None) /
-    ("carousel", [url...]) / ("hold", 사유). Airtable과 Vault가 어긋나거나 형식을 확정할 수 없으면 hold."""
+    ("carousel", [url...]) / ("hold", 사유). Airtable과 Vault가 어긋나거나 형식을 확정할 수 없으면 hold.
+    261024 STEP 2 — vault_root 생략 시 기존 공용 vault(aijomoojin)."""
     from modules.sns.content_package_builder import DEFAULT_VAULT_ROOT, read_frontmatter
 
     content_id = (post.get("content_id") or "").strip()
     if not content_id:
         return "hold", "CONTENT_ID_MISSING"
     try:
-        fields = read_frontmatter(content_id, DEFAULT_VAULT_ROOT)
+        fields = read_frontmatter(content_id, vault_root or DEFAULT_VAULT_ROOT)
     except Exception as exc:
         return "hold", f"VAULT_READ_FAILED:{type(exc).__name__}"
     if fields is None:
@@ -1597,13 +1688,16 @@ def _resolve_aijomoojin_slot_package(post: dict) -> tuple:
     return "carousel", list(urls)
 
 
-def _upload_aijomoojin_carousel(content_id: str, fields: dict) -> str:
+def _upload_aijomoojin_carousel(content_id: str, fields: dict, vault_root: "Path | None" = None) -> str:
     """261023 STEP 4-AF — v3 캐러셀 패키지의 N장을 순서대로 imgbb에 올리고, URL 목록을 Vault
     frontmatter(carousel_image_urls)에 원자적으로 기록한다. 성공하면 1장(표지) URL을, 실패하면 ""
-    를 돌려준다(호출자는 pending을 유지하고 Airtable에 쓰지 않는다)."""
+    를 돌려준다(호출자는 pending을 유지하고 Airtable에 쓰지 않는다).
+    261024 STEP 2 — vault_root 생략 시 기존 공용 vault(aijomoojin)."""
     from modules.sns.content_package_builder import (
         CAROUSEL_SLIDE_COUNTS, DEFAULT_VAULT_ROOT, carousel_slide_image_paths, update_frontmatter_fields)
     from modules.sns.image_hosting import upload_local_file_to_imgbb
+
+    vault = vault_root or DEFAULT_VAULT_ROOT
 
     def _fail(reason):
         logger.error(f"[AijomoojinProducer] 캐러셀 업로드 중단 — pending 유지 | content_id={content_id} | {reason}")
@@ -1623,13 +1717,13 @@ def _upload_aijomoojin_carousel(content_id: str, fields: dict) -> str:
 
     urls = []
     for rel in paths:
-        upload = upload_local_file_to_imgbb(str(DEFAULT_VAULT_ROOT / rel))
+        upload = upload_local_file_to_imgbb(str(vault / rel))
         if not upload.get("success"):
             return _fail(f"UPLOAD_FAILED slide={len(urls) + 1} | {redact_sensitive(str(upload.get('error')))}")
         urls.append(upload.get("public_url", ""))
     if len(set(urls)) != slide_count or not all(str(u).startswith("https://") for u in urls):
         return _fail("CAROUSEL_URLS_INVALID")
-    if not update_frontmatter_fields(content_id, {"carousel_image_urls": urls}, DEFAULT_VAULT_ROOT):
+    if not update_frontmatter_fields(content_id, {"carousel_image_urls": urls}, vault):
         return _fail("VAULT_URL_WRITE_FAILED")
     return urls[0]
 
@@ -1662,7 +1756,8 @@ def _try_aijomoojin_news_topic(repo) -> tuple:
 
 
 @handle_errors(task="aijomoojin_content_producer", notify_fn=_slack)
-def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
+def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
+                                     account_code: str = AIJOMOOJIN_PRODUCER_ACCOUNT_CODE):
     """260804 Track B 6G — aijomoojin 전용 콘텐츠 Producer(Sourcebook Topic →
     캡션·이미지 → Vault → Airtable ready). 매일 05:00/08:00/11:00/14:00/17:00
     ICT(각 게시 슬롯 1시간 전, 260810부터 5슬롯으로 확대)에 실행 — 하루 목표
@@ -1716,14 +1811,27 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
     막는 것은 `_job_insta_upload()`의 그 Flag 기반 skip 조건인데, Producer만
     켜고 그 Flag를 깜빡하면(또는 끄면) 5분 폴링 Job이 그 ready를 슬롯 밖
     아무 때나 즉시 게시해버린다 — 두 Flag가 항상 함께 켜져야 하는 계약을
-    코드로 강제한다(사람이 실수로 하나만 켜는 것을 차단)."""
-    producer_flag = os.getenv("AIJOMOOJIN_CONTENT_PRODUCER_ENABLED", "false").strip().lower() == "true"
-    slot_flag = os.getenv("AIJOMOOJIN_SLOT_SCHEDULE_ENABLED", "false").strip().lower() == "true"
+    코드로 강제한다(사람이 실수로 하나만 켜는 것을 차단).
+
+    261024 STEP 2 — `account_code`(기본 IDN-000036)로 CONTENT_ACCOUNTS의 계정 설정(Flag 접두사·
+    credential_key·vault·Lock·NEWS 여부)을 고른다. 목록에 없는 계정은 아무것도 하지 않고 종료."""
+    acct = CONTENT_ACCOUNTS.get(account_code)
+    if acct is None:
+        logger.error(f"[AijomoojinProducer] 계정 설정 없음 — 이번 실행 스킵 | account_code={account_code}")
+        return
+    producer_flag = _account_flag(acct, "CONTENT_PRODUCER_ENABLED") == "true"
+    slot_flag = _account_flag(acct, "SLOT_SCHEDULE_ENABLED") == "true"
     if not (producer_flag and slot_flag):
         logger.info(
             "[AijomoojinProducer] Flag 조합 불충족(Producer=%s, SlotSchedule=%s) — "
-            "이번 실행 스킵", producer_flag, slot_flag,
+            "이번 실행 스킵 | account_code=%s", producer_flag, slot_flag, account_code,
         )
+        return
+    if not _require_own_gemini_key(acct, "AijomoojinProducer"):
+        return
+    if (acct.vault_root is not None and not acct.brand_handle
+            and (_account_flag(acct, "CAROUSEL_ENABLED") == "true" or _account_flag(acct, "HERO_CARD_ENABLED") == "true")):
+        logger.error(f"[AijomoojinProducer] brand_handle 미설정 계정의 카드 기능 — 진행하지 않음 | account_code={account_code}")
         return
 
     from modules.common import producer_lock
@@ -1739,8 +1847,11 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
     )
     from modules.sns.image_hosting import upload_local_file_to_imgbb
 
+    vault = acct.vault_root or DEFAULT_VAULT_ROOT
+    # aijomoojin은 기존 호출 그대로(lock_name 인자 없음), 새 계정만 자기 Lock 행을 쓴다.
+    lock_kwargs = {} if acct.vault_root is None else {"lock_name": acct.lock_name}
     owner_token = producer_lock.new_owner_token()
-    if not producer_lock.acquire(owner_token):
+    if not producer_lock.acquire(owner_token, **lock_kwargs):
         # 260804 Codex 3차 리뷰(P1) 수정 — Lock에는 PID/host가 없어(의도적으로
         # Lease/Heartbeat를 안 만들었음) "반복되면 그냥 풀어라"는 안내는 위험하다
         # — 정상적으로 오래 걸리는 실행(Gemini/Cloudflare 대기 등) 중에 실수로
@@ -1748,22 +1859,24 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
         # 바꾸고, `tools/check_aijomoojin_producer_lock.py`(Read-only 상태확인
         # CLI, 신규 tracked)를 안내한다 — force_release() 자체는 여전히 사람이
         # 직접 실행해야 하는 별도 함수(코드 경로에서 호출 안 함).
-        holder = producer_lock.get_holder()
+        holder = producer_lock.get_holder(**lock_kwargs)
         logger.info("[AijomoojinProducer] Lock 선점 실패(다른 실행 진행 중) — 이번 실행 스킵 | holder=%s", holder)
         if _slack:
             _slack(
                 f"[알림] aijomoojin Producer Lock 선점 실패 — 다른 실행이 보유 중입니다\n"
                 f"holder={holder}\n"
+                f"account_code={account_code} | lock_name={acct.lock_name}\n"
                 f"(반복되면: launcher/수동 실행 프로세스가 실제로 종료됐는지 먼저 "
-                f"확인한 뒤에만 producer_lock.force_release()로 수동 해제하세요 — "
-                f"`tools/check_aijomoojin_producer_lock.py`로 상태 확인 가능)"
+                f"확인한 뒤에만 producer_lock.force_release(lock_name=\"{acct.lock_name}\")로 "
+                f"수동 해제하세요 — `tools/check_aijomoojin_producer_lock.py --account-code "
+                f"{account_code}`로 상태 확인 가능)"
             )
         return
 
     try:
         repo = AirtableRepository()
 
-        active_status = repo.get_active_post_status_for_account(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE)
+        active_status = repo.get_active_post_status_for_account(account_code)
         if active_status == "uploading":
             logger.warning("[AijomoojinProducer] uploading 레코드 발견 — HOLD, 신규 생성 안 함")
             if _slack:
@@ -1777,7 +1890,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             return
 
         try:
-            pending_content_ids = find_pending_channel_packages(DEFAULT_VAULT_ROOT)
+            pending_content_ids = find_pending_channel_packages(vault)
         except VaultScanError as exc:
             logger.error(f"[AijomoojinProducer] Vault 스캔 실패 — 이번 실행 중단 | {exc}")
             if _slack:
@@ -1789,7 +1902,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
         # 재개한다(stale은 전부 건드리지 않고 그냥 지나침, 회장 필수조건 7).
         content_id = None
         for candidate_id in pending_content_ids:
-            candidate_fields = read_frontmatter(candidate_id, DEFAULT_VAULT_ROOT)
+            candidate_fields = read_frontmatter(candidate_id, vault)
             candidate_source_url = candidate_fields.get("source_url", "") if candidate_fields else ""
             # 260924 P1-2 Sprint2 — stale 판정을 패키지 단위(content_id)로 분리한다.
             # source_url 판정은 같은 주제를 반복 재사용하는 운영과 충돌해, 한 번도
@@ -1799,12 +1912,12 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             # source_url 판정을 그대로 유지한다(날짜 기준 분기 없음).
             if _is_legacy_package(candidate_fields):
                 already_in_airtable = (
-                    repo.find_account_post_by_source_url(AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, candidate_source_url)
+                    repo.find_account_post_by_source_url(account_code, candidate_source_url)
                     if candidate_source_url else False
                 )
             else:
                 already_in_airtable = repo.find_account_post_by_content_id(
-                    AIJOMOOJIN_PRODUCER_ACCOUNT_CODE, candidate_id
+                    account_code, candidate_id
                 )
             if already_in_airtable:
                 logger.info(
@@ -1837,7 +1950,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
                 resolve_gemini_credential,
             )
             try:
-                gemini_cred = resolve_gemini_credential(AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY)
+                gemini_cred = resolve_gemini_credential(acct.credential_key)
             except CredentialResolutionError as exc:
                 logger.error(
                     "[AijomoojinProducer] 전용 Gemini 자격증명 없음 — 공유 Key로 "
@@ -1847,7 +1960,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
                 if _slack:
                     _slack(
                         "[알림] aijomoojin Producer — 전용 Gemini 자격증명(credential_key="
-                        f"{AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY}) 조회 실패. 공유 Key로 "
+                        f"{acct.credential_key}) 조회 실패. 공유 Key로 "
                         "대체하지 않고 이번 실행을 중단합니다(MISSING_PERSONA_GEMINI_CREDENTIAL)."
                     )
                 return
@@ -1861,20 +1974,21 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             # 충돌하지 않는다 — content_id 결정성/캡션 정확일치 dedup/일일
             # source_url 제한은 hero_card_enabled 여부와 무관하게 그대로 유지.
             hero_card_enabled = (
-                os.getenv("AIJOMOOJIN_HERO_CARD_ENABLED", "false").strip().lower() == "true"
+                _account_flag(acct, "HERO_CARD_ENABLED") == "true"
             )
             package_kwargs = dict(
                 target_language="ko", slot_role=slot_role, template_type=template_type,
                 gemini_client=aijomoojin_gemini_client,
                 gemini_model=AIJOMOOJIN_PRODUCER_GEMINI_MODEL,
                 hero_card_enabled=hero_card_enabled,
+                **_package_kwargs(acct),
             )
             # 261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지. 기본 false(off): 슬롯 게시가 캐러셀을
             # 판별·게시하는 단계(4-AG)가 들어가기 전에는 켜지 않는다.
-            if os.getenv("AIJOMOOJIN_CAROUSEL_ENABLED", "false").strip().lower() == "true":
+            if _account_flag(acct, "CAROUSEL_ENABLED") == "true":
                 package_kwargs["carousel_slide_count"] = AIJOMOOJIN_CAROUSEL_SLIDE_COUNT
                 # 261023 STEP 4-AM — "note"면 장별 노트 손그림 캐러셀. 비어 있으면 기존 템플릿 그대로.
-                carousel_style = os.getenv("AIJOMOOJIN_CAROUSEL_STYLE", "").strip().lower()
+                carousel_style = _account_flag(acct, "CAROUSEL_STYLE", "")
                 if carousel_style == "note":
                     package_kwargs["carousel_style"] = "note"
                 elif carousel_style:
@@ -1883,7 +1997,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             # 261022 STEP 4-G — 미국 AI 뉴스(Sourcebook 14.x 피드). Flag가 비어 있으면
             # 이 분기에 들어가지 않아 기존 호출과 같다. 스케줄러는 producer_hour를
             # 넘기지 않으므로 실행 시각(ICT)으로 판정한다.
-            news_hours = _aijomoojin_news_hours()
+            news_hours = _aijomoojin_news_hours() if acct.news_enabled else set()
             run_hour = producer_hour if producer_hour is not None else _ict_now().hour
             if news_hours and run_hour in news_hours:
                 news_topic, news_code = _try_aijomoojin_news_topic(repo)
@@ -1927,14 +2041,14 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
             content_id = result.content_id
             logger.info(f"[AijomoojinProducer] 신규 패키지 생성 | content_id={content_id}")
 
-        fields = read_frontmatter(content_id, DEFAULT_VAULT_ROOT)
+        fields = read_frontmatter(content_id, vault)
         if fields is None:
             logger.error(f"[AijomoojinProducer] frontmatter 재읽기 실패 — 이번 실행 중단 | content_id={content_id}")
             return
         caption = fields.get("caption", "")
         hashtags = (fields.get("hashtags") or "").strip()
         source_url = fields.get("source_url", "")
-        _, img_path = _content_paths(content_id, DEFAULT_VAULT_ROOT)
+        _, img_path = _content_paths(content_id, vault)
 
         package_kind = _classify_aijomoojin_package(content_id, fields)
         if package_kind.startswith("hold:"):
@@ -1948,7 +2062,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
         if package_kind == "carousel":
             # 261023 STEP 4-AF — v3 캐러셀: N장 모두 순서대로 업로드·검증·Vault 기록에 성공해야
             # Airtable에 저장한다. 하나라도 실패하면 pending 유지(단일 이미지로 대체하지 않음).
-            image_url = _upload_aijomoojin_carousel(content_id, fields)
+            image_url = _upload_aijomoojin_carousel(content_id, fields, **_vault_kwargs(acct))
             if not image_url:
                 return
         else:
@@ -1976,7 +2090,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
 
         try:
             record_id = repo.save_instagram_post({
-                "account_code_ref": AIJOMOOJIN_PRODUCER_ACCOUNT_CODE,
+                "account_code_ref": account_code,
                 "image_url": image_url,
                 "caption": caption,
                 # 261022 — Vault hashtags를 게시용 hashtag 칸에도 저장(슬롯 게시가 caption+hashtag로 합침).
@@ -2022,7 +2136,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
                 "content_id=%s", content_id,
             )
 
-        marked = mark_channel_status(content_id, "queued", DEFAULT_VAULT_ROOT)
+        marked = mark_channel_status(content_id, "queued", vault)
         if not marked:
             logger.error(
                 "[AijomoojinProducer] Airtable 저장은 성공했으나 channel_status 전환 실패 — "
@@ -2037,7 +2151,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None):
 
         logger.info(f"[AijomoojinProducer] 완료 | content_id={content_id} | record_id={record_id}")
     finally:
-        producer_lock.release(owner_token)
+        producer_lock.release(owner_token, **lock_kwargs)
 
 
 # ── STEP 3-G+ (회장/GPT 260902) : YUNA 해외 친구요청 분산 스케줄 ───────────────
@@ -2362,7 +2476,7 @@ def _on_aijomoojin_job_missed(event) -> None:
     바꿨다. 이 리스너는 관측만 하며, 재시도/캐치업은 하지 않는다(기존 스킵 설계 무변경).
     aijomoojin 외 다른 Job(5분 간격 폴러 등)은 알림 폭주 방지를 위해 대상에서 뺀다."""
     job_id = getattr(event, "job_id", "") or ""
-    if not job_id.startswith("aijomoojin_"):
+    if not job_id.startswith(("aijomoojin_", "content_slot_", "content_producer_")):  # 261024 STEP 2
         return
     scheduled = getattr(event, "scheduled_run_time", None)
     logger.error(f"[MissedSlot] {job_id} 스킵됨(60초 초과) | scheduled_run_time={scheduled}")
@@ -2492,6 +2606,28 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
                 _job_aijomoojin_content_producer, "cron",
                 hour=_producer_hour, minute=0, timezone="Asia/Bangkok",
                 id=f"aijomoojin_producer_{_producer_hour:02d}00",
+                max_instances=1, coalesce=False, misfire_grace_time=60,
+            )
+    # 261024 STEP 2 — 공통 엔진의 새 계정(aijomoojin 외). 그 계정의 CONTENT_PRODUCER·SLOT_SCHEDULE
+    # 두 Flag가 모두 true일 때만 게시·Producer 잡을 등록한다(기본 미등록). 시각은 aijomoojin과 같다.
+    for _acct in CONTENT_ACCOUNTS.values():
+        if _acct.vault_root is None:
+            continue
+        if not (_account_flag(_acct, "CONTENT_PRODUCER_ENABLED") == "true"
+                and _account_flag(_acct, "SLOT_SCHEDULE_ENABLED") == "true"):
+            continue
+        for _slot_hour in (6, 9, 12, 15, 18):
+            sched.add_job(
+                _job_aijomoojin_scheduled_post, "cron", kwargs={"account_code": _acct.account_code},
+                hour=_slot_hour, minute=0, timezone="Asia/Bangkok",
+                id=f"content_slot_{_acct.account_code}_{_slot_hour:02d}00",
+                max_instances=1, coalesce=False, misfire_grace_time=60,
+            )
+        for _producer_hour in (5, 8, 11, 14, 17):
+            sched.add_job(
+                _job_aijomoojin_content_producer, "cron", kwargs={"account_code": _acct.account_code},
+                hour=_producer_hour, minute=0, timezone="Asia/Bangkok",
+                id=f"content_producer_{_acct.account_code}_{_producer_hour:02d}00",
                 max_instances=1, coalesce=False, misfire_grace_time=60,
             )
     # 260903 STEP 3-G — YUNA 친구요청 24시간 분산(회장 지시). 기본 false(미등록).

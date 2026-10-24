@@ -30,6 +30,7 @@ from pathlib import Path
 
 _DB_PATH = Path(__file__).resolve().parents[2] / "db" / "producer_lock.db"
 _LOCK_NAME = "aijomoojin_content_producer"
+# 261024 STEP 2 — 계정별 Producer(공통 엔진)는 lock_name 인자로 계정마다 다른 행을 쓴다. 생략하면 기존 값.
 
 _SCHEMA = """
     CREATE TABLE IF NOT EXISTS producer_lock (
@@ -53,7 +54,7 @@ def new_owner_token() -> str:
     return uuid.uuid4().hex
 
 
-def acquire(owner_token: str, *, db_path: "Path | None" = None) -> bool:
+def acquire(owner_token: str, *, db_path: "Path | None" = None, lock_name: str = _LOCK_NAME) -> bool:
     """Lock을 원자적으로 선점한다. 이미 다른 owner가 보유 중이면 False(대기·재시도
     없음 — 호출자가 즉시 스킵해야 한다). 자동 만료가 없으므로, 이미 이 Lock이
     걸려 있다는 건 "다른 실행이 아직 끝나지 않았거나 비정상 종료로 안 풀렸다"는
@@ -63,7 +64,7 @@ def acquire(owner_token: str, *, db_path: "Path | None" = None) -> bool:
         try:
             conn.execute(
                 "INSERT INTO producer_lock (lock_name, owner_token, acquired_at) VALUES (?, ?, ?)",
-                (_LOCK_NAME, owner_token, now),
+                (lock_name, owner_token, now),
             )
             conn.commit()
         except sqlite3.IntegrityError:
@@ -71,19 +72,19 @@ def acquire(owner_token: str, *, db_path: "Path | None" = None) -> bool:
     return True
 
 
-def release(owner_token: str, *, db_path: "Path | None" = None) -> bool:
+def release(owner_token: str, *, db_path: "Path | None" = None, lock_name: str = _LOCK_NAME) -> bool:
     """owner_token이 실제 보유자와 일치할 때만 해제한다(다른 프로세스의 Lock을
     실수로 풀지 못하게). 일치하지 않거나 애초에 안 걸려 있으면 False."""
     with _connect(db_path) as conn:
         cursor = conn.execute(
             "DELETE FROM producer_lock WHERE lock_name = ? AND owner_token = ?",
-            (_LOCK_NAME, owner_token),
+            (lock_name, owner_token),
         )
         conn.commit()
         return cursor.rowcount == 1
 
 
-def get_holder(*, db_path: "Path | None" = None) -> "dict | None":
+def get_holder(*, db_path: "Path | None" = None, lock_name: str = _LOCK_NAME) -> "dict | None":
     """진짜 Read-only — 현재 Lock을 누가 갖고 있는지 확인(사람이 수동 해제 판단할
     때 사용). 260804 Codex 4차 리뷰 지적 — 이전엔 `_connect()`를 거쳐 디렉터리·
     DB 파일·테이블을 없으면 만들어버렸다(mkdir + CREATE TABLE + commit) — "Read-only
@@ -97,7 +98,7 @@ def get_holder(*, db_path: "Path | None" = None) -> "dict | None":
     try:
         row = conn.execute(
             "SELECT owner_token, acquired_at FROM producer_lock WHERE lock_name = ?",
-            (_LOCK_NAME,),
+            (lock_name,),
         ).fetchone()
     except sqlite3.OperationalError:
         # 파일은 있으나 테이블이 아직 없는 극단적 경우 — Lock 없음과 동일 취급.
@@ -107,11 +108,11 @@ def get_holder(*, db_path: "Path | None" = None) -> "dict | None":
     return {"owner_token": row[0], "acquired_at": row[1]} if row else None
 
 
-def force_release(*, db_path: "Path | None" = None) -> bool:
+def force_release(*, db_path: "Path | None" = None, lock_name: str = _LOCK_NAME) -> bool:
     """사람이 수동으로 강제 해제할 때만 사용한다(owner_token 불문). 코드 경로
     (Producer Job/수동 스크립트)는 이 함수를 호출하지 않는다 — 운영자가 직접
     실행해야 하는 사람 개입 전용 함수(Lease/Heartbeat 자동 해제 대체 아님)."""
     with _connect(db_path) as conn:
-        cursor = conn.execute("DELETE FROM producer_lock WHERE lock_name = ?", (_LOCK_NAME,))
+        cursor = conn.execute("DELETE FROM producer_lock WHERE lock_name = ?", (lock_name,))
         conn.commit()
         return cursor.rowcount == 1

@@ -314,8 +314,13 @@ def _cleanup(*paths: Path) -> None:
             pass
 
 
+def _brand_kw(brand_handle: str) -> dict:
+    """261024 STEP 2 — 계정별 카드 하단 핸들. 빈 값이면 렌더러 기본값(BRAND_HANDLE) 그대로."""
+    return {"brand": brand_handle} if brand_handle else {}
+
+
 def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model=None,
-                           headline_override: "str | None" = None) -> "bytes | None":
+                           headline_override: "str | None" = None, brand_handle: str = "") -> "bytes | None":
     """260811 Visual Type Wiring — 텍스트 생성(hero_card_content_builder)+
     텍스트없는 AI배경(visual_brief.build_background_only_prompt+generate_image)+
     Pillow 렌더링(render_hero_card)을 순서대로 실행한다. 어느 단계든 실패하면
@@ -355,6 +360,7 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
         tagline=text_content.tagline,
         source_label=topic.title,
         ai_background=bg_result.image_bytes,
+        **_brand_kw(brand_handle),
     )
     try:
         return render_hero_card(hero_content)
@@ -392,8 +398,8 @@ _NOTE_SKETCH_RETRY_SUFFIX = (
 )
 
 
-def _build_note_carousel_images(topic, carousel, *, client=None, throttle_fn=None, model=None
-                                ) -> "tuple[list[bytes] | None, str]":
+def _build_note_carousel_images(topic, carousel, *, client=None, throttle_fn=None, model=None,
+                                brand_handle: str = "") -> "tuple[list[bytes] | None, str]":
     """장별 image_scene으로 손그림을 만들고 Gemini로 글자·로고를 판독한다. 걸린 장만 다시 만들고
     (장당 최대 NOTE_IMAGE_MAX_REGENERATIONS회), 끝까지 걸리거나 판독이 실패하면 (None, 사유)."""
     slides = carousel.slides
@@ -430,7 +436,7 @@ def _build_note_carousel_images(topic, carousel, *, client=None, throttle_fn=Non
         try:
             images.append(render_note_card(NoteCardContent(
                 text=slide.text, sketch=sketches[i], page=i + 1, total=len(slides),
-                source_label=topic.title, is_cover=(i == 0),
+                source_label=topic.title, is_cover=(i == 0), **_brand_kw(brand_handle),
             )))
         except (ValueError, OSError) as exc:
             logger.warning(f"[NoteCarousel] 카드 렌더링 실패 | slide={i + 1} | {type(exc).__name__}")
@@ -446,7 +452,7 @@ def carousel_slide_image_paths(content_id: str, slide_count: int) -> "list[str]"
 def _create_carousel_package(
     topic, content_id: str, root: Path, slide_count: int, tone_style: str,
     slot_role: str, template_type: str, *, client=None, throttle_fn=None, model=None,
-    carousel_style: str = "template",
+    carousel_style: str = "template", brand_handle: str = "",
 ) -> PackageResult:
     """261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지(.md + N장 PNG). 텍스트·Safety·렌더링·쓰기
     중 하나라도 실패하면 파일을 하나도 남기지 않고 실패한다(단일 이미지로 대체하지 않음).
@@ -472,7 +478,7 @@ def _create_carousel_package(
 
     if carousel_style == "note":
         images, image_error = _build_note_carousel_images(
-            topic, carousel, client=client, throttle_fn=throttle_fn, model=model,
+            topic, carousel, client=client, throttle_fn=throttle_fn, model=model, brand_handle=brand_handle,
         )
         if images is None:
             return PackageResult(success=False, error_code=image_error, content_id=content_id)
@@ -482,7 +488,7 @@ def _create_carousel_package(
             topic.topic_id, topic.core_message, topic.title, topic.prohibited_expression, tone_style
         )
         cover = _build_hero_card_image(topic, brief, client=client, throttle_fn=throttle_fn, model=model,
-                                       headline_override=cover_title)
+                                       headline_override=cover_title, brand_handle=brand_handle)
         if cover is None:
             return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
         images = [cover]
@@ -490,7 +496,7 @@ def _create_carousel_package(
             try:
                 images.append(render_card(CardContent(
                     template_type="SOURCE_CARD", hook=cover_title, core_message=slide.text,
-                    source_label=topic.title,
+                    source_label=topic.title, **_brand_kw(brand_handle),
                 )))
             except (ValueError, OSError) as exc:
                 logger.warning(f"[CarouselPackage] 본문 장 렌더링 실패 | slide={slide.index} | {type(exc).__name__}")
@@ -564,8 +570,11 @@ def create_content_package(
     hero_card_enabled: bool = False,
     carousel_slide_count: "int | None" = None,
     carousel_style: str = "template",
+    brand_handle: str = "",
 ) -> PackageResult:
-    """260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
+    """261024 STEP 2 — `brand_handle`(선택, 기본 "")은 카드 하단 계정 핸들. 비우면 기존 @aijomoojin.
+
+    260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
     Adapter(`modules/sns/research_to_topic_adapter.py`)가 이미 선정·검증한
     `source_selector.SourceTopic`을 그대로 사용하고 싶을 때만 전달한다.
     생략하면(기존 모든 호출부 그대로) 이전과 100% 동일하게 내부에서
@@ -647,7 +656,7 @@ def create_content_package(
             topic, content_id, root, carousel_slide_count, tone_style,
             slot_role or "REACH", template_type or "HOOK_IMPACT",
             client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
-            carousel_style=carousel_style,
+            carousel_style=carousel_style, brand_handle=brand_handle,
         )
 
     caption, hashtags = generate_hook_caption(
@@ -683,7 +692,7 @@ def create_content_package(
         # 직접 트리거·확인). 자동 슬롯 반영 전 별도 승인·설계 필요.
         image_bytes = _build_hero_card_image(
             topic, brief,
-            client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
+            client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model, brand_handle=brand_handle,
         )
         if image_bytes is None:
             return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
