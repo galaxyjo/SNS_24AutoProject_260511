@@ -501,6 +501,21 @@ class TestUnreadableNextCandidate:
         assert "injected_topic" not in producer_env.create_calls[0]
         assert all("NEWS_QUOTA" not in m for m in producer_env.slack)
 
+    def test_d_first_irrelevant_second_ready(self, producer_env, monkeypatch):
+        """261024 STEP 4-BC — 관련성 탈락도 다음 후보 1건을 본다."""
+        calls = self._patch(producer_env, monkeypatch, ["NEWS_IRRELEVANT", "NEWS_READY"])
+        producer_env.main._job_aijomoojin_content_producer()
+        assert calls["select"] == [set(), {"https://news.example/first"}]
+        assert calls["analyze"] == ["https://news.example/first", "https://news.example/second"]
+        assert producer_env.create_calls[0]["injected_topic"].source_url == "https://news.example/second"
+
+    def test_e_both_irrelevant_falls_back_to_sourcebook(self, producer_env, monkeypatch):
+        calls = self._patch(producer_env, monkeypatch, ["NEWS_IRRELEVANT", "NEWS_IRRELEVANT"])
+        producer_env.main._job_aijomoojin_content_producer()
+        assert len(calls["select"]) == 2 and len(calls["analyze"]) == 2   # Gemini 최대 2회 유지
+        assert len(producer_env.create_calls) == 1
+        assert "injected_topic" not in producer_env.create_calls[0]
+
     def test_url_fail_does_not_try_next_candidate(self, producer_env, monkeypatch):
         calls = self._patch(producer_env, monkeypatch, ["NEWS_URL_FAIL"])
         producer_env.main._job_aijomoojin_content_producer()
