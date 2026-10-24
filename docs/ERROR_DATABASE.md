@@ -1952,6 +1952,7 @@ watchdog.log(같은 구간):
 
 **Risk:** `HIGH` — 운영 계정용 콘텐츠·이미지·외부 이미지 URL까지 생성된 뒤 Queue 저장만 실패하므로, 단순 재실행 시 비용 중복과 부분상태/중복 위험을 만든다. 이번에는 동일 산출물 식별자와 외부 상태를 확인한 뒤 Record만 복구해 중복 0건으로 종결했다.
 
+**재발(261024 09:41 ICT):** Claude Code가 비관리자 권한으로 `tools/run_aijomoojin_producer_manual.py`를 실행 → 12-6 패키지 생성 후 Airtable 저장 단계에서 `Runtime Boot Policy 상태 확인 실패`(`C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` ACL = SYSTEM·Administrators만)로 Fail-closed, pending 유지·재시도 없음. 09:44 회장 관리자 PowerShell 재실행이 같은 패키지를 재개해 `recxcXUDywWOxiMBZ` 저장(재생성 없음). 결론: 수동 producer·publish는 관리자 창에서만 실행(설계대로, 코드 변경 없음).
 **Status:** RESOLVED — External-First Gate로 비상승 admin Canary의 preflight 누락과 raw `PermissionError/OSError` 미변환을 분리했다. `canary_safe_mode.py`가 정책 파일 접근 오류를 typed `CanarySafeModeError`로 fail-closed 변환하고, ignored Canary는 P0 Boot Policy→P1 Account Context를 외부 상태변경 전에 수행하도록 수정했다. Active Python 3.10에서 기존 Boot Policy 테스트 20/20 및 Canary Mock EXIT 4/5/0·외부 호출 0건 PASS. tracked 2파일 Commit `b98afa178a28b3206cbbe5a327994e425b4cdb43` Push 완료. 일반 admin ACL 확대·신규 서비스·dependency 추가는 하지 않았다.
 
 **Closed Gate 재확인(260804):** 6F #3/3(`rechmKYrCZx4e0RGt`)이 이 수정이 적용된 Runtime에서 boot-policy 접근 오류 없이 정상 처리됐다 — 재발 0건.
@@ -3133,3 +3134,12 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **조치:** 회장 위험 수용 — 추후 Key 일괄 재발급으로 결정(261024). 새 평문 노출은 계속 금지. 이 문서에 값·일부·해시를 기록하지 않음.
 - **관련:** FP-113, ERR-165
 - **상태:** OPEN(교체 예정)
+
+## ERR-168 | Cloudflare Workers AI 무료 일일 10,000 neurons 소진(HTTP 429) — 프로젝트 기록과 약 9,200 neurons 차이, 소비처 UNKNOWN — OPEN
+- **발견:** 261024 11:18:11 ICT, STEP 4-BD 수동 producer → 노트 1장 생성에서 `HTTP_429` → `IMAGE_GENERATION_FAILED`. 17:01 정규 producer도 같은 실패.
+- **Evidence:** 로그 원문 "you have used up your daily free allocation of 10,000 neurons, please upgrade to Cloudflare's Workers Paid plan". 로컬 `db/image_gen_quota.db`는 10-24 UTC 기준 14장(01:53~04:01 UTC). 공식 단가(flux-1-schnell: 512x512 타일당 4.80, step당 9.60 neurons) 기준 장당 약 57.6, 합계 약 806 neurons.
+- **Root Cause:** 소진 자체는 Confirmed(제공사 메시지). 나머지 약 9,200 neurons의 소비처는 UNKNOWN — 기존 토큰은 Cloudflare 사용량 API(`aiInferenceAdaptiveGroups`)·`/accounts`·`/user` 조회 권한이 없음(authz/403). 같은 Account ID(`1356…6b4b`)·토큰 1개를 전 계정이 공유.
+- **영향:** 11:18 이후 aijomoojin 노트 캐러셀 생성 불가(INC-067). 025 Canary 진행 불가(STEP 2-B HOLD).
+- **조치:** 없음(결제·코드 변경 없음). 무료 한도는 매일 07:00 ICT 초기화. 소비처 확인은 Cloudflare 대시보드(사람 로그인, 계정당 1회).
+- **관련:** INC-067, FP-114(이미지 생성 실패 시 Fail-closed 설계)
+- **상태:** OPEN

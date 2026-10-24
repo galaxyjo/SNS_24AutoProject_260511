@@ -3132,6 +3132,19 @@ push: 미실행 — origin/master=1ec92a7
 
 ---
 
+### 261022~23 — B2 크롤 계정 라우팅 · 해시태그 저장 · 미국 AI 뉴스(4-G~4-AA) · 2~4장 캐러셀 계약·게시(4-AE~4-AH) · CTA 정규화(4-AI)
+
+_261024 소급 기록 — 회장 제공 작업 기록(`명령어 결과값.txt`)과 git 커밋 메시지 대조로 누락분만 추가._
+
+- **B2 `17f01dd`(10-22):** Crawl_Targets `publish_account_code`로 크롤 글의 게시 계정 결정, 조건 불충족 대상은 사유 코드로 건너뜀(IDN-000041 대체 없음).
+- **`f6b6b5d`(10-23):** aijomoojin Producer가 Vault 해시태그를 Airtable `hashtag`에 저장(이전 30일 0/78건 미반영).
+- **NEWS `fb746dd`·`b06dedc`·`7f3bd9b`·`d02feda` + 문서 `ca7d5d4`(10-23):** Sourcebook 14.x RSS 72시간 뉴스, 중복 사전 확인, url_context만, 원문 못 읽으면 다른 매체 후보 1건, HF·GitHub Blog 우선, NEWS_QUOTA 즉시 중단. Flag `AIJOMOOJIN_NEWS_PRODUCER_HOURS` 비움(OFF).
+- **캐러셀 `d3a3869`(4-AE)·`bbf54d5`(4-AF/4-AG, 10-23):** 2~4장 텍스트 계약 + v3 패키지·게시·원장 직렬화. Live Canary https://www.instagram.com/p/De1PCEcn504/ . 4-AH Runtime `bbf54d5` 반영(Codex 검수문 기준).
+- **4-AI `b57692a`(10-23):** 순수 CTA 문장 위치 정규화, Codex PASS.
+- **Codex 검수 이력(10-23):** 4-AI PASS(17:12) · 4-AV PARTIAL(비마지막 장 명령형 공백) → `IMPERATIVE_NOT_LAST_SLIDE` 반례 추가 후 PASS · 4-AY CONDITIONAL PASS(공유 Key fallback·재생성 문구 소품명·OFL 누락) → 수정 후 PASS(20:19).
+
+---
+
 ### 261023 — AIJOMOOJIN 노트 손그림 캐러셀 + 카피 고도화 (커밋 `09cadae`, `231ecd6`, `eea86ed` / 4-BB 미커밋)
 
 - **배경:** 17:28 실게시 캐러셀(De1V9sLH1ip) — 표지 AI 배경과 회색 본문 템플릿이 따로 논다는 회장 판단. 샘플 비교 후 "장별 글 내용 맞춤 노트 손그림 + 손글씨"로 확정.
@@ -3142,6 +3155,16 @@ push: 미실행 — origin/master=1ec92a7
 - **실게시:** 12-3 → https://www.instagram.com/p/De12HeqHwgV/ (CAROUSEL_ALBUM, children 3, media_id 18642376105001870).
 - **4-BB(미커밋):** 프롬프트를 정보 전달 우선(뉴스 가치 → 핵심 사실 → 사용법 + CTA, NEWS/GUIDE 구분)으로 교체. Target 158 passed.
 - **미실행:** push(origin 대비 21커밋), 4-BB 커밋·재시작·게시(10-24 07:00 ICT 이후 회장 지시), eea86ed 정규 스케줄러 반영(다음 재시작).
+
+---
+
+### 261024 오전 — 4-BB 반영·게시 2건 · 4-BC 뉴스 재선택 · 4-BD 뉴스 실게시 HOLD (커밋 `c5996bc`, `46c76a5`, `f53e1eb`)
+
+- **4-BB `c5996bc`(08:49):** 정보 전달 우선 카피 커밋 → 재시작(Runtime `c5996bc`) → 수동 producer 12-4 → 08:55 게시 De3AFwHkiMi. 05:00 producer는 이미지 상한, 08:00 producer는 옛 코드 `COVER_TITLE_INVALID`로 실패(오게시 0).
+- **4-BB 보완 `46c76a5`(09:26):** 질문형 뉴스 제목·Fact·Action·주제 CTA. Codex 미검수(프롬프트 변경, 회장 직접 승인). 09:30 재시작 → 12-6 → 09:45 게시 De3F1s5Ev9S. 비관리자 수동 producer는 Boot Policy 거부(ERR-101 재발) → 관리자 재실행.
+- **4-BC `f53e1eb`(10:58):** NEWS_IRRELEVANT도 다른 매체 후보 1건 재선택.
+- **4-BD(HOLD):** `.env` NEWS 시각 11 활성 → 11:15 재시작(Runtime `f53e1eb`) → 뉴스 후보 2건 모두 탈락 → Sourcebook 전환 → Cloudflare 429. 이후 이미지 API 조사(Cloudflare 무료 10,000 neurons/일, 무제한 아님, 소비처 UNKNOWN — ERR-168), INC-067(09:45 이후 게시 0건).
+- **비-git 상태 변경:** `.env` `AIJOMOOJIN_NEWS_PRODUCER_HOURS=11`(백업 `backup/pre_4BD_261024.env`), launcher 재시작 3회(c5996bc·46c76a5·f53e1eb).
 
 ---
 

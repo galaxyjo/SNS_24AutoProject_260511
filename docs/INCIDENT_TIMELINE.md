@@ -1113,3 +1113,12 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **잠재 영향:** 그대로 두면 다음 정규 슬롯(10-24 06:00 ICT)이 결함 이미지 캐러셀을 자동 게시. 실제 게시 0건.
 **조치:** 회장 승인으로 post_status `ready`→`rejected`(1건, 재조회 확인). 렌더러 수정 후 12-3을 새로 만들어 22:09 게시(https://www.instagram.com/p/De12HeqHwgV/).
 **상태:** 종료. 상세: ERR-163, FP-115.
+
+---
+
+## INC-067 | 261024 aijomoojin 자동 게시 정지 — 09:45 이후 게시 0건(이미지 생성 실패 연속)
+
+**발생:** 2026-10-24. 05:01 producer `IMAGE_GENERATION_FAILED`(전날 로컬 상한 50장 도달) · 08:00 producer `COVER_TITLE_INVALID`(재시작 전 옛 코드) · 11:01 producer `IMAGE_TEXT_CHECK_FAILED` · 11:18 수동 producer `IMAGE_GENERATION_FAILED`(Cloudflare 429, ERR-168) · 17:01 producer `IMAGE_GENERATION_FAILED`.
+**영향:** 정규 슬롯 06:00·09:00·18:00 "ready 후보 없음" 로그 확인. 이날 게시는 수동 2건(08:55 De3AFwHkiMi, 09:45 De3F1s5Ev9S)뿐. 오게시·중복 게시 0건(전부 Fail-closed).
+**조치:** 없음 — Cloudflare 무료 한도 초기화(07:00 ICT) 대기, 결제·공급자 변경은 회장 결정 사항.
+**상태:** 진행 중. 상세: ERR-168.

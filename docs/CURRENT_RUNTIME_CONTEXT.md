@@ -12,6 +12,7 @@ IDN-000025(@rhrl201010, PER-024, KR)에 노트 캐러셀 3장 1건 실게시 성
 - **코드:** `7bb27a1` 공통 엔진(ContentAccount). 036 동작 보존, YURA 경로 불변. Codex 4차 APPROVE, 신규 테스트 55 PASS(관련 674 passed / 기존 baseline 실패 17, 신규 실패 0).
 - **025 준비:** 전용 Gemini Key `.env` 279~281행(STEP 2-A SUCCESS). Airtable(회장 승인 261024 ~20:20) Account_Registry IDN-000025 `automation_enabled=true`, Persona_Profile PER-024 `active=true` — 재조회 확인. 025 Flag는 `.env`에 없음(OFF).
 - **이미지:** Cloudflare 무료 10,000 neurons/일 소진(429, 11:18·17:01 ICT). 프로젝트 기록 약 806 neurons와의 차이 약 9,200 — 소비처 UNKNOWN. 초기화 매일 07:00 ICT. Gemini 이미지(025 Key)도 429 RESOURCE_EXHAUSTED(무료 할당 없음). 기존 aijomoojin 카드 재사용은 원본 손그림 없음·@aijomoojin 각인·내용 불일치로 HOLD.
+- **aijomoojin 운영:** 오늘 게시 2건(08:55 De3AFwHkiMi, 09:45 De3F1s5Ev9S), 이후 이미지 실패로 0건(INC-067). `.env` `AIJOMOOJIN_NEWS_PRODUCER_HOURS=11` 활성(11:00 정규 producer가 NEWS 먼저 시도).
 - **Runtime 순서 위험:** 운영 `f53e1eb`의 5분 폴러는 036만 제외 → 025 ready가 생기면 단일 이미지로 게시될 수 있음. 025 Flag OFF 상태로 `7bb27a1` 재시작이 반드시 먼저.
 
 ## 합의된 다음 실행 (10-25 07:00 ICT 이후, 각 단계 별도 승인)
