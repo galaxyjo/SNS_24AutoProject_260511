@@ -556,29 +556,33 @@ def _build_prompt(
 
 # 261023 STEP 4-BB — 문제 제기형 일반 조언 대신 정보 전달 우선: ① 구체적 새 사실/변화 → ② 핵심 기능·차이
 # (입력·처리·결과) → ③ 실제 사용법·조건 + 마지막 CTA. 장수·글자수·CTA 위치·명령형 계약은 그대로다.
+# 261024 STEP 4-BB 보완 — 표지는 구체 정보가 든 질문형 뉴스 제목(권장 15~30자), 2장 Fact(제품명·새 기능·이전
+# 대비 차이·이용 조건), 3장 Action(도구 → 입력값 → 실행 방법 → 예상 결과), 4장은 비교·주의사항·체크리스트.
 _SHORT_NEWS_SLIDE = (
-    "   Slide 1 (news value): one line, at most 40 Korean characters, containing at least one real "
-    "product, feature or change named in the source plus why it matters to the reader. Not a bare "
-    "question and not a generic pain line; vary the form from post to post.\n"
+    "   Slide 1 (question hook): one line written like a professional news editor's headline that ends "
+    "with '?', ideally 15-30 Korean characters (never more than 40). It must name at least one concrete "
+    "item from the source — a real AI product name, new feature, update or the reader's practical gain — "
+    "and point at the key change; when the source title or content names a product, service or feature, "
+    "the headline must include that name in its shortest common form (e.g. 'Amazon Selling Partner API' → "
+    "'아마존 SP-API') so the line stays within the limit. Spark curiosity with the new fact, not with an emotional pain line; "
+    "no exaggeration, false claims or clickbait. Style reference only (facts must come from the source): "
+    "not '콘텐츠 기획하느라 지치셨나요?' but 'ChatGPT 신기능, 콘텐츠 기획 시간 얼마나 줄일까?'.\n"
 )
+_SHORT_FACT_SLIDE = (
+    "   Slide 2 (fact): the real product name, the new feature, how it differs from before and any usage "
+    "condition (plan, region, availability) stated in the source — short phrases joined by '·', at most "
+    "30 words. No vague benefits such as 업무 효율 향상 or 시간 절약.\n"
+)
+_SHORT_ACTION_TEXT = "tool → what to enter → how to run it → expected result, as short noun phrases, at most 30 words"
 _SHORT_SLIDE_PLANS = {
     2: (_SHORT_NEWS_SLIDE +
-        "   Slide 2 (how to use + CTA): the core feature in one line, then how a Korean business owner, "
-        "marketer or office worker can use it (tool or feature, what to enter, order, expected result, a "
-        "limit stated in the source), at most 30 words, ending with exactly one call to action.\n"),
-    3: (_SHORT_NEWS_SLIDE +
-        "   Slide 2 (key facts): 2-3 verified features, differences or limits from the source, written as "
-        "what goes in, what is handled and where the result ends up — short phrases joined by '·', at most "
-        "30 words. No vague benefits such as 업무 효율 향상 or 시간 절약.\n"
-        "   Slide 3 (practical use + CTA): one concrete way to use it now — tool or feature, what to enter, "
-        "order, expected result, and a limit stated in the source — at most 30 words, ending with exactly "
-        "one call to action.\n"),
-    4: (_SHORT_NEWS_SLIDE +
-        "   Slide 2 (key facts): 2-3 verified features, differences or limits from the source, short "
-        "phrases joined by '·', at most 30 words.\n"
-        "   Slide 3 (how it works or compared): the steps or the old-vs-new difference written as noun "
-        "phrases (e.g. 입력 → 처리 → 결과), at most 30 words. No request or call to action here.\n"
-        "   Slide 4 (practical use + CTA): who should use it and the one condition to check first, ending "
+        "   Slide 2 (fact + action + CTA): the product and new feature in one phrase, then "
+        + _SHORT_ACTION_TEXT + ", ending with exactly one call to action.\n"),
+    3: (_SHORT_NEWS_SLIDE + _SHORT_FACT_SLIDE +
+        "   Slide 3 (action + CTA): " + _SHORT_ACTION_TEXT + ", ending with exactly one call to action.\n"),
+    4: (_SHORT_NEWS_SLIDE + _SHORT_FACT_SLIDE +
+        "   Slide 3 (action): " + _SHORT_ACTION_TEXT + ". No request or call to action here.\n"
+        "   Slide 4 (extra + CTA): a short comparison, caution or checklist taken from the source, ending "
         "with exactly one call to action. Use a 4th slide only when the source has enough real detail.\n"),
 }
 _SHORT_COPY_STYLE = (
@@ -594,7 +598,14 @@ _SHORT_COPY_STYLE = (
     "No clichéd productivity advice, unsupported time-saving claims, repeated ad phrases or buzzwords "
     "such as 혁신, 효율성 증대, 극대화, 획기적. Do not connect every topic to repetitive-work automation. "
     "Requests or imperative lines may appear only on the last slide; write steps on other slides as noun "
-    "phrases. Detailed verified steps that do not fit the slides go in the caption.\n"
+    "phrases. Detailed verified steps that do not fit the slides go in the caption. Write like a news "
+    "article: the headline asks, the body states verified facts. Do not just translate the US source — "
+    "say what it practically means for Korean business owners, marketers and office workers. No filler "
+    "modifiers, repeated sentences or vague predictions.\n"
+    "CTA: pick the one action that fits this post's topic — save it for later use, share it with a "
+    "colleague who needs the feature, or comment which task they would apply it to (e.g. '실무 적용할 때 "
+    "보도록 저장하세요.', '이 기능이 필요한 동료에게 공유하세요.', '어떤 업무에 적용하고 싶나요? 댓글로 "
+    "알려주세요.'). Avoid an unconditional follow request and do not reuse one fixed phrase every time.\n"
 )
 
 

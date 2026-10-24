@@ -639,7 +639,10 @@ class TestShortHookCopyRules:
     @pytest.mark.parametrize("n", [2, 3, 4])
     def test_editor_role_and_news_value_in_prompt(self, monkeypatch, n):
         prompt = self._prompt(monkeypatch, n)
-        assert "Slide 1 (news value)" in prompt and "real product, feature or change" in prompt
+        assert "Slide 1 (question hook)" in prompt and "ends with '?'" in prompt     # 261024 질문형 표지
+        assert "ideally 15-30 Korean characters (never more than 40)" in prompt
+        assert "real AI product name, new feature, update" in prompt and "clickbait" in prompt
+        assert "the headline must include that name" in prompt
         assert "AI technology editor" in prompt and "at least one thing worth saving" in prompt
         assert "never invent menus" in prompt and "narrow the scope" in prompt
         assert "혁신, 효율성 증대" in prompt
@@ -648,15 +651,27 @@ class TestShortHookCopyRules:
         assert "Prefer a question hook" not in prompt
         assert f"Slide {n} (" in prompt and "+ CTA)" in prompt
 
-    def test_three_slide_plan_is_facts_then_practical_use(self, monkeypatch):
+    def test_three_slide_plan_is_fact_then_action(self, monkeypatch):
         prompt = self._prompt(monkeypatch, 3)
-        assert "Slide 2 (key facts)" in prompt and "Slide 3 (practical use + CTA)" in prompt
+        assert "Slide 2 (fact)" in prompt and "how it differs from before" in prompt
+        assert "Slide 3 (action + CTA)" in prompt
+        assert "tool → what to enter → how to run it → expected result" in prompt
         assert "업무 효율 향상" in prompt                              # 막연한 이점 금지 예시
+
+    def test_two_slide_plan_combines_fact_and_action(self, monkeypatch):
+        prompt = self._prompt(monkeypatch, 2)
+        assert "Slide 2 (fact + action + CTA)" in prompt and "Slide 2 (fact):" not in prompt
 
     def test_four_slide_plan_middle_slide_has_no_cta(self, monkeypatch):
         prompt = self._prompt(monkeypatch, 4)
-        assert "Slide 3 (how it works or compared)" in prompt and "No request or call to action here." in prompt
-        assert "Slide 4 (practical use + CTA)" in prompt
+        assert "Slide 3 (action)" in prompt and "No request or call to action here." in prompt
+        assert "Slide 4 (extra + CTA)" in prompt and "comparison, caution or checklist" in prompt
+
+    def test_news_article_style_and_topic_cta(self, monkeypatch):
+        prompt = self._prompt(monkeypatch, 3)
+        assert "the headline asks, the body states verified facts" in prompt
+        assert "Do not just translate the US source" in prompt
+        assert "Avoid an unconditional follow request" in prompt and "실무 적용할 때 보도록 저장하세요." in prompt
 
     def test_guide_topic_is_not_presented_as_news(self, monkeypatch):
         prompt = self._prompt(monkeypatch, 3)
@@ -679,7 +694,7 @@ class TestShortHookCopyRules:
         _patch_gemini(monkeypatch, models)
         builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT")
         prompt = models.calls[0]["contents"]
-        assert "8-slide" in prompt and "Slide 1 (news value)" not in prompt and "Content type:" not in prompt
+        assert "8-slide" in prompt and "Slide 1 (question hook)" not in prompt and "Content type:" not in prompt
 
 
 # ── 261023 STEP 4-AV — 비마지막 장 행동 요청(CTA 키워드 없는 명령형) 차단 ────────────
