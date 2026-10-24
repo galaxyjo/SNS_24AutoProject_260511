@@ -3079,3 +3079,35 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **재발방지(즉시 적용):** `.env` 변경 검증은 값을 출력하지 않는 방법만 쓴다 — 백업과 바이트 비교(`startswith`), sha256 비교, 줄 수/키 이름만 출력. `.env`에 `diff`·`cat`·패턴 없는 `grep` 금지. 키 확인이 필요하면 `=` 앞 키 이름만 잘라서 출력.
 - **관련:** ERR-090, ERR-144, FP-113
 - **상태:** OPEN(토큰 교체 안 함 — Accept, 재발방지 규칙 적용)
+
+## ERR-161 | note 캐러셀 Canary — image_scene 금지어로 글 단계 실패, 걸린 단어 로그 없음 — RESOLVED
+- **발견:** 261023 19:14 ICT, 임시 Vault Canary #1 → `CAROUSEL_TEXT_FAILED:IMAGE_SCENE_FORBIDDEN_WORD`. 어떤 단어가 걸렸는지 로그가 없어 원인 UNKNOWN.
+- **Root Cause:** Gemini가 image_scene에 금지어를 쓰는 경우가 있음(Confirmed — 이후 진단 Canary에서 `hits=[(3, 'writing')]` 실제 기록). 실패 시 단어·장 번호를 남기지 않던 관측성 누락.
+- **조치:** 231ecd6 — 걸린 (장 번호, 단어)만 로그, 그 장 장면만 Gemini 1회 재요청 후 재검증(`IMAGE_SCENE_REPAIR_FAILED`). 진단 Canary에서 재요청 1회 실제 동작·통과 확인.
+- **관련:** FP-114
+- **상태:** RESOLVED(231ecd6)
+
+## ERR-162 | note 손그림에 글자·로고 반복 생성 — 판독 재생성 상한 초과로 Canary 4회 중 3회 실패 — RESOLVED(관찰 중)
+- **발견:** 261023 19:19~19:25 ICT, Canary #3·진단 r1·r2 → `IMAGE_TEXT_CHECK_FAILED`(장별 판독 3회 연속 has_text=True). 이미지 9·8장 소모, 일일 한도 42/50 도달로 진단 r3 건너뜀.
+- **Evidence:** 걸린 그림 17장 육안 확인 — 판독은 정확(전부 실제 글자). ①화풍 문장 "노트 페이지 위 마커 손그림" → FLUX가 책상 위 노트·마커 사진을 그려 마커 몸통에 영문 상표 글자 ②장면의 notes/notepad/talking → 노트 낙서·말풍선 글씨. 재생성용 "책상·펜 없이" 부정 지시는 효과 없음. 샘플 단계에서도 애플 로고·"Cafe" 간판·서명 "AML" 생성.
+- **Root Cause:** Confirmed(이미지 Evidence) — 프롬프트 속 소품 명사가 글자 있는 사물을 부름. Tesseract는 서명 미탐지·'QQ' 오탐이라 판독 수단으로 부적합(Confirmed).
+- **조치:** 231ecd6 — 화풍을 "흰 배경 펜 선화 + 하늘색·노랑 단색 채색"으로 교체, 장면 금지어에 note·notepad·notebook·paper·book·speech bubble·talking 추가, 재생성 문구를 긍정형으로 교체(Codex BLOCKER 반영). 이후 운영 생성 2회(12-2·12-3) 모두 판독 1회 통과.
+- **잔여:** 표본 2회뿐 — 실패율·이미지 소모 관찰 필요. 실패 1회당 최대 9장 소모(일일 상한 50, UTC).
+- **관련:** FP-114
+- **상태:** RESOLVED(관찰 중)
+
+## ERR-163 | 12-2 운영 패키지 렌더 결함 — 손글씨 폰트 미지원 기호 빈칸 + 출처·핸들 겹침 — RESOLVED
+- **발견:** 261023 20:01 ICT, 회장 수동 producer로 만든 12-2(rec5Sd6uoueIT19HH)가 Airtable ready 상태에서 이미지 확인 중 발견.
+- **Evidence:** PIL 글리프 점검 — Nanum Pen Script에 `·` `•` `∙` `→` `←` `›` `…` `–` `—` `✓` `★` `①` 없음(빈칸 렌더). 하단 출처가 Sourcebook 제목 전체("… (화 — 인스타DM·고객문의)")로 그려져 @aijomoojin과 겹침.
+- **Root Cause:** Confirmed — 새 폰트 도입 시 글리프 커버리지 미점검, 출처 문구 길이 제한 없음.
+- **조치:** 게시 보류 → Airtable post_status ready→rejected(회장 승인, 06:00 자동게시 차단). 231ecd6 — 기호 치환(`·`→`ㆍ`, `→`→`>`, `…`→`...` 등) + 폰트에 없는 글자가 남으면 카드 생성 실패(Fail-closed), 출처의 요일 태그 제거 + 말줄임. 12-2 로컬 재렌더로 해소 확인, 12-3 운영 렌더 정상.
+- **관련:** FP-115, INC-066
+- **상태:** RESOLVED(231ecd6)
+
+## ERR-164 | 캡션 CTA 전용 줄이 마지막 줄로 이동되지 않아 생성 실패 — RESOLVED(부분)
+- **발견:** 261023 21:58 ICT, STEP 4-BA 운영 producer 1회 → `CAROUSEL_TEXT_FAILED:CAPTION_CTA_COUNT_INVALID`, `caption_line_cta=[0, 0, 1, 0]`.
+- **Root Cause:** Hypothesis(강함) — `_move_pure_ctas`는 블록을 비우지 않도록 순수 CTA만으로 된 블록을 건너뛴다(슬라이드에는 맞는 규칙). 캡션 줄에도 같은 규칙이 적용돼 CTA 전용 줄이 끝으로 옮겨지지 않음. 실패 캡션 원문이 로그에 없어 직접 확인은 못 함.
+- **조치:** eea86ed — 캡션에 한해 마지막이 아닌 CTA 전용 줄을 맨 끝으로 이동(여러 줄이면 마지막 1개). 슬라이드 규칙·검증 계약 불변. 재시도 1회 성공(12-3 게시).
+- **잔여:** 혼합 문장(CTA 키워드 + 일반 내용) 줄은 여전히 Fail-closed — 오늘 17:00 producer `CAPTION_CTA_NOT_LAST`, Canary #2도 같은 계열(원문 미확인).
+- **관련:** STEP 4-AI CTA 정규화(b57692a)
+- **상태:** RESOLVED(CTA 전용 줄) / OPEN(혼합 문장 줄)

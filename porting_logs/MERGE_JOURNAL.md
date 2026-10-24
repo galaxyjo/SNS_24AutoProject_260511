@@ -3129,3 +3129,16 @@ push: 미실행 — origin/master=1ec92a7
 - **STEP 3-B(`1141687`):** Insights 수집을 `engagement_tracker.py` 1파일에 Flag 뒤로 추가. Airtable 필드 6개·`.env` OFF Flag 2줄은 비-git(회장 승인 261022).
 - **ERR-159 RESOLVED:** 앱 권한 승인 후 기존 토큰 scope 27개로 확장, Insights HTTP 200(토큰 교체 없음).
 - **미실행(별도 승인):** push, Flag ON, launcher 재시작, 첫 Canary.
+
+---
+
+### 261023 — AIJOMOOJIN 노트 손그림 캐러셀 + 카피 고도화 (커밋 `09cadae`, `231ecd6`, `eea86ed` / 4-BB 미커밋)
+
+- **배경:** 17:28 실게시 캐러셀(De1V9sLH1ip) — 표지 AI 배경과 회색 본문 템플릿이 따로 논다는 회장 판단. 샘플 비교 후 "장별 글 내용 맞춤 노트 손그림 + 손글씨"로 확정.
+- **`09cadae` (4-AV):** 2~4장 프롬프트 훅 구조 + 비마지막 장 명령형 차단. `carousel_content_builder.py`가 note 변경과 섞여 있어 HEAD에 4-AV 구간만 얹은 파일을 `git hash-object`/`update-index --cacheinfo`로 stage(대화형 add -p 불가 환경), 스냅샷 단독 테스트로 BASELINE 확인 후 커밋.
+- **`231ecd6` (4-AM~4-AY):** image_scene(같은 Gemini 호출) + 금지어 1회 재요청, `image_text_checker.py`(신규, Gemini 이미지 판독), `render_note_card`(글리프 치환·Fail-closed·출처 말줄임), `carousel_style="note"` 장별 생성·판독·재생성(장당 2회)·전체 Fail-closed, launcher 스위치, 폰트 TTF + Google Fonts 원본 OFL.txt(cmp 동일)·METADATA.pb. Codex BLOCKER 3건(전용 client 강제·재생성 문구·라이선스) 반영.
+- **`eea86ed` (4-BA):** 캡션 CTA 전용 줄을 마지막 줄로 이동(ERR-164).
+- **비-git 상태 변경(회장 승인):** `.env` `AIJOMOOJIN_CAROUSEL_STYLE=note` 1줄, launcher 재시작 1회(Runtime `231ecd6`), Airtable rec5Sd6uoueIT19HH ready→rejected(12-2), 폰트 다운로드.
+- **실게시:** 12-3 → https://www.instagram.com/p/De12HeqHwgV/ (CAROUSEL_ALBUM, children 3, media_id 18642376105001870).
+- **4-BB(미커밋):** 프롬프트를 정보 전달 우선(뉴스 가치 → 핵심 사실 → 사용법 + CTA, NEWS/GUIDE 구분)으로 교체. Target 158 passed.
+- **미실행:** push(origin 대비 21커밋), 4-BB 커밋·재시작·게시(10-24 07:00 ICT 이후 회장 지시), eea86ed 정규 스케줄러 반영(다음 재시작).

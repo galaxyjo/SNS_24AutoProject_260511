@@ -1,3 +1,25 @@
+# 2026-10-23 22:45 ICT — AIJOMOOJIN 노트 손그림 캐러셀 운영 반영 스냅샷
+
+_기록 시각: 2026-10-23 ~22:45 ICT · HEAD=`eea86ed`(origin/master `a4651bf` 대비 21커밋, push 안 함) · Runtime=`231ecd6`(21:55:58 재시작) · 회장 지시 ".md 업데이트"._
+
+## 판정
+**note 손그림 캐러셀 실게시 SUCCESS.** 12-3 → https://www.instagram.com/p/De12HeqHwgV/ (CAROUSEL_ALBUM, children 3, media_id 18642376105001870, Airtable posted, 원장 `{}`).
+
+## 현재 운영 상태 (사실만)
+- **AIJOMOOJIN Flag:** `AIJOMOOJIN_CAROUSEL_ENABLED=true`, `AIJOMOOJIN_CAROUSEL_STYLE=note`(261023 추가), 뉴스 Flag 변경 없음.
+- **Runtime 코드:** `231ecd6` — note 기능 포함, `eea86ed`(캡션 CTA 줄 이동)는 다음 재시작 때 반영. 수동 producer는 디스크 코드를 쓰므로 이미 반영됨.
+- **미커밋:** 4-BB 정보형 카피 프롬프트(`carousel_content_builder.py`, `tests/test_carousel_content_builder.py`).
+- **이미지 한도:** 48/50(UTC 하루). 10-24 05:00 ICT producer는 note 생성 최소 3장 필요 → 한도 초과로 Fail-closed 예상(06:00 게시 누락 가능, 오게시 없음). 07:00 ICT 초기화.
+- **Airtable:** 12-2(rec5Sd6uoueIT19HH) rejected — 렌더 결함 패키지(INC-066).
+
+## 다음 단계 (회장 지시: 10-24 07:00 ICT 이후 한 번에)
+1. 한도·원장·ready 충돌 확인 → 2. 4-BB 2파일 선택 커밋 → 3. 재시작(관리자 창) → 4. producer 1회 → 5. publish 1회 → Graph API 확인 → URL 제출.
+
+## 관련
+ERR-161~164, FP-114/115, INC-066, VALIDATION `aijomoojin_note_carousel_261023` · `aijomoojin_info_first_copy_4BB_261023`.
+
+---
+
 # 2026-10-19 15:40 ICT — 다계정 프로비저닝 중간 스냅샷(토큰 22 / Live 0)
 
 _기록 시각: 2026-10-19 ~15:40 ICT · HEAD=`e3fd4b0`(origin/master 동기화) · 회장 지시 "관련 .md 업데이트"._
