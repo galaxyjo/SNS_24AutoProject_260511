@@ -628,41 +628,58 @@ class TestShortCtaNormalization:
 # ── 261023 STEP 4-AV — 짧은 캐러셀 클릭형 카피 규칙(훅 → 공감 → 해결 → CTA) ──────────
 
 class TestShortHookCopyRules:
-    def _prompt(self, monkeypatch, n):
+    """261023 STEP 4-BB — 정보 전달 우선(뉴스 가치 → 핵심 사실 → 실제 사용법 + CTA) 프롬프트."""
+
+    def _prompt(self, monkeypatch, n, topic=None):
         models = _FakeModels(response=_FakeResponse(_short_payload(n)))
         _patch_gemini(monkeypatch, models)
-        builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=n)
+        builder.generate_carousel_content(topic or _topic(), "REACH", "HOOK_IMPACT", slide_count=n)
         return models.calls[0]["contents"]
 
     @pytest.mark.parametrize("n", [2, 3, 4])
-    def test_hook_question_and_copy_style_in_prompt(self, monkeypatch, n):
+    def test_editor_role_and_news_value_in_prompt(self, monkeypatch, n):
         prompt = self._prompt(monkeypatch, n)
-        assert "Slide 1 (hook)" in prompt and "a question that names a pain" in prompt
-        assert "Prefer a question hook over a description" in prompt
-        assert "혁신, 효율성 증대" in prompt and "never report-style" in prompt
+        assert "Slide 1 (news value)" in prompt and "real product, feature or change" in prompt
+        assert "AI technology editor" in prompt and "at least one thing worth saving" in prompt
+        assert "never invent menus" in prompt and "narrow the scope" in prompt
+        assert "혁신, 효율성 증대" in prompt
         assert "Requests or imperative lines may appear only on the last slide" in prompt
-        assert "explained simply" not in prompt                      # 기존 설명형 지시 제거
-        assert f"Slide {n} (solution + CTA)" in prompt or f"Slide {n} (CTA)" in prompt
+        assert "a question that names a pain" not in prompt          # 4-AV 문제 제기형 훅 지시 제거
+        assert "Prefer a question hook" not in prompt
+        assert f"Slide {n} (" in prompt and "+ CTA)" in prompt
 
-    def test_three_slide_plan_is_problem_then_solution(self, monkeypatch):
+    def test_three_slide_plan_is_facts_then_practical_use(self, monkeypatch):
         prompt = self._prompt(monkeypatch, 3)
-        assert "Slide 2 (why it hurts)" in prompt and "Slide 3 (solution + CTA)" in prompt
+        assert "Slide 2 (key facts)" in prompt and "Slide 3 (practical use + CTA)" in prompt
+        assert "업무 효율 향상" in prompt                              # 막연한 이점 금지 예시
 
-    def test_four_slide_plan_has_flow_without_cta(self, monkeypatch):
+    def test_four_slide_plan_middle_slide_has_no_cta(self, monkeypatch):
         prompt = self._prompt(monkeypatch, 4)
-        assert "Slide 3 (how it works)" in prompt and "No call to action here." in prompt
-        assert "Slide 4 (CTA)" in prompt
+        assert "Slide 3 (how it works or compared)" in prompt and "No request or call to action here." in prompt
+        assert "Slide 4 (practical use + CTA)" in prompt
+
+    def test_guide_topic_is_not_presented_as_news(self, monkeypatch):
+        prompt = self._prompt(monkeypatch, 3)
+        assert "Content type: GUIDE" in prompt and "Do not call it new" in prompt
+
+    def test_news_topic_carries_published_date(self, monkeypatch):
+        topic = SourceTopic(topic_id="14.1", title="Example News", status="VERIFIED FACT",
+                            source_url="https://example.com/news-1",
+                            core_message="이 도구는 하루 3건 자동 게시를 지원한다.", prohibited_expression="",
+                            source_published_at="2026-10-22T15:00:00+00:00")
+        prompt = self._prompt(monkeypatch, 3, topic)
+        assert "Content type: NEWS (source published 2026-10-22T15:00:00+00:00)" in prompt
 
     def test_grounding_rule_kept(self, monkeypatch):
         prompt = self._prompt(monkeypatch, 3)
-        assert "Do NOT invent any fact" in prompt and "no false claims, guarantees" in prompt
+        assert "Do NOT invent any fact" in prompt and "no false claims, guarantees, false urgency" in prompt
 
     def test_eight_slide_prompt_unchanged(self, monkeypatch):
         models = _FakeModels(response=_FakeResponse(_valid_payload()))
         _patch_gemini(monkeypatch, models)
         builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT")
         prompt = models.calls[0]["contents"]
-        assert "8-slide" in prompt and "Slide 1 (hook)" not in prompt and "Copy style:" not in prompt
+        assert "8-slide" in prompt and "Slide 1 (news value)" not in prompt and "Content type:" not in prompt
 
 
 # ── 261023 STEP 4-AV — 비마지막 장 행동 요청(CTA 키워드 없는 명령형) 차단 ────────────

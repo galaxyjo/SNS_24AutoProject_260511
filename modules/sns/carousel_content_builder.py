@@ -144,7 +144,9 @@ _SHORT_SCENE_RESPONSE_SCHEMA = {
 _IMAGE_SCENE_RULE = (
     "5. For EVERY slide also write image_scene: one plain English sentence (max 40 words) describing a "
     "simple drawing that shows exactly what that slide's text says — who or what is in it and what is "
-    "happening. Use only ideas from that slide's text. Use generic people and everyday objects only. "
+    "happening. Use only ideas from that slide's text. Prefer a scene that shows how the information "
+    "works (something going in, being handled and coming out, or an old way next to a new way) over a "
+    "generic person at a desk. Use generic people and everyday objects only. "
     "Never mention company, product or brand names, numbers, or any screen, laptop, phone, computer, "
     "document, poster, sign, note, notepad, notebook, paper, book or speech bubble, show conversations "
     "as people facing each other and gesturing (never 'talking'), and do not write words such as text, "
@@ -552,58 +554,79 @@ def _build_prompt(
     )
 
 
-# 261023 STEP 4-AV — 회장 피드백: 설명형 카피는 노출·클릭이 안 나온다. 문제 제기 훅 → 공감(왜 힘든지)
-# → 해결 → 마지막 장 CTA 흐름으로 바꾼다. 장수·글자수·CTA 위치 계약(_validate_short_contract)은 그대로다.
-_SHORT_HOOK_SLIDE = (
-    "   Slide 1 (hook): one line, at most 40 Korean characters, a question that names a pain the reader "
-    "repeats every day so they stop scrolling and think 'that is me' (e.g. '아직도 ~ 직접 하고 계세요?'). "
-    "Not a description or a title of the source.\n"
+# 261023 STEP 4-BB — 문제 제기형 일반 조언 대신 정보 전달 우선: ① 구체적 새 사실/변화 → ② 핵심 기능·차이
+# (입력·처리·결과) → ③ 실제 사용법·조건 + 마지막 CTA. 장수·글자수·CTA 위치·명령형 계약은 그대로다.
+_SHORT_NEWS_SLIDE = (
+    "   Slide 1 (news value): one line, at most 40 Korean characters, containing at least one real "
+    "product, feature or change named in the source plus why it matters to the reader. Not a bare "
+    "question and not a generic pain line; vary the form from post to post.\n"
 )
 _SHORT_SLIDE_PLANS = {
-    2: (_SHORT_HOOK_SLIDE +
-        "   Slide 2 (solution + CTA): what changes when a system handles it instead of a person, as short "
-        "concrete actions, at most 30 words, ending with exactly one call to action.\n"),
-    3: (_SHORT_HOOK_SLIDE +
-        "   Slide 2 (why it hurts): 3-4 concrete everyday situations of the problem in short phrases joined "
-        "by '·' (e.g. 매번 손으로 확인 · 같은 답변 반복), at most 30 words, so the reader feels what it costs "
-        "them to keep doing it by hand.\n"
-        "   Slide 3 (solution + CTA): how a system handles it instead, as 3-4 short concrete steps joined by "
-        "'·', at most 30 words, ending with exactly one call to action.\n"),
-    4: (_SHORT_HOOK_SLIDE +
-        "   Slide 2 (why it hurts): 3-4 concrete everyday situations of the problem in short phrases joined "
-        "by '·', at most 30 words.\n"
-        "   Slide 3 (how it works): the automated flow from start to finish in short steps (e.g. 시작 조건 → "
-        "처리 → 기록), at most 30 words. No call to action here.\n"
-        "   Slide 4 (CTA): one short line on why to act now, ending with exactly one call to action.\n"),
+    2: (_SHORT_NEWS_SLIDE +
+        "   Slide 2 (how to use + CTA): the core feature in one line, then how a Korean business owner, "
+        "marketer or office worker can use it (tool or feature, what to enter, order, expected result, a "
+        "limit stated in the source), at most 30 words, ending with exactly one call to action.\n"),
+    3: (_SHORT_NEWS_SLIDE +
+        "   Slide 2 (key facts): 2-3 verified features, differences or limits from the source, written as "
+        "what goes in, what is handled and where the result ends up — short phrases joined by '·', at most "
+        "30 words. No vague benefits such as 업무 효율 향상 or 시간 절약.\n"
+        "   Slide 3 (practical use + CTA): one concrete way to use it now — tool or feature, what to enter, "
+        "order, expected result, and a limit stated in the source — at most 30 words, ending with exactly "
+        "one call to action.\n"),
+    4: (_SHORT_NEWS_SLIDE +
+        "   Slide 2 (key facts): 2-3 verified features, differences or limits from the source, short "
+        "phrases joined by '·', at most 30 words.\n"
+        "   Slide 3 (how it works or compared): the steps or the old-vs-new difference written as noun "
+        "phrases (e.g. 입력 → 처리 → 결과), at most 30 words. No request or call to action here.\n"
+        "   Slide 4 (practical use + CTA): who should use it and the one condition to check first, ending "
+        "with exactly one call to action. Use a 4th slide only when the source has enough real detail.\n"),
 }
 _SHORT_COPY_STYLE = (
-    "Copy style: readers are Korean business owners, CEOs, solo founders, small-shop owners and staff "
-    "scrolling Instagram. Write punchy, conversational Korean they would stop for — never report-style "
-    "or textbook sentences. Prefer a question hook over a description. Make them feel what they lose by "
-    "doing it by hand today, using only the source content (no invented numbers, results or guarantees). "
-    "Use plain everyday words, minimal technical jargon, and no vague buzzwords such as 혁신, 효율성 증대, "
-    "극대화, 획기적. Requests or imperative lines may appear only on the last slide.\n"
+    "Role: you are an AI technology editor who follows the US AI industry every day and writes dense, "
+    "practical card-news for Korean business owners, marketers and office workers. Your job is not "
+    "motivational advice but facts the reader did not know: a verified new fact or change, the real "
+    "feature, how to use it, and the conditions that apply. Every slide must add different useful "
+    "information, and the post must contain at least one thing worth saving to look up later (a usable "
+    "prompt, setup order, feature limit, old-vs-new difference or input → process → result example). "
+    "Write fast, concrete, natural Korean and explain any technical term in a few words. Product names, "
+    "features, prices, dates and numbers may appear only if they are in the source; never invent menus, "
+    "buttons or steps. If the source is thin, narrow the scope to what it supports instead of padding. "
+    "No clichéd productivity advice, unsupported time-saving claims, repeated ad phrases or buzzwords "
+    "such as 혁신, 효율성 증대, 극대화, 획기적. Do not connect every topic to repetitive-work automation. "
+    "Requests or imperative lines may appear only on the last slide; write steps on other slides as noun "
+    "phrases. Detailed verified steps that do not fit the slides go in the caption.\n"
 )
+
+
+def _short_content_type_line(source_published_at: str) -> str:
+    """뉴스 원천(Sourcebook 14.x 피드, 게시 시각 있음)과 일반 Sourcebook 교육 자료를 구분해 알린다 —
+    오래된 기능을 새 소식처럼 쓰지 않게 하는 것이 목적이다."""
+    if source_published_at:
+        return (f"Content type: NEWS (source published {source_published_at}). Lead with what changed and "
+                "why it matters now.\n\n")
+    return ("Content type: GUIDE (evergreen reference, not breaking news). Do not call it new, just "
+            "released or the latest; lead with the most useful concrete fact instead.\n\n")
 
 
 def _build_short_prompt(core_message: str, title: str, slot_role: str, template_type: str,
-                        slide_count: int) -> str:
+                        slide_count: int, source_published_at: str = "") -> str:
     return (
         f"You are writing a {slide_count}-slide Instagram carousel (card-news) for Korean small-business "
         "owners and office workers who want to use AI tools, using ONLY the source content below.\n\n"
         f"Source title: {title}\n"
         f"Source content (the ONLY allowed source of facts/numbers/claims): {core_message}\n\n"
+        + _short_content_type_line(source_published_at) +
         f"Slot role: {slot_role}. Sentence template: {template_type}.\n\n"
         "Rules:\n"
         "1. Do NOT invent any fact, statistic, name, or claim not present in the source content above. "
         "Paraphrase — do not copy sentences verbatim.\n"
         f"2. Produce exactly {slide_count} slides. Only the last slide may contain a call to action. "
         "The call to action is ONE separate final sentence that must contain one of these Korean words: "
-        "저장, 공유, 팔로우, 댓글 — make it carry the action message too (e.g. '반복 업무를 시스템에 넘기는 법, "
-        "저장해 두고 하나씩 바꿔보세요.'). No other sentence anywhere may use those words or '확인해 보세요'.\n"
+        "저장, 공유, 팔로우, 댓글 — make it carry the action message too (e.g. '이 사용 순서를 저장해 두고 필요할 때 "
+        "꺼내 보세요.'). No other sentence anywhere may use those words or '확인해 보세요'.\n"
         + _SHORT_SLIDE_PLANS[slide_count] +
-        "3. A strong hook is fine, but no false claims, guarantees, or unsupported performance numbers. "
-        "No long paragraphs.\n"
+        "3. A strong hook is fine, but no false claims, guarantees, false urgency, or unsupported "
+        "performance numbers. No long paragraphs.\n"
         + _SHORT_COPY_STYLE +
         "4. Also produce a Korean caption (<=400 chars) with at least three lines separated by line breaks. "
         "Its first two lines explain the practical value for the reader instead of repeating the slides. "
@@ -651,7 +674,8 @@ def generate_carousel_content(
     )
     short = slide_count in SHORT_SLIDE_COUNTS
     prompt = (
-        _build_short_prompt(topic.core_message, topic.title, slot_role, template_type, slide_count)
+        _build_short_prompt(topic.core_message, topic.title, slot_role, template_type, slide_count,
+                            getattr(topic, "source_published_at", "") or "")
         if short else _build_prompt(topic.core_message, topic.title, slot_role, template_type)
     )
     if with_image_scenes:
