@@ -3111,3 +3111,25 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **잔여:** 혼합 문장(CTA 키워드 + 일반 내용) 줄은 여전히 Fail-closed — 오늘 17:00 producer `CAPTION_CTA_NOT_LAST`, Canary #2도 같은 계열(원문 미확인).
 - **관련:** STEP 4-AI CTA 정규화(b57692a)
 - **상태:** RESOLVED(CTA 전용 줄) / OPEN(혼합 문장 줄)
+
+## ERR-165 | Claude Code가 `.env` 변경 확인 중 `diff`로 토큰 줄을 다시 tool 출력에 노출(ERR-160 재발) — OPEN(교체 여부 회장 결정)
+- **발견:** 261024 11:13 ICT, STEP 4-BD에서 `AIJOMOOJIN_NEWS_PRODUCER_HOURS=11`을 `sed -i`로 바꾼 뒤 `diff backup .env`로 확인 → `sed`가 일부 줄의 줄 끝을 바꿔 diff가 Threads·Instagram 토큰 줄(IDN-000007~052) 원문을 출력.
+- **Evidence:** 같은 세션 tool 출력(로컬 대화 기록). 이후 백업에서 원복하고 Python 바이트 치환으로 다시 적용, 값 출력 없이 "바뀐 줄=274행 1줄"만 확인.
+- **Root Cause:** Confirmed — FP-113 대응(①값을 출력하지 않는 검증 ③줄 끝 형식이 다르면 diff 금지)을 지키지 않음. `sed -i`가 줄 끝을 바꿀 수 있다는 점도 미고려.
+- **조치:** 이후 `.env` 검증은 줄 번호·키 이름·불리언만 출력(STEP 2-A·2-B에서 적용). 토큰 교체는 하지 않음(회장 결정 대기).
+- **관련:** FP-113, ERR-160, ERR-090
+- **상태:** OPEN(토큰 교체 여부 회장 결정)
+
+## ERR-166 | 025 Gemini Key "동일 Key" 판정 오류 — PowerShell 비교 코드의 중첩 배열 처리 오류, 최종 판정 철회
+- **발견:** 261024, 회장 지시문(STEP 2-B)으로 전달됨. 이 Claude Code 세션 밖에서 실행된 비교라 원본 출력은 이 세션에 없음.
+- **Root Cause:** 회장 보고 기준 — PowerShell 비교 코드가 중첩 배열을 잘못 다뤄 서로 다른 Key를 같다고 판정. 이 세션에서는 직접 재현하지 않음(UNKNOWN: 정확한 코드).
+- **현재 상태(Evidence):** STEP 2-A 재검증(261024 08:30pm ICT, Python 불리언 비교) — `IDN_000025_GEMINI_API_KEY`는 aijomoojin·전역 Key와 다름(True/True), Resolver 반환값이 `.env` 값과 같음(True). 값 출력 없음.
+- **관련:** FP-113(값을 보이지 않는 비교 원칙)
+- **상태:** RESOLVED(판정 철회, 불리언 재검증 PASS)
+
+## ERR-167 | 전역 Gemini Key(`GEMINI_API_KEY`) 평문 출력 — OPEN(회장 위험 수용, 추후 교체)
+- **발견:** 261024, 회장 지시문(STEP 2-B)으로 전달됨. 이 Claude Code 세션 밖의 출력이라 발생 위치·시각의 원본 Evidence는 이 세션에 없음(UNKNOWN).
+- **영향:** 전역 Key는 aijomoojin·025 전용 Key와 분리돼 있음(STEP 2-A: 025 Key ≠ 전역 Key). 실제 외부 악용 여부는 UNKNOWN(확인 수단 없음).
+- **조치:** 회장 위험 수용 — 추후 Key 일괄 재발급으로 결정(261024). 새 평문 노출은 계속 금지. 이 문서에 값·일부·해시를 기록하지 않음.
+- **관련:** FP-113, ERR-165
+- **상태:** OPEN(교체 예정)

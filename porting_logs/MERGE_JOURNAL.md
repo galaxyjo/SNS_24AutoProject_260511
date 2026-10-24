@@ -3142,3 +3142,15 @@ push: 미실행 — origin/master=1ec92a7
 - **실게시:** 12-3 → https://www.instagram.com/p/De12HeqHwgV/ (CAROUSEL_ALBUM, children 3, media_id 18642376105001870).
 - **4-BB(미커밋):** 프롬프트를 정보 전달 우선(뉴스 가치 → 핵심 사실 → 사용법 + CTA, NEWS/GUIDE 구분)으로 교체. Target 158 passed.
 - **미실행:** push(origin 대비 21커밋), 4-BB 커밋·재시작·게시(10-24 07:00 ICT 이후 회장 지시), eea86ed 정규 스케줄러 반영(다음 재시작).
+
+---
+
+### 261024 — 공통 콘텐츠 엔진 STEP 1~2-A (커밋 `7bb27a1`, Runtime 미반영)
+
+- **STEP 1~1-E(READ-ONLY):** 기존 AIJOMOOJIN 엔진 REUSE 가능 판정. 확장 BLOCKER: ①YURA 크롤 공급 0건(그룹당 2·3번 글 빈 본문 필터 제외 + AdsPower Open 상한) ②Cloudflare 무료 10,000 neurons/일 소진(프로젝트 계산 약 806, 차이 UNKNOWN), 계정 1개·토큰 1개·전역 50장 상한 공유 ③전용 Gemini Key 1/22 ④계정 하드코딩·Vault 미분리.
+- **STEP 2 (`7bb27a1`):** `ContentAccount`/`CONTENT_ACCOUNTS`로 Producer·슬롯 게시 계정별 설정화(036 불변). Canary는 IDN-000022(주제 "사회고발·음모론·성경" — AI 원천 불일치로 HOLD) 대신 IDN-000025. 수동 도구 `--account-code`, 계정별 Lock 이름·복구 안내, brand_handle, Persona Gate 필수. 신규 테스트 55.
+- **Codex 검수:** 1차 P1 4건(수동 도구 오계정·Key 우회·브랜드·폴러 누출) → 2차 P1(Lock 안내) → 3차 P1(Persona Gate 종속) + 필수 테스트 → 4차 APPROVE.
+- **STEP 2-A:** 회장이 `backup/token_candidate/google key_261024.txt`에 둔 025 Gemini Key·이메일을 `.env` 279~281행에 추가(백업 `backup/pre_2A_key_261024.env`, 기존 278행 불변). 존재·Resolver·Fail-closed PASS.
+- **기록:** ERR-165(`.env` diff 재노출), ERR-166(동일-Key 판정 오류·철회), ERR-167(전역 Gemini Key 평문 출력, 위험 수용), FP-113 사례 추가.
+- **STEP 2-B(HOLD):** Preflight 7항목 중 4·5번(025 automation_enabled false, PER-024 active 미체크) → 회장 승인으로 Airtable 2건 켬(재조회 확인, 036 Persona PER-002 불변). 7번 이미지 FAIL — Cloudflare 무료 한도 소진, Gemini 이미지 (025 Key) 1회 시도도 429. 기존 aijomoojin 카드 재사용은 원본 손그림 없음·@aijomoojin 각인·내용 불일치로 HOLD. 게시 0건. 다음 실행은 10-25 07:00 ICT 이후 025 Flag OFF 재시작 → 수동 1건(CURRENT_RUNTIME_CONTEXT 261024 순서).
+- **미실행:** 실제 Instagram Canary, 025 Flag ON, launcher 재시작(Runtime은 `f53e1eb`), push.

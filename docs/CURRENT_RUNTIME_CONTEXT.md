@@ -1,3 +1,31 @@
+# 2026-10-24 21:10 ICT — 1차 계정 확장(공통 엔진) 진행 스냅샷 / STEP 2-B HOLD
+
+_기록 시각: 2026-10-24 ~21:10 ICT · HEAD=`7bb27a1`(push 안 함) · Runtime=`f53e1eb`(11:15:28 기동, 공통 엔진 미반영) · 회장 지시 "진행 현황 기록"._
+
+## 판정
+**STEP 2-B HOLD — IDN-000025 실게시 0건.** STEP 1~2-A는 CLOSED(SUCCESS, 1-B만 PARTIAL).
+
+## 현재 목표
+IDN-000025(@rhrl201010, PER-024, KR)에 노트 캐러셀 3장 1건 실게시 성공 확인 → 이후 계정별 순차 확장(자동 확대 금지).
+
+## 현재 상태 (사실만)
+- **코드:** `7bb27a1` 공통 엔진(ContentAccount). 036 동작 보존, YURA 경로 불변. Codex 4차 APPROVE, 신규 테스트 55 PASS(관련 674 passed / 기존 baseline 실패 17, 신규 실패 0).
+- **025 준비:** 전용 Gemini Key `.env` 279~281행(STEP 2-A SUCCESS). Airtable(회장 승인 261024 ~20:20) Account_Registry IDN-000025 `automation_enabled=true`, Persona_Profile PER-024 `active=true` — 재조회 확인. 025 Flag는 `.env`에 없음(OFF).
+- **이미지:** Cloudflare 무료 10,000 neurons/일 소진(429, 11:18·17:01 ICT). 프로젝트 기록 약 806 neurons와의 차이 약 9,200 — 소비처 UNKNOWN. 초기화 매일 07:00 ICT. Gemini 이미지(025 Key)도 429 RESOURCE_EXHAUSTED(무료 할당 없음). 기존 aijomoojin 카드 재사용은 원본 손그림 없음·@aijomoojin 각인·내용 불일치로 HOLD.
+- **Runtime 순서 위험:** 운영 `f53e1eb`의 5분 폴러는 036만 제외 → 025 ready가 생기면 단일 이미지로 게시될 수 있음. 025 Flag OFF 상태로 `7bb27a1` 재시작이 반드시 먼저.
+
+## 합의된 다음 실행 (10-25 07:00 ICT 이후, 각 단계 별도 승인)
+1. Cloudflare 초기화 확인 → 2. 025 Flag OFF로 launcher 재시작(`7bb27a1`) → 3. 부트·잡 미등록 확인 → 4. `.env` 025 Flag 4줄 추가(재시작 없음) → 5. 수동 producer `--account-code IDN-000025` → 6. 패키지 확인 → 7. 수동 게시 1회 → 8. Graph·Airtable·원장 확인 → 9. 025 Flag 즉시 제거.
+신규 이미지 공급자 도입 없음, 단일 이미지 Fallback 금지, 1건 후 STOP.
+
+## SUCCESS 기준
+IDN-000025 / IG 17841461833534417 / CAROUSEL_ALBUM / 3장 / URL·Media ID / Airtable posted / Vault·원장 정합 / 오계정 0 / 중복 0.
+
+## 관련
+ERR-165~167, FP-113, VALIDATION `common_engine_step2_261024`, MERGE_JOURNAL 261024.
+
+---
+
 # 2026-10-23 22:45 ICT — AIJOMOOJIN 노트 손그림 캐러셀 운영 반영 스냅샷
 
 _기록 시각: 2026-10-23 ~22:45 ICT · HEAD=`eea86ed`(origin/master `a4651bf` 대비 21커밋, push 안 함) · Runtime=`231ecd6`(21:55:58 재시작) · 회장 지시 ".md 업데이트"._
