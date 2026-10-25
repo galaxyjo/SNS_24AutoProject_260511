@@ -3187,3 +3187,14 @@ _261024 소급 기록 — 회장 제공 작업 기록(`명령어 결과값.txt`)
 - **실게시:** 3-2-261025-ad9458e9 → https://www.instagram.com/p/De5dA_ZASP5/ (@rhrl201010, CAROUSEL_ALBUM, children 3, media_id 18115492601621890).
 - **관찰:** 수동 실행 혼동 2회(publish 대신 producer 실행 → "이미 ready 존재" 스킵, 오게시 0). 새벽 Runtime 공백 INC-068.
 - **다음:** 025 콘텐츠 품질(원천 상세화) 검토, 계정별 순차 확장(자동 확대 금지).
+
+---
+
+### 261025 — 계정 입력표 엑셀 → .env·Airtable 이관 (코드 변경 없음, Runtime 재시작 없음)
+
+- **엑셀:** `OneDrive\문서\claude code\SNS계정_Airtable이관_입력표_261024.xlsx`(단일 시트, 51계정, 매핑행 기준).
+- **.env:** 계정별 Gemini 전용 Key 22개(022·029 포함, 전부 models API 200), `IDN_000023_YOUTUBE_API_KEY`. 백업 `backup/pre_022_key_261025.env`·`pre_xlsx_gemini_261025.env`·`pre_029_key_261025.env`.
+- **029(노한민):** Gmail 로그인 불가로 036 Google 계정(nguyenknv15@gmail.com) 프로젝트 450464150865에서 발급. 036(aijomoojin)과 같은 프로젝트 → 무료 할당량 공유 위험.
+- **Airtable:** 신규 필드 `Account_Registry.gemini_project_number`(20건), 007 ig_user_id·fb_page_id·account_handle·credential_key=IDN_000007, 041/051/052 target_language·fb_page_id·owner_name, Platform_Accounts 3건 생성(PLT-FB-IDN-000039/052, PLT-YT-IDN-000023). 백업 `backup/pre_idn007_airtable_261025.json`·`pre_xlsx_AR_261025.json`·`pre_xlsx_PA_261025.json`.
+- **유지(회장 결정):** credential_key 036=AI·041=YUNA·048=SALE1 변경 안 함 → 이 3계정의 IDN_ Gemini Key는 Resolver 미연결.
+- **⚠ 나중 확인(기록 2026-10-25 23:56 ICT, 회장 지시 "기록만"):** IDN-000029 Gemini Key가 036(aijomoojin)과 같은 Google 프로젝트 450464150865 소속 → 029를 AI 생성에 켜면 036 무료 할당량(RPD/RPM)을 공유·소진할 수 있음. 029 AI 활성화 전 별도 프로젝트로 재발급 여부 결정 필요. 현재 조치 없음(HOLD).
