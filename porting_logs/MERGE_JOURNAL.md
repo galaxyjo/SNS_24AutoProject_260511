@@ -3186,4 +3186,4 @@ _261024 소급 기록 — 회장 제공 작업 기록(`명령어 결과값.txt`)
 - **비-git 상태 변경(회장 승인):** launcher 재시작 1회(07:24:53, Runtime `bd3e8bf`) · `.env` 025 Flag 4줄 추가 → 게시 후 제거(백업 `backup/pre_025_flags_261025.env`와 바이트 동일) · Airtable 신규 레코드 rec5w5m2AjhAz9EET(producer 생성 → posted).
 - **실게시:** 3-2-261025-ad9458e9 → https://www.instagram.com/p/De5dA_ZASP5/ (@rhrl201010, CAROUSEL_ALBUM, children 3, media_id 18115492601621890).
 - **관찰:** 수동 실행 혼동 2회(publish 대신 producer 실행 → "이미 ready 존재" 스킵, 오게시 0). 새벽 Runtime 공백 INC-068.
-- **다음:** 025 콘텐츠 품질(원천 상세화·계정 주제 정합) 검토, 계정별 순차 확장(자동 확대 금지).
+- **다음:** 025 콘텐츠 품질(원천 상세화) 검토, 계정별 순차 확장(자동 확대 금지).
