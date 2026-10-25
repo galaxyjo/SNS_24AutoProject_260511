@@ -1,3 +1,26 @@
+# 2026-10-25 07:55 ICT — 공통 엔진 STEP 2-B SUCCESS / IDN-000025 첫 실게시
+
+_기록 시각: 2026-10-25 ~07:55 ICT · HEAD=`bd3e8bf` → 문서 커밋 예정 · Runtime=`bd3e8bf`(07:24:53 기동, `7bb27a1` 반영) · 회장 지시 ".md 문서기록하고 커밋-푸쉬"._
+
+## 판정
+**STEP 2-B SUCCESS.** IDN-000025 → https://www.instagram.com/p/De5dA_ZASP5/ (@rhrl201010, CAROUSEL_ALBUM, children 3, media_id 18115492601621890, Airtable posted, 원장 `{}`, 오계정 0, 중복 0).
+
+## 현재 운영 상태 (사실만)
+- **025 Flag:** `.env`에서 제거됨(4줄, 백업과 바이트 동일) → 025 정규 잡 없음, 자동 게시 없음. Airtable IDN-000025 `automation_enabled=true`·PER-024 `active=true`는 10-24 상태 유지.
+- **aijomoojin(036):** 기존 Flag 그대로(CAROUSEL note, NEWS 11시). 정규 producer·슬롯 동작.
+- **이미지:** 프로젝트 카운터 3/50(10-25 UTC). Cloudflare 실제 neurons 잔량은 UNKNOWN(ERR-168).
+- **새벽 공백:** 03:09~07:22 로그 없음, 05:00·06:00 MissedSlot(INC-068, 원인 UNKNOWN).
+
+## 다음 단계 (각각 별도 승인)
+1. 025 콘텐츠 품질 — 원천 상세화, 계정 프로필(영화 주제)과 원천 주제 정합 검토.
+2. 다음 확장 계정 선정·순차 Canary(자동 확대 금지).
+3. INC-068 재발 시 전원 이벤트 Read-only 조사.
+
+## 관련
+VALIDATION `common_engine_025_canary_261025`, INC-068, MERGE_JOURNAL 261025.
+
+---
+
 # 2026-10-24 21:10 ICT — 1차 계정 확장(공통 엔진) 진행 스냅샷 / STEP 2-B HOLD
 
 _기록 시각: 2026-10-24 ~21:10 ICT · HEAD=`7bb27a1`(push 안 함) · Runtime=`f53e1eb`(11:15:28 기동, 공통 엔진 미반영) · 회장 지시 "진행 현황 기록"._

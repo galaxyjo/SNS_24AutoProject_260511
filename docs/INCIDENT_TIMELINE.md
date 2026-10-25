@@ -1122,3 +1122,13 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 **영향:** 정규 슬롯 06:00·09:00·18:00 "ready 후보 없음" 로그 확인. 이날 게시는 수동 2건(08:55 De3AFwHkiMi, 09:45 De3F1s5Ev9S)뿐. 오게시·중복 게시 0건(전부 Fail-closed).
 **조치:** 없음 — Cloudflare 무료 한도 초기화(07:00 ICT) 대기, 결제·공급자 변경은 회장 결정 사항.
 **상태:** 진행 중. 상세: ERR-168.
+
+---
+
+## INC-068 | 261025 새벽 Runtime 공백 — 03:09~07:22 로그 없음, 05:00 producer·06:00 슬롯 MissedSlot
+
+**발생:** 2026-10-25 03:09 ICT 전후. 03:09:40 heartbeat·insta_upload "missed by" 경고 후 07:12까지 로그 없음(07:12:43 `[MissedSlot] aijomoojin_producer_0500`·`aijomoojin_slot_0600` 기록).
+**발견:** 2026-10-25 07:30 ICT, STEP 2-B Canary 사전 점검 중.
+**영향:** aijomoojin 05:00 생성·06:00 게시 누락. 오게시 0.
+**Root Cause:** UNKNOWN — PC 절전·정지 의심(ERR-114/116 계열 여부 미확인). 이벤트 로그·전원 상태 조사 안 함.
+**상태:** OPEN(기록만). 재발 시 전원 이벤트(Get-WinEvent) Read-only 조사.
