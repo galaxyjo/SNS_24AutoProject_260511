@@ -234,13 +234,23 @@ class _FakeModels:
         return outcome
 
 
-def _ok_response(url, relevant=True, core="새 에이전트 도구로 업무를 자동화할 수 있다."):
+_FACTS = [
+    {"type": "feature", "fact": "에이전트가 이메일 답장을 대신 작성한다.",
+     "evidence_quote": "The agent drafts email replies for you."},
+    {"type": "number", "fact": "요금은 월 20달러다.", "evidence_quote": "It costs $20 per month."},
+    {"type": "condition", "fact": "미국 사용자에게 먼저 제공된다.",
+     "evidence_quote": "It is available first to users in the US."},
+]
+
+
+def _ok_response(url, relevant=True, core="새 에이전트 도구로 업무를 자동화할 수 있다.", facts=_FACTS):
     import json
     meta = SimpleNamespace(url_metadata=[SimpleNamespace(
         retrieved_url=url, url_retrieval_status=genai_types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS)])
     return SimpleNamespace(
         candidates=[SimpleNamespace(url_context_metadata=meta)],
-        text=json.dumps({"relevant": relevant, "source_title": "New agent tool", "core_message": core}),
+        text=json.dumps({"relevant": relevant, "source_title": "New agent tool", "core_message": core,
+                         "key_facts": facts}),
     )
 
 
@@ -298,6 +308,17 @@ class TestAnalyzeContract:
         assert adapter.analyze_news_url(_candidate()) == (None, "NEWS_URL_UNREADABLE")
         assert models.calls == 1 and safety_calls == []
 
+    def test_retrieved_url_with_trailing_slash_is_readable(self, monkeypatch):
+        cand = _candidate()
+        _patch_client(monkeypatch, [_ok_response(cand.source_url + "/")])
+        topic, code = adapter.analyze_news_url(cand)
+        assert code == "NEWS_READY" and topic.source_url == cand.source_url
+
+    def test_retrieved_url_with_other_path_is_still_unreadable(self, monkeypatch):
+        cand = _candidate()
+        _patch_client(monkeypatch, [_ok_response(cand.source_url + "/other")])
+        assert adapter.analyze_news_url(cand) == (None, "NEWS_URL_UNREADABLE")
+
     def test_irrelevant_article(self, monkeypatch):
         cand = _candidate()
         _, safety_calls = _patch_client(monkeypatch, [_ok_response(cand.source_url, relevant=False, core="")])
@@ -308,6 +329,71 @@ class TestAnalyzeContract:
         cand = _candidate()
         _patch_client(monkeypatch, [_ok_response(cand.source_url)], safety=("UNSAFE", "blocked"))
         assert adapter.analyze_news_url(cand) == (None, "NEWS_SAFETY")
+
+
+class TestNewsKeyFacts:
+    """261026 STEP 5-B — 원문 인용이 붙은 사실 3개 이상만 core_message에 반영, 부족하면 Fail-closed."""
+
+    def test_three_facts_appended_to_core_message_and_safety_checked(self, monkeypatch):
+        cand = _candidate()
+        _, safety_calls = _patch_client(monkeypatch, [_ok_response(cand.source_url)])
+        topic, code = adapter.analyze_news_url(cand)
+        assert code == "NEWS_READY"
+        lines = topic.core_message.split("\n")
+        assert lines[0] == "새 에이전트 도구로 업무를 자동화할 수 있다."
+        assert lines[1:] == [f"- {f['fact']}" for f in _FACTS]
+        assert safety_calls == [topic.core_message]
+
+    def test_two_facts_is_insufficient_without_safety_call(self, monkeypatch):
+        cand = _candidate()
+        _, safety_calls = _patch_client(monkeypatch, [_ok_response(cand.source_url, facts=_FACTS[:2])])
+        assert adapter.analyze_news_url(cand) == (None, "NEWS_INSUFFICIENT_FACTS")
+        assert safety_calls == []
+
+    def test_missing_key_facts_is_insufficient(self, monkeypatch):
+        cand = _candidate()
+        _patch_client(monkeypatch, [_ok_response(cand.source_url, facts=None)])
+        assert adapter.analyze_news_url(cand) == (None, "NEWS_INSUFFICIENT_FACTS")
+
+    def test_number_not_in_quote_is_dropped(self, monkeypatch):
+        cand = _candidate()
+        fabricated = {"type": "number", "fact": "요금은 월 30달러다.", "evidence_quote": "It costs $20 per month."}
+        facts = [_FACTS[0], fabricated, _FACTS[2]]
+        _patch_client(monkeypatch, [_ok_response(cand.source_url, facts=facts)])
+        assert adapter.analyze_news_url(cand) == (None, "NEWS_INSUFFICIENT_FACTS")
+
+    @pytest.mark.parametrize("bad", [
+        {"type": "opinion", "fact": "좋은 도구다.", "evidence_quote": "A great tool."},
+        {"type": "feature", "fact": "근거 없는 기능.", "evidence_quote": ""},
+        {"type": "usage", "fact": "", "evidence_quote": "Use it for email."},
+        "문자열 항목",
+    ])
+    def test_invalid_fact_items_are_dropped(self, bad):
+        assert adapter._validated_news_facts([bad]) == []
+
+    def test_comma_numbers_match_and_facts_capped(self):
+        fact = {"type": "number", "fact": "한도는 10,000건이다.", "evidence_quote": "Up to 10000 requests."}
+        assert adapter._validated_news_facts([fact]) == ["한도는 10,000건이다."]
+        assert len(adapter._validated_news_facts(_FACTS * 3)) == adapter.NEWS_MAX_FACTS
+
+    def test_identifier_numbers_ignored_but_real_numbers_checked(self):
+        # 261026 Dry-run 실측(Granite Speech 5.0) — 모델명 숫자는 식별자, 390,000·24%는 실제 수치
+        assert adapter._numbers("granite-speech-5.0-2b 모델은 390,000시간 학습, 470m·4.1-2b-plus, GPT-4") == {"390000"}
+        assert adapter._numbers("WER이 24% 감소, 월 20달러, 1.5배") == {"24", "20", "1.5"}
+        facts = [
+            {"type": "number", "fact": "granite-speech-5.0-2b는 390,000시간 분량으로 학습했다.",
+             "evidence_quote": "It was trained on 390,000 hours of public audio."},
+            {"type": "number", "fact": "granite-speech-4.1-2b-plus는 WER이 24% 감소했다.",
+             "evidence_quote": "WER on long-form test sets drops 24%."},
+            {"type": "number", "fact": "granite-speech-5.0-2b 요금은 월 30달러다.",
+             "evidence_quote": "It costs $20 per month."},
+        ]
+        assert adapter._validated_news_facts(facts) == [facts[0]["fact"], facts[1]["fact"]]
+
+    def test_prompt_requires_quoted_facts(self):
+        prompt = adapter._build_news_prompt(_candidate())
+        assert "key_facts" in prompt and "evidence_quote" in prompt
+        assert "key_facts" in adapter._NEWS_RESPONSE_SCHEMA["required"]
 
 
 # ── H: Sourcebook 14.x는 선택 대상이 아님 ───────────────────────────────

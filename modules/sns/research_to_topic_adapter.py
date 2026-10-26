@@ -348,7 +348,8 @@ def research_next_topic(
 #
 # 결과 코드: NEWS_CANDIDATE / NEWS_READY / NEWS_NO_CANDIDATE / NEWS_FEED_ERROR /
 #            NEWS_DEDUP_UNAVAILABLE / NEWS_URL_FAIL / NEWS_URL_UNREADABLE / NEWS_IRRELEVANT /
-#            NEWS_SAFETY / NEWS_QUOTA
+#            NEWS_SAFETY / NEWS_QUOTA / NEWS_INSUFFICIENT_FACTS
+# NEWS_INSUFFICIENT_FACTS(261026 STEP 5-B): 원문 인용이 붙은 구체적 사실이 NEWS_MIN_FACTS개 미만.
 # NEWS_URL_UNREADABLE(261023 STEP 4-M): Gemini는 응답했지만 그 URL 원문을 읽지 못함 — 호출자가
 # 그 URL만 빼고 다음 후보를 볼 수 있다. NEWS_URL_FAIL(재시도 소진·영구 오류 등)과 구분한다.
 
@@ -365,9 +366,46 @@ _NEWS_RESPONSE_SCHEMA = {
         "relevant": {"type": "boolean"},
         "source_title": {"type": "string"},
         "core_message": {"type": "string"},
+        "key_facts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["feature", "number", "condition", "usage"]},
+                    "fact": {"type": "string"},
+                    "evidence_quote": {"type": "string"},
+                },
+                "required": ["type", "fact", "evidence_quote"],
+            },
+        },
     },
-    "required": ["relevant", "source_title", "core_message"],
+    "required": ["relevant", "source_title", "core_message", "key_facts"],
 }
+# 261026 STEP 5-B — 뉴스 1건당 제목 외 구체적 사실(기능·수치·조건·활용법) 최소 개수. 못 채우면 Fail-closed.
+NEWS_MIN_FACTS = 3
+NEWS_MAX_FACTS = 5
+_NEWS_FACT_TYPES = ("feature", "number", "condition", "usage")
+# 영문자·하이픈에 붙은 숫자(모델명·버전: granite-speech-5.0-2b, 470m, GPT-4)는 식별자라 수치 비교에서 뺀다
+# (261026 Dry-run 실측: 식별자 숫자 때문에 근거 있는 사실 4개가 모두 탈락).
+_NUMBER_RE = re.compile(r"(?<![A-Za-z\-.\d])\d+(?:\.\d+)?(?![A-Za-z\-\d]|\.\d)")
+
+
+def _numbers(text: str) -> set:
+    return set(_NUMBER_RE.findall(text.replace(",", "")))
+
+
+def _validated_news_facts(raw) -> list:
+    """원문 인용이 붙은 사실만 남긴다. 사실의 숫자가 그 인용문에 없으면(원문에 없는 수치) 버린다."""
+    facts = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or item.get("type") not in _NEWS_FACT_TYPES:
+            continue
+        fact = str(item.get("fact") or "").strip()
+        quote = str(item.get("evidence_quote") or "").strip()
+        if not fact or not quote or not _numbers(fact) <= _numbers(quote):
+            continue
+        facts.append(fact)
+    return facts[:NEWS_MAX_FACTS]
 
 
 def _parse_feed_time(value):
@@ -505,6 +543,11 @@ def _build_news_prompt(candidate) -> str:
         "2. core_message must be grounded ONLY in what that exact page says, written in Korean in 2-3 "
         "sentences: what it is and how it can be used. Do not add any statistic or claim not on the page.\n"
         "3. If the page cannot be read or relevant=false, leave core_message empty.\n"
+        "4. key_facts: 3-5 concrete facts stated on that page beyond the headline — features, numbers "
+        "(prices, limits, dates, percentages), conditions (availability, plan, region) and practical usage. "
+        "Write each fact in Korean in one sentence and copy the exact supporting sentence from the page "
+        "into evidence_quote, keeping its numbers unchanged. Never guess; if the page does not state "
+        "enough facts, return fewer or an empty array.\n"
         "Return JSON in the exact schema."
     )
 
@@ -544,7 +587,8 @@ def analyze_news_url(candidate) -> tuple:
     cands = getattr(response, "candidates", None) or []
     url_ctx = getattr(cands[0], "url_context_metadata", None) if cands else None
     url_entries = getattr(url_ctx, "url_metadata", None) or []
-    if not any(getattr(e, "retrieved_url", "") == candidate.source_url
+    # 261026 STEP 5-B — url_context가 끝 '/'를 붙여 돌려주는 경우(실측: openai.com)가 있어 끝 '/'만 무시한다.
+    if not any((getattr(e, "retrieved_url", "") or "").rstrip("/") == candidate.source_url.rstrip("/")
                and getattr(e, "url_retrieval_status", None)
                == genai_types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS
                for e in url_entries):
@@ -559,6 +603,11 @@ def analyze_news_url(candidate) -> tuple:
     if data.get("relevant") is not True or not core_message:
         logger.info("[NewsSource] NEWS_IRRELEVANT | url=%s", candidate.source_url)
         return None, "NEWS_IRRELEVANT"
+    facts = _validated_news_facts(data.get("key_facts"))
+    if len(facts) < NEWS_MIN_FACTS:
+        logger.warning("[NewsSource] NEWS_INSUFFICIENT_FACTS | facts=%s | url=%s", len(facts), candidate.source_url)
+        return None, "NEWS_INSUFFICIENT_FACTS"
+    core_message = core_message + "\n" + "\n".join(f"- {fact}" for fact in facts)
 
     status, reason = check_caption_safety(
         core_message, client=_get_client(), throttle_fn=_throttle, model=RESEARCH_MODEL,
