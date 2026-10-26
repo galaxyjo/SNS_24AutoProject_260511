@@ -3153,3 +3153,22 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **해소(261026 12:38~12:41 ICT, 회장 승인):** 029 Flag 3개 제거(`.env` = 11:13 백업과 동일) → 재시작(boot `a037777` 12:38:28, 작업트리의 3-B·029 코드 반영, 029 잡 등록 0) → SLOT Flag만 추가 → 레코드 rejected→ready → 관리자 수동 게시 1회 → 12:40:45 게시 확인 https://www.instagram.com/p/De8jbexkvwx/ (CAROUSEL_ALBUM, children 3, media_id 18416019898082145, owner 17841462326237246) → Airtable posted, 원장 `{}` → SLOT Flag 제거(`.env` 원본과 동일).
 - **관련:** FP-116
 - **상태:** RESOLVED
+## ERR-170 | 뉴스 원문을 정상으로 읽고도 `NEWS_URL_UNREADABLE` 판정 — url_context가 돌려준 URL 끝 '/' 차이로 문자열 비교 실패 — RESOLVED(미배포)
+- **발견:** 261026 14:16 ICT, STEP 5-B 실제 Gemini Dry-run(게시·쓰기 0). openai.com `scaling-storage-one-billion-users-part-two` 후보가 2회 연속 `NEWS_URL_UNREADABLE`.
+- **Evidence:** 응답 원문 출력 — `url_metadata.retrieved_url=https://openai.com/index/scaling-storage-one-billion-users-part-two/`, `url_retrieval_status=URL_RETRIEVAL_STATUS_SUCCESS`. 후보 `source_url`은 끝 '/' 없음. `analyze_news_url()`이 `retrieved_url == candidate.source_url` 정확 일치만 인정.
+- **Root Cause:** Confirmed — url_context가 정규화한 URL(끝 '/')을 돌려주는 경우를 비교 로직이 고려하지 않음(261022 STEP 4-G 도입 시점부터 존재).
+- **영향:** 해당 기사는 실제로 읽혔으나 실패 처리 → 뉴스 슬롯이 다음 후보·Sourcebook으로 넘어감. 오게시 0건(Fail-closed 방향 오류). 과거 운영 발생 빈도 UNKNOWN(로그에 retrieved_url 미기록).
+- **구분:** 같은 Dry-run의 techcrunch(`URL_RETRIEVAL_STATUS_ERROR`)·theverge(`URL_RETRIEVAL_STATUS_PAYWALL`)는 실제 읽기 실패로 판정이 맞음(이 오류 아님).
+- **해소:** 커밋 `6307c6e` — 양쪽 끝 '/'만 제거 후 비교. 테스트 2개(끝 '/' 허용, 다른 경로는 계속 실패). Runtime 재시작 전이라 운영 미반영.
+- **관련:** FP-117
+- **상태:** RESOLVED(코드) / 운영 반영은 재시작 승인 후
+
+## ERR-171 | 뉴스 key_facts 숫자 검사가 모델명·버전 숫자를 수치로 오인해 근거 있는 사실 전부 탈락 — RESOLVED(미배포)
+- **발견:** 261026 14:22 ICT, STEP 5-B Dry-run(IBM Granite Speech 5.0, huggingface.co). 원문 SUCCESS·`relevant=true`·인용 붙은 사실 4개 제출 → `validated: []` → `NEWS_INSUFFICIENT_FACTS | facts=0`.
+- **Evidence:** 제출 사실에 `granite-speech-5.0-2b`, `470m-turboctc`, `4.1-2b-plus` 포함 — `_numbers()`가 `5.0`·`2`·`470`·`4.1`을 수치로 추출, 인용문에는 모델명이 없어 "원문에 없는 수치"로 판정. 실제 수치 390,000시간·24%는 인용문에 정확히 존재.
+- **Root Cause:** Confirmed — 같은 날 STEP 5-B에서 Claude Code가 새로 만든 `_NUMBER_RE`(`\d+(?:\.\d+)?`)가 식별자 숫자와 수치를 구분하지 않음. Target Test 표본(달러·퍼센트)에 모델명 숫자가 없어 테스트로 잡지 못함.
+- **영향:** 미배포 코드라 운영 영향 0. 그대로 배포됐다면 AI 모델 기사 대부분이 뉴스 슬롯에서 탈락했을 것(INFERENCE).
+- **해소:** 커밋 `6307c6e` — 영문자·하이픈·마침표에 붙은 숫자는 식별자로 보고 제외. 테스트 1개(모델명 무시 + 30달러 vs 20달러 조작 수치는 계속 차단). 재실행 Dry-run(14:25): `NEWS_READY`, 사실 4개 통과, 캡션에 3개 반영.
+- **잔여 위험:** ①숫자가 없는 사실은 내용-인용 일치를 검사하지 않음(Dry-run 실측: "구두점·대소문자 생성" 사실의 인용문은 언어 목록뿐) ②영문자에 붙은 수치("10x")는 검사 제외 ③캡션 HOOK_REVEAL에 원문에 없는 주장("잘나가는 기업들은 … 골라 쓰고 있다") — 기존 템플릿 구조, 이번 변경과 별개.
+- **관련:** FP-117
+- **상태:** RESOLVED(코드) / 운영 반영은 재시작 승인 후

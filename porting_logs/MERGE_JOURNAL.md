@@ -3230,3 +3230,11 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 5. **CTA:** Persona CTA "식재료 수출 문의는 DM"이 이번 캐러셀 캡션에는 쓰이지 않고 기본 "저장" CTA가 들어감(3-B는 단일 캡션에만 계정 CTA 고정). 캐러셀에도 계정 CTA를 쓸지 결정 필요.
 6. **운영 일정:** 자동 게시(정규 잡)는 꺼져 있음. 하루 게시 수·시각·Flag ON은 별도 승인.
 7. **Gemini Key 프로젝트:** 023 Key는 036·029 Key와 다른 값임만 확인. Google 프로젝트 분리 여부(Airtable `gemini_project_number`)는 미확인.
+
+### 261026 오후 — STEP 5-A~5-B: Persona 데이터 정리 + 뉴스 원문 사실 추출 (Claude Code)
+
+- **STEP 5-A(READ-ONLY):** 51계정 Persona·Producer·이미지 엔진 검수. Persona v4(pillars·SEO·CTA) 22개, 부족 필드 `visual_style`·`content_depth`, category에 음식·쇼핑 없음. 상세 CURRENT_RUNTIME_CONTEXT 대신 이 항목에 요약.
+- **Airtable 정리(회장 승인):** Persona_Profile `PER-048` 중복 중 IDN-000049/iromi6431 레코드 `reclt8K0q0GHuuHHh` 1건 삭제(백업 `backup/persona_profile_PER-048_reclt8K0q0GHuuHHh_261026.json`, Airtable actionId `actNv75aNPL2qEuoT`). `language` KR 9건 → `ko`(백업 `backup/persona_profile_language_KR_before_261026.json`) — 게시 전 한국어 검사(`content_filter.py:181`)가 `ko`만 인식하므로 코드 변경 없이 ko로 통일. 결과 ko 19 / en 32, PER-024(025)도 한국어 검사 적용됨.
+- **STEP 5-B(커밋 `6307c6e`):** `analyze_news_url()`이 인용 붙은 key_facts 3~5개를 받아 검증 후 core_message에 추가, 3개 미만 `NEWS_INSUFFICIENT_FACTS`. 기존 캡션·캐러셀 경로 무수정 재사용. Dry-run 중 ERR-170(끝 '/')·ERR-171(식별자 숫자) 발견·수정. 최종 Dry-run Granite Speech 5.0: NEWS_READY, 사실 4개 통과, 캡션 3개 반영.
+- **미반영:** launcher 재시작 전 — 운영은 이전 코드. 뉴스는 036만 사용(news_enabled).
+- **남은 과제:** ①숫자 없는 사실의 내용-인용 일치 검사 ②캡션 HOOK_REVEAL의 원문 외 주장 ③`NEWS_INSUFFICIENT_FACTS` 시 다음 후보 재선택(launcher 변경 필요) ④Producer 테스트 기존 실패 3건(`TestProducerWiring` 기대 kwargs 구버전).
