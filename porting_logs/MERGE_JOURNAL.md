@@ -3238,3 +3238,10 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **STEP 5-B(커밋 `6307c6e`):** `analyze_news_url()`이 인용 붙은 key_facts 3~5개를 받아 검증 후 core_message에 추가, 3개 미만 `NEWS_INSUFFICIENT_FACTS`. 기존 캡션·캐러셀 경로 무수정 재사용. Dry-run 중 ERR-170(끝 '/')·ERR-171(식별자 숫자) 발견·수정. 최종 Dry-run Granite Speech 5.0: NEWS_READY, 사실 4개 통과, 캡션 3개 반영.
 - **미반영:** launcher 재시작 전 — 운영은 이전 코드. 뉴스는 036만 사용(news_enabled).
 - **남은 과제:** ①숫자 없는 사실의 내용-인용 일치 검사 ②캡션 HOOK_REVEAL의 원문 외 주장 ③`NEWS_INSUFFICIENT_FACTS` 시 다음 후보 재선택(launcher 변경 필요) ④Producer 테스트 기존 실패 3건(`TestProducerWiring` 기대 kwargs 구버전).
+
+### 261026 저녁 — STEP 5-B IDN-000022 콘텐츠 생성 안정화 (커밋 8243404·3eaca14·4e04d82, 미push·미재시작)
+
+- **흐름:** 022 비게시 Dry-run을 반복하며 실패마다 캡처로 원인 확정 → 최소수정. 오탐 4유형(숫자 쉼표·계정 CTA·글자/단어 수·천 단위 쉼표, ERR-172~175)과 품질 결함(로고 유도·배경 가림 ERR-176, 렌더러 3건 ERR-177, 사실 몰아넣기·숫자 변형 ERR-178) 수정.
+- **최종:** 20:25 Dry-run success(재작성 0, 이미지 3장, 판독 False/False). 결과물은 세션 scratchpad `rt022c`(운영 Vault 미사용).
+- **Claude Code 판단 오류 기록:** ①1.1 핵심 메시지를 사실 4개로 줄여 원문 수치를 지웠다가 원칙("수치 삭제로 합격 금지")에 어긋나 원복 ②Dry-run 출력 필터로 1회분 원문 유실 ③캡처 래퍼 인자 미갱신으로 Gemini 1회 낭비 ④해시태그 캡처 누락 1회.
+- **남은 것:** 운영 반영 Preflight·실게시 승인 Gate(별도 승인), push, PER-021 active·022 automation_enabled(Airtable, 별도 승인).
