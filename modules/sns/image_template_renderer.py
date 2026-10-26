@@ -79,17 +79,29 @@ def _vertical_gradient(size: "tuple[int, int]", top: "tuple[int,int,int]", botto
 
 
 def _wrap_text(draw: "ImageDraw.ImageDraw", text: str, font: "ImageFont.FreeTypeFont", max_width: int) -> "list[str]":
-    """한글은 공백 기준 word-wrap이 신뢰할 수 없어(공백 없는 긴 절이 흔함)
-    글자 단위로 폭을 재며 줄바꿈한다."""
+    """띄어쓰기 단위로 줄바꿈하고, 한 단어가 한 줄보다 길 때만 그 단어를 글자 단위로 나눈다.
+
+    261026 STEP 5-B — 글자 단위로만 나누던 방식은 'Apache'를 'Apac/he'처럼 단어 중간에서 끊었다
+    (022 Dry-run 실측). 공백 없는 긴 한글 절은 이전처럼 글자 단위로 나뉜다."""
     lines: list[str] = []
     current = ""
-    for ch in text:
-        candidate = current + ch
-        if current and draw.textlength(candidate, font=font) > max_width:
-            lines.append(current)
-            current = ch
-        else:
+    for word in text.split():
+        candidate = f"{current} {word}" if current else word
+        if draw.textlength(candidate, font=font) <= max_width:
             current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        if draw.textlength(word, font=font) <= max_width:
+            current = word
+            continue
+        for ch in word:
+            if current and draw.textlength(current + ch, font=font) > max_width:
+                lines.append(current)
+                current = ch
+            else:
+                current += ch
     if current:
         lines.append(current)
     return lines
@@ -158,10 +170,15 @@ def render_card(content: CardContent) -> bytes:
 
     # SOURCE_CARD: 별도 도식 없음 — core_message 인용 텍스트 자체가 핵심 도식 역할.
 
-    footer_y = CANVAS_SIZE[1] - 130
+    # 261026 STEP 5-B — 긴 출처가 한 줄로 그려져 오른쪽 끝에서 잘렸다(022 실측 1057px > 920px).
+    # 글자를 줄이지 않고 같은 크기로 줄바꿈한 뒤, 줄 수만큼 바닥 영역을 위로 올린다.
+    source_lines = _wrap_text(draw, f"출처: {content.source_label}", footer_font, content_width)
+    footer_y = CANVAS_SIZE[1] - 130 - 34 * (len(source_lines) - 1)
     draw.line([(_MARGIN, footer_y - 20), (CANVAS_SIZE[0] - _MARGIN, footer_y - 20)], fill=palette["accent"], width=2)
-    draw.text((_MARGIN, footer_y), f"출처: {content.source_label}", font=footer_font, fill=palette["accent"])
-    draw.text((_MARGIN, footer_y + 40), content.brand, font=footer_font, fill=palette["accent"])
+    for i, line in enumerate(source_lines):
+        draw.text((_MARGIN, footer_y + 34 * i), line, font=footer_font, fill=palette["accent"])
+    draw.text((_MARGIN, footer_y + 34 * (len(source_lines) - 1) + 40), content.brand, font=footer_font,
+              fill=palette["accent"])
 
     buf = BytesIO()
     img.convert("RGB").save(buf, format="PNG")
@@ -345,12 +362,19 @@ def render_hero_card(content: HeroCardContent) -> bytes:
         y += 90
 
     y += 30
-    tag_font = _hero_fit_font_one_line(draw, content.tagline, _FONT_EXTRABOLD, _HERO_LEFT_W - 110, 38)
-    box_h = 100
+    # 261026 STEP 5-B — 최소 28px까지 줄여도 한 줄에 안 들어가는 태그라인이 상자 밖으로 넘쳤다(022 실측
+    # 716px > 640px). 30px 아래로 줄이지 않고, 한 줄에 안 들어가면 같은 크기로 줄바꿈하고 상자를 키운다.
+    tag_max_w = _HERO_LEFT_W - 110
+    tag_font = _hero_fit_font_one_line(draw, content.tagline, _FONT_EXTRABOLD, tag_max_w, 38, min_size=30)
+    tag_lines = _wrap_text(draw, content.tagline, tag_font, tag_max_w)
+    tag_line_h = tag_font.size + 10
+    box_h = max(100, 40 + tag_line_h * len(tag_lines))
     draw.rounded_rectangle([_HERO_MARGIN, y, _HERO_MARGIN + _HERO_LEFT_W, y + box_h], radius=20, outline=_HERO_CYAN, width=3)
     icon_cx, icon_cy = _HERO_MARGIN + 55, y + box_h // 2
     _hero_draw_icon(draw, "check", icon_cx, icon_cy, 26)
-    draw.text((_HERO_MARGIN + 100, y + box_h // 2 - tag_font.size // 2), content.tagline, font=tag_font, fill=_HERO_CYAN)
+    text_y = y + box_h // 2 - (tag_line_h * len(tag_lines) - 10) // 2
+    for i, line in enumerate(tag_lines):
+        draw.text((_HERO_MARGIN + 100, text_y + tag_line_h * i), line, font=tag_font, fill=_HERO_CYAN)
 
     footer_y = CANVAS_SIZE[1] - 90
     draw.text((_HERO_MARGIN, footer_y), f"출처: {content.source_label}", font=footer_font, fill=_HERO_FOOTER_DIM)

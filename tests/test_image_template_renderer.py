@@ -298,3 +298,58 @@ def test_hero_card_accepts_ai_background_in_different_aspect_ratio():
     img = _decode(png_bytes)
 
     assert img.size == CANVAS_SIZE
+
+
+class TestLayout022:
+    """261026 STEP 5-B — 022 Dry-run 이미지(final022b) 재현값으로 레이아웃 결함 3개를 확인한다:
+    단어 중간 줄바꿈('Apac/he'), 본문 카드 출처 잘림, 표지 태그라인 상자 넘침."""
+
+    TITLE_022 = "해외 이슈 요약 — IBM Granite Speech 5.0 음성 AI 공개 (Hugging Face 블로그, 2026-10-21)"
+    COVER_022 = "음성 AI 2B 모델, 6개 언어 받아쓰기와 상호 번역 기능?"
+    SLIDE2_022 = "39만 시간 학습·키워드 2,000개 지정·WER 5.06%·Apache 2.0 라이선스"
+    TAGLINE_022 = "오픈소스 음성 AI의 새로운 선택지, IBM 그래나이트"
+
+    def _draw(self):
+        from PIL import ImageDraw
+        return ImageDraw.Draw(Image.new("RGB", (10, 10)))
+
+    def test_wrap_keeps_words_whole(self):
+        import modules.sns.image_template_renderer as r
+        font = r._load_font(r._FONT_REGULAR, 40)
+        width = CANVAS_SIZE[0] - 2 * r._MARGIN
+        lines = r._wrap_text(self._draw(), self.SLIDE2_022, font, width)
+        assert " ".join(lines) == self.SLIDE2_022
+        assert any("5.06%·Apache" in line for line in lines)            # 'Apac' / 'he'로 끊기지 않음
+        assert all(self._draw().textlength(line, font=font) <= width for line in lines)
+
+    def test_long_word_without_spaces_still_wraps_by_character(self):
+        import modules.sns.image_template_renderer as r
+        font = r._load_font(r._FONT_REGULAR, 40)
+        text = "공백없는아주긴한글문장" * 8
+        lines = r._wrap_text(self._draw(), text, font, 400)
+        assert "".join(lines) == text and len(lines) > 1
+        assert all(self._draw().textlength(line, font=font) <= 400 for line in lines)
+
+    def test_body_card_source_line_not_cut_at_right_edge(self):
+        img = _decode(render_card(CardContent(template_type="SOURCE_CARD", hook=self.COVER_022,
+                                              core_message=self.SLIDE2_022, source_label=self.TITLE_022))).convert("RGB")
+        right_margin = CANVAS_SIZE[0] - 80
+        bright = [(x, y) for y in range(CANVAS_SIZE[1] - 260, CANVAS_SIZE[1])
+                  for x in range(right_margin + 2, CANVAS_SIZE[0]) if sum(img.getpixel((x, y))) > 360]
+        assert bright == []                                               # 출처 글자가 여백 밖으로 나가지 않음
+
+    def test_cover_tagline_stays_inside_box_without_tiny_font(self):
+        import modules.sns.image_template_renderer as r
+        font = r._hero_fit_font_one_line(self._draw(), self.TAGLINE_022, r._FONT_EXTRABOLD, r._HERO_LEFT_W - 110, 38,
+                                         min_size=30)
+        assert font.size >= 30
+        img = _decode(render_hero_card(_hero_content(tagline=self.TAGLINE_022,
+                                                     source_label=self.TITLE_022))).convert("RGB")
+        box_right = r._HERO_MARGIN + r._HERO_LEFT_W
+        cyan = [(x, y) for y in range(700, CANVAS_SIZE[1] - 100) for x in range(box_right + 6, CANVAS_SIZE[0])
+                if (lambda p: p[0] < 140 and p[1] > 190 and p[2] > 200)(img.getpixel((x, y)))]
+        assert cyan == []                                                 # 태그라인 글자가 상자 밖으로 나가지 않음
+
+    def test_short_tagline_keeps_single_line_box(self):
+        png = render_hero_card(_hero_content(tagline="짧은 태그라인"))
+        assert _decode(png).size == CANVAS_SIZE
