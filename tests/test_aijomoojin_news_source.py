@@ -407,7 +407,7 @@ class TestSourcebookSeparation:
     def test_real_sourcebook_feed_sections_not_selectable(self):
         topics = parse_sourcebook()
         feeds = [t for t in topics if t.topic_id.startswith("14.")]
-        assert len(feeds) == 7 and all(t.source_url for t in feeds)
+        assert len(feeds) == 8 and all(t.source_url for t in feeds)  # 261026 14.8 Tom's Hardware 추가
         assert not any("hn.algolia.com" in t.source_url for t in feeds)
         assert not any(t.topic_id.startswith("14.") for t in list_selectable_topics(topics))
 
