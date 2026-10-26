@@ -310,3 +310,175 @@ class TestCardBrand:
                                               brand_handle="@rhrl201010")
         assert result.success is True
         assert hero_brands == ["@rhrl201010"] and body_brands == ["@rhrl201010", "@rhrl201010"]
+
+
+class TestCoverLogoCheckAndSavedCaption022:
+    """261026 STEP 5-B — 표지 배경 글자·로고 판독(기존 image_text_checker 재사용)과 저장 캡션 줄바꿈."""
+
+    def _hero_env(self, monkeypatch, check_result):
+        from modules.sns.hero_card_content_builder import HeroBlockText, HeroCardTextContent, HeroCardTextResult
+        text = HeroCardTextContent(headline="h", subheadline="s",
+                                   blocks=tuple(HeroBlockText("t", "d") for _ in range(4)), tagline="g",
+                                   content_fingerprint="f")
+        monkeypatch.setattr(cpb, "generate_hero_card_content", lambda *a, **k: HeroCardTextResult(True, text))
+        monkeypatch.setattr(cpb, "build_background_only_prompt",
+                            lambda brief: SimpleNamespace(prompt_text="p", negative_prompt=""))
+        monkeypatch.setattr(cpb, "generate_image", lambda *a, **k: SimpleNamespace(success=True, image_bytes=b"bg"))
+        calls, rendered = [], []
+        monkeypatch.setattr(cpb, "check_images_for_text_and_logo",
+                            lambda images, **k: calls.append(images) or check_result)
+        monkeypatch.setattr(cpb, "render_hero_card", lambda content: rendered.append(1) or b"png")
+        return calls, rendered
+
+    @pytest.mark.parametrize("has_text,has_logo", [(False, True), (True, False)])
+    def test_logo_or_text_in_background_blocks_cover(self, monkeypatch, has_text, has_logo):
+        from modules.sns.image_text_checker import ImageCheck, ImageCheckResult
+        calls, rendered = self._hero_env(monkeypatch, ImageCheckResult(True, (ImageCheck(1, has_text, has_logo),)))
+        topic = SimpleNamespace(title="T")
+        assert cpb._build_hero_card_image(topic, None, client=object(), logo_check=True) is None
+        assert calls == [[b"bg"]] and rendered == []
+
+    def test_check_failure_blocks_cover(self, monkeypatch):
+        from modules.sns.image_text_checker import ImageCheckResult
+        calls, rendered = self._hero_env(monkeypatch, ImageCheckResult(False, error_code="CHECK_CALL_FAILED"))
+        assert cpb._build_hero_card_image(SimpleNamespace(title="T"), None, client=object(), logo_check=True) is None
+        assert rendered == []
+
+    def test_clean_background_renders_cover(self, monkeypatch):
+        from modules.sns.image_text_checker import ImageCheck, ImageCheckResult
+        calls, rendered = self._hero_env(monkeypatch, ImageCheckResult(True, (ImageCheck(1, False, False),)))
+        assert cpb._build_hero_card_image(SimpleNamespace(title="T"), None, client=object(), logo_check=True) == b"png"
+        assert len(calls) == 1
+
+    def test_default_path_has_no_logo_check(self, monkeypatch):
+        """036 등 기존 호출(logo_check 기본 False)은 판독을 부르지 않는다."""
+        from modules.sns.image_text_checker import ImageCheckResult
+        calls, rendered = self._hero_env(monkeypatch, ImageCheckResult(False, error_code="X"))
+        assert cpb._build_hero_card_image(SimpleNamespace(title="T"), None) == b"png" and calls == []
+
+    @pytest.mark.parametrize("persona_code,expected", [("PER-021", True), ("", False)])
+    def test_carousel_turns_on_logo_check_only_for_persona_accounts(self, monkeypatch, tmp_path, persona_code, expected):
+        from modules.sns.carousel_content_builder import _separate_account_cta_line
+        cta = "AI 뉴스 요약 자동화 문의는 DM"
+        caption = _separate_account_cta_line({"caption": "IBM 음성 AI 3종 정보입니다. " + cta}, cta)["caption"]
+        slides = tuple(Slide(index=i + 1, role="r", text=f"슬라이드 {i + 1}") for i in range(3))
+        content = CarouselContent(slot_role="REACH", template_type="HOOK_IMPACT", source_section_id="1.1",
+                                  source_title="T", source_url="https://src.example/a", slides=slides,
+                                  caption=caption, hashtags=("#IBM",), content_fingerprint="fp")
+        monkeypatch.setattr(cpb, "generate_carousel_content", lambda *a, **k: CarouselResult(True, content))
+        seen = []
+        monkeypatch.setattr(cpb, "_build_hero_card_image",
+                            lambda *a, logo_check=False, **k: seen.append(logo_check) or b"cover")
+        monkeypatch.setattr(cpb, "render_card", lambda c: b"body")
+        topic = SimpleNamespace(topic_id="1.1", title="T", source_url="https://src.example/a",
+                                core_message="m", prohibited_expression="", source_published_at="")
+        (tmp_path / "content").mkdir()
+        (tmp_path / "images").mkdir()
+        result = cpb._create_carousel_package(topic, "c22t", tmp_path, 3, "", "REACH", "HOOK_IMPACT",
+                                              persona_code=persona_code)
+        assert result.success is True and seen == [expected]
+        saved = (tmp_path / "content" / "c22t.md").read_text(encoding="utf-8")
+        assert saved.rstrip().endswith("IBM 음성 AI 3종 정보입니다.\n\n" + cta)    # 저장본에서 CTA가 독립 마지막 줄
+
+
+class TestPersonaCoverBackgroundPrompt022:
+    """261026 STEP 5-B — Persona 캐러셀 표지 배경은 Sourcebook '이미지 개념'만 쓰고(회사·제품명·숫자·말투 없음),
+    036 기존 배경 프롬프트 경로는 그대로다. 판독 차단 배경은 검토 폴더에만 보존한다."""
+
+    SB_022 = Path(__file__).resolve().parents[1] / "docs" / "design" / "SNS_AI_NEWS_SOURCEBOOK_IDN022_261026.md"
+    BRAND_TERMS = ("IBM", "Granite", "granite", "Hugging", "Apache", "GitHub", "Copilot", "Gemma", "Qwen", "해외 이슈")
+
+    def _topics(self):
+        from modules.sns.source_selector import parse_sourcebook
+        return parse_sourcebook(self.SB_022)
+
+    def test_022_topics_have_unbranded_concepts(self):
+        topics = self._topics()
+        assert len(topics) == 3 and all(t.image_concept for t in topics)
+        for t in topics:
+            assert not any(ch.isdigit() for ch in t.image_concept)
+            assert not any(term in t.image_concept for term in self.BRAND_TERMS)
+
+    def test_shared_sourcebook_has_no_image_concepts(self):
+        from modules.sns.source_selector import parse_sourcebook
+        assert all(t.image_concept == "" for t in parse_sourcebook())
+
+    def test_022_background_prompt_has_no_brand_number_or_tone(self):
+        from modules.sns.visual_brief import build_concept_background_prompt
+        topic = next(t for t in self._topics() if t.topic_id == "1.1")
+        prompt = build_concept_background_prompt(topic.image_concept)
+        assert "sound waves" in prompt.prompt_text and "microphone" in prompt.prompt_text
+        assert not any(term in prompt.prompt_text for term in self.BRAND_TERMS)
+        assert not any(ch.isdigit() for ch in prompt.prompt_text)
+        assert "Do not draw any company logo" in prompt.prompt_text and prompt.negative_prompt == ""
+        assert "뉴스 정리자" not in prompt.prompt_text
+        assert build_concept_background_prompt("  ") is None
+
+    def _hero_env(self, monkeypatch, check_ok=True):
+        from modules.sns.hero_card_content_builder import HeroBlockText, HeroCardTextContent, HeroCardTextResult
+        from modules.sns.image_text_checker import ImageCheck, ImageCheckResult
+        text = HeroCardTextContent(headline="h", subheadline="s",
+                                   blocks=tuple(HeroBlockText("t", "d") for _ in range(4)), tagline="g",
+                                   content_fingerprint="f")
+        monkeypatch.setattr(cpb, "generate_hero_card_content", lambda *a, **k: HeroCardTextResult(True, text))
+        prompts = []
+        monkeypatch.setattr(cpb, "generate_image",
+                            lambda p, n="": prompts.append(p) or SimpleNamespace(success=True, image_bytes=b"bgbytes"))
+        monkeypatch.setattr(cpb, "check_images_for_text_and_logo",
+                            lambda images, **k: ImageCheckResult(True, (ImageCheck(1, not check_ok, False),)))
+        monkeypatch.setattr(cpb, "render_hero_card", lambda content: b"png")
+        return prompts
+
+    def test_036_default_path_still_uses_core_message_prompt(self, monkeypatch):
+        from modules.sns.visual_brief import build_visual_brief
+        prompts = self._hero_env(monkeypatch)
+        brief = build_visual_brief("3.1", "기존 핵심 메시지 문장", "Some Brand Title")
+        assert cpb._build_hero_card_image(SimpleNamespace(title="T"), brief) == b"png"
+        assert "기존 핵심 메시지 문장" in prompts[0] and "Some Brand Title" in prompts[0]
+
+    def test_022_path_sends_only_concept(self, monkeypatch):
+        from modules.sns.visual_brief import build_visual_brief
+        prompts = self._hero_env(monkeypatch)
+        topic = next(t for t in self._topics() if t.topic_id == "1.1")
+        brief = build_visual_brief(topic.topic_id, topic.core_message, topic.title, "", "뉴스 정리자 말투")
+        assert cpb._build_hero_card_image(topic, brief, client=object(), logo_check=True,
+                                          background_concept=topic.image_concept) == b"png"
+        assert "sound waves" in prompts[0] and "IBM" not in prompts[0] and "뉴스 정리자" not in prompts[0]
+
+    def test_blocked_background_saved_for_review_only(self, monkeypatch, tmp_path):
+        self._hero_env(monkeypatch, check_ok=False)
+        path = tmp_path / "review" / "c22_cover_bg_blocked.png"
+        assert cpb._build_hero_card_image(SimpleNamespace(title="T"), None, client=object(), logo_check=True,
+                                          background_concept="abstract waves", blocked_bg_path=path) is None
+        assert path.read_bytes() == b"bgbytes"
+
+    @pytest.mark.parametrize("persona_code,concept,expected_concept", [
+        ("PER-021", "abstract waves", "abstract waves"),
+        ("PER-021", "", None),             # 개념 없는 Topic → 기본 비브랜드 개념(아래에서 확인)
+        ("", "abstract waves", "NONE"),   # 036 등 Persona 없음 → 기존 경로(None)
+    ])
+    def test_carousel_passes_concept_only_for_persona(self, monkeypatch, tmp_path, persona_code, concept,
+                                                      expected_concept):
+        from modules.sns.visual_brief import DEFAULT_PERSONA_BACKGROUND_CONCEPT
+        slides = tuple(Slide(index=i + 1, role="r", text=f"슬라이드 {i + 1}") for i in range(3))
+        content = CarouselContent(slot_role="REACH", template_type="HOOK_IMPACT", source_section_id="1.1",
+                                  source_title="T", source_url="https://src.example/a", slides=slides,
+                                  caption="캡션", hashtags=("#IBM",), content_fingerprint="fp")
+        monkeypatch.setattr(cpb, "generate_carousel_content", lambda *a, **k: CarouselResult(True, content))
+        seen = []
+        monkeypatch.setattr(cpb, "_build_hero_card_image",
+                            lambda *a, background_concept=None, blocked_bg_path=None, **k:
+                            seen.append((background_concept, blocked_bg_path)) or b"cover")
+        monkeypatch.setattr(cpb, "render_card", lambda c: b"body")
+        topic = SimpleNamespace(topic_id="1.1", title="T", source_url="https://src.example/a", core_message="m",
+                                prohibited_expression="", source_published_at="", image_concept=concept)
+        (tmp_path / "content").mkdir()
+        (tmp_path / "images").mkdir()
+        assert cpb._create_carousel_package(topic, "c22t", tmp_path, 3, "", "REACH", "HOOK_IMPACT",
+                                            persona_code=persona_code).success is True
+        got_concept, got_path = seen[0]
+        if expected_concept == "NONE":
+            assert got_concept is None and got_path is None
+        else:
+            assert got_concept == (expected_concept or DEFAULT_PERSONA_BACKGROUND_CONCEPT)
+            assert got_path == tmp_path / "review" / "c22t_cover_bg_blocked.png"

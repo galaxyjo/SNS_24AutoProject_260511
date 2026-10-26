@@ -106,6 +106,41 @@ def build_image_prompt(brief: VisualBrief) -> "ImagePrompt | None":
     )
 
 
+DEFAULT_PERSONA_BACKGROUND_CONCEPT = "glowing abstract data streams and soft light waves"
+
+
+def build_concept_background_prompt(visual_concept: str) -> "ImagePrompt | None":
+    """261026 STEP 5-B — Persona 계정 캐러셀 표지 배경 전용. `build_background_only_prompt()`는 core_message
+    원문·제목(회사·제품명·숫자)·글쓰기용 tone_style을 그대로 넣어, 022에서 IBM 로고 비슷한 형상이 그려졌다
+    (모듈 docstring의 '브랜드명이 프롬프트에 있으면 로고를 그린다'와 같은 실측). 여기서는 Sourcebook의 짧은
+    비브랜드 시각 개념만 쓰고, 로고 금지 문구에도 특정 회사명을 넣지 않는다. 036 경로는 기존 함수를 그대로 쓴다.
+    Flux가 negative_prompt를 지원하지 않으므로 금지 지시는 prompt_text 안에만 둔다."""
+    concept = (visual_concept or "").strip()
+    if not concept:
+        return None
+    prompt_text = (
+        "No text, no letters, no numbers, no writing, no captions, no labels, no signage, "
+        "no UI panels, no screens displaying text, no books, no paper, no document pages "
+        "anywhere in this image, in any language. "
+        # 261026 STEP 5-B — render_hero_card()가 왼쪽 텍스트 열(x<780)을 거의 불투명하게 덮어 오른쪽만 보인다.
+        # 가운데 둔 마이크는 가려지고 오른쪽의 무관한 책만 보였다(022 실측) → 주제 물체를 오른쪽에 크게 둔다.
+        f"Main subject, large and clearly visible in the right third of the image: {concept}. "
+        "Keep the left half as plain dark empty space with no objects. "
+        "A modern high-tech abstract three-dimensional artwork, deep navy blue and neon cyan aesthetic, "
+        "glowing abstract shapes, flowing light trails, particle effects. "
+        "Dramatic lighting, layered depth, premium and futuristic in feel. "
+        "Do not draw any company logo, brand mark, trademark, emblem, product name or "
+        "letter-like shapes; keep every object generic and unbranded. "
+        "Absolutely no text, letters, numerals, or writing in any language anywhere in the image."
+    )
+    return ImagePrompt(
+        prompt_text=prompt_text,
+        negative_prompt="",
+        aspect_ratio=DEFAULT_ASPECT_RATIO,
+        prompt_version=PROMPT_VERSION,
+    )
+
+
 def build_background_only_prompt(brief: VisualBrief) -> "ImagePrompt | None":
     """260811 Visual Type Wiring — `render_hero_card()`용 배경 이미지 Prompt.
 

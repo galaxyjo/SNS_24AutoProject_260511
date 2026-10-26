@@ -3,6 +3,7 @@ Carousel Content Contract Canary 검증. 실제 Gemini 호출 없음 — 전부 
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -229,6 +230,30 @@ class TestFabricationGuard:
         _patch_gemini(monkeypatch, models)
 
         result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT")
+
+        assert result.success is False
+        assert result.error_code == "POSSIBLE_FABRICATION"
+
+    def test_trailing_punctuation_after_source_number_is_allowed(self, monkeypatch):
+        """261026 022 Dry-run 실측 — 원문 "5.0"이 생성문에서 "5.0,"로 쓰여도 같은 숫자다(소수점·천단위는 유지)."""
+        topic = _topic(core_message="IBM Granite Speech 5.0 모델은 키워드 2,000개와 WER 5.06%를 지원한다.")
+        payload = _valid_payload(caption="Granite Speech 5.0, 키워드 2,000개. WER 5.06%.\n\n저장해두고 확인하세요.")
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+
+        result = builder.generate_carousel_content(topic, "REACH", "HOOK_IMPACT")
+
+        assert result.success is True
+        assert builder._extract_numeric_tokens("5.0, 2,000. 5.06%") == {"5.0", "2000", "5.06%"}   # 천 단위 쉼표 정규화
+
+    def test_number_not_in_source_still_blocked_with_trailing_punctuation(self, monkeypatch):
+        """끝 문장부호를 떼도 원문에 없는 숫자("6.0,")는 계속 차단한다."""
+        topic = _topic(core_message="IBM Granite Speech 5.0 모델을 공개했다.")
+        payload = _valid_payload(caption="Granite Speech 6.0, 공개.\n\n저장해두고 확인하세요.")
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+
+        result = builder.generate_carousel_content(topic, "REACH", "HOOK_IMPACT")
 
         assert result.success is False
         assert result.error_code == "POSSIBLE_FABRICATION"
@@ -673,6 +698,23 @@ class TestShortHookCopyRules:
         assert "Prefer a question hook" not in prompt
         assert f"Slide {n} (" in prompt and "+ CTA)" in prompt
 
+    @pytest.mark.parametrize("n", [2, 3, 4])
+    def test_cover_limit_counts_every_character_in_prompt(self, monkeypatch, n):
+        """261026 STEP 5-B — 022 실측 41·43자 초과: 40자는 공백·영문·숫자·문장부호 포함이라고 명시한다."""
+        prompt = self._prompt(monkeypatch, n)
+        assert "including spaces, English letters, digits and punctuation" in prompt
+        assert "count them yourself before answering" in prompt
+        assert "'IBM Granite Speech 5.0' → 'Granite 음성 AI'" in prompt
+
+    @pytest.mark.parametrize("cover,expected", [
+        ("IBM Granite Speech 5.0, 오픈 음성 모델 2위의 실력은?", "COVER_TITLE_INVALID"),   # 41자(022 실측)
+        ("Granite 음성 AI, 공개 음성 모델 중 실력은 어느 정도일까?", None),              # 38자, 숫자 없음
+    ])
+    def test_cover_title_check_still_40_chars(self, monkeypatch, cover, expected):
+        assert builder._COVER_TITLE_MAX_CHARS == 40
+        result, _ = _run_short(monkeypatch, _short_payload(3, cover=cover), 3)
+        assert (result.error_code if not result.success else None) == expected
+
     def test_three_slide_plan_is_fact_then_action(self, monkeypatch):
         prompt = self._prompt(monkeypatch, 3)
         assert "Slide 2 (fact)" in prompt and "how it differs from before" in prompt
@@ -812,3 +854,440 @@ class TestCaptionCtaOnlyLineMove:
         payload = _norm_payload(["AI 영업 자동화 시작", "지금 저장하세요.", "하루 3건 자동 게시가 됩니다."])
         result, _ = _run_short(monkeypatch, payload, 3)
         assert result.error_code == "CTA_NOT_LAST_SLIDE"
+
+
+class TestAccountCtaContract:
+    """261026 STEP 5-B — Persona conversion_cta가 있으면 그 문구도 CTA로 인정한다(022 Dry-run 실측: 계정 CTA를
+    정확히 썼는데 키워드가 없어 LAST_SLIDE_CTA_COUNT_INVALID). CTA 누락 차단·036(계정 CTA 없음) 동작은 그대로."""
+
+    CTA_022 = "AI 뉴스 요약 자동화 문의는 DM"
+
+    def _payload(self, last_text, caption_last):
+        payload = _short_payload(3)
+        payload["slides"][-1]["text"] = last_text
+        payload["caption"] = "음성 AI 모델 3종을 정리했습니다.\n\n언어별 지원 범위를 비교해 보세요.\n\n" + caption_last
+        return payload
+
+    def _run(self, monkeypatch, payload, conversion_cta=""):
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+        result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=conversion_cta)
+        return result, models
+
+    def test_022_account_cta_on_last_slide_and_caption_passes(self, monkeypatch):
+        payload = self._payload("모델별 지원 언어를 비교했습니다. AI 뉴스 요약 자동화 문의는 DM.",
+                                "AI 뉴스 요약 자동화 문의는 DM.")
+        result, models = self._run(monkeypatch, payload, self.CTA_022)
+        assert result.success is True, result.error_code
+        prompt = models.calls[0]["contents"]
+        assert f'exactly "{self.CTA_022}"' in prompt and "replaces the CTA keyword rule" in prompt
+
+    def test_022_missing_cta_on_last_slide_still_blocked(self, monkeypatch):
+        payload = self._payload("모델별 지원 언어를 비교했습니다.", "AI 뉴스 요약 자동화 문의는 DM.")
+        result, _ = self._run(monkeypatch, payload, self.CTA_022)
+        assert (result.success, result.error_code) == (False, "LAST_SLIDE_CTA_COUNT_INVALID")
+
+    def test_022_missing_cta_in_caption_still_blocked(self, monkeypatch):
+        payload = self._payload("AI 뉴스 요약 자동화 문의는 DM.", "언어별 오류율을 비교해 보세요.")
+        result, _ = self._run(monkeypatch, payload, self.CTA_022)
+        assert (result.success, result.error_code) == (False, "CAPTION_CTA_COUNT_INVALID")
+
+    def test_022_account_cta_on_body_slide_blocked(self, monkeypatch):
+        payload = self._payload("AI 뉴스 요약 자동화 문의는 DM.", "AI 뉴스 요약 자동화 문의는 DM.")
+        payload["slides"][1]["text"] = "39만 시간 학습. AI 뉴스 요약 자동화 문의는 DM"
+        result, _ = self._run(monkeypatch, payload, self.CTA_022)
+        assert (result.success, result.error_code) == (False, "CTA_NOT_LAST_SLIDE")
+
+    def test_without_account_cta_dm_phrase_is_not_a_cta(self, monkeypatch):
+        """036처럼 conversion_cta가 없으면 기존 키워드 검사 그대로 — 'DM' 문장은 CTA가 아니다."""
+        payload = self._payload("AI 뉴스 요약 자동화 문의는 DM.", "AI 뉴스 요약 자동화 문의는 DM.")
+        result, models = self._run(monkeypatch, payload)
+        assert (result.success, result.error_code) == (False, "LAST_SLIDE_CTA_COUNT_INVALID")
+        assert "Account CTA" not in models.calls[0]["contents"]
+
+    def test_without_account_cta_keyword_cta_still_passes(self, monkeypatch):
+        result, _ = self._run(monkeypatch, _short_payload(3))
+        assert result.success is True, result.error_code
+
+    def test_count_helper_default_unchanged(self):
+        assert builder._count_cta_sentences("문의는 DM. 저장하세요.") == 1
+        assert builder._count_cta_sentences("문의는 DM. 저장하세요.", "문의는 DM") == 2
+        assert builder._count_cta_sentences("저장하세요", "   ") == 1
+
+class TestWordSeparatorAnd022Captures:
+    """261026 STEP 5-B — 022 Dry-run 캡처(g·h·i) 재사용. 띄어 쓴 '·'/'→'는 단어로 세지 않고(30단어 기준 유지),
+    022 Sourcebook 1.1 원문 수치 기준으로 캡처 숫자는 통과·허위 숫자는 차단한다."""
+
+    CTA_022 = "AI 뉴스 요약 자동화 문의는 DM"
+    SB_022 = Path(__file__).resolve().parents[1] / "docs" / "design" / "SNS_AI_NEWS_SOURCEBOOK_IDN022_261026.md"
+    CAPTURE_G = ("음성 AI Granite 5.0, 공개 모델 2위 오른 비결은? "
+                 "39만 시간 학습·6개 언어 지원·Open ASR 리더보드 오류율 5.06%·Apache 2.0 라이선스 "
+                 "키워드 2,000개 지정 기능·Turbo CTC 속도 1.6배 향상·장문 오류 24% 감소. AI 뉴스 요약 자동화 문의는 DM")
+    CAPTURE_H_SLIDE2 = ("2B 모델은 6개 언어 받아쓰기·상호 번역·39만 시간 학습·키워드 2,000개 지정·영어 단어 오류율 5.06% · "
+                        "Turbo CTC는 7개 언어·구두점 자동 처리·속도 1.6배 향상 · 4.1-2b-plus는 장문 오류율 24% 감소 · "
+                        "Apache 2.0 라이선스")
+    CAPTURE_I_SLIDE2 = ("영어·프랑스어·독일어·스페인어·포르투갈어·일본어 6개 언어 받아쓰기 및 영어 상호 번역 · "
+                        "39만 시간 분량 공개 음성 학습 · Open ASR 리더보드 영어 평균 단어 오류율 5.06% 공개 모델 2위 · "
+                        "Apache 2.0 라이선스 공개")
+
+    def _grounding(self):
+        from modules.sns.source_selector import parse_sourcebook
+        topic = next(t for t in parse_sourcebook(self.SB_022) if t.topic_id == "1.1")
+        return topic.core_message + " " + topic.title
+
+    def _payload(self, slide2):
+        return {
+            "slides": [
+                {"index": 1, "text": "음성 AI Granite Speech 5.0, 어떤 언어를 지원할까?"},
+                {"index": 2, "text": slide2},
+                {"index": 3, "text": "IBM Granite Speech 5.0 오픈소스 활용 · 6개 언어 음성 데이터 처리 및 번역 적용 · "
+                                     + self.CTA_022},
+            ],
+            "caption": "IBM이 공개한 음성 AI 모델의 지원 언어와 성능 지표를 정리했습니다.\n" + self.CTA_022,
+            "hashtags": ["AI뉴스", "해외이슈", "뉴스요약", "음성인식", "오픈소스AI"],
+        }
+
+    def test_capture_i_slide2_is_29_real_words_and_passes(self):
+        assert len(self.CAPTURE_I_SLIDE2.split()) == 32
+        assert builder._count_words(self.CAPTURE_I_SLIDE2) == 29
+        assert builder._validate_short_contract(self._payload(self.CAPTURE_I_SLIDE2), 3, self.CTA_022) is None
+
+    def test_31_real_words_still_blocked(self):
+        slide2 = self.CAPTURE_I_SLIDE2 + " 그리고 확인"
+        assert builder._count_words(slide2) == 31
+        assert builder._validate_short_contract(self._payload(slide2), 3, self.CTA_022) == "BODY_SLIDE_TOO_LONG"
+
+    def test_separator_only_excludes_standalone_marks(self):
+        assert builder._count_words("A · B → C") == 3
+        assert builder._count_words("A·B C") == 2          # 붙어 있는 '·'는 단어 일부라 그대로 센다
+        assert builder._BODY_MAX_WORDS == 30
+
+    @pytest.mark.parametrize("text", [CAPTURE_G, CAPTURE_H_SLIDE2, CAPTURE_I_SLIDE2])
+    def test_capture_numbers_grounded_in_022_sourcebook(self, text):
+        assert builder._detect_possible_fabrication(text, self._grounding()) is False
+
+    @pytest.mark.parametrize("fake", ["WER 3.5%로 1위", "48만 시간 학습", "9개 언어 지원"])
+    def test_fabricated_numbers_still_blocked(self, fake):
+        assert builder._detect_possible_fabrication(self.CAPTURE_I_SLIDE2 + " " + fake, self._grounding()) is True
+
+class TestFactPlacement022:
+    """261026 STEP 5-B — 2장은 핵심 사실 3~4개, 나머지 검증 사실은 캡션 본문으로(삭제·변조 금지). 30단어·CTA·숫자 검사 유지."""
+
+    CTA_022 = TestWordSeparatorAnd022Captures.CTA_022
+    SB_022 = TestWordSeparatorAnd022Captures.SB_022
+    _payload = TestWordSeparatorAnd022Captures._payload
+    _grounding = TestWordSeparatorAnd022Captures._grounding
+
+    # 최종 Dry-run(18:54) 2장 실측 — 사실 8개, 구분 기호 7개, 실제 31단어
+    FINAL_SLIDE2 = ("3종 공개 · 2B 모델 6개 언어 받아쓰기 및 상호 번역 · 39만 시간 학습 · 2,000개 키워드 지정 · WER 5.06% · "
+                    "Turbo CTC 속도 약 1.6배 향상 · 4.1-2b-plus 오류율 24% 감소 · Apache 2.0 라이선스")
+    FOUR_FACT_SLIDE2 = "2B 모델 6개 언어 받아쓰기 및 상호 번역 · 39만 시간 학습 · Open ASR 영어 WER 5.06% 공개 모델 2위 · Apache 2.0 라이선스"
+    CAPTION = ("IBM이 공개한 음성 AI 모델 3종을 해외 이슈 요약으로 정리했습니다.\n"
+               "제품명·인명을 최대 2,000개 키워드로 지정할 수 있습니다.\n"
+               "Turbo CTC는 속도가 약 1.6배 빨라졌고, 4.1-2b-plus는 장문 음성 오류율을 24% 줄였습니다.\n"
+               "AI 뉴스 요약 자동화 문의는 DM")
+
+    def _prompt(self, monkeypatch, **kw):
+        models = _FakeModels(response=_FakeResponse(_short_payload(3)))
+        _patch_gemini(monkeypatch, models)
+        builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3, **kw)
+        return models.calls[0]["contents"]
+
+    def test_prompt_limits_slide2_to_key_facts_and_moves_rest_to_caption(self, monkeypatch):
+        prompt = self._prompt(monkeypatch)
+        assert "only the 3-4 most important verified facts" in prompt
+        assert "remaining verified facts and numbers in the caption body instead of dropping or changing them" in prompt
+        assert "at least three information lines in total" in prompt
+        assert "at most 30 words" in prompt                       # 30단어 지시 유지
+
+    def test_seo_rule_only_with_account_keywords(self, monkeypatch):
+        assert "never stuff or repeat keywords" not in self._prompt(monkeypatch)
+        prompt = self._prompt(monkeypatch, seo_keywords="AI뉴스, 해외이슈")
+        assert "AI뉴스, 해외이슈" in prompt and "each at most once" in prompt
+
+    def test_final_dry_run_slide2_of_31_real_words_still_blocked(self):
+        assert builder._count_words(self.FINAL_SLIDE2) == 31
+        assert builder._validate_short_contract(self._payload(self.FINAL_SLIDE2), 3, self.CTA_022) == "BODY_SLIDE_TOO_LONG"
+
+    def test_four_key_facts_on_slide2_and_rest_in_caption_pass(self):
+        payload = self._payload(self.FOUR_FACT_SLIDE2)
+        payload["caption"] = self.CAPTION
+        assert builder._count_words(self.FOUR_FACT_SLIDE2) <= 30
+        assert builder._validate_short_contract(payload, 3, self.CTA_022) is None
+        combined = " ".join(s["text"] for s in payload["slides"]) + " " + payload["caption"]
+        assert builder._detect_possible_fabrication(combined, self._grounding()) is False
+        for fact in ("2,000", "1.6", "24%"):                     # 카드에서 빠진 사실은 캡션에 그대로 남는다
+            assert fact in payload["caption"]
+        assert payload["caption"].splitlines()[-1] == self.CTA_022
+
+    def test_fake_number_in_caption_still_blocked(self):
+        combined = self.FOUR_FACT_SLIDE2 + " " + self.CAPTION.replace("24%", "42%")
+        assert builder._detect_possible_fabrication(combined, self._grounding()) is True
+
+class TestCaptionCtaLineAndSeo022:
+    """261026 STEP 5-B — 022 최종 Dry-run 캡션이 줄바꿈 없는 한 줄(정보 + 계정 CTA)이었다. 계정 CTA를 독립 마지막
+    줄로 옮기고(문구 불변), 해시태그는 글 주제어를 쓰도록 지시한다. 036(계정 CTA 없음)은 그대로."""
+
+    CTA_022 = "AI 뉴스 요약 자동화 문의는 DM"
+    ONE_LINE = ("IBM이 공개한 음성 AI 모델 3종을 정리했습니다. 회의 및 통화용 4.1-2b-plus는 장문 음성 오류율을 24% "
+                "줄였으며 모든 모델은 Apache 2.0 라이선스로 제공됩니다. AI 뉴스 요약 자동화 문의는 DM")
+
+    def test_one_line_caption_gets_separate_cta_line(self):
+        out = builder._separate_account_cta_line({"caption": self.ONE_LINE}, self.CTA_022)["caption"]
+        lines = out.split("\n")
+        assert lines[-1] == self.CTA_022 and lines[-2] == ""
+        assert lines[0].endswith("제공됩니다.") and out.replace("\n", " ").replace("  ", " ") == self.ONE_LINE
+
+    def test_already_separate_or_missing_cta_unchanged(self):
+        done = "정보 줄입니다.\n\n" + self.CTA_022
+        assert builder._separate_account_cta_line({"caption": done}, self.CTA_022)["caption"] == done
+        no_cta = "정보 줄입니다. 저장해두세요."
+        assert builder._separate_account_cta_line({"caption": no_cta}, self.CTA_022)["caption"] == no_cta
+        assert builder._separate_account_cta_line({"caption": self.ONE_LINE}, "")["caption"] == self.ONE_LINE
+
+    def test_generated_one_line_caption_saved_with_cta_on_last_line(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][-1]["text"] = "공개 음성 모델 확인 · " + self.CTA_022
+        payload["caption"] = self.ONE_LINE
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+        result = builder.generate_carousel_content(_topic(core_message=_topic().core_message + " 24% 2.0 4.1-2b 3종"),
+                                                   "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=self.CTA_022)
+        assert result.success is True, result.error_code
+        assert result.content.caption.split("\n")[-1] == self.CTA_022
+
+    def test_seo_prompt_requires_subject_hashtags(self, monkeypatch):
+        models = _FakeModels(response=_FakeResponse(_short_payload(3)))
+        _patch_gemini(monkeypatch, models)
+        builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3,
+                                          seo_keywords="오늘의뉴스, AI뉴스")
+        prompt = models.calls[0]["contents"]
+        assert "At least 3 hashtags must name this post's own subject" in prompt and "#IBM, #음성인식" in prompt
+        models2 = _FakeModels(response=_FakeResponse(_short_payload(3)))
+        _patch_gemini(monkeypatch, models2)
+        builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", slide_count=3)
+        assert "At least 3 hashtags must name" not in models2.calls[0]["contents"]
+
+    def test_fake_number_in_separated_caption_still_blocked(self, monkeypatch):
+        payload = _short_payload(3)
+        payload["slides"][-1]["text"] = "공개 음성 모델 확인 · " + self.CTA_022
+        payload["caption"] = self.ONE_LINE.replace("24%", "42%")
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+        result = builder.generate_carousel_content(_topic(core_message=_topic().core_message + " 24% 2.0 4.1-2b 3종"),
+                                                   "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=self.CTA_022)
+        assert (result.success, result.error_code) == (False, "POSSIBLE_FABRICATION")
+
+class _SeqModels:
+    """응답을 호출 순서대로 돌려준다(첫 생성 → 재작성)."""
+
+    def __init__(self, payloads):
+        self._payloads = list(payloads)
+        self.calls = []
+
+    def generate_content(self, model, contents, config):
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        return _FakeResponse(self._payloads[min(len(self.calls), len(self._payloads)) - 1])
+
+
+class TestFactLockAndControlledRepair022:
+    """261026 STEP 5-B — 022 FACT LOCK(카드 사실 지정)·LAYOUT LOCK·LAYOUT/STYLE 1회 재작성. 사실·Safety·중복은
+    재작성 없이 멈추고, 카드 사실이 없는 036 경로는 그대로다."""
+
+    CTA = "AI 뉴스 요약 자동화 문의는 DM"
+    SB_022 = Path(__file__).resolve().parents[1] / "docs" / "design" / "SNS_AI_NEWS_SOURCEBOOK_IDN022_261026.md"
+    GOOD_SLIDE2 = ("6개 언어 받아쓰기·영어 상호 번역 · 39만 시간 공개 음성 학습 · 영어 평균 단어 오류율(WER) 5.06% "
+                   "공개 모델 중 2위 · Apache 2.0 라이선스")
+    CRAMMED_SLIDE2 = ("6개 언어 받아쓰기·영어 상호 번역·39만 시간 학습·키워드 2,000개 지정·WER 5.06% 2위·Turbo CTC "
+                      "속도 1.6배 향상·4.1-2b-plus 오류율 24% 감소·Apache 2.0 라이선스")
+    CAPTION = ("IBM이 공개한 음성 AI 모델 3종을 정리했습니다.\n"
+               "키워드는 최대 2,000개까지 지정할 수 있습니다.\n"
+               "Turbo CTC는 속도가 약 1.6배 빨라졌고 4.1-2b-plus는 장문 오류율을 24% 줄였습니다.\n"
+               "AI 뉴스 요약 자동화 문의는 DM")
+
+    def _topic(self):
+        from modules.sns.source_selector import parse_sourcebook
+        return next(t for t in parse_sourcebook(self.SB_022) if t.topic_id == "1.1")
+
+    def _payload(self, slide2=None, caption=None, last=None):
+        return {
+            "slides": [
+                {"index": 1, "role": "cover", "text": "Granite 음성 AI 3종 공개, 무엇이 달라졌나?"},
+                {"index": 2, "role": "fact", "text": slide2 or self.GOOD_SLIDE2},
+                {"index": 3, "role": "cta", "text": last or ("공개 모델 확인 · 지원 언어 선택 · " + self.CTA)},
+            ],
+            "caption": caption or self.CAPTION,
+            "hashtags": ["IBM", "음성인식", "음성AI", "해외이슈", "AI뉴스"],
+        }
+
+    def _run(self, monkeypatch, payloads, topic=None, safety=("SAFE", "STOP"), **kw):
+        models = _SeqModels(payloads)
+        _patch_gemini(monkeypatch, models)
+        monkeypatch.setattr(builder, "check_caption_safety", lambda text, **k: safety)
+        result = builder.generate_carousel_content(topic or self._topic(), "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=self.CTA, **kw)
+        return result, models
+
+    def test_sourcebook_card_facts_are_grounded(self):
+        topic = self._topic()
+        assert len(topic.card_facts) == 4
+        grounding = builder._extract_numeric_tokens(topic.core_message + " " + topic.title)
+        assert all(builder._extract_numeric_tokens(f) <= grounding for f in topic.card_facts)
+
+    def test_assigned_facts_pass_in_one_call(self, monkeypatch):
+        result, models = self._run(monkeypatch, [self._payload()])
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 1 and "Slide 2 FACT LOCK" in models.calls[0]["contents"]
+        assert result.content.slides[1].text == self.GOOD_SLIDE2
+        assert result.content.caption.split("\n")[-1] == self.CTA
+
+    def test_reexpressed_number_stops_without_repair(self, monkeypatch):
+        caption = self.CAPTION.replace("3종을 정리했습니다.", "3종을 정리했습니다. 영어와 5개 언어를 지원합니다.")
+        result, models = self._run(monkeypatch, [self._payload(caption=caption)])
+        assert (result.success, result.error_code) == (False, "POSSIBLE_FABRICATION")
+        assert len(models.calls) == 1                                        # FACT 위반은 재작성 0회
+
+    def test_crammed_slide2_is_repaired_once_then_passes(self, monkeypatch):
+        result, models = self._run(monkeypatch, [self._payload(slide2=self.CRAMMED_SLIDE2), self._payload()])
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 2
+        repair_prompt = models.calls[1]["contents"]
+        assert "Rewrite ONLY the field named 'body'" in repair_prompt and "CARD_FACT_EXTRA" in repair_prompt
+        assert result.content.slides[1].text == self.GOOD_SLIDE2
+        assert result.content.caption == self.CAPTION                        # 실패 필드만 교체
+
+    def test_missing_card_fact_after_repair_stops(self, monkeypatch):
+        partial = "6개 언어 받아쓰기·영어 상호 번역 · 39만 시간 공개 음성 학습"
+        result, models = self._run(monkeypatch, [self._payload(slide2=partial), self._payload(slide2=partial)])
+        assert (result.success, result.error_code) == (False, "CARD_FACT_MISSING")
+        assert len(models.calls) == 2                                        # 재작성 1회 뒤 STOP
+
+    def test_body_over_30_words_with_attached_separators_is_repaired(self, monkeypatch):
+        long_slide2 = self.GOOD_SLIDE2 + " · " + "·".join(["추가설명"] * 10)
+        assert builder._count_words(long_slide2) <= 30 < builder._count_words(long_slide2, strict=True)
+        result, models = self._run(monkeypatch, [self._payload(slide2=long_slide2), self._payload()])
+        assert result.success is True and len(models.calls) == 2
+        assert "BODY_SLIDE_TOO_LONG" in models.calls[1]["contents"]
+
+    def test_caption_cta_error_repairs_caption_only(self, monkeypatch):
+        bad_caption = self.CAPTION.replace("\n" + self.CTA, "\n자세한 내용은 원문을 참고하세요.")   # CTA 없는 마지막 줄
+        fixed = self._payload(slide2="바뀌면 안 되는 2장")                    # 재작성 응답의 2장은 무시돼야 한다
+        result, models = self._run(monkeypatch, [self._payload(caption=bad_caption), fixed])
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 2 and "Rewrite ONLY the field named 'caption'" in models.calls[1]["contents"]
+        assert result.content.slides[1].text == self.GOOD_SLIDE2 and result.content.caption == self.CAPTION
+
+    def test_repair_failure_again_stops(self, monkeypatch):
+        crammed = self._payload(slide2=self.CRAMMED_SLIDE2)
+        result, models = self._run(monkeypatch, [crammed, crammed])
+        assert (result.success, result.error_code) == (False, "CARD_FACT_EXTRA") and len(models.calls) == 2
+
+    def test_safety_block_stops_without_repair(self, monkeypatch):
+        result, models = self._run(monkeypatch, [self._payload()], safety=("UNSAFE", "blocked"))
+        assert (result.success, result.error_code) == (False, "SAFETY_BLOCKED:blocked") and len(models.calls) == 1
+
+    def test_duplicate_stops_without_repair(self, monkeypatch):
+        first, _ = self._run(monkeypatch, [self._payload()])
+        result, models = self._run(monkeypatch, [self._payload()],
+                                   existing_fingerprints={first.content.content_fingerprint})
+        assert (result.success, result.error_code) == (False, "DUPLICATE_FINGERPRINT") and len(models.calls) == 1
+
+    def test_repair_uses_same_account_client_and_model(self, monkeypatch):
+        models = _SeqModels([self._payload(slide2=self.CRAMMED_SLIDE2), self._payload()])
+        own_client = _FakeClient(models)
+        monkeypatch.setattr(builder, "_get_client", lambda: pytest.fail("공용 Client를 쓰면 안 됨"))
+        monkeypatch.setattr(builder, "check_caption_safety", lambda text, **k: ("SAFE", "STOP"))
+        result = builder.generate_carousel_content(self._topic(), "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=self.CTA, client=own_client,
+                                                   throttle_fn=lambda: None, model="m-022")
+        assert result.success is True
+        assert [c["model"] for c in models.calls] == ["m-022", "m-022"]
+
+    def test_036_path_without_card_facts_unchanged(self, monkeypatch):
+        """카드 사실이 없는 Topic(036 공용 Sourcebook)은 FACT LOCK 문구·재작성·엄격 단어 수가 모두 꺼져 있다."""
+        crammed = self._payload(slide2=self.CRAMMED_SLIDE2)
+        topic = _topic(core_message=self._topic().core_message)
+        assert topic.card_facts == ()
+        result, models = self._run(monkeypatch, [crammed, self._payload()], topic=topic)
+        assert len(models.calls) == 1 and "FACT LOCK" not in models.calls[0]["contents"]
+        assert result.success is True                                       # 기존 기준(붙여 쓴 '·'는 1단어)으로 통과
+
+class TestTopicHashtagsAndCoverSubject022:
+    """261026 STEP 5-B — Sourcebook 주제 해시태그(원문 회사·제품·기술)를 앞에 두고 Gemini 해시태그와 합친다(최대 8,
+    중복 제거). 주제 해시태그가 없는 036 Topic은 그대로. 배경 개념은 오른쪽(텍스트 열 밖)에 크게 배치한다."""
+
+    SB_022 = Path(__file__).resolve().parents[1] / "docs" / "design" / "SNS_AI_NEWS_SOURCEBOOK_IDN022_261026.md"
+
+    def _topic(self):
+        from modules.sns.source_selector import parse_sourcebook
+        return next(t for t in parse_sourcebook(self.SB_022) if t.topic_id == "1.1")
+
+    def test_022_topic_hashtags_grounded_in_source(self):
+        topic = self._topic()
+        assert topic.topic_hashtags == ("IBM", "음성인식", "음성AI", "다국어번역")
+        text = (topic.core_message + topic.title).replace(" ", "")
+        assert "IBM" in text and "음성" in text and "번역" in text
+
+    def test_merge_puts_topic_tags_first_dedupes_and_caps(self):
+        merged = builder._merge_topic_hashtags(
+            {"hashtags": ["해외이슈", "ibm", "AI뉴스", "뉴스요약", "시사정리", "오늘의뉴스"]},
+            ("IBM", "음성인식", "음성AI", "다국어번역"))["hashtags"]
+        assert merged[:4] == ["IBM", "음성인식", "음성AI", "다국어번역"]
+        assert len(merged) == builder._HASHTAG_MAX and "ibm" not in merged
+
+    def test_merge_follows_hash_prefix_and_skips_without_topic_tags(self):
+        assert builder._merge_topic_hashtags({"hashtags": ["#AI뉴스"]}, ("IBM",))["hashtags"] == ["#IBM", "#AI뉴스"]
+        payload = {"hashtags": ["AI", "자동화"]}
+        assert builder._merge_topic_hashtags(payload, ()) is payload        # 036: 그대로
+
+    def test_generated_package_keeps_subject_hashtags(self, monkeypatch):
+        cls = TestFactLockAndControlledRepair022
+        payload = cls()._payload()
+        payload["hashtags"] = ["해외이슈", "AI뉴스", "뉴스요약", "시사정리", "오늘의뉴스"]
+        models = _SeqModels([payload])
+        _patch_gemini(monkeypatch, models)
+        result = builder.generate_carousel_content(self._topic(), "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=cls.CTA)
+        assert result.success is True, result.error_code
+        assert list(result.content.hashtags[:4]) == ["IBM", "음성인식", "음성AI", "다국어번역"]
+        assert len(models.calls) == 1
+
+    def test_cover_concept_prompt_places_subject_right_without_books(self):
+        from modules.sns.visual_brief import build_concept_background_prompt
+        topic = self._topic()
+        text = build_concept_background_prompt(topic.image_concept).prompt_text
+        assert "microphone" in topic.image_concept and "sound waves" in topic.image_concept
+        assert "right third of the image" in text and "left half as plain dark empty space" in text
+        assert "no books, no paper" in text and "IBM" not in text
+        assert not any(ch.isdigit() for ch in text)
+
+class TestThousandsSeparatorNormalization022:
+    """261026 STEP 5-B — 올바른 천 단위 쉼표만 지워 비교한다(2,000 = 2000). 소수점·퍼센트·모델명 숫자는 그대로,
+    애매한 쉼표는 그대로 둬 Fail-closed. 캐러셀·카드 사실·히어로카드가 같은 함수를 쓴다."""
+
+    SOURCE = "제품명·인명을 최대 2,000개 키워드로 지정, WER 5.06%, 6개 언어, granite-speech-5.0-2b 공개."
+
+    @pytest.mark.parametrize("generated,expected", [
+        ("키워드 최대 2000개 지정", False),            # 2,000 = 2000
+        ("키워드 최대 2,000개 지정", False),
+        ("WER 5.6%로 개선", True),                     # 5.06 ≠ 5.6
+        ("영어와 5개 언어", True),                      # 6 ≠ 5
+        ("granite-speech-5.0-2b 모델", False),          # 모델명 5.0 보존
+        ("키워드 3,000개 지정", True),                  # 원문 외 숫자
+        ("키워드 20,00개", True),                       # 애매한 쉼표 → 그대로 비교 → 차단
+    ])
+    def test_number_comparison(self, generated, expected):
+        assert builder._detect_possible_fabrication(generated, self.SOURCE) is expected
+
+    def test_token_normalization_keeps_decimals_and_percent(self):
+        assert builder._extract_numeric_tokens("2,000개 10,000.5원 5.06% 5.0, 1,2") == {"2000", "10000.5", "5.06%",
+                                                                                     "5.0", "1,2"}
+
+    def test_hero_card_path_uses_same_normalization(self, monkeypatch):
+        import modules.sns.hero_card_content_builder as hero
+        assert hero._detect_possible_fabrication is builder._detect_possible_fabrication
+        assert hero._detect_possible_fabrication("최대 2000개까지 지정 가능", self.SOURCE) is False
+        assert hero._detect_possible_fabrication("최대 2001개까지 지정 가능", self.SOURCE) is True

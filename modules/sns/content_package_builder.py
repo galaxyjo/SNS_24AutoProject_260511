@@ -50,7 +50,13 @@ from modules.sns.image_template_renderer import (
 )
 from modules.sns.image_text_checker import check_images_for_text_and_logo
 from modules.sns.source_selector import parse_sourcebook, select_next_topic, topic_matches_content_pillars
-from modules.sns.visual_brief import build_background_only_prompt, build_image_prompt, build_visual_brief
+from modules.sns.visual_brief import (
+    DEFAULT_PERSONA_BACKGROUND_CONCEPT,
+    build_background_only_prompt,
+    build_concept_background_prompt,
+    build_image_prompt,
+    build_visual_brief,
+)
 
 logger = get_logger(__name__)
 
@@ -320,7 +326,9 @@ def _brand_kw(brand_handle: str) -> dict:
 
 
 def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model=None,
-                           headline_override: "str | None" = None, brand_handle: str = "") -> "bytes | None":
+                           headline_override: "str | None" = None, brand_handle: str = "",
+                           logo_check: bool = False, background_concept: "str | None" = None,
+                           blocked_bg_path: "Path | None" = None) -> "bytes | None":
     """260811 Visual Type Wiring — 텍스트 생성(hero_card_content_builder)+
     텍스트없는 AI배경(visual_brief.build_background_only_prompt+generate_image)+
     Pillow 렌더링(render_hero_card)을 순서대로 실행한다. 어느 단계든 실패하면
@@ -333,7 +341,9 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
         )
         return None
 
-    bg_prompt = build_background_only_prompt(brief)
+    # 261026 STEP 5-B — Persona 캐러셀은 브랜드·숫자·말투 없는 짧은 시각 개념만 쓴다(036은 기존 함수 그대로).
+    bg_prompt = (build_concept_background_prompt(background_concept) if background_concept is not None
+                 else build_background_only_prompt(brief))
     if bg_prompt is None:
         logger.warning(
             "[HeroCardImage] 배경 프롬프트 생성 단계 실패 | stage=bg_prompt | "
@@ -346,6 +356,25 @@ def _build_hero_card_image(topic, brief, *, client=None, throttle_fn=None, model
             f"[HeroCardImage] 배경 이미지 생성 단계 실패 | stage=bg_image | error_code={bg_result.error_code}"
         )
         return None
+    # 261026 STEP 5-B — 022 표지 배경에 IBM 로고 비슷한 줄무늬 글자가 그려졌다("로고 금지" 지시 무시).
+    # 노트 캐러셀이 쓰는 기존 Gemini 글자·로고 판독을 재사용해, 배경에 글자·로고가 보이면 게시용 표지를
+    # 만들지 않는다(Fail-closed, 재생성 없음). Persona 계정 캐러셀만 켠다 — 036 기존 경로는 그대로다.
+    if logo_check:
+        check = check_images_for_text_and_logo([bg_result.image_bytes], client=client,
+                                               throttle_fn=throttle_fn, model=model)
+        if not check.success or not check.checks[0].passed:
+            # 차단된 배경은 게시용으로 쓰지 않고, 사람이 오탐 여부를 볼 수 있게 Vault 검토 폴더에만 남긴다.
+            if blocked_bg_path is not None:
+                try:
+                    blocked_bg_path.parent.mkdir(parents=True, exist_ok=True)
+                    blocked_bg_path.write_bytes(bg_result.image_bytes)
+                except OSError as exc:
+                    logger.warning(f"[HeroCardImage] 차단 배경 보존 실패 | {type(exc).__name__}")
+            logger.warning(
+                f"[HeroCardImage] 배경 글자·로고 판독 차단 | stage=bg_check | "
+                f"error_code={check.error_code or 'TEXT_OR_LOGO_DETECTED'} | saved={blocked_bg_path is not None}"
+            )
+            return None
 
     text_content = text_result.content
     blocks = tuple(
@@ -498,7 +527,13 @@ def _create_carousel_package(
             topic.topic_id, topic.core_message, topic.title, topic.prohibited_expression, tone_style
         )
         cover = _build_hero_card_image(topic, brief, client=client, throttle_fn=throttle_fn, model=model,
-                                       headline_override=cover_title, brand_handle=brand_handle)
+                                       headline_override=cover_title, brand_handle=brand_handle,
+                                       logo_check=bool(persona_code),
+                                       background_concept=(
+                                           (getattr(topic, "image_concept", "") or DEFAULT_PERSONA_BACKGROUND_CONCEPT)
+                                           if persona_code else None),
+                                       blocked_bg_path=(root / "review" / f"{content_id}_cover_bg_blocked.png"
+                                                        if persona_code else None))
         if cover is None:
             return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
         images = [cover]

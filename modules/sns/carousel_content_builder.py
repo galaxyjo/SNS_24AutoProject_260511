@@ -208,8 +208,16 @@ def compute_content_fingerprint(
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()
 
 
+_THOUSANDS_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?%?")
+
+
 def _extract_numeric_tokens(text: str) -> set:
-    return set(re.findall(r"\d[\d,.]*%?", text))
+    # 261026 STEP 5-B — 숫자 바로 뒤 문장부호("5.0,"·"20.")까지 붙어 원문 "5.0"과 다른 숫자로
+    # 오판정됐다(022 Dry-run 실측). 끝의 ','·'.'만 떼고 소수점은 그대로 둔다.
+    # 올바른 천 단위 쉼표(2,000·10,000.5)만 지워 '2000'과 같게 본다(022 실측: 히어로카드 "2000개" 차단).
+    # "1,2"처럼 형식이 애매한 쉼표는 그대로 둬 원문과 똑같이 쓰지 않으면 계속 차단된다(Fail-closed).
+    tokens = (token.rstrip(",.") for token in re.findall(r"\d[\d,.]*%?", text))
+    return {token.replace(",", "") if _THOUSANDS_RE.fullmatch(token) else token for token in tokens}
 
 
 # 260805 회장 지시(2차 검수 보완) — "과장·근거 없는 성과 수치 금지" 계약의
@@ -237,14 +245,58 @@ def _detect_possible_fabrication(generated_text: str, core_message: str) -> bool
 
 _CTA_KEYWORDS = ("저장", "댓글", "공유", "팔로우", "구독", "확인하세요", "확인해보세요", "링크")
 
+# 261026 STEP 5-B — 프롬프트가 장 본문을 '·'로 이어 쓰게 하는데, 띄어 쓴 " · "가 단어로 세어져
+# 실제 29단어가 32단어로 차단됐다(022 Dry-run 실측). 따로 떨어진 구분 기호만 빼고 센다.
+_WORD_SEPARATORS = frozenset({"·", "→"})
 
-def _count_cta_sentences(text: str) -> int:
+
+def _count_words(text: str, strict: bool = False) -> int:
+    """strict=True(카드 사실 지정 계정)면 '학습·키워드'처럼 붙여 쓴 구분 기호도 단어 경계로 본다 —
+    구분 기호로 붙여 써서 30단어 제한을 피하는 것을 막는다(261026 022 실측: 사실 8개를 '·'로 붙여 통과)."""
+    if strict:
+        return len([word for word in re.split(r"[\s·→]+", text) if word])
+    return sum(1 for word in text.split() if word not in _WORD_SEPARATORS)
+
+
+_CARD_FACT_WORD_RE = re.compile(r"[A-Za-z가-힣]{2,}")
+
+
+def _validate_card_facts(payload: dict, card_facts: tuple) -> "str | None":
+    """261026 STEP 5-B LAYOUT LOCK — 2장에는 배정된 카드 사실만. 각 사실은 숫자 전부 + 핵심어 1개 이상이
+    2장에 있어야 하고(CARD_FACT_MISSING), 2장 숫자는 배정 사실의 숫자 안에서만 써야 한다(CARD_FACT_EXTRA —
+    캡션용 사실을 카드에 몰아넣는 것 차단)."""
+    if not card_facts:
+        return None
+    slides = sorted(payload.get("slides") or [], key=lambda s: s.get("index", -1))
+    if len(slides) < 2:
+        return "CARD_FACT_MISSING"
+    card_text = slides[1].get("text", "")
+    card_numbers = _extract_numeric_tokens(card_text)
+    allowed_numbers = set()
+    for fact in card_facts:
+        fact_numbers = _extract_numeric_tokens(fact)
+        allowed_numbers |= fact_numbers
+        words = _CARD_FACT_WORD_RE.findall(fact)
+        if not fact_numbers <= card_numbers or (words and not any(word in card_text for word in words)):
+            return "CARD_FACT_MISSING"
+    if not card_numbers <= allowed_numbers:
+        return "CARD_FACT_EXTRA"
+    return None
+
+
+def _count_cta_sentences(text: str, account_cta: str = "") -> int:
     """텍스트를 문장 단위로 나눠 CTA 키워드를 포함한 문장 수를 센다(최선노력
-    키워드 매칭 — 의미 기반 CTA 탐지 아님, 범위 명시)."""
+    키워드 매칭 — 의미 기반 CTA 탐지 아님, 범위 명시).
+
+    261026 STEP 5-B — 계정 Persona `conversion_cta`(예: "AI 뉴스 요약 자동화 문의는 DM")가 있으면
+    그 문구를 포함한 문장도 CTA 1개로 센다. 키워드가 없는 계정 CTA를 0개로 세어 차단하던 문제
+    대응. 비어 있으면(036 등) 기존 키워드 판정과 같다."""
+    account_core = (account_cta or "").strip().rstrip(".!? ")
     sentences = re.split(r"[.!?\n]+", text)
     return sum(
         1 for s in sentences
-        if s.strip() and any(keyword in s for keyword in _CTA_KEYWORDS)
+        if s.strip() and (any(keyword in s for keyword in _CTA_KEYWORDS)
+                          or (account_core and account_core in s))
     )
 
 
@@ -309,6 +361,39 @@ def _move_cta_only_caption_lines(lines: "list[str]") -> "list[str]":
     return [line for line in lines[:-1] if not cta_only(line)] + [lines[-1], cta_lines[-1]]
 
 
+def _merge_topic_hashtags(payload: dict, topic_hashtags: tuple) -> dict:
+    """261026 STEP 5-B SEO — Sourcebook "주제 해시태그"(원문에 나온 회사·제품·기술)를 앞에 두고 Gemini 해시태그를
+    뒤에 이어 붙인 뒤 중복을 빼고 상한(8개)에서 자른다. 022 실측: 주제어 2개뿐(#IBM·#음성인식)이고 나머지는 계정
+    공통 키워드였다. 주제 해시태그가 없는 Topic(036)은 그대로 둔다. Gemini 표기('#' 유무)를 따른다."""
+    if not topic_hashtags:
+        return payload
+    generated = [tag.strip() for tag in payload.get("hashtags") or [] if isinstance(tag, str) and tag.strip()]
+    prefix = "#" if any(tag.startswith("#") for tag in generated) else ""
+    merged, seen = [], set()
+    for tag in [prefix + t.lstrip("#") for t in topic_hashtags] + generated:
+        key = tag.lstrip("#").replace(" ", "").lower()
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(tag)
+    return {**payload, "hashtags": merged[:_HASHTAG_MAX]}
+
+
+def _separate_account_cta_line(payload: dict, account_cta: str) -> dict:
+    """261026 STEP 5-B — 캡션 마지막 줄이 '정보 문장 ... 계정 CTA'처럼 한 줄로 붙어 오면(022 실측: 캡션 전체가
+    줄바꿈 없는 한 줄) 계정 CTA를 빈 줄로 띄운 독립 마지막 줄로 옮긴다. 문구는 바꾸지 않고 줄 위치만 바꾼다.
+    계정 CTA가 없거나(036) 캡션에 없으면 그대로 둔다 — 검증은 이 결과로 그대로 한다."""
+    account_core = (account_cta or "").strip().rstrip(".!? ")
+    caption = payload.get("caption") or ""
+    lines = caption.rstrip().split("\n")
+    last = lines[-1] if lines else ""
+    pos = last.rfind(account_core) if account_core else -1
+    if pos <= 0 or not last[:pos].strip():
+        return payload
+    body = last[:pos].rstrip()
+    new_caption = "\n".join(lines[:-1] + [body, "", last[pos:].strip()])
+    return {**payload, "caption": new_caption}
+
+
 def _normalize_short_cta(payload: dict) -> dict:
     """261023 STEP 4-AI — 짧은 캐러셀(2~4장)의 순수 CTA 문장 위치만 바로잡는다(Gemini 재호출 없음).
     표지(1장)는 제목 한 줄이라 건드리지 않는다(CTA가 있으면 검증이 Fail-closed). 본문 장과 캡션 줄에서
@@ -337,7 +422,8 @@ def _cta_location_summary(payload: dict) -> str:
     return f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]}"
 
 
-def _validate_short_contract(payload: dict, slide_count: int) -> "str | None":
+def _validate_short_contract(payload: dict, slide_count: int, account_cta: str = "",
+                             card_facts: tuple = ()) -> "str | None":
     """261023 STEP 4-AE — 2~4장 계약. 1장은 표지 제목 한 줄, 나머지 장은 짧은 본문,
     마지막 장에만 CTA 1개. 캡션·해시태그 계약은 8장과 같다."""
     slides = payload.get("slides")
@@ -357,20 +443,23 @@ def _validate_short_contract(payload: dict, slide_count: int) -> "str | None":
         text = slide.get("text", "")
         if not text.strip():
             return "SLIDE_TEXT_EMPTY"
-        if len(text.split()) > _BODY_MAX_WORDS:
+        if _count_words(text, strict=bool(card_facts)) > _BODY_MAX_WORDS:
             return "BODY_SLIDE_TOO_LONG"
+    card_error = _validate_card_facts(payload, card_facts)
+    if card_error:
+        return card_error
 
     for slide in ordered[:-1]:
-        if _count_cta_sentences(slide.get("text", "")) > 0:
+        if _count_cta_sentences(slide.get("text", ""), account_cta) > 0:
             return "CTA_NOT_LAST_SLIDE"
-    if _count_cta_sentences(ordered[-1].get("text", "")) != 1:
+    if _count_cta_sentences(ordered[-1].get("text", ""), account_cta) != 1:
         return "LAST_SLIDE_CTA_COUNT_INVALID"
     # 261023 STEP 4-AV — CTA 키워드 없는 행동 요청('자동화하세요', '바꿔보세요')도 마지막 장에만 허용한다.
     for slide in ordered[:-1]:
         if any(_NON_LAST_IMPERATIVE_RE.search(s) for s in _sentences(slide.get("text", ""))):
             return "IMPERATIVE_NOT_LAST_SLIDE"
 
-    return _validate_caption_and_hashtags(payload)
+    return _validate_caption_and_hashtags(payload, account_cta)
 
 
 def _validate_image_scenes(payload: dict) -> "str | None":
@@ -419,6 +508,66 @@ def _forbidden_scene_hits(payload: dict) -> "list[tuple[int, str]]":
     return hits
 
 
+# 261026 STEP 5-B — 다시 쓰게 할 수 있는 LAYOUT·STYLE 오류와, 그때 고칠 필드(나머지 필드는 원래 값 유지).
+_REPAIRABLE_CONTRACT_ERRORS = {
+    "COVER_TITLE_INVALID": ("cover", "the cover title (slide 1) must be one line of at most 40 characters, "
+                                     "counting spaces, English letters, digits and punctuation"),
+    "BODY_SLIDE_TOO_LONG": ("body", "each body slide must have at most 30 words; '·' and '→' also separate words"),
+    "CARD_FACT_MISSING": ("body", "slide 2 must state every assigned card fact with its numbers unchanged"),
+    "CARD_FACT_EXTRA": ("body", "slide 2 may use only the numbers in the assigned card facts; move other facts "
+                                "to the caption"),
+    "CTA_NOT_LAST_SLIDE": ("body", "only the last slide may contain the call to action"),
+    "LAST_SLIDE_CTA_COUNT_INVALID": ("body", "the last slide must end with exactly one call-to-action sentence"),
+    "IMPERATIVE_NOT_LAST_SLIDE": ("body", "requests or imperative sentences may appear only on the last slide"),
+    "CAPTION_CTA_COUNT_INVALID": ("caption", "the caption's last line must be exactly one call-to-action sentence"),
+    "CAPTION_CTA_NOT_LAST": ("caption", "no caption line except the last may contain a call to action"),
+    "CAPTION_LENGTH_INVALID": ("caption", "the caption must be at most 400 characters"),
+    "HASHTAG_COUNT_INVALID": ("hashtags", "there must be 5-8 hashtags"),
+}
+
+
+def _repair_contract_fields(payload: dict, error_code: str, card_facts: tuple, account_cta: str, *,
+                            client, throttle_fn, model, config) -> "dict | None":
+    """`_repair_forbidden_scenes()`와 같은 1회 재요청 패턴. 실패한 필드 묶음(cover/body/caption/hashtags)만
+    새 응답에서 가져오고 나머지는 원래 값을 그대로 둔다. 호출·파싱 실패나 장 번호 불일치면 None."""
+    field, reason = _REPAIRABLE_CONTRACT_ERRORS[error_code]
+    facts = "; ".join(card_facts)
+    cta_line = (f"The account call to action, used once on the last slide and as the caption's last line, is "
+                f"exactly: \"{account_cta}\". " if account_cta else "")
+    prompt = (
+        "The Instagram carousel JSON below failed one quality check. Rewrite ONLY the field named "
+        f"'{field}' so that it passes; keep every other field exactly as it is.\n"
+        f"Failed check: {error_code} — {reason}.\n"
+        f"Assigned slide 2 facts (numbers, units and product names must stay exactly as written): {facts}.\n"
+        f"{cta_line}"
+        "Do not add any fact, number or claim that is not already in the JSON or the assigned facts, and never "
+        "re-express a number.\n\n"
+        f"Current JSON: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        "Return the full JSON in the exact schema provided."
+    )
+    try:
+        throttle_fn()
+        response = client.models.generate_content(model=model, contents=prompt, config=config)
+        fixed = json.loads(response.text)
+    except Exception as exc:
+        logger.warning(f"[CarouselContent] 계약 재작성 요청 실패 | error_type={type(exc).__name__}")
+        return None
+    old_slides = sorted((dict(s) for s in payload.get("slides") or []), key=lambda s: s.get("index", -1))
+    new_slides = {s.get("index"): s for s in fixed.get("slides") or [] if isinstance(s, dict)}
+    if field in ("cover", "body"):
+        targets = [s["index"] for s in old_slides if (s["index"] == 1) == (field == "cover")]
+        if any(not isinstance(new_slides.get(i, {}).get("text"), str) for i in targets):
+            logger.warning(f"[CarouselContent] 계약 재작성 응답 장 불일치 | field={field}")
+            return None
+        for slide in old_slides:
+            if slide["index"] in targets:
+                slide["text"] = new_slides[slide["index"]]["text"]
+        return {**payload, "slides": old_slides}
+    if not isinstance(fixed.get(field), (str, list)):
+        return None
+    return {**payload, field: fixed[field]}
+
+
 def _repair_forbidden_scenes(payload: dict, hits: "list[tuple[int, str]]", *, client, throttle_fn, model
                              ) -> "dict | None":
     """금지어가 걸린 장의 image_scene만 Gemini 1회로 다시 받는다(글은 그대로). 호출·파싱 실패나
@@ -456,7 +605,7 @@ def _repair_forbidden_scenes(payload: dict, hits: "list[tuple[int, str]]", *, cl
     return {**payload, "slides": slides}
 
 
-def _validate_caption_and_hashtags(payload: dict) -> "str | None":
+def _validate_caption_and_hashtags(payload: dict, account_cta: str = "") -> "str | None":
     caption = payload.get("caption", "")
     if not caption or len(caption) > _CAPTION_MAX_CHARS:
         return "CAPTION_LENGTH_INVALID"
@@ -467,15 +616,15 @@ def _validate_caption_and_hashtags(payload: dict) -> "str | None":
 
     caption_lines = [line for line in caption.splitlines() if line.strip()]
     last_line = caption_lines[-1] if caption_lines else ""
-    if _count_cta_sentences(last_line) != 1:
+    if _count_cta_sentences(last_line, account_cta) != 1:
         return "CAPTION_CTA_COUNT_INVALID"
-    other_lines_cta = sum(_count_cta_sentences(line) for line in caption_lines[:-1])
+    other_lines_cta = sum(_count_cta_sentences(line, account_cta) for line in caption_lines[:-1])
     if other_lines_cta > 0:
         return "CAPTION_CTA_NOT_LAST"
     return None
 
 
-def _validate_contract(payload: dict) -> "str | None":
+def _validate_contract(payload: dict, account_cta: str = "") -> "str | None":
     """구조 계약 위반 시 error_code를 반환한다(문제 없으면 None)."""
     slides = payload.get("slides")
     if not isinstance(slides, list) or len(slides) != _SLIDE_COUNT:
@@ -490,7 +639,7 @@ def _validate_contract(payload: dict) -> "str | None":
         return "HOOK_TOO_LONG"
 
     for slide in ordered[2:6]:  # Slide 3~6 (0-based index 2~5)
-        word_count = len(slide.get("text", "").split())
+        word_count = _count_words(slide.get("text", ""))
         if word_count > _BODY_MAX_WORDS:
             return "BODY_SLIDE_TOO_LONG"
 
@@ -506,14 +655,14 @@ def _validate_contract(payload: dict) -> "str | None":
     # 마지막에 1개만" 계약을 최선노력 키워드 매칭으로 기계 검증한다(의미
     # 기반 CTA 탐지가 아니므로 오탐 가능성은 있음, 범위 명시).
     slide_8_text = ordered[7].get("text", "")
-    if _count_cta_sentences(slide_8_text) != 1:
+    if _count_cta_sentences(slide_8_text, account_cta) != 1:
         return "SLIDE_8_CTA_COUNT_INVALID"
 
     caption_lines = [line for line in caption.splitlines() if line.strip()]
     last_line = caption_lines[-1] if caption_lines else ""
-    if _count_cta_sentences(last_line) != 1:
+    if _count_cta_sentences(last_line, account_cta) != 1:
         return "CAPTION_CTA_COUNT_INVALID"
-    other_lines_cta = sum(_count_cta_sentences(line) for line in caption_lines[:-1])
+    other_lines_cta = sum(_count_cta_sentences(line, account_cta) for line in caption_lines[:-1])
     if other_lines_cta > 0:
         return "CAPTION_CTA_NOT_LAST"
 
@@ -566,7 +715,11 @@ def _build_prompt(
 # 대비 차이·이용 조건), 3장 Action(도구 → 입력값 → 실행 방법 → 예상 결과), 4장은 비교·주의사항·체크리스트.
 _SHORT_NEWS_SLIDE = (
     "   Slide 1 (question hook): one line written like a professional news editor's headline that ends "
-    "with '?', ideally 15-30 Korean characters (never more than 40). It must name at least one concrete "
+    "with '?', ideally 15-30 Korean characters (never more than 40). "
+    # 261026 STEP 5-B — 검사(len)는 공백·영문까지 세는데 Gemini는 빼고 세어 41·43자로 초과(022 실측).
+    "The 40 limit counts every character, including spaces, English letters, digits and punctuation — "
+    "count them yourself before answering, and if it is over 40, drop the company name or version "
+    "(e.g. 'IBM Granite Speech 5.0' → 'Granite 음성 AI'). It must name at least one concrete "
     "item from the source — a real AI product name, new feature, update or the reader's practical gain — "
     "and point at the key change; when the source title or content names a product, service or feature, "
     "the headline must include that name in its shortest common form (e.g. 'Amazon Selling Partner API' → "
@@ -578,6 +731,9 @@ _SHORT_FACT_SLIDE = (
     "   Slide 2 (fact): the real product name, the new feature, how it differs from before and any usage "
     "condition (plan, region, availability) stated in the source — short phrases joined by '·', at most "
     "30 words. No vague benefits such as 업무 효율 향상 or 시간 절약.\n"
+    # 261026 STEP 5-B — 사실이 많은 원문(022 Granite)에서 2장에 8개를 몰아넣어 실제 31단어로 차단됐다.
+    "   On slide 2 use only the 3-4 most important verified facts; do not force every fact onto the card. "
+    "Put the remaining verified facts and numbers in the caption body instead of dropping or changing them.\n"
 )
 _SHORT_ACTION_TEXT = "tool → what to enter → how to run it → expected result, as short noun phrases, at most 30 words"
 _SHORT_SLIDE_PLANS = {
@@ -638,23 +794,46 @@ def _build_persona_prompt_block(
     if target_language:
         lines.append(f"Write every slide, caption and hashtag in {target_language} only.")
     if seo_keywords:
-        lines.append(f"Prefer these account SEO keywords when relevant to the verified source: {seo_keywords}")
+        lines.append(f"Prefer these account SEO keywords when relevant to the verified source: {seo_keywords}. "
+                     "Use them naturally in the caption and hashtags, each at most once; never stuff or repeat "
+                     "keywords, and use only hashtags related to this post. "
+                     # 261026 STEP 5-B — 022 실측 해시태그 6개가 전부 계정 공통 키워드였다(#IBM·#음성인식 등 주제어 0).
+                     "At least 3 hashtags must name this post's own subject — the company, product, technology "
+                     "or field stated in the source (e.g. #IBM, #음성인식); add account keywords only when they "
+                     "fit this post.")
     if conversion_cta:
+        # 261026 STEP 5-B — 아래 Rules의 "CTA는 저장·공유·팔로우·댓글 포함" 지시와 상충해 계정 CTA를 쓰면
+        # 검사에서 0개가 되던 문제. 계정 CTA가 있으면 그 문장이 유일한 CTA라고 명시한다(036은 이 블록 없음).
         lines.append(
-            "Use this account CTA intent and destination on the final slide and final caption line: "
-            f"{conversion_cta}. Keep the existing one-CTA placement contract."
+            "Account CTA — this replaces the CTA keyword rule below: the single call-to-action sentence on "
+            f"the final slide and the final caption line must each be exactly \"{conversion_cta}\". "
+            "Do not add any other call-to-action sentence, and do not use 저장, 공유, 팔로우 or 댓글 anywhere."
         )
     return ("Account Persona settings:\n- " + "\n- ".join(lines) + "\n\n") if lines else ""
+
+
+def _card_facts_prompt_block(card_facts: tuple) -> str:
+    """261026 STEP 5-B FACT LOCK — Sourcebook이 2장 사실을 지정한 계정만(036은 빈 문자열, 프롬프트 불변)."""
+    if not card_facts:
+        return ""
+    listed = "\n".join(f"  {i}) {fact}" for i, fact in enumerate(card_facts, 1))
+    return (
+        "Slide 2 FACT LOCK — slide 2 must state exactly these assigned source facts and no other fact or "
+        "number, keeping every number, unit and product name exactly as written:\n"
+        f"{listed}\n"
+        "Put every other verified fact from the source in the caption body, unchanged. Never re-express a "
+        "number (e.g. do not turn '6개 언어' into '영어와 5개 언어').\n\n"
+    )
 
 
 def _build_short_prompt(core_message: str, title: str, slot_role: str, template_type: str,
                         slide_count: int, source_published_at: str = "", *,
                         tone_style: str = "", target_language: str = "",
                         content_pillars: str = "", seo_keywords: str = "",
-                        conversion_cta: str = "") -> str:
+                        conversion_cta: str = "", card_facts: tuple = ()) -> str:
     persona_block = _build_persona_prompt_block(
         tone_style, target_language, content_pillars, seo_keywords, conversion_cta,
-    )
+    ) + _card_facts_prompt_block(card_facts)
     return (
         f"You are writing a {slide_count}-slide Instagram carousel (card-news) for Korean small-business "
         "owners and office workers who want to use AI tools, using ONLY the source content below.\n\n"
@@ -676,6 +855,8 @@ def _build_short_prompt(core_message: str, title: str, slot_role: str, template_
         + _SHORT_COPY_STYLE +
         "4. Also produce a Korean caption (<=400 chars) with at least three lines separated by line breaks. "
         "Its first two lines explain the practical value for the reader instead of repeating the slides. "
+        "Before the last line, write at least three information lines in total, including the verified facts "
+        "that did not fit on the slides. "
         "The last line is exactly one CTA sentence containing 저장, 공유, 팔로우 or 댓글; no other caption line "
         "may contain those words. Then 5-8 "
         "relevant hashtags (array, separate from the caption body, Korean search terms related to this "
@@ -724,12 +905,14 @@ def generate_carousel_content(
         response_json_schema=_SHORT_SCENE_RESPONSE_SCHEMA if with_image_scenes else _CAROUSEL_RESPONSE_SCHEMA,
     )
     short = slide_count in SHORT_SLIDE_COUNTS
+    card_facts = tuple(getattr(topic, "card_facts", ()) or ()) if short else ()
+    topic_hashtags = tuple(getattr(topic, "topic_hashtags", ()) or ())
     prompt = (
         _build_short_prompt(topic.core_message, topic.title, slot_role, template_type, slide_count,
                             getattr(topic, "source_published_at", "") or "",
                             tone_style=tone_style, target_language=target_language,
                             content_pillars=content_pillars, seo_keywords=seo_keywords,
-                            conversion_cta=conversion_cta)
+                            conversion_cta=conversion_cta, card_facts=card_facts)
         if short else _build_prompt(
             topic.core_message, topic.title, slot_role, template_type,
             tone_style=tone_style, target_language=target_language,
@@ -771,9 +954,28 @@ def generate_carousel_content(
 
     if short:
         payload = _normalize_short_cta(payload)
+    payload = _merge_topic_hashtags(_separate_account_cta_line(payload, conversion_cta), topic_hashtags)
     contract_error = (
-        _validate_short_contract(payload, slide_count) if short else _validate_contract(payload)
+        _validate_short_contract(payload, slide_count, conversion_cta, card_facts) if short
+        else _validate_contract(payload, conversion_cta)
     )
+    # 261026 STEP 5-B CONTROLLED REPAIR — 카드 사실이 지정된 계정만, LAYOUT·STYLE 계약 오류일 때 실패 필드만
+    # 1회 다시 쓰게 하고 같은 검사를 처음부터 다시 적용한다. 재작성 후에도 실패하면 그대로 Fail-closed.
+    # 사실(POSSIBLE_FABRICATION)·Safety·중복은 아래 단계에서 재작성 없이 멈춘다.
+    if card_facts and contract_error in _REPAIRABLE_CONTRACT_ERRORS:
+        logger.warning(f"[CarouselContent] 계약 실패 — 실패 필드만 1회 재작성 | {contract_error}")
+        repaired = _repair_contract_fields(
+            payload, contract_error, card_facts, conversion_cta,
+            client=client or _get_client(), throttle_fn=active_throttle, model=active_model, config=config,
+        )
+        if repaired is None:
+            contract_error = "CONTRACT_REPAIR_FAILED"
+        else:
+            payload = _merge_topic_hashtags(
+                _separate_account_cta_line(_normalize_short_cta(repaired), conversion_cta), topic_hashtags)
+            contract_error = _validate_short_contract(payload, slide_count, conversion_cta, card_facts)
+            if contract_error:
+                logger.warning(f"[CarouselContent] 재작성 후에도 계약 실패 — 중단 | {contract_error}")
     if not contract_error and with_image_scenes:
         contract_error = _validate_image_scenes(payload)
         if contract_error == "IMAGE_SCENE_FORBIDDEN_WORD":

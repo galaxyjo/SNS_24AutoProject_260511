@@ -35,6 +35,9 @@ _CORE_MESSAGE_RE = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 _PROHIBITED_INLINE_RE = re.compile(r"^(?:주의|사용 금지 표현):\s*(\S.*)$", re.MULTILINE)
+_IMAGE_CONCEPT_RE = re.compile(r"^이미지 개념:\s*(\S.*)$", re.MULTILINE)
+_CARD_FACTS_RE = re.compile(r"^카드 사실:\s*(\S.*)$", re.MULTILINE)
+_TOPIC_HASHTAGS_RE = re.compile(r"^주제 해시태그:\s*(\S.*)$", re.MULTILINE)
 _PROHIBITED_BLOCK_RE = re.compile(
     r"^주의:\s*\n+(.+?)(?:\n\s*\n|\Z)", re.MULTILINE | re.DOTALL
 )
@@ -59,6 +62,14 @@ class SourceTopic:
     prohibited_expression: str
     # 261022 STEP 4-G — 뉴스 원천(Sourcebook 14.x 피드)에서 온 Topic만 채운다(원문 게시 시각, ISO).
     source_published_at: str = ""
+    # 261026 STEP 5-B — 계정별 Sourcebook의 "이미지 개념:" 줄(브랜드·제품명·숫자 없는 짧은 영어 시각 개념).
+    # Persona 캐러셀 표지 배경 프롬프트에만 쓴다. 없으면 빈 값(공용 Sourcebook·036 경로는 그대로).
+    image_concept: str = ""
+    # 261026 STEP 5-B FACT LOCK — 계정별 Sourcebook의 "카드 사실:" 줄(' | '로 구분, 원문 그대로의 핵심 사실 3~4개).
+    # 2장에는 이 사실만 쓰고 나머지 원문 사실은 캡션으로 보낸다. 없으면 빈 tuple(공용 Sourcebook·036 경로 그대로).
+    card_facts: tuple = ()
+    # 261026 STEP 5-B SEO — "주제 해시태그:" 줄(' | ' 구분, '#' 없이). 원문에 나온 회사·제품·기술만 적는다.
+    topic_hashtags: tuple = ()
 
 
 def _extract_url(body: str) -> str:
@@ -86,6 +97,21 @@ def _extract_prohibited(body: str) -> str:
     if m:
         return " ".join(line.strip() for line in m.group(1).splitlines() if line.strip())
     return ""
+
+
+def _extract_image_concept(body: str) -> str:
+    m = _IMAGE_CONCEPT_RE.search(body)
+    return m.group(1).strip() if m else ""
+
+
+def _extract_card_facts(body: str) -> tuple:
+    m = _CARD_FACTS_RE.search(body)
+    return tuple(fact.strip() for fact in m.group(1).split(" | ") if fact.strip()) if m else ()
+
+
+def _extract_topic_hashtags(body: str) -> tuple:
+    m = _TOPIC_HASHTAGS_RE.search(body)
+    return tuple(tag.strip().lstrip("#") for tag in m.group(1).split(" | ") if tag.strip()) if m else ()
 
 
 def parse_sourcebook(path: "Path | None" = None) -> list[SourceTopic]:
@@ -117,6 +143,9 @@ def parse_sourcebook(path: "Path | None" = None) -> list[SourceTopic]:
                 source_url=_extract_url(body),
                 core_message=_extract_core_message(body),
                 prohibited_expression=_extract_prohibited(body),
+                image_concept=_extract_image_concept(body),
+                card_facts=_extract_card_facts(body),
+                topic_hashtags=_extract_topic_hashtags(body),
             )
         )
     return topics
