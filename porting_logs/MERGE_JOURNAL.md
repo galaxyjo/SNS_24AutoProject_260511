@@ -3198,3 +3198,17 @@ _261024 소급 기록 — 회장 제공 작업 기록(`명령어 결과값.txt`)
 - **Airtable:** 신규 필드 `Account_Registry.gemini_project_number`(20건), 007 ig_user_id·fb_page_id·account_handle·credential_key=IDN_000007, 041/051/052 target_language·fb_page_id·owner_name, Platform_Accounts 3건 생성(PLT-FB-IDN-000039/052, PLT-YT-IDN-000023). 백업 `backup/pre_idn007_airtable_261025.json`·`pre_xlsx_AR_261025.json`·`pre_xlsx_PA_261025.json`.
 - **유지(회장 결정):** credential_key 036=AI·041=YUNA·048=SALE1 변경 안 함 → 이 3계정의 IDN_ Gemini Key는 Resolver 미연결.
 - **⚠ 나중 확인(기록 2026-10-25 23:56 ICT, 회장 지시 "기록만"):** IDN-000029 Gemini Key가 036(aijomoojin)과 같은 Google 프로젝트 450464150865 소속 → 029를 AI 생성에 켜면 036 무료 할당량(RPD/RPM)을 공유·소진할 수 있음. 029 AI 활성화 전 별도 프로젝트로 재발급 여부 결정 필요. 현재 조치 없음(HOLD).
+
+---
+
+### 261025~26 — GPT 설계 논의 + Codex STEP 3-A/3-B + IDN-000029 첫 게시 시도(미완료) (미커밋)
+
+_261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 로그·git diff 대조._
+
+- **GPT(261025~26):** ①Meta 계정 이메일이 Gmail이 아니어도 기존 인증된 Google 계정에서 프로젝트별 API Key 발급 가능(이메일 일치 불필요, 프로젝트별 할당량 적용). ②029 확장 지시(검수 2회: 3-A 연결 확인 → 3-B 실게시). ③콘텐츠·이미지 차별화 설계 — Airtable에 게시물별 프롬프트를 쓰지 않고 계정별 `content_pillars`·visual style·브랜드만 두고, 장별 이미지 지시는 Gemini가 본문에 맞춰 생성. 카테고리 예: NEWS/TOOL/AUTOMATION/AI 쇼호스트/AI 영상. 오픈소스(PostCanvas·Open Carrusel·Carousel Factory)는 비교 후보일 뿐 설치 안 함.
+- **Codex STEP 3-A(00:37, READ-ONLY):** 기존 필드 REUSE 판정, 누락 연결점 3개(Persona Pillar·SEO·CTA 미전달 / 계정별 Source 미분리 / Visual Style SSOT 없음). 상세 CURRENT_RUNTIME_CONTEXT.
+- **Codex STEP 3-B(00:48, 미커밋):** Persona 6필드(`tone_style`·`language`·`content_pillars`·`seo_keywords`·`conversion_cta`·persona_code)를 새 계정 Producer → Caption/Carousel 프롬프트로 전달, Sourcebook Topic을 Pillar와 맞는 후보로 제한(`SOURCE_PERSONA_MISMATCH`), pending 재개 시 `content_settings_version=1`·persona 불일치 차단. 036은 기존 경로. Target 420 passed. `visual_style` 필드는 미추가.
+- **Codex 029(11:14~, 미커밋):** `credential_resolver` IDN_000029 매핑, `CONTENT_ACCOUNTS` 029(vault/accounts/IDN-000029, Lock content_producer_IDN-000029, brand `@nohanmin`, NEWS off), `content_filter` 029→AI_CONTENT·PER-028 + 테스트. Airtable 029 `automation_enabled`·PER-028 `active` 켬. `.env` 임시 Flag 3개(CONTENT_PRODUCER·SLOT_SCHEDULE·CAROUSEL, 백업 `backup/pre_029_post_flags_261026.env`). 관리자 수동 producer로 `3-3-261026-6a4605cf`(Radical Candor 피드백, 3장) 생성 → ready → **구버전 Runtime 폴러가 UNKNOWN_DOMAIN으로 rejected**(ERR-169). 이후 Codex 사용량 소진으로 중단.
+- **Claude Code 이어받기(261026 12:2x):** Runtime 정상 확인(watchdog Running, 5000·8501 LISTEN, boot `bd3e8bf`). 관련 Target 550 passed(작업공간 basetemp), `git diff --check` OK. 029 재게시는 재시작 순서 승인 대기.
+- **029 첫 게시 SUCCESS(12:40):** Flag 제거 → 재시작(boot `a037777`) → SLOT Flag만 → ready → 관리자 수동 게시 → https://www.instagram.com/p/De8jbexkvwx/ (media 18416019898082145) → Flag 제거. ERR-169 RESOLVED.
+- **⚠ 미해결:** 029 Gemini Key가 036과 같은 Google 프로젝트(450464150865) — 회장 "기록만" 지시 상태 유지, 029 생성은 이미 1회 실행됨(036 무료 할당량 공유).

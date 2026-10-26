@@ -1402,3 +1402,9 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 - **사례:** ERR-163(12-2 패키지, ready까지 진행 후 육안 발견).
 - **대응:** ①폰트 도입 시 실제 생성될 문자 집합(구분 기호 포함)을 PIL 마스크로 점검 ②없는 글자는 치환 또는 Fail-closed ③가변 길이 문구는 최대 폭 계산 + 말줄임 ④ready 전에 실제 렌더 이미지 육안 확인을 첫 운영 회차에 넣는다.
 - **관련:** ERR-163, INC-066
+
+## FP-116 | 새 계정 코드가 Runtime에 반영되기 전에 ready를 만들면 구버전 폴러가 먼저 처리한다
+- **패턴:** 계정 등록·정책 매핑을 디스크에서만 고치고 launcher를 재시작하지 않은 채 수동 producer로 ready를 만들면, 운영 중인 구버전 `_job_insta_upload`(5분 간격)가 수동 게시보다 먼저 그 레코드를 처리한다. Gate가 막으면 rejected(재게시 필요), 막지 못하면 단일 이미지로 오게시될 수 있다.
+- **사례:** ERR-169(261026 029, 16초 만에 rejected). 같은 위험을 261024 025 계획에서 사전 식별(CURRENT_RUNTIME_CONTEXT "Runtime 순서 위험").
+- **대응:** ①새 계정 게시 전 `db/launcher_boot_state.json` commit과 디스크 코드가 같은지 확인 ②다르면 계정 Flag OFF로 재시작부터 ③재시작 후 수동 도구용 Flag만 잠깐 켜고 게시 후 즉시 제거.
+- **관련:** ERR-169

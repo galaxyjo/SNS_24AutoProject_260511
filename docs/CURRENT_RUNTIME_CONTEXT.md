@@ -1,3 +1,98 @@
+# (261026_12:45pm ICT) | STEP 3-B → IDN-000029 첫 게시 | 담당: Claude Code | SUCCESS
+
+- **결과:** https://www.instagram.com/p/De8jbexkvwx/ (CAROUSEL_ALBUM, children 3, media_id 18416019898082145, owner 17841462326237246), Airtable posted, 원장 `{}`.
+- **Runtime:** boot `a037777` 12:38:28 — **작업트리의 미커밋 코드(Codex 3-B Persona 연결 + 029 매핑)가 운영 중**. 커밋·push 필요.
+- **`.env`:** 029 Flag 0개(11:13 백업과 동일). 029 정규 잡 미등록 — 자동 게시는 아직 꺼져 있음.
+
+## (이전) 12:30 이어받기 기록
+
+_기록 시각: 2026-10-26 12:30 ICT · HEAD=`a037777` + 미커밋(Codex STEP 3-B·029) · Runtime=`bd3e8bf`(10-25 07:24, 029·3-B 미반영)._
+
+- **029 상태:** 패키지 `3-3-261026-6a4605cf`(029 Vault, queued, 3장 URL 보유) / Airtable `recYcCZjxeV9unfUU` **rejected**(구버전 폴러 UNKNOWN_DOMAIN, ERR-169) / 게시 0건 / 원장 `{}`.
+- **`.env`:** `IDN_000029_CONTENT_PRODUCER_ENABLED`·`SLOT_SCHEDULE_ENABLED`·`CAROUSEL_ENABLED` 켜져 있음 → **이 상태로 재시작하면 029 정규 잡(하루 producer 5·게시 5) 등록.** 재시작 전 제거 필수.
+- **테스트:** 관련 550 passed(basetemp=작업공간), diff --check OK.
+- **다음(승인 필요):** Flag 제거 → 재시작(미커밋 3-B·029 코드가 운영 반영됨) → SLOT Flag만 추가 → 레코드 ready → 관리자 수동 게시 1회 → Flag 제거.
+
+---
+
+# (261026_12am ICT) | STEP 3-B → 콘텐츠 설정 Runtime 연결 | 담당: Codex | SUCCESS | Evidence
+
+_기록 시각: 2026-10-26 00:48 ICT · MODE=MINIMUM CHANGE / TIER B / ONE_STEP_ONLY · Runtime 재시작/실게시 0 · `.env`/Airtable 데이터 변경 0 · Commit/Push 0._
+
+## 판정
+
+**STEP 3-B SUCCESS.** 기존 `Persona_Profile`의 Active Persona·`content_pillars`·`language`·`seo_keywords`·`conversion_cta`를 공통 콘텐츠 Producer에서 읽어 기존 Caption/Carousel Gemini 프롬프트에 전달하도록 연결했다. 신규 계정은 필수 설정 누락, Pillar와 Source 불일치, 재개 패키지의 Persona 불일치 시 생성·업로드 전에 Fail-closed한다. 036(aijomoojin)은 기존 Persona 조회·Sourcebook·Prompt 인자를 변경하지 않았다.
+
+## 변경 파일·핵심 Diff
+
+- `modules/infra/repository_interface.py`, `modules/infra/airtable_repository.py`: 기존 `PersonaProfile` 반환에 `content_pillars`·`seo_keywords`·`conversion_cta` 추가.
+- `launcher/main.py`: 신규 공통 계정만 Active Persona 6필드 필수 Gate → 기존 `create_content_package()` 인자 전달. pending 재개 시 `content_settings_version=1`·`persona_code` 불일치 차단. 036은 빈 인자 반환으로 기존 경로 보존.
+- `modules/sns/source_selector.py`, `modules/sns/content_package_builder.py`: 기존 Sourcebook Topic을 Persona Pillar와 명시적으로 일치하는 후보로만 제한. 공통어만 있거나 불일치하면 `SOURCE_PERSONA_MISMATCH`; Gemini 호출·파일 생성 없음.
+- `modules/sns/caption_generator.py`, `modules/sns/carousel_content_builder.py`: 계정별 말투·언어·Pillar·SEO·CTA를 기존 Gemini Prompt에 전달. 단일 캡션은 계정 CTA를 마지막 고정 줄로 사용하고, 설정이 없으면 기존 고정 CTA 유지.
+- 관련 테스트 7파일 보강. 신규 테이블·모듈·DB·이미지 제공사·Renderer 0.
+
+## Target Test
+
+- 명령: `.venv\\Scripts\\python.exe -m pytest -q --basetemp <workspace-temp> tests/test_content_account_engine.py tests/test_airtable_repository_persona_binding.py tests/test_source_selector.py tests/test_content_package_builder.py tests/test_generate_hook_caption.py tests/test_carousel_content_builder.py tests/test_note_carousel.py tests/test_aijomoojin_content_producer.py`
+- 결과: **420 passed in 58.86s**.
+- 포함 Evidence: PER-024 6필드 전달 PASS · 서로 다른 Persona 2개 계정 혼선 0 · 필수 설정 누락 Fail-closed · Source/Pillar 불일치 시 Gemini 미호출 · 036 Persona 조회 미추가 · 기존 note `image_scene → generate_image → render_note_card` 회귀 PASS.
+- 첫 실행은 OS 기본 임시폴더의 `os.replace` 제약으로 파일 테스트가 연쇄 실패했으며, 제품 Diff가 아닌 테스트 경로 문제로 확인했다. 작업공간 내부 격리 `--basetemp`에서 동일 관련 전체 테스트 420/420 PASS, 임시폴더 삭제 완료.
+
+## Rollback
+
+이번 미커밋 Diff의 위 7개 Runtime 파일과 7개 테스트 파일만 역적용하면 STEP 3-A 상태로 복귀한다. `docs/CURRENT_RUNTIME_CONTEXT.md`의 기존 STEP 3-A 이하 기록은 수정·삭제하지 않았다.
+
+## 보류
+
+- Runtime 재시작·실게시·Airtable 필드/데이터 변경·Commit·Push는 GPT 검수 및 회장 승인 전 금지 상태 유지.
+- `visual_style` 신규 필드는 이번 범위에서 추가하지 않았다. 기존 `CAROUSEL_STYLE` Flag와 Renderer 동작은 그대로다.
+
+---
+
+# (261026_12am ICT) | STEP 3-A → Airtable 콘텐츠·이미지 설정 | 담당: Codex | SUCCESS | Evidence
+
+_기록 시각: 2026-10-26 00:37 ICT · MODE=READ-ONLY 조사 + 기존 `.md` 기록만 · 코드/`.env`/Airtable/Runtime 변경 0 · Commit/Push 0._
+
+## 판정
+
+**STEP 3-A SUCCESS.** Key 완료 **23개**·미완료 **28개**·총 **51개**는 **회장님 확정 자료**로 사용했으며 재검사하지 않았다. 기존 Airtable 필드의 REUSE 범위, 활성 콘텐츠 Runtime의 실제 사용값, 누락 연결점 3개와 최소 변경안 1개를 확정했다.
+
+## 확인 결과
+
+| 항목 | 결과 | 실제 연결 상태 |
+|---|---|---|
+| 기존 Airtable 필드 | **REUSE + GAP 1필드** | `Persona_Profile`: `tone_style`, `language`, `content_pillars`, `seo_keywords`, `conversion_cta`; `Account_Registry`: `target_language`, `content_theme`, `category`; `Crawl_Targets`/`Source_Items`: 계정·카테고리·키워드·원천 필드를 재사용 가능. `visual_style` 전용 필드는 없음. |
+| Persona·Language·SEO·CTA | **GAP** | `get_active_persona_by_account_code_v2()`가 실제 반환하는 값은 `persona_code`, `tone_style`, `greeting_template`, `followup_template`, `language`뿐이며, Producer는 이 getter를 호출하지 않고 `target_language="ko"`를 고정한다. `content_pillars`·`seo_keywords`·`conversion_cta`는 Runtime으로 전달되지 않는다. |
+| Content Pillar·Source | **GAP** | 활성 `source_selector.py`는 Airtable을 읽지 않고 공용 Sourcebook `.md`만 선택한다. `Account_Registry.content_theme/category`와 `Persona_Profile.content_pillars`, `Source_Items.account_code_ref/category_code/keyword`는 콘텐츠 주제 선택에 연결되지 않았다. |
+| Visual Style | **PARTIAL** | 계정별 환경변수 접두사로 `CAROUSEL_STYLE`을 분리할 수 있고 현재 `IDN-000036`만 `note`가 활성이다. 따라서 AIJOMOOJIN 노트 손그림이 모든 계정에 강제되지는 않는다. 다만 Airtable SSOT 필드·Runtime 조회 연결은 없고 지원값은 코드 고정 `template|note`뿐이다. |
+| 장별 이미지 프롬프트 → Renderer | **PARTIAL** | `carousel_style=note`일 때만 Gemini가 게시물 각 장 텍스트에 맞는 `image_scene`을 만들고, `_build_note_carousel_images()`가 하드코딩된 `_NOTE_SKETCH_STYLE`을 붙여 이미지 생성 후 `render_note_card()`로 연결한다. `template` 경로는 표지만 주제 기반 AI 배경을 만들고 본문 장은 `render_card()` 템플릿이므로 장별 이미지 프롬프트가 없다. |
+
+## Live Airtable Evidence (Secret 제외)
+
+- 2026-10-26 00:3x ICT Meta schema GET: 위 REUSE 필드의 현재 실존 확인. `visual_style` 필드는 없음.
+- `IDN-000036` → `PER-002` active, `tone_style`·`language=ko` 존재, `content_pillars/seo_keywords/conversion_cta` 공란. `Account_Registry.target_language=EN`, `content_theme=AI`, `category=D_AI`.
+- `IDN-000025` → `PER-024` active, `tone_style`·`language=KR`·`content_pillars`·`seo_keywords`·`conversion_cta` 모두 값 존재. `Account_Registry.target_language=KR`, `content_theme=AI+쇼호스트·AI 콘텐츠·영화`, `category=D_AI`. 값은 존재하지만 현재 콘텐츠 Producer에는 미전달.
+
+## 누락 연결점 (최대 3개)
+
+1. **Persona 계열 미전달:** 기존 Persona 필드 중 Pillar·SEO·CTA가 Repository 반환형과 Producer 호출 인자에서 누락되고, 언어·말투도 Producer가 사용하지 않는다.
+2. **계정별 Source 미분리:** 기존 Airtable의 테마·카테고리·계정별 Source 필드가 공용 Sourcebook 선택기에 연결되지 않아 계정별 Content Pillar를 강제할 수 없다.
+3. **Visual Style SSOT 미연결:** 계정별 스타일은 `.env`의 `CAROUSEL_STYLE`에만 있고 Airtable 필드가 없다. 장별 이미지 프롬프트도 `note` 전용이며 `_NOTE_SKETCH_STYLE`이 고정이다.
+
+## 최소 변경안 1개 (제안만, 미실행)
+
+**신규 테이블·신규 모듈 없이 기존 경로 확장:** `Persona_Profile`에 `visual_style` 단일 필드만 추가하고, 기존 `PersonaProfile`/`get_active_persona_by_account_code_v2()`가 `content_pillars`, `seo_keywords`, `conversion_cta`, `visual_style`까지 반환하도록 확장한다. 공통 Producer가 Persona를 1회 조회해 기존 `create_content_package()`·`generate_carousel_content()`·`visual_brief`에 전달하고, Source는 기존 `Account_Registry.content_theme/category` 및 `Source_Items.account_code_ref/category_code/keyword`로 계정 범위를 제한한다. 기존 계정별 `.env` Flag는 안전 스위치로만 유지한다. `visual_style=note`인 계정만 기존 손그림 경로를 사용하고, 그 외 계정은 같은 장별 `image_scene` 계약을 각 스타일 프롬프트와 기존 Renderer 경로에 연결한다.
+
+## Evidence
+
+- Runtime entry point: `launcher/main.py:1545-1581`, `1932-2016`
+- Persona repository: `modules/infra/airtable_repository.py:928-1017`
+- Source: `modules/sns/source_selector.py:1-8`, `85-147`; `modules/sns/content_package_builder.py:627-660`
+- 장별 프롬프트·Renderer: `modules/sns/carousel_content_builder.py:111-155`, `652-751`; `modules/sns/content_package_builder.py:382-440`, `452-537`
+- Airtable live read-only: Meta schema GET + `IDN-000036`/`IDN-000025` 연결 Persona GET (2026-10-26 00:3x ICT), Secret 출력 0.
+
+---
+
 # 2026-10-25 07:55 ICT — 공통 엔진 STEP 2-B SUCCESS / IDN-000025 첫 실게시
 
 _기록 시각: 2026-10-25 ~07:55 ICT · HEAD=`bd3e8bf` → 문서 커밋 예정 · Runtime=`bd3e8bf`(07:24:53 기동, `7bb27a1` 반영) · 회장 지시 ".md 문서기록하고 커밋-푸쉬"._

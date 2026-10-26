@@ -3143,3 +3143,13 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **조치:** 없음(결제·코드 변경 없음). 무료 한도는 매일 07:00 ICT 초기화. 소비처 확인은 Cloudflare 대시보드(사람 로그인, 계정당 1회).
 - **관련:** INC-067, FP-114(이미지 생성 실패 시 Fail-closed 설계)
 - **상태:** OPEN
+
+## ERR-169 | IDN-000029 ready가 구버전 Runtime 5분 폴러에 잡혀 `UNKNOWN_DOMAIN` rejected — 새 계정 코드가 Runtime에 반영되기 전 ready 생성 — OPEN
+- **발견:** 261026 11:22 ICT, Codex 029 실게시 시도 중. 관리자 수동 producer가 11:21:43 `3-3-261026-6a4605cf`(029 Vault, 3장, PER-028)로 `recYcCZjxeV9unfUU` ready 저장 → 16초 뒤 11:21:59 **운영 launcher(`bd3e8bf`, 10-25 07:24 기동)**의 `_job_insta_upload`가 처리 → 11:22:07 `[PublishGate] UNKNOWN_DOMAIN` → rejected. 이어 실행된 관리자 수동 게시는 대상 없음. Meta 호출·게시 0건.
+- **Evidence:** `logs/summary/app.log` 11:21:43 `[AijomoojinProducer] 완료`(launcher.main=수동), 11:21:59 `[Approval] ready 레코드 처리 시작`·11:22:07 `UNKNOWN_DOMAIN`(`__main__`=운영 launcher). `db/launcher_boot_state.json` commit `bd3e8bf`.
+- **Root Cause:** Confirmed — 029의 `CONTENT_ACCOUNTS`·`content_filter` 매핑은 디스크(미커밋)에만 있고 운영 Runtime은 재시작 전이라 029를 모름 → 새 계정용 "5분 폴러 항상 제외"가 적용되지 않음 + 도메인 정책 미등록. Codex가 이 상태에서 `content_filter` 누락을 원인으로 보고 2줄을 추가했으나, 그 수정도 재시작 전에는 운영에 반영되지 않음.
+- **영향:** 오게시·중복 0건(Fail-closed). 029 첫 게시 지연. 패키지는 029 Vault에 queued로 보존(`carousel_image_urls` 3개).
+- **조치(미실행, 승인 필요):** ①`.env` 029 임시 Flag 제거 → ②launcher 재시작(디스크 코드 반영) → ③SLOT Flag만 다시 추가 → ④`recYcCZjxeV9unfUU` rejected→ready → ⑤관리자 수동 게시 1회 → ⑥Flag 제거. 025 계획(STEP 2-B)과 같은 순서.
+- **해소(261026 12:38~12:41 ICT, 회장 승인):** 029 Flag 3개 제거(`.env` = 11:13 백업과 동일) → 재시작(boot `a037777` 12:38:28, 작업트리의 3-B·029 코드 반영, 029 잡 등록 0) → SLOT Flag만 추가 → 레코드 rejected→ready → 관리자 수동 게시 1회 → 12:40:45 게시 확인 https://www.instagram.com/p/De8jbexkvwx/ (CAROUSEL_ALBUM, children 3, media_id 18416019898082145, owner 17841462326237246) → Airtable posted, 원장 `{}` → SLOT Flag 제거(`.env` 원본과 동일).
+- **관련:** FP-116
+- **상태:** RESOLVED
