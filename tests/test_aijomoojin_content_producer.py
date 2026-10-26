@@ -132,7 +132,7 @@ def _write_fixture_package(vault_root, content_id, source_url="https://example.c
 
 def _fake_repo(active_status="", exists_by_source_url=False, known_source_urls=frozenset(),
                 exists_by_image_url=False, confirm_after_save=None, save_raises=None, save_record_id="recNEW",
-                known_content_ids=frozenset(), content_id_owner_account=AIJOMOOJIN):
+                known_content_ids=frozenset(), content_id_owner_account=AIJOMOOJIN, persona=None):
     """exists_by_source_url: 전체 source_url에 대한 기본값(True/False).
     known_source_urls: 이 집합에 있는 source_url만 True로 취급(둘 다 주어지면
     known_source_urls가 우선) — stale/genuine 파일이 섞여 있을 때 URL별로
@@ -143,9 +143,21 @@ def _fake_repo(active_status="", exists_by_source_url=False, known_source_urls=f
     read-after-write 확인 테스트에서 "게시 전엔 중복 아님, 저장 후엔 확인됨"을
     구분하기 위함."""
     calls = {"save": [], "active_status_checks": [], "source_url_checks": [], "image_url_checks": 0,
-             "content_id_checks": []}
+             "content_id_checks": [], "persona_checks": []}
+    active_persona = persona if persona is not None else {
+        "persona_code": "PER-024",
+        "tone_style": "활기차고 친근한 쇼호스트 말투",
+        "language": "KR",
+        "content_pillars": "AI 쇼호스트 / 라이브 판매",
+        "seo_keywords": "AI쇼호스트, 라이브커머스",
+        "conversion_cta": "AI 쇼호스트 라이브 의뢰는 DM",
+    }
 
     class _FakeRepo:
+        def get_active_persona_by_account_code_v2(self, account_code):
+            calls["persona_checks"].append(account_code)
+            return active_persona
+
         def get_active_post_status_for_account(self, account_code_ref):
             calls["active_status_checks"].append(account_code_ref)
             return active_status

@@ -117,6 +117,28 @@ def test_generates_caption_and_hashtags_from_core_message(monkeypatch):
     assert caption.splitlines()[-1] == caption_generator._FIXED_CTA_LINE
 
 
+def test_account_seo_and_cta_are_applied_without_changing_default(monkeypatch):
+    captured = {}
+
+    class _CapturingModels(_FakeModels):
+        def generate_content(self, model, contents):
+            captured["contents"] = contents
+            return super().generate_content(model, contents)
+
+    models = _CapturingModels(text=_structured_text())
+    _patch_client(monkeypatch, models)
+    custom_cta = "AI 쇼호스트 라이브 의뢰는 DM"
+
+    caption, _ = generate_hook_caption(
+        "Title", "core message", tone_style="활기찬 말투", target_language="KR",
+        seo_keywords="AI쇼호스트, 라이브커머스", conversion_cta=custom_cta,
+    )
+
+    assert "AI쇼호스트, 라이브커머스" in captured["contents"]
+    assert "활기찬 말투" in captured["contents"] and "KR" in captured["contents"]
+    assert caption.splitlines()[-1] == custom_cta
+
+
 def test_prompt_includes_prohibited_expression_when_provided(monkeypatch):
     captured = {}
 

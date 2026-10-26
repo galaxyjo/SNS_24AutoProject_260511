@@ -188,7 +188,7 @@ class TestCanaryProducer:
         create_calls = []
 
         def _fake_create(target_language="ko", **kwargs):
-            create_calls.append(kwargs)
+            create_calls.append({"target_language": target_language, **kwargs})
             _write_fixture_package(canary_vault, "c25-1", source_url="https://c25.example/a",
                                    caption="hello", idempotency_version=2)
             return cpb.PackageResult(success=True, content_id="c25-1", status="complete")
@@ -205,10 +205,72 @@ class TestCanaryProducer:
 
         assert keys == ["canary-key"]
         assert create_calls[0]["vault_root"] == canary_vault
+        assert calls["persona_checks"] == [CANARY]
+        assert {
+            key: create_calls[0][key]
+            for key in ("persona_code", "tone_style", "target_language", "content_pillars",
+                        "seo_keywords", "conversion_cta")
+        } == {
+            "persona_code": "PER-024",
+            "tone_style": "활기차고 친근한 쇼호스트 말투",
+            "target_language": "KR",
+            "content_pillars": "AI 쇼호스트 / 라이브 판매",
+            "seo_keywords": "AI쇼호스트, 라이브커머스",
+            "conversion_cta": "AI 쇼호스트 라이브 의뢰는 DM",
+        }
         assert calls["save"][0]["account_code_ref"] == CANARY
         assert Path(uploaded[0]).is_relative_to(canary_vault)
         assert cpb.read_frontmatter("c25-1", canary_vault)["channel_status"] == "queued"
         assert not (shared / "content" / "c25-1.md").exists()     # 공용 vault 미사용
+
+    def test_two_accounts_never_mix_persona_settings(self, tmp_path):
+        persona_by_account = {
+            "IDN-000025": {
+                "persona_code": "PER-024", "tone_style": "쇼호스트", "language": "KR",
+                "content_pillars": "라이브 판매", "seo_keywords": "라이브커머스", "conversion_cta": "DM 문의",
+            },
+            "IDN-000026": {
+                "persona_code": "PER-025", "tone_style": "차분한 전문가", "language": "EN",
+                "content_pillars": "skin care", "seo_keywords": "beauty", "conversion_cta": "Book now",
+            },
+        }
+
+        class _Repo:
+            def get_active_persona_by_account_code_v2(self, code):
+                return persona_by_account[code]
+
+        first = dataclasses.replace(launcher_main.CONTENT_ACCOUNTS[CANARY], account_code="IDN-000025")
+        second = dataclasses.replace(first, account_code="IDN-000026", vault_root=tmp_path / "v26")
+        first_kwargs = launcher_main._content_persona_kwargs(_Repo(), first)
+        second_kwargs = launcher_main._content_persona_kwargs(_Repo(), second)
+
+        assert first_kwargs["persona_code"] == "PER-024" and first_kwargs["tone_style"] == "쇼호스트"
+        assert second_kwargs["persona_code"] == "PER-025" and second_kwargs["tone_style"] == "차분한 전문가"
+        assert first_kwargs["content_pillars"] != second_kwargs["content_pillars"]
+
+    def test_missing_persona_setting_fails_closed_before_builder(self, monkeypatch, canary_flags_on):
+        monkeypatch.setenv("IDN_000025_GEMINI_API_KEY", "canary-key")
+        incomplete = {
+            "persona_code": "PER-024", "tone_style": "쇼호스트", "language": "KR",
+            "content_pillars": "라이브 판매", "seo_keywords": "", "conversion_cta": "DM 문의",
+        }
+        repo, calls = _fake_repo(active_status="", persona=incomplete)
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", lambda: repo)
+        monkeypatch.setattr("google.genai.Client", lambda **k: object())
+        monkeypatch.setattr(cpb, "create_content_package", lambda **k: pytest.fail("호출되면 안 됨"))
+
+        launcher_main._job_aijomoojin_content_producer(account_code=CANARY)
+
+        assert calls["persona_checks"] == [CANARY]
+
+    def test_aijomoojin_persona_lookup_is_not_added(self):
+        class _Repo:
+            def get_active_persona_by_account_code_v2(self, code):
+                pytest.fail("036 기존 Producer에 Persona 조회가 추가되면 안 됨")
+
+        assert launcher_main._content_persona_kwargs(
+            _Repo(), launcher_main.CONTENT_ACCOUNTS["IDN-000036"],
+        ) == {}
 
     def test_canary_ignores_aijomoojin_pending_packages(self, monkeypatch, canary_flags_on, _isolated):
         shared, _ = _isolated

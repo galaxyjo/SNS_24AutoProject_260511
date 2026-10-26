@@ -37,10 +37,11 @@ def _mock_get(account_resp, persona_pages):
     return _get
 
 
-def _persona(record_id, account_ids, active=True, persona_code="PER-002", language=None):
+def _persona(record_id, account_ids, active=True, persona_code="PER-002", language=None, **extra):
     fields = {"account_code_ref": account_ids, "active": active, "persona_code": persona_code}
     if language is not None:
         fields["language"] = language
+    fields.update(extra)
     return {"id": record_id, "fields": fields}
 
 
@@ -67,6 +68,21 @@ class TestPagination:
             result = AirtableRepository().get_active_persona_by_account_code_v2("IDN-000036")
         assert result is not None
         assert result.get("language", "") == ""
+
+    def test_content_persona_fields_returned(self):
+        page1 = {"records": [_persona(
+            "recP1", ["recREALACCOUNT01"], language="KR",
+            tone_style="활기찬 말투", content_pillars="AI 쇼호스트 / 영화",
+            seo_keywords="AI쇼호스트, 영화리뷰", conversion_cta="라이브 의뢰는 DM",
+        )]}
+        with patch("modules.infra.airtable_repository.requests.get", side_effect=_mock_get(ACC_OK, [page1])):
+            result = AirtableRepository().get_active_persona_by_account_code_v2("IDN-000025")
+        assert result == {
+            "persona_code": "PER-002", "tone_style": "활기찬 말투",
+            "greeting_template": "", "followup_template": "", "language": "KR",
+            "content_pillars": "AI 쇼호스트 / 영화",
+            "seo_keywords": "AI쇼호스트, 영화리뷰", "conversion_cta": "라이브 의뢰는 DM",
+        }
 
     def test_match_found_after_first_page_offset(self):
         page1 = {"records": [_persona(f"recFiller{i}", ["recUNRELATED"]) for i in range(100)], "offset": "off1"}

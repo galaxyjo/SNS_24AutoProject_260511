@@ -1581,6 +1581,47 @@ def _package_kwargs(acct: ContentAccount) -> dict:
     return {**_vault_kwargs(acct), "brand_handle": acct.brand_handle}
 
 
+_REQUIRED_CONTENT_PERSONA_FIELDS = (
+    "persona_code", "tone_style", "language", "content_pillars", "seo_keywords", "conversion_cta",
+)
+
+
+def _content_persona_kwargs(repo, acct: ContentAccount) -> "dict | None":
+    """신규 공통 계정의 Active Persona를 생성 인자로 변환한다.
+
+    aijomoojin(공용 vault)은 기존 성공 경로를 보존하기 위해 조회·인자 변경 없이 빈 dict를
+    반환한다. 신규 계정은 필수 설정 하나라도 없거나 조회가 모호/실패하면 Fail-closed한다.
+    """
+    if acct.vault_root is None:
+        return {}
+    try:
+        persona = repo.get_active_persona_by_account_code_v2(acct.account_code)
+    except Exception as exc:
+        logger.error(
+            "[ContentPersona] Active Persona 조회 실패 — 생성하지 않음 | account_code=%s | %s",
+            acct.account_code, type(exc).__name__,
+        )
+        return None
+    if not persona:
+        logger.error("[ContentPersona] Active Persona 없음 — 생성하지 않음 | account_code=%s", acct.account_code)
+        return None
+    missing = [name for name in _REQUIRED_CONTENT_PERSONA_FIELDS if not str(persona.get(name, "")).strip()]
+    if missing:
+        logger.error(
+            "[ContentPersona] 필수 설정 누락 — 생성하지 않음 | account_code=%s | fields=%s",
+            acct.account_code, ",".join(missing),
+        )
+        return None
+    return {
+        "persona_code": str(persona["persona_code"]).strip(),
+        "tone_style": str(persona["tone_style"]).strip(),
+        "target_language": str(persona["language"]).strip(),
+        "content_pillars": str(persona["content_pillars"]).strip(),
+        "seo_keywords": str(persona["seo_keywords"]).strip(),
+        "conversion_cta": str(persona["conversion_cta"]).strip(),
+    }
+
+
 def _require_own_gemini_key(acct: ContentAccount, tag: str) -> bool:
     """261024 STEP 2(Codex P1) — 새 계정은 pending 재개·게시 Gate 여부와 무관하게 전용 Gemini Key가
     있어야만 진행한다(aijomoojin은 기존 흐름 그대로라 True). 없으면 로그·Slack 1회 후 False."""
@@ -1889,6 +1930,10 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
             logger.info("[AijomoojinProducer] 이미 ready 레코드 존재 — 신규 생성 스킵")
             return
 
+        persona_kwargs = _content_persona_kwargs(repo, acct)
+        if persona_kwargs is None:
+            return
+
         try:
             pending_content_ids = find_pending_channel_packages(vault)
         except VaultScanError as exc:
@@ -1904,6 +1949,15 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
         for candidate_id in pending_content_ids:
             candidate_fields = read_frontmatter(candidate_id, vault)
             candidate_source_url = candidate_fields.get("source_url", "") if candidate_fields else ""
+            if acct.vault_root is not None and (
+                candidate_fields.get("content_settings_version") != 1
+                or candidate_fields.get("persona_code", "") != persona_kwargs["persona_code"]
+            ):
+                logger.error(
+                    "[ContentPersona] pending 패키지 설정 불일치 — 재개하지 않음 | "
+                    "account_code=%s | content_id=%s", account_code, candidate_id,
+                )
+                return
             # 260924 P1-2 Sprint2 — stale 판정을 패키지 단위(content_id)로 분리한다.
             # source_url 판정은 같은 주제를 반복 재사용하는 운영과 충돌해, 한 번도
             # 저장된 적 없는 새 패키지까지 과거 게시물 때문에 영구 stale 처리했다.
@@ -1983,6 +2037,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
                 hero_card_enabled=hero_card_enabled,
                 **_package_kwargs(acct),
             )
+            package_kwargs.update(persona_kwargs)
             # 261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지. 기본 false(off): 슬롯 게시가 캐러셀을
             # 판별·게시하는 단계(4-AG)가 들어가기 전에는 켜지 않는다.
             if _account_flag(acct, "CAROUSEL_ENABLED") == "true":

@@ -80,6 +80,28 @@ def test_full_success_writes_md_and_png(tmp_path):
     assert img_files[0].read_bytes() == b"fake-png-bytes"
 
 
+def test_account_source_mismatch_fails_closed_before_gemini(tmp_path, monkeypatch):
+    source = SourceTopic(
+        topic_id="7.1", title="피부 관리", status="VERIFIED FACT",
+        source_url="https://example.com/beauty", core_message="피부 보습 순서를 설명한다.",
+        prohibited_expression="",
+    )
+    monkeypatch.setattr(builder, "parse_sourcebook", lambda: [source])
+    monkeypatch.setattr(
+        builder, "generate_hook_caption",
+        lambda *a, **k: pytest.fail("Source 불일치인데 Gemini가 호출되면 안 됨"),
+    )
+
+    result = builder.create_content_package(
+        vault_root=tmp_path, content_pillars="AI 쇼호스트 / 라이브 판매",
+        persona_code="PER-024",
+    )
+
+    assert result.success is False
+    assert result.error_code == "SOURCE_PERSONA_MISMATCH"
+    assert list((tmp_path / "content").glob("*.md")) == []
+
+
 def test_no_selectable_topic_writes_no_files(tmp_path, monkeypatch):
     monkeypatch.setattr(builder, "select_next_topic", lambda used, topics=None: None)
 

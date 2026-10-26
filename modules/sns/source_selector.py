@@ -42,6 +42,12 @@ _PROHIBITED_BLOCK_RE = re.compile(
 VALID_STATUSES = {"VERIFIED FACT", "USE_WITH_CAUTION"}
 HOLD_STATUS = "HOLD"
 
+_PILLAR_SPLIT_RE = re.compile(r"[/,|;\n]+")
+_PILLAR_WORD_RE = re.compile(r"[0-9A-Za-z가-힣]+")
+_PILLAR_STOP_WORDS = frozenset({
+    "ai", "콘텐츠", "제작", "과정", "관련", "방법", "팁", "활용", "정보",
+})
+
 
 @dataclass(frozen=True)
 class SourceTopic:
@@ -128,6 +134,24 @@ def list_selectable_topics(topics: "list[SourceTopic] | None" = None) -> list[So
         t for t in source
         if t.status in VALID_STATUSES and t.source_url and t.core_message
     ]
+
+
+def topic_matches_content_pillars(topic: SourceTopic, content_pillars: str) -> bool:
+    """계정 Persona의 Pillar와 Sourcebook Topic이 명시적으로 겹칠 때만 True.
+
+    공백/구분자만 있거나, ``AI``/``콘텐츠``처럼 모든 계정에 걸릴 수 있는 공통어만
+    남으면 False다. 추정으로 Source를 배정하지 않고 계정별 미확인 Source는
+    Fail-closed하기 위한 최소 문자열 Gate다.
+    """
+    haystack = " ".join((topic.title, topic.core_message)).casefold()
+    for pillar in _PILLAR_SPLIT_RE.split(content_pillars or ""):
+        words = [
+            word.casefold() for word in _PILLAR_WORD_RE.findall(pillar)
+            if len(word) >= 2 and word.casefold() not in _PILLAR_STOP_WORDS
+        ]
+        if words and all(word in haystack for word in words):
+            return True
+    return False
 
 
 def select_next_topic(

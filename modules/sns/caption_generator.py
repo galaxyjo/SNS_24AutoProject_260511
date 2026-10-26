@@ -92,7 +92,7 @@ def _parse_structured_caption_response(raw: str) -> "tuple[dict[str, str], str]"
 
 
 def _assemble_structured_caption(
-    fields: "dict[str, str]", hashtags: str
+    fields: "dict[str, str]", hashtags: str, cta_line: str = ""
 ) -> "tuple[str, str, str]":
     """9요소 Validator — 하나라도 실패하면 (\"\", \"\", HOLD사유)를 반환한다(Fail-closed,
     임의 절단·자동 재게시 없음). 검사 순서: 요소 누락 → 최종 길이가
@@ -104,6 +104,7 @@ def _assemble_structured_caption(
     if missing:
         return "", "", f"MISSING_ELEMENTS:{','.join(missing)}"
 
+    active_cta = (cta_line or "").strip() or _FIXED_CTA_LINE
     caption = (
         f"{fields['HOOK_EMPATHY']}\n"
         f"{fields['HOOK_QUESTION']}\n"
@@ -121,7 +122,7 @@ def _assemble_structured_caption(
         f"\n"
         f"\"{fields['MOTTO']}\"\n"
         f"\n"
-        f"{_FIXED_CTA_LINE}"
+        f"{active_cta}"
     )
     final_payload = f"{caption}\n{hashtags}" if hashtags else caption
     if len(final_payload) > _MAX_FINAL_PAYLOAD_CHARS:
@@ -327,6 +328,8 @@ def generate_hook_caption(
     prohibited_expression: str = "",
     tone_style: str = "",
     target_language: str = "EN",
+    seo_keywords: str = "",
+    conversion_cta: str = "",
     *,
     client=None,
     throttle_fn=None,
@@ -372,6 +375,10 @@ def generate_hook_caption(
     contract_block = f"Required structure (Content Playbook Generation Contract):\n{contract_text}\n\n"
 
     tone_line = f"- Tone: {tone_style}\n" if tone_style else ""
+    seo_line = (
+        f"- Prefer these account SEO keywords when relevant to the verified source: {seo_keywords}\n"
+        if seo_keywords else ""
+    )
     prohibited_line = (
         f"- Do NOT use this expression or anything similar to it: {prohibited_expression}\n"
         if prohibited_expression else ""
@@ -415,6 +422,7 @@ def generate_hook_caption(
         "stays within 500 characters total\n"
         f"- Write in {target_language} only\n"
         f"{tone_line}"
+        f"{seo_line}"
         f"{prohibited_line}"
         "- Hashtags: 5-10 relevant keywords with #, separated by spaces\n"
         "- Response format (use exactly this format, one field per line, no extra "
@@ -453,7 +461,9 @@ def generate_hook_caption(
             # 실패하면 임의로 자르거나 재게시하지 않고 즉시 HOLD한다 — 기존
             # core_message 공란/Playbook 로딩 실패와 동일한 Fail-closed 계약.
             fields, hashtags = _parse_structured_caption_response(raw)
-            caption, hashtags, hold_reason = _assemble_structured_caption(fields, hashtags)
+            caption, hashtags, hold_reason = _assemble_structured_caption(
+                fields, hashtags, cta_line=conversion_cta,
+            )
             if hold_reason:
                 print(f"[HookCaption] 9요소 Validator HOLD | reason={hold_reason}")
                 return "", ""

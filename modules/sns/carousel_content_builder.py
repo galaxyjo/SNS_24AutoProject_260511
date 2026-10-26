@@ -522,7 +522,12 @@ def _validate_contract(payload: dict) -> "str | None":
 
 def _build_prompt(
     core_message: str, title: str, slot_role: str, template_type: str,
+    *, tone_style: str = "", target_language: str = "", content_pillars: str = "",
+    seo_keywords: str = "", conversion_cta: str = "",
 ) -> str:
+    persona_block = _build_persona_prompt_block(
+        tone_style, target_language, content_pillars, seo_keywords, conversion_cta,
+    )
     return (
         "You are writing an 8-slide Instagram carousel (card-news) for a Korean "
         "AI-startup solo-entrepreneur audience, using ONLY the source content below.\n\n"
@@ -533,6 +538,7 @@ def _build_prompt(
         "(REACH=hook-style info summary, ENGAGEMENT=opinion/question/comparison, "
         "SAVE_SHARE=list/checklist).\n"
         f"Sentence template: {template_type}.\n\n"
+        f"{persona_block}"
         "Rules:\n"
         "1. Do NOT invent any fact, statistic, name, or claim not present in the "
         "source content above. Paraphrase and restructure meaning — do not copy "
@@ -619,8 +625,36 @@ def _short_content_type_line(source_published_at: str) -> str:
             "released or the latest; lead with the most useful concrete fact instead.\n\n")
 
 
+def _build_persona_prompt_block(
+    tone_style: str, target_language: str, content_pillars: str,
+    seo_keywords: str, conversion_cta: str,
+) -> str:
+    """계정별 Persona 값을 기존 Gemini Prompt에만 덧붙인다(전부 공란이면 기존 Prompt 불변)."""
+    lines = []
+    if content_pillars:
+        lines.append(f"Account content pillars: {content_pillars}")
+    if tone_style:
+        lines.append(f"Account tone and voice: {tone_style}")
+    if target_language:
+        lines.append(f"Write every slide, caption and hashtag in {target_language} only.")
+    if seo_keywords:
+        lines.append(f"Prefer these account SEO keywords when relevant to the verified source: {seo_keywords}")
+    if conversion_cta:
+        lines.append(
+            "Use this account CTA intent and destination on the final slide and final caption line: "
+            f"{conversion_cta}. Keep the existing one-CTA placement contract."
+        )
+    return ("Account Persona settings:\n- " + "\n- ".join(lines) + "\n\n") if lines else ""
+
+
 def _build_short_prompt(core_message: str, title: str, slot_role: str, template_type: str,
-                        slide_count: int, source_published_at: str = "") -> str:
+                        slide_count: int, source_published_at: str = "", *,
+                        tone_style: str = "", target_language: str = "",
+                        content_pillars: str = "", seo_keywords: str = "",
+                        conversion_cta: str = "") -> str:
+    persona_block = _build_persona_prompt_block(
+        tone_style, target_language, content_pillars, seo_keywords, conversion_cta,
+    )
     return (
         f"You are writing a {slide_count}-slide Instagram carousel (card-news) for Korean small-business "
         "owners and office workers who want to use AI tools, using ONLY the source content below.\n\n"
@@ -628,6 +662,7 @@ def _build_short_prompt(core_message: str, title: str, slot_role: str, template_
         f"Source content (the ONLY allowed source of facts/numbers/claims): {core_message}\n\n"
         + _short_content_type_line(source_published_at) +
         f"Slot role: {slot_role}. Sentence template: {template_type}.\n\n"
+        f"{persona_block}"
         "Rules:\n"
         "1. Do NOT invent any fact, statistic, name, or claim not present in the source content above. "
         "Paraphrase — do not copy sentences verbatim.\n"
@@ -655,6 +690,11 @@ def generate_carousel_content(
     existing_fingerprints: "set | None" = None,
     slide_count: int = _SLIDE_COUNT,
     with_image_scenes: bool = False,
+    tone_style: str = "",
+    target_language: str = "",
+    content_pillars: str = "",
+    seo_keywords: str = "",
+    conversion_cta: str = "",
 ) -> CarouselResult:
     """Sourcebook `topic`(source_selector.SourceTopic 또는 동일 필드를 가진
     객체) + 슬롯 역할 + 문장 템플릿으로 8-Slide 카드뉴스 구조화 콘텐츠 1건을
@@ -686,8 +726,16 @@ def generate_carousel_content(
     short = slide_count in SHORT_SLIDE_COUNTS
     prompt = (
         _build_short_prompt(topic.core_message, topic.title, slot_role, template_type, slide_count,
-                            getattr(topic, "source_published_at", "") or "")
-        if short else _build_prompt(topic.core_message, topic.title, slot_role, template_type)
+                            getattr(topic, "source_published_at", "") or "",
+                            tone_style=tone_style, target_language=target_language,
+                            content_pillars=content_pillars, seo_keywords=seo_keywords,
+                            conversion_cta=conversion_cta)
+        if short else _build_prompt(
+            topic.core_message, topic.title, slot_role, template_type,
+            tone_style=tone_style, target_language=target_language,
+            content_pillars=content_pillars, seo_keywords=seo_keywords,
+            conversion_cta=conversion_cta,
+        )
     )
     if with_image_scenes:
         prompt = prompt.replace("Return the result in the exact JSON schema provided.",

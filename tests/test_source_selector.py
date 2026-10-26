@@ -8,9 +8,11 @@ import pytest
 
 from modules.sns.source_selector import (
     DEFAULT_SOURCEBOOK_PATH,
+    SourceTopic,
     list_selectable_topics,
     parse_sourcebook,
     select_next_topic,
+    topic_matches_content_pillars,
 )
 
 _FIXTURE_MD = """# Fixture Sourcebook
@@ -146,6 +148,17 @@ def test_select_next_topic_returns_none_when_all_used(fixture_path):
 def test_select_next_topic_empty_used_set_defaults_to_first(fixture_path):
     topics = parse_sourcebook(fixture_path)
     assert select_next_topic(topics=topics).topic_id == "3.1"
+
+
+def test_topic_matches_only_explicit_account_pillar_terms():
+    topic = SourceTopic(
+        topic_id="9.1", title="AI 쇼호스트 라이브 판매 화법", status="VERIFIED FACT",
+        source_url="https://example.com/showhost", core_message="쇼호스트가 라이브 판매에서 질문을 활용한다.",
+        prohibited_expression="",
+    )
+    assert topic_matches_content_pillars(topic, "AI 쇼호스트 제작 과정 / 영화 속 세일즈") is True
+    assert topic_matches_content_pillars(topic, "AI 콘텐츠") is False  # 공통어만으로 임의 배정 금지
+    assert topic_matches_content_pillars(topic, "피부 관리 / 베트남 여행") is False
 
 
 # ── 실제 Sourcebook 파일 통합 스모크(파일 존재·형식 드리프트 감지) ──────────

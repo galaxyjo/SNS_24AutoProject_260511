@@ -70,6 +70,28 @@ def _valid_payload(caption="짧은훅\n\n본문 문장입니다.\n\n저장해두
 
 
 class TestSlideContract:
+    def test_per_024_settings_are_in_gemini_prompt(self, monkeypatch):
+        models = _FakeModels(response=_FakeResponse(_valid_payload()))
+        _patch_gemini(monkeypatch, models)
+
+        result = builder.generate_carousel_content(
+            _topic(), "REACH", "HOOK_IMPACT",
+            tone_style="활기·친근·설득력 있는 쇼호스트 말투",
+            target_language="KR",
+            content_pillars="AI 쇼호스트 제작 과정 / 라이브 판매 화법",
+            seo_keywords="AI쇼호스트, 라이브커머스",
+            conversion_cta="AI 쇼호스트 라이브 의뢰는 DM",
+        )
+
+        assert result.success is True
+        prompt = models.calls[0]["contents"]
+        for value in (
+            "활기·친근·설득력 있는 쇼호스트 말투", "KR",
+            "AI 쇼호스트 제작 과정 / 라이브 판매 화법",
+            "AI쇼호스트, 라이브커머스", "AI 쇼호스트 라이브 의뢰는 DM",
+        ):
+            assert value in prompt
+
     def test_generates_exactly_8_slides_from_sourcebook_fixture(self, monkeypatch):
         models = _FakeModels(response=_FakeResponse(_valid_payload()))
         _patch_gemini(monkeypatch, models)

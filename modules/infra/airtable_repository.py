@@ -1014,6 +1014,9 @@ class AirtableRepository(RepositoryInterface):
             greeting_template=f.get("greeting_template", ""),
             followup_template=f.get("followup_template", ""),
             language=f.get("language", ""),
+            content_pillars=f.get("content_pillars", ""),
+            seo_keywords=f.get("seo_keywords", ""),
+            conversion_cta=f.get("conversion_cta", ""),
         )
 
     # ── 9. 업로드 선점 마킹 ───────────────────────────────────────────────────

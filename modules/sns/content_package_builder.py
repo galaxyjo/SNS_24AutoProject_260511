@@ -49,7 +49,7 @@ from modules.sns.image_template_renderer import (
     render_note_card,
 )
 from modules.sns.image_text_checker import check_images_for_text_and_logo
-from modules.sns.source_selector import parse_sourcebook, select_next_topic
+from modules.sns.source_selector import parse_sourcebook, select_next_topic, topic_matches_content_pillars
 from modules.sns.visual_brief import build_background_only_prompt, build_image_prompt, build_visual_brief
 
 logger = get_logger(__name__)
@@ -453,6 +453,8 @@ def _create_carousel_package(
     topic, content_id: str, root: Path, slide_count: int, tone_style: str,
     slot_role: str, template_type: str, *, client=None, throttle_fn=None, model=None,
     carousel_style: str = "template", brand_handle: str = "",
+    target_language: str = "", content_pillars: str = "", seo_keywords: str = "",
+    conversion_cta: str = "", persona_code: str = "",
 ) -> PackageResult:
     """261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지(.md + N장 PNG). 텍스트·Safety·렌더링·쓰기
     중 하나라도 실패하면 파일을 하나도 남기지 않고 실패한다(단일 이미지로 대체하지 않음).
@@ -463,11 +465,19 @@ def _create_carousel_package(
     except VaultScanError:
         return PackageResult(success=False, error_code="VAULT_SCAN_ERROR", content_id=content_id)
 
+    persona_prompt_kwargs = ({
+        "tone_style": tone_style,
+        "target_language": target_language,
+        "content_pillars": content_pillars,
+        "seo_keywords": seo_keywords,
+        "conversion_cta": conversion_cta,
+    } if persona_code else {})
     carousel_result = generate_carousel_content(
         topic, slot_role, template_type,
         client=client, throttle_fn=throttle_fn, model=model,
         existing_fingerprints=existing_fingerprints, slide_count=slide_count,
         with_image_scenes=(carousel_style == "note"),
+        **persona_prompt_kwargs,
     )
     if not carousel_result.success:
         return PackageResult(success=False, error_code=f"CAROUSEL_TEXT_FAILED:{carousel_result.error_code}",
@@ -532,6 +542,9 @@ def _create_carousel_package(
         "slot_role": carousel.slot_role,
         "template_type": carousel.template_type,
     }
+    if persona_code:
+        frontmatter["persona_code"] = persona_code
+        frontmatter["content_settings_version"] = 1
     if carousel_style == "note":
         frontmatter["carousel_style"] = "note"
         frontmatter["slide_image_scenes"] = [s.image_scene for s in carousel.slides]
@@ -571,6 +584,10 @@ def create_content_package(
     carousel_slide_count: "int | None" = None,
     carousel_style: str = "template",
     brand_handle: str = "",
+    content_pillars: str = "",
+    seo_keywords: str = "",
+    conversion_cta: str = "",
+    persona_code: str = "",
 ) -> PackageResult:
     """261024 STEP 2 — `brand_handle`(선택, 기본 "")은 카드 하단 계정 핸들. 비우면 기존 @aijomoojin.
 
@@ -626,6 +643,8 @@ def create_content_package(
 
     if injected_topic is not None:
         topic = injected_topic
+        if content_pillars and not topic_matches_content_pillars(topic, content_pillars):
+            return PackageResult(success=False, error_code="SOURCE_PERSONA_MISMATCH")
     else:
         try:
             used_source_urls = scan_used_source_urls(root)
@@ -640,6 +659,13 @@ def create_content_package(
         # 그 함수의 기존 로직("주어진 순서에서 첫 미사용 항목 선택")은 그대로
         # 두고 순서만 바꿔 전체 Sourcebook이 돌아가게 한다.
         ordered_topics = sorted(parse_sourcebook(), key=lambda t: last_used.get(t.source_url, ""))
+        if content_pillars:
+            ordered_topics = [
+                topic for topic in ordered_topics
+                if topic_matches_content_pillars(topic, content_pillars)
+            ]
+            if not ordered_topics:
+                return PackageResult(success=False, error_code="SOURCE_PERSONA_MISMATCH")
         topic = select_next_topic(used_source_urls, ordered_topics)
         if topic is None:
             return PackageResult(success=False, error_code="NO_SELECTABLE_TOPIC")
@@ -657,10 +683,19 @@ def create_content_package(
             slot_role or "REACH", template_type or "HOOK_IMPACT",
             client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
             carousel_style=carousel_style, brand_handle=brand_handle,
+            target_language=target_language, content_pillars=content_pillars,
+            seo_keywords=seo_keywords, conversion_cta=conversion_cta,
+            persona_code=persona_code,
         )
 
+    caption_persona_kwargs = {}
+    if seo_keywords:
+        caption_persona_kwargs["seo_keywords"] = seo_keywords
+    if conversion_cta:
+        caption_persona_kwargs["conversion_cta"] = conversion_cta
     caption, hashtags = generate_hook_caption(
         topic.title, topic.core_message, topic.prohibited_expression, tone_style, target_language,
+        **caption_persona_kwargs,
         client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
     )
     if not caption:
@@ -715,10 +750,18 @@ def create_content_package(
             existing_fingerprints = scan_existing_fingerprints(root)
         except VaultScanError:
             existing_fingerprints = set()
+        persona_prompt_kwargs = ({
+            "tone_style": tone_style,
+            "target_language": target_language,
+            "content_pillars": content_pillars,
+            "seo_keywords": seo_keywords,
+            "conversion_cta": conversion_cta,
+        } if persona_code else {})
         carousel_result = generate_carousel_content(
             topic, slot_role, template_type,
             client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
             existing_fingerprints=existing_fingerprints,
+            **persona_prompt_kwargs,
         )
         if carousel_result.success:
             carousel = carousel_result.content
@@ -741,6 +784,9 @@ def create_content_package(
         # (기존 Vault 파일 Backfill 금지 — 표식은 신규 생성분에만 기록한다).
         "idempotency_version": IDEMPOTENCY_VERSION,
     }
+    if persona_code:
+        frontmatter["persona_code"] = persona_code
+        frontmatter["content_settings_version"] = 1
     if getattr(topic, "source_published_at", ""):
         frontmatter["source_published_at"] = topic.source_published_at
     if carousel is not None:

@@ -149,6 +149,9 @@ class PersonaProfile(TypedDict, total=False):
     greeting_template:  str
     followup_template:  str
     language:           str
+    content_pillars:    str
+    seo_keywords:       str
+    conversion_cta:     str
 
 
 class CrawlTarget(TypedDict, total=False):
