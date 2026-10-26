@@ -73,6 +73,7 @@ _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY = {
     # 261024 STEP 2 — 공통 엔진 Canary(IDN-000025). `.env`에 IDN_000025_GEMINI_API_KEY가 없으면 Fail-closed.
     "IDN_000025": "IDN_000025",
     "IDN_000029": "IDN_000029",
+    "IDN_000023": "IDN_000023",   # 261026 한식 계정 테스트(yummy.office)
 }
 
 

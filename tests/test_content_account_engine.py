@@ -486,3 +486,56 @@ class TestAiContentGatePersona:
     def test_aijomoojin_unchanged(self):
         assert passes_ai_content_gate_v0("캡션", "IDN-000036", "https://x.example", "PER-024") == (
             False, "AI_CONTENT_PERSONA_MISMATCH")
+
+
+class TestKfoodAccount023:
+    """261026 — IDN-000023(한식) 전용 Sourcebook·Persona Gate. 036이 한식 주제를 고르지 않는지 확인."""
+
+    KFOOD = Path(__file__).resolve().parents[1] / "docs" / "design" / "SNS_KFOOD_SOURCEBOOK_IDN023_261026.md"
+
+    def test_023_package_kwargs_carry_own_sourcebook(self):
+        acct = launcher_main.CONTENT_ACCOUNTS["IDN-000023"]
+        kw = launcher_main._package_kwargs(acct)
+        assert kw["sourcebook_path"] == self.KFOOD and kw["brand_handle"] == "@yummy.office"
+        assert acct.news_enabled is False and acct.lock_name == "content_producer_IDN-000023"
+
+    @pytest.mark.parametrize("code", ["IDN-000025", "IDN-000029"])
+    def test_other_accounts_have_no_sourcebook_kwarg(self, code):
+        assert "sourcebook_path" not in launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS[code])
+
+    def test_aijomoojin_kwargs_still_empty(self):
+        assert launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS["IDN-000036"]) == {}
+
+    def test_shared_sourcebook_has_no_kfood_topics(self):
+        from modules.sns.source_selector import parse_sourcebook
+        kfood_urls = {t.source_url for t in parse_sourcebook(self.KFOOD)}
+        shared_urls = {t.source_url for t in parse_sourcebook()}
+        assert kfood_urls and not (kfood_urls & shared_urls)
+
+    def test_kfood_topics_match_023_pillars(self):
+        from modules.sns.source_selector import list_selectable_topics, parse_sourcebook, topic_matches_content_pillars
+        pillars = "한식 역사 / 식재료 소개 / 레시피 / 수출 상품·절차"
+        topics = list_selectable_topics(parse_sourcebook(self.KFOOD))
+        assert len(topics) == 4 and all(topic_matches_content_pillars(t, pillars) for t in topics)
+
+    @pytest.mark.parametrize("given,expected", [(None, None), ("KFOOD", "KFOOD")])
+    def test_create_content_package_reads_given_sourcebook(self, monkeypatch, tmp_path, given, expected):
+        seen = []
+        monkeypatch.setattr(cpb, "parse_sourcebook", lambda path=None: seen.append(path) or [])
+        path = self.KFOOD if given else None
+        result = cpb.create_content_package(target_language="ko", vault_root=tmp_path, sourcebook_path=path)
+        assert result.success is False
+        assert seen == [self.KFOOD if expected else None]
+
+    def test_023_gate_requires_per022(self, monkeypatch):
+        monkeypatch.setattr("modules.sns.caption_generator.check_caption_safety", lambda caption, **k: ("SAFE", ""))
+        assert passes_ai_content_gate_v0("한식 역사 캡션입니다 테스트", "IDN-000023", "https://x.example", "PER-022") == (
+            True, "PUBLISH_ALLOWED")
+        assert passes_ai_content_gate_v0("캡션", "IDN-000023", "https://x.example", "PER-028") == (
+            False, "AI_CONTENT_PERSONA_MISMATCH")
+
+    def test_023_gemini_mapping_fail_closed(self, monkeypatch):
+        monkeypatch.delenv("IDN_000023_GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("AIJOMOOJIN_GEMINI_API_KEY", "aijomoojin-key")
+        with pytest.raises(CredentialResolutionError):
+            resolve_gemini_credential("IDN_000023")

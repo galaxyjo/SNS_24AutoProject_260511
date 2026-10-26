@@ -1554,6 +1554,7 @@ class ContentAccount:
     lock_name: str
     news_enabled: bool
     brand_handle: str = ""   # 카드 하단 핸들. aijomoojin은 렌더러 기본(@aijomoojin) 그대로
+    sourcebook_path: "Path | None" = None   # 261026 — 계정 전용 Sourcebook. 없으면 공용 AI Sourcebook
 
 
 CONTENT_ACCOUNTS = {
@@ -1565,6 +1566,11 @@ CONTENT_ACCOUNTS = {
     "IDN-000029": ContentAccount("IDN-000029", "IDN_000029", "IDN_000029",
                                  _ROOT / "vault" / "accounts" / "IDN-000029", "content_producer_IDN-000029", False,
                                  brand_handle="@nohanmin"),
+    # 261026 테스트 — 한식·식재료 계정. 공용 AI Sourcebook을 쓰면 036이 미사용 한식 주제를 먼저 고르므로 전용 파일만 읽는다.
+    "IDN-000023": ContentAccount("IDN-000023", "IDN_000023", "IDN_000023",
+                                 _ROOT / "vault" / "accounts" / "IDN-000023", "content_producer_IDN-000023", False,
+                                 brand_handle="@yummy.office",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_KFOOD_SOURCEBOOK_IDN023_261026.md"),
 }
 
 
@@ -1581,7 +1587,10 @@ def _package_kwargs(acct: ContentAccount) -> dict:
     """create_content_package 추가 인자 — aijomoojin은 빈 dict, 새 계정은 vault_root + brand_handle."""
     if acct.vault_root is None:
         return {}
-    return {**_vault_kwargs(acct), "brand_handle": acct.brand_handle}
+    kwargs = {**_vault_kwargs(acct), "brand_handle": acct.brand_handle}
+    if acct.sourcebook_path is not None:
+        kwargs["sourcebook_path"] = acct.sourcebook_path
+    return kwargs
 
 
 _REQUIRED_CONTENT_PERSONA_FIELDS = (

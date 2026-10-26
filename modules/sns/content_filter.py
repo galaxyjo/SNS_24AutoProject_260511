@@ -114,6 +114,8 @@ ACCOUNT_DOMAIN_POLICY = {
     "IDN-000036": "AI_CONTENT",   # aijomoojin — Track B AI 생성 콘텐츠
     "IDN-000025": "AI_CONTENT",   # 261024 STEP 2 공통 엔진 Canary(AI+쇼호스트·AI 콘텐츠·영화)
     "IDN-000029": "AI_CONTENT",   # 261026 계정별 콘텐츠 Runtime 적용(nohanmin)
+    # 261026 테스트 — 한식 계정이지만 지금은 AI_CONTENT Gate(Persona·원천·언어·Safety)를 재사용. 전용 도메인은 추후 결정.
+    "IDN-000023": "AI_CONTENT",
 }
 
 # 261022 B1 — 위 계정 dict에 없는 계정은 Account_Registry.category로만 도메인을 정한다.
@@ -130,6 +132,7 @@ _AI_CONTENT_PERSONA_BY_ACCOUNT = {
     _AI_CONTENT_REQUIRED_ACCOUNT: _AI_CONTENT_REQUIRED_PERSONA,
     "IDN-000025": "PER-024",
     "IDN-000029": "PER-028",
+    "IDN-000023": "PER-022",
 }
 
 

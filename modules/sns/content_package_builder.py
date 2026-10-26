@@ -588,8 +588,10 @@ def create_content_package(
     seo_keywords: str = "",
     conversion_cta: str = "",
     persona_code: str = "",
+    sourcebook_path: "Path | None" = None,
 ) -> PackageResult:
     """261024 STEP 2 — `brand_handle`(선택, 기본 "")은 카드 하단 계정 핸들. 비우면 기존 @aijomoojin.
+    261026 — `sourcebook_path`(선택)는 계정 전용 Sourcebook. 생략하면 공용 AI Sourcebook(기존 그대로).
 
     260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
     Adapter(`modules/sns/research_to_topic_adapter.py`)가 이미 선정·검증한
@@ -658,7 +660,8 @@ def create_content_package(
         # 썼거나 아예 안 쓴" 순으로 정렬한 뒤 select_next_topic()에 넘겨,
         # 그 함수의 기존 로직("주어진 순서에서 첫 미사용 항목 선택")은 그대로
         # 두고 순서만 바꿔 전체 Sourcebook이 돌아가게 한다.
-        ordered_topics = sorted(parse_sourcebook(), key=lambda t: last_used.get(t.source_url, ""))
+        topics = parse_sourcebook(sourcebook_path) if sourcebook_path else parse_sourcebook()
+        ordered_topics = sorted(topics, key=lambda t: last_used.get(t.source_url, ""))
         if content_pillars:
             ordered_topics = [
                 topic for topic in ordered_topics
