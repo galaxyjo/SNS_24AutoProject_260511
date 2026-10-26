@@ -1,3 +1,20 @@
+# (261026_01:20pm ICT) | STEP 4 → IDN-000023 테스트 첫 게시 | 담당: Claude Code | SUCCESS
+
+- **결과:** https://www.instagram.com/p/De8nZd-kkXK/ (CAROUSEL_ALBUM, children 3, media 18451179403127548, owner 17841453829423263), Airtable posted, 원장 `{}`.
+- **Runtime:** 13:05:57 재시작(boot `54193e5` + 작업트리 023 코드, **미커밋**). 023 Flag 0개 — 자동 게시 꺼짐.
+- **운영 중 계정:** 036(자동), 025·029·023(수동 1건씩 성공, 자동 OFF).
+
+**023 추후 구체화할 설정값(회장 "나중에 설정값 더 넣을게" 261026):**
+1. **이미지 스타일:** 지금은 공용 template(어두운 AI 테크 배경 + 아이콘 카드)이라 한식 계정과 어울리지 않음 → 한식용 시각 스타일(예: 음식·식재료 사진형, 따뜻한 색, 손그림 등)과 `visual_style` 같은 계정별 설정 필드 필요.
+2. **콘텐츠 도메인:** 지금은 AI_CONTENT Gate를 재사용(Persona·원천·언어·Safety 검사만). Airtable category도 `D_AI`로 잘못 분류 → 한식/식재료 전용 도메인과 category 정정 필요.
+3. **원천(Sourcebook):** 지금 4건(한국어 기사, `docs/design/SNS_KFOOD_SOURCEBOOK_IDN023_261026.md`)뿐이고 Pillar "레시피"·"수출 절차" 원천은 0건. 공식 원천(한식진흥원, aT KATI 원자료, 한국민족문화대백과 등)과 주제별 항목 수 목표 필요. 1.3 수출 통계의 "지난해"는 기사 기준이라 연도 확인 필요.
+4. **Pillar 문구:** 매칭은 Pillar 한 줄의 단어가 모두 들어가야 통과(예: "수출 상품·절차"는 수출·상품·절차 3단어). Pillar를 짧은 키워드 단위로 다듬을지 결정 필요.
+5. **CTA:** Persona CTA "식재료 수출 문의는 DM"이 이번 캐러셀 캡션에는 쓰이지 않고 기본 "저장" CTA가 들어감(3-B는 단일 캡션에만 계정 CTA 고정). 캐러셀에도 계정 CTA를 쓸지 결정 필요.
+6. **운영 일정:** 자동 게시(정규 잡)는 꺼져 있음. 하루 게시 수·시각·Flag ON은 별도 승인.
+7. **Gemini Key 프로젝트:** 023 Key는 036·029 Key와 다른 값임만 확인. Google 프로젝트 분리 여부(Airtable `gemini_project_number`)는 미확인.
+
+---
+
 # (261026_12:45pm ICT) | STEP 3-B → IDN-000029 첫 게시 | 담당: Claude Code | SUCCESS
 
 - **결과:** https://www.instagram.com/p/De8jbexkvwx/ (CAROUSEL_ALBUM, children 3, media_id 18416019898082145, owner 17841462326237246), Airtable posted, 원장 `{}`.

@@ -3212,3 +3212,21 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **Claude Code 이어받기(261026 12:2x):** Runtime 정상 확인(watchdog Running, 5000·8501 LISTEN, boot `bd3e8bf`). 관련 Target 550 passed(작업공간 basetemp), `git diff --check` OK. 029 재게시는 재시작 순서 승인 대기.
 - **029 첫 게시 SUCCESS(12:40):** Flag 제거 → 재시작(boot `a037777`) → SLOT Flag만 → ready → 관리자 수동 게시 → https://www.instagram.com/p/De8jbexkvwx/ (media 18416019898082145) → Flag 제거. ERR-169 RESOLVED.
 - **⚠ 미해결:** 029 Gemini Key가 036과 같은 Google 프로젝트(450464150865) — 회장 "기록만" 지시 상태 유지, 029 생성은 이미 1회 실행됨(036 무료 할당량 공유).
+
+---
+
+### 261026 오후 — IDN-000023(한식) 테스트 확장·첫 게시 (미커밋)
+
+- **원천:** 공용 AI Sourcebook에 한식 주제 0건 → 회장 지시로 한국어 기사 4건을 찾아 전용 파일 `docs/design/SNS_KFOOD_SOURCEBOOK_IDN023_261026.md` 작성(주간경향 김치·고추 2026-09-24, 경향신문 장 담그기 유네스코 2024-12-04, 데일리안 K-소스 수출 2026-08-21, 전북일보 순창 고추장 2018-03-01; 원문 4건 열람 확인).
+- **왜 별도 파일:** 036은 "가장 오래 안 쓴 주제부터" 고르므로 공용 파일에 넣으면 미사용 한식 주제를 036이 바로 게시함 → `ContentAccount.sourcebook_path` 추가(023만 설정, 나머지 호출 인자 불변).
+- **코드:** launcher `CONTENT_ACCOUNTS` 023(@yummy.office, vault/accounts/IDN-000023) + `sourcebook_path`, `create_content_package(sourcebook_path=)`, Resolver IDN_000023, content_filter 023→AI_CONTENT·PER-022. 테스트 10 추가, 관련 560 passed.
+- **상태 변경(회장 "그냥 진행"):** Airtable 023 automation_enabled·PER-022 active, 재시작 13:05:57, `.env` 023 Flag 3개 임시(백업 `backup/pre_023_flags_261026.env`) → producer 1회(13:09, 1-1-261026-03b360b6) → 게시 1회(13:15) https://www.instagram.com/p/De8nZd-kkXK/ → Flag 제거(`.env` 백업과 동일).
+
+**023 추후 구체화할 설정값(회장 "나중에 설정값 더 넣을게" 261026):**
+1. **이미지 스타일:** 지금은 공용 template(어두운 AI 테크 배경 + 아이콘 카드)이라 한식 계정과 어울리지 않음 → 한식용 시각 스타일(예: 음식·식재료 사진형, 따뜻한 색, 손그림 등)과 `visual_style` 같은 계정별 설정 필드 필요.
+2. **콘텐츠 도메인:** 지금은 AI_CONTENT Gate를 재사용(Persona·원천·언어·Safety 검사만). Airtable category도 `D_AI`로 잘못 분류 → 한식/식재료 전용 도메인과 category 정정 필요.
+3. **원천(Sourcebook):** 지금 4건(한국어 기사, `docs/design/SNS_KFOOD_SOURCEBOOK_IDN023_261026.md`)뿐이고 Pillar "레시피"·"수출 절차" 원천은 0건. 공식 원천(한식진흥원, aT KATI 원자료, 한국민족문화대백과 등)과 주제별 항목 수 목표 필요. 1.3 수출 통계의 "지난해"는 기사 기준이라 연도 확인 필요.
+4. **Pillar 문구:** 매칭은 Pillar 한 줄의 단어가 모두 들어가야 통과(예: "수출 상품·절차"는 수출·상품·절차 3단어). Pillar를 짧은 키워드 단위로 다듬을지 결정 필요.
+5. **CTA:** Persona CTA "식재료 수출 문의는 DM"이 이번 캐러셀 캡션에는 쓰이지 않고 기본 "저장" CTA가 들어감(3-B는 단일 캡션에만 계정 CTA 고정). 캐러셀에도 계정 CTA를 쓸지 결정 필요.
+6. **운영 일정:** 자동 게시(정규 잡)는 꺼져 있음. 하루 게시 수·시각·Flag ON은 별도 승인.
+7. **Gemini Key 프로젝트:** 023 Key는 036·029 Key와 다른 값임만 확인. Google 프로젝트 분리 여부(Airtable `gemini_project_number`)는 미확인.
