@@ -261,3 +261,40 @@ class TestModelFallback:
         builder.generate_hero_card_content(_topic(), model="gemini-3.5-flash-lite")
 
         assert models.calls[0]["model"] == "gemini-3.5-flash-lite"
+
+
+class TestCharacterCountRule:
+    """261026 STEP 5-B(예방) — 프롬프트 글자 수 기준을 len() 검사와 맞춘다. 40자 상한·사실 검증은 그대로."""
+
+    DESC_40 = ("Granite Speech 음성 AI, 모델 설명" + "가" * 40)[:40]
+
+    def _run(self, monkeypatch, payload):
+        models = _FakeModels(response=_FakeResponse(payload))
+        _patch_gemini(monkeypatch, models)
+        return builder.generate_hero_card_content(_topic()), models
+
+    def test_prompt_states_len_based_counting(self, monkeypatch):
+        _, models = self._run(monkeypatch, _valid_payload())
+        prompt = models.calls[0]["contents"]
+        assert "spaces, English letters, digits and punctuation all count" in prompt
+        assert "Count each field before answering" in prompt
+        assert f"'desc' (at most {builder._BLOCK_DESC_MAX_CHARS} Korean characters)" in prompt
+
+    def test_desc_of_exactly_40_chars_with_spaces_and_english_passes(self, monkeypatch):
+        assert len(self.DESC_40) == 40 and builder._BLOCK_DESC_MAX_CHARS == 40
+        blocks = _valid_blocks()
+        blocks[0]["desc"] = self.DESC_40
+        result, _ = self._run(monkeypatch, _valid_payload(blocks=blocks))
+        assert result.success is True, result.error_code
+
+    def test_desc_of_41_chars_still_blocked(self, monkeypatch):
+        blocks = _valid_blocks()
+        blocks[0]["desc"] = self.DESC_40 + "나"
+        result, _ = self._run(monkeypatch, _valid_payload(blocks=blocks))
+        assert (result.success, result.error_code) == (False, "BLOCK_DESC_INVALID")
+
+    def test_fact_not_in_source_still_blocked(self, monkeypatch):
+        blocks = _valid_blocks()
+        blocks[0]["desc"] = "투자 성공률 87% 달성"
+        result, _ = self._run(monkeypatch, _valid_payload(blocks=blocks))
+        assert (result.success, result.error_code) == (False, "POSSIBLE_FABRICATION")

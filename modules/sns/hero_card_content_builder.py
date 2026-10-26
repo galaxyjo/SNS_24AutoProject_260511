@@ -154,6 +154,12 @@ def _build_prompt(core_message: str, title: str) -> str:
         "source content above.\n"
         "2. Keep every field within its character limit — these are short image "
         "labels, not sentences copied from the source.\n"
+        # 261026 STEP 5-B(예방) — 검사는 len()으로 공백·영문까지 센다. 표지 제목(carousel)에서 같은
+        # 기준 차이로 41·43자 초과가 실측됐다. 히어로카드 실패 원문은 미확보라 원인 확정은 아님.
+        "   Every limit counts every character exactly as the checker does — spaces, English "
+        "letters, digits and punctuation all count, not only Korean letters. Count each field "
+        "before answering; if a block 'desc' is over its limit, shorten long English model or "
+        "product names first.\n"
         "3. No exaggeration or unsupported performance numbers.\n"
         "Return the result in the exact JSON schema provided."
     )
