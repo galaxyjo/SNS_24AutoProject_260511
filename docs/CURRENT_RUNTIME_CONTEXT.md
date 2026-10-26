@@ -1,3 +1,13 @@
+# (261026_11:20pm ICT) | STEP 5-B / Gate 5 — IDN-000022 실게시 SUCCESS | Codex
+
+- **결과:** IDN-000022 `@951.0606`에 `1-1-261026-c2ed162a` 캐러셀 1건 게시. Instagram URL: https://www.instagram.com/p/De9spAvATTY/ · Media ID `18169277557477897`.
+- **Evidence:** Runtime 로그 23:20:29 Media ID, 23:20:32 Permalink 기록. Airtable `Instagram_Posts` 레코드 `reckQW6Euye60m4CK` = `posted`, 지정 content_id 일치, 계정 `IDN-000022`; 이후 ready 0건. 중복 0건.
+- **실행:** 기존 Producer 및 수동 게시 경로 재사용. 필요한 022 Producer/Slot/Carousel Flag는 실행 프로세스에만 적용 후 원래 상태로 복구. `.env`·코드·Airtable 설정 변경, Commit/Push 없음.
+- **Boot Policy:** 일반 Codex 프로세스는 ProgramData Boot Policy 접근 거부로 사전 차단됐고, 관리자 PowerShell 확인은 `BOOT_POLICY_VALID mode=production`이었다. 관리자 실행 뒤 기존 경로 완료.
+- **Risk/한계:** Instagram 독립 Graph/API 조회는 하지 않음. 게시 URL·Media ID는 Runtime 로그, 상태·중복은 Airtable 조회로 확인. 진단 출력의 Instagram/Gemini/Slack Secret 교체 여부 UNKNOWN(OPEN, ERR-179); 값을 재출력하지 말고 소유자 교체 확인 필요. Gate 5 종료; 재게시 금지.
+
+---
+
 # (261026_01:20pm ICT) | STEP 4 → IDN-000023 테스트 첫 게시 | 담당: Claude Code | SUCCESS
 
 - **결과:** https://www.instagram.com/p/De8nZd-kkXK/ (CAROUSEL_ALBUM, children 3, media 18451179403127548, owner 17841453829423263), Airtable posted, 원장 `{}`.

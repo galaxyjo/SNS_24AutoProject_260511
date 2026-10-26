@@ -3245,3 +3245,21 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **최종:** 20:25 Dry-run success(재작성 0, 이미지 3장, 판독 False/False). 결과물은 세션 scratchpad `rt022c`(운영 Vault 미사용).
 - **Claude Code 판단 오류 기록:** ①1.1 핵심 메시지를 사실 4개로 줄여 원문 수치를 지웠다가 원칙("수치 삭제로 합격 금지")에 어긋나 원복 ②Dry-run 출력 필터로 1회분 원문 유실 ③캡처 래퍼 인자 미갱신으로 Gemini 1회 낭비 ④해시태그 캡처 누락 1회.
 - **남은 것:** 운영 반영 Preflight·실게시 승인 Gate(별도 승인), push, PER-021 active·022 automation_enabled(Airtable, 별도 승인).
+
+### 261026 23:20 ICT — STEP 5-B / Gate 5 IDN-000022 실게시 SUCCESS
+
+- **실행 경로:** 기존 `tools/run_aijomoojin_producer_manual.py`와 `tools/run_aijomoojin_publish_manual.py`를 IDN-000022로 사용. Producer가 지정 콘텐츠 `1-1-261026-c2ed162a`를 Airtable ready로 등록했고, Airtable에서 해당 022 ready 레코드 1건만 확인한 뒤 게시 함수 1회 실행.
+- **결과:** `@951.0606` 게시 URL https://www.instagram.com/p/De9spAvATTY/ , Media ID `18169277557477897`. Airtable `reckQW6Euye60m4CK`=`posted`; 지정 콘텐츠 일치, 게시 후 022 ready 0건, 중복 0건.
+- **Flag/변경:** Producer·Slot·Carousel Flag는 해당 수동 프로세스에만 적용하고 실행 후 원래 값 복구. `.env` 지속 변경, 코드 변경, Commit/Push 없음.
+- **Boot Policy 경위:** Codex 프로세스는 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json` 접근 거부로 게시 사전 게이트에서 차단. 회장 관리자 PowerShell의 검증 결과 `BOOT_POLICY_VALID mode=production`; 관리자 PowerShell에서 기존 게시 경로를 실행해 완료. Boot Policy 우회 없음.
+- **검증 한계:** Runtime 성공 로그와 Airtable 상태를 확인했으며, Instagram 독립 Graph/API 조회는 수행하지 않음.
+
+### 사후 분석 — 콘텐츠 품질과 게시 운영의 분리 (회장 정리, 261026 23:25 ICT)
+
+- **핵심 원인:** 콘텐츠 생성 품질 PASS와 실제 게시 준비 PASS를 같은 기준으로 보았다. 기존 Dry-run은 콘텐츠·이미지 품질만 확인했으며, 운영 권한·Vault 연결·Airtable `ready`·계정별 Flag까지 보증하지 않았다.
+- **오류 순서/기록:** ①~⑧ 콘텐츠 사실·숫자·CTA·길이·카드 배정·로고·렌더러 이슈는 기존 ERR-172~178 및 FP-117/118 참조(재기록하지 않음). ⑨ 최신 launcher 적용 여부는 boot 기록 `5c356b3`로 확인. ⑩ 대상 launcher 종료는 Windows 권한 제약으로 관리자 식별/종료가 필요했다. ⑪ 검증 패키지가 scratchpad에 있어 IDN-000022 Vault로 옮겨야 했다. ⑫ Codex 환경의 Airtable `NameResolutionError`는 관측됐으나 Windows DNS는 IPv4·IPv6 정상; 최종 장애 원인으로 확정하지 않는다. ⑬ ProgramData Boot Policy ACL은 일반 Codex 프로세스 접근을 막았고 관리자 문맥에서는 `BOOT_POLICY_VALID`였다(ERR-101 재발). ⑭ 022 전용 Flag 기본값은 OFF였고 단발 프로세스에만 적용·원복했다. ⑮ Producer 전 Airtable ready가 0건이었고 기존 Producer로 레코드를 등록했다. ⑯ 진단 출력 Secret 노출은 ERR-179/FP-113에 기록, 교체 여부 UNKNOWN. ⑰ ready 1건 확인 뒤 기존 게시 엔진으로 1회 게시해 Gate 5를 닫았다.
+- **재발 방지:** 콘텐츠 PASS 후 실패하면 콘텐츠를 재생성하지 말고 계정·Credential·Boot Policy 실행 권한·Vault·Lock·중복·Flag·Airtable ready 순으로 연결을 확인한다. Ready 단일 건 확인 뒤 기존 게시 엔진을 1회 사용하고, 결과가 불명확하면 재게시하지 않는다.
+- **성공 기준 분리:** Dry-run은 품질 Gate(module_verified), Instagram URL + Media ID + Airtable posted + 중복 0건은 운영 Gate(production evidence)로 구분. 이번 건은 Runtime 로그와 Airtable로 확인했으며 독립 Instagram Graph/API 조회는 미수행. 상세 결과는 `step5b_idn022_live_canary_261026`.
+- **시간 소요 요인:** 완료된 품질 검수를 반복했고, Code/Content 경로와 운영 권한·등록 경로를 초기에 분리하지 못했다. 관리자 문맥 실행, Producer→Airtable ready, 게시 순으로 해결됐다.
+- **보안 후속:** ERR-179의 IG/Gemini/Slack Credential 교체 확인이 남아 있다. 게시 성공과 별도 OPEN으로 유지; 어떤 값도 이 저널에 기록하지 않는다.
+- **향후 확장:** 다음 23개 계정에서도 기존 엔진을 재사용하는 흐름(계정 설정·권한 → Producer → Airtable `ready` → 게시 → Media ID 확인)을 권고. 계정별 Credential·권한 차이는 사전 확인 필요. 이번 실행 범위는 IDN-000022만이며 확장은 수행하지 않았다.

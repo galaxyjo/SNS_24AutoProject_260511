@@ -262,3 +262,4 @@
 
 | step5b_news_key_facts_dryrun_261026 (커밋 6307c6e, Granite Speech 5.0 Dry-run NEWS_READY·사실 4개 통과·캡션 3개 반영, 테스트 93 passed+기존실패 3·회귀 347 passed, 재시작 전 운영 미반영, ERR-170·ERR-171) | ✅ PASS(module_verified) | 2026-10-26 |
 | step5b_idn022_carousel_stabilization_261026 (커밋 8243404·3eaca14·4e04d82, 022 비게시 Dry-run 20:25 success: Gemini 5회·재작성 0·2장=카드 사실 4개·원문 외 숫자 0·계정 CTA 독립 줄·주제 해시태그 4개·이미지 3장·배경 판독 False/False, Target Test 통과·관련 회귀 570 passed, 운영 미반영(재시작 전)·실게시 0, ERR-172~178) | ✅ PASS(module_verified) | 2026-10-26 |
+| `step5b_idn022_live_canary_261026` | **SUCCESS (production_verified: Runtime 로그 + Airtable)** — IDN-000022 `@951.0606`, content_id `1-1-261026-c2ed162a`, https://www.instagram.com/p/De9spAvATTY/ , media_id `18169277557477897`, Airtable `reckQW6Euye60m4CK` `posted`, ready 0·중복 0. 단발 Flag 원복. 독립 Instagram Graph/API 조회는 미수행; Credential 교체 미확인(OPEN, ERR-179). | 2026-10-26 |
