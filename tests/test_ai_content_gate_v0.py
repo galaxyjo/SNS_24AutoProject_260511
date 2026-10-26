@@ -251,6 +251,21 @@ class TestAiContentGateV0:
         assert allowed is True
         assert code == "PUBLISH_ALLOWED"
 
+    def test_idn_000029_with_own_persona_passes(self):
+        with self._patch_safe():
+            allowed, code = passes_ai_content_gate_v0(
+                "한국어 캡션입니다 테스트", "IDN-000029", "https://example.com/source", "PER-028", "ko"
+            )
+        assert allowed is True
+        assert code == "PUBLISH_ALLOWED"
+
+    def test_idn_000029_with_other_persona_is_blocked(self):
+        allowed, code = passes_ai_content_gate_v0(
+            "한국어 캡션입니다 테스트", "IDN-000029", "https://example.com/source", "PER-024", "ko"
+        )
+        assert allowed is False
+        assert code == "AI_CONTENT_PERSONA_MISMATCH"
+
     def test_wrong_account_blocked(self):
         allowed, code = passes_ai_content_gate_v0("c", "IDN-999999", "https://x", "PER-002")
         assert allowed is False

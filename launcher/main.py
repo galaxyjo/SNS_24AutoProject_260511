@@ -1562,6 +1562,9 @@ CONTENT_ACCOUNTS = {
     "IDN-000025": ContentAccount("IDN-000025", "IDN_000025", "IDN_000025",
                                  _ROOT / "vault" / "accounts" / "IDN-000025", "content_producer_IDN-000025", False,
                                  brand_handle="@rhrl201010"),
+    "IDN-000029": ContentAccount("IDN-000029", "IDN_000029", "IDN_000029",
+                                 _ROOT / "vault" / "accounts" / "IDN-000029", "content_producer_IDN-000029", False,
+                                 brand_handle="@nohanmin"),
 }
 
 
