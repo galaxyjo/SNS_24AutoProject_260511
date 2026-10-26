@@ -104,7 +104,7 @@ class TestCanaryProducer:
     def test_unknown_account_does_nothing(self, monkeypatch, canary_flags_on):
         monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository",
                             lambda: pytest.fail("Airtable 호출되면 안 됨"))
-        launcher_main._job_aijomoojin_content_producer(account_code="IDN-000022")
+        launcher_main._job_aijomoojin_content_producer(account_code="IDN-000027")
 
     def test_missing_gemini_key_fails_closed_without_other_keys(self, monkeypatch, canary_flags_on, _isolated):
         monkeypatch.setenv("AIJOMOOJIN_GEMINI_API_KEY", "aijomoojin-key")
@@ -297,7 +297,7 @@ class TestCanarySlotPost:
     def test_unknown_account_skips(self, monkeypatch):
         monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository",
                             lambda: pytest.fail("Airtable 호출되면 안 됨"))
-        launcher_main._job_aijomoojin_scheduled_post(account_code="IDN-000022")
+        launcher_main._job_aijomoojin_scheduled_post(account_code="IDN-000027")
 
     def test_missing_key_stops_even_when_publish_gate_off(self, monkeypatch):
         """Codex P1 — 025의 Key Fail-closed는 PUBLISH_TEXT_GATE_ENABLED에 종속되지 않는다."""
@@ -390,7 +390,7 @@ class TestManualTools:
     @pytest.mark.parametrize("tool,func", [("run_aijomoojin_producer_manual.py", "_job_aijomoojin_content_producer"),
                                            ("run_aijomoojin_publish_manual.py", "_job_aijomoojin_scheduled_post")])
     def test_unknown_account_does_not_run(self, monkeypatch, tool, func):
-        calls, code = self._run_tool(monkeypatch, tool, func, ["--account-code", "IDN-000022"])
+        calls, code = self._run_tool(monkeypatch, tool, func, ["--account-code", "IDN-000027"])
         assert calls == [] and code not in (0, None)
 
     def test_lock_tool_reads_canary_lock(self, monkeypatch, capsys):
@@ -480,7 +480,7 @@ class TestAiContentGatePersona:
             False, "AI_CONTENT_PERSONA_MISMATCH")
 
     def test_unlisted_account_rejected(self):
-        assert passes_ai_content_gate_v0("캡션", "IDN-000022", "https://x.example", "PER-021") == (
+        assert passes_ai_content_gate_v0("캡션", "IDN-000027", "https://x.example", "PER-026") == (
             False, "AI_CONTENT_ACCOUNT_MISMATCH")
 
     def test_aijomoojin_unchanged(self):
@@ -539,3 +539,67 @@ class TestKfoodAccount023:
         monkeypatch.setenv("AIJOMOOJIN_GEMINI_API_KEY", "aijomoojin-key")
         with pytest.raises(CredentialResolutionError):
             resolve_gemini_credential("IDN_000023")
+
+
+class TestAiNewsAccount022:
+    """261026 STEP 5-B — IDN-000022(AI 뉴스 정리) 전용 Sourcebook·Persona Gate·Credential 경계."""
+
+    AINEWS = Path(__file__).resolve().parents[1] / "docs" / "design" / "SNS_AI_NEWS_SOURCEBOOK_IDN022_261026.md"
+    PILLARS = "국내 이슈 요약 / 해외 이슈 요약 / 키워드 순위 / AI 뉴스 정리법"
+
+    def test_022_package_kwargs_carry_own_sourcebook_and_vault(self):
+        acct = launcher_main.CONTENT_ACCOUNTS["IDN-000022"]
+        kw = launcher_main._package_kwargs(acct)
+        assert kw["sourcebook_path"] == self.AINEWS and kw["brand_handle"] == "@951.0606"
+        assert kw["vault_root"] == launcher_main._ROOT / "vault" / "accounts" / "IDN-000022"
+        assert acct.news_enabled is False and acct.lock_name == "content_producer_IDN-000022"
+        assert acct.credential_key == "IDN_000022" and acct.env_prefix == "IDN_000022"
+
+    def test_existing_accounts_unchanged(self):
+        assert launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS["IDN-000036"]) == {}
+        assert launcher_main.CONTENT_ACCOUNTS["IDN-000023"].sourcebook_path.name == "SNS_KFOOD_SOURCEBOOK_IDN023_261026.md"
+        for code in ("IDN-000025", "IDN-000029"):
+            assert "sourcebook_path" not in launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS[code])
+
+    def test_022_vault_and_lock_distinct_from_other_accounts(self):
+        accts = launcher_main.CONTENT_ACCOUNTS.values()
+        assert len({a.lock_name for a in accts}) == len(accts)
+        assert len({a.vault_root for a in accts}) == len(accts)
+
+    def test_shared_sourcebook_has_no_022_topics(self):
+        from modules.sns.source_selector import parse_sourcebook
+        own_urls = {t.source_url for t in parse_sourcebook(self.AINEWS)}
+        shared_urls = {t.source_url for t in parse_sourcebook()}
+        assert own_urls and not (own_urls & shared_urls)
+
+    def test_022_topics_selectable_and_match_per021_pillars(self):
+        from modules.sns.source_selector import list_selectable_topics, parse_sourcebook, topic_matches_content_pillars
+        topics = list_selectable_topics(parse_sourcebook(self.AINEWS))
+        assert len(topics) == 3 and all(topic_matches_content_pillars(t, self.PILLARS) for t in topics)
+
+    def test_shared_sourcebook_does_not_match_per021_pillars(self):
+        # 전용 Sourcebook이 필요한 이유(261026 실측 0/15) — 공용 파일이 바뀌어 매칭되면 이 설계를 재검토한다.
+        from modules.sns.source_selector import list_selectable_topics, topic_matches_content_pillars
+        assert not [t for t in list_selectable_topics() if topic_matches_content_pillars(t, self.PILLARS)]
+
+    def test_022_gate_requires_per021(self, monkeypatch):
+        monkeypatch.setattr("modules.sns.caption_generator.check_caption_safety", lambda caption, **k: ("SAFE", ""))
+        assert passes_ai_content_gate_v0("해외 AI 이슈 요약 캡션입니다 테스트", "IDN-000022", "https://x.example",
+                                         "PER-021") == (True, "PUBLISH_ALLOWED")
+        assert passes_ai_content_gate_v0("캡션", "IDN-000022", "https://x.example", "PER-022") == (
+            False, "AI_CONTENT_PERSONA_MISMATCH")
+
+    def test_other_account_cannot_use_per021(self):
+        assert passes_ai_content_gate_v0("캡션", "IDN-000023", "https://x.example", "PER-021") == (
+            False, "AI_CONTENT_PERSONA_MISMATCH")
+
+    def test_022_gemini_mapping_fail_closed(self, monkeypatch):
+        monkeypatch.delenv("IDN_000022_GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("AIJOMOOJIN_GEMINI_API_KEY", "aijomoojin-key")
+        monkeypatch.setenv("GEMINI_API_KEY", "shared-key")
+        with pytest.raises(CredentialResolutionError):
+            resolve_gemini_credential("IDN_000022")
+
+    def test_022_gemini_mapping_uses_own_key(self, monkeypatch):
+        monkeypatch.setenv("IDN_000022_GEMINI_API_KEY", "own-022-key")
+        assert resolve_gemini_credential("IDN_000022").api_key == "own-022-key"

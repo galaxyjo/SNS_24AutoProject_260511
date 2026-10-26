@@ -74,6 +74,7 @@ _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY = {
     "IDN_000025": "IDN_000025",
     "IDN_000029": "IDN_000029",
     "IDN_000023": "IDN_000023",   # 261026 한식 계정 테스트(yummy.office)
+    "IDN_000022": "IDN_000022",   # 261026 STEP 5-B AI 뉴스 정리 Canary(951.0606)
 }
 
 

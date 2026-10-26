@@ -1571,6 +1571,11 @@ CONTENT_ACCOUNTS = {
                                  _ROOT / "vault" / "accounts" / "IDN-000023", "content_producer_IDN-000023", False,
                                  brand_handle="@yummy.office",
                                  sourcebook_path=_ROOT / "docs" / "design" / "SNS_KFOOD_SOURCEBOOK_IDN023_261026.md"),
+    # 261026 STEP 5-B Canary — AI 뉴스 정리 계정. 023과 같은 이유로 전용 Sourcebook만 읽는다(036 뉴스 경로 미사용).
+    "IDN-000022": ContentAccount("IDN-000022", "IDN_000022", "IDN_000022",
+                                 _ROOT / "vault" / "accounts" / "IDN-000022", "content_producer_IDN-000022", False,
+                                 brand_handle="@951.0606",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_AI_NEWS_SOURCEBOOK_IDN022_261026.md"),
 }
 
 
