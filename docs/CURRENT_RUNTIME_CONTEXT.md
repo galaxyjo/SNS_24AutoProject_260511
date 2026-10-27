@@ -1,8 +1,20 @@
+# (261027_10:40pm ICT) | STEP 5-B — IDN-000022 실게시 SUCCESS 인계 반영(Codex·GPT 요약 ↔ 저장 문서 비교) | 담당: Claude Code | 문서 갱신(Commit 안 함)
+
+- **비교 결론:** 인계 파일(261026 20:50~21:19 Codex 대화)은 Gate 5 HOLD 시점의 중간 기록이다. 이후 진행(23:20 실게시 SUCCESS, 사후분석, ERR-179, 문서 Commit `b0dede8`)은 저장 문서에 이미 있어 **중복 기록하지 않았고**, 아래 문서에 없던 현재 사실만 보완했다. 인계 파일의 "Gate 5 HOLD / 022 미확인" 판정은 이후 실게시로 해소돼 폐기.
+- **Git:** HEAD=`b0dede8`, origin/master와 동일(Push 완료 — 문서에 Push 기록 없었음). 코드 Commit `8243404`·`3eaca14`·`4e04d82`, 문서 `5c356b3`·`b0dede8` 존재. **미커밋 2파일:** `core/error_handler.py`·`services/slack_notifier.py`(예외 문구·traceback 대신 예외 타입만 로그/알림 — ERR-179 Secret 노출 재발방지 성격, 작성 주체·테스트 실행 여부 UNKNOWN).
+- **Runtime:** launcher boot commit=`b0dede8`, 기동 2026-10-27 20:42:56(재시작 기록이 문서에 없었음), SNS_Watchdog Running, Heartbeat 정상(22:20). 022 전용 Producer/Slot/Carousel 정규 Flag는 `.env`에 없음(기본 OFF) → 022 자동 잡 미등록, 게시는 수동 경로만. `db/producer_lock.db` 락 0건.
+- **022 Airtable(현재 값):** Account_Registry `IDN-000022` `automation_enabled=true`, Persona `PER-021` `active=true`. 261026 15:45 읽기 때는 둘 다 꺼져 있었고, **Codex가 261026 저녁 운영 반영 중 IDN-000022·PER-021 Airtable 활성화를 수행**한 것으로 확정(GPT·Codex 인계 요약 기준) — 아래 23:20 항목의 "Airtable 설정 변경 없음" 문구는 이 활성화를 뺀 표기라 정정함. `Instagram_Posts` 022 레코드 1건(`reckQW6Euye60m4CK`, posted, media_id `18169277557477897`, production), ready 0건, 중복 0건. 022 Vault에 패키지(md 1 + 이미지 3) 보존.
+- **Graph API 경고(인계 파일의 "Unsupported get request"):** 022 무관. 기존 **ERR-039** 계열이 계속되는 것 — 10-27 `engagement_tracker`가 30분마다 `updated=555 failed=226`(고정된 226개 오래된 media id). 022 media id는 실패 목록에 0건. 게시·인증 실패 증거 없음 → DEFER(ERR-039에 현황 추가).
+- **인계 요약 반영(GPT·Codex, 261027 10:31pm):** 022 Gate CLOSED(실게시 SUCCESS). 검증 패키지를 022 운영 Vault로 복사했고, 기존 launcher 교체 때 Python 프로세스 종료 권한 오류가 나 관리자 PowerShell로 처리(launcher PID 12772·자식 21184 식별, Streamlit 6712·19120은 대상 제외). 장애 순서는 Airtable DNS 오류 → Boot Policy 권한 → 계정별 Flag OFF → Airtable ready 0건이며 모두 해소(상세는 MERGE_JOURNAL 사후분석 ⑨~⑮). 다음 계정은 기존 성공 경로 재사용.
+- **남은 것:** ERR-179 Credential 교체 확인(OPEN), 위 미커밋 2파일 처리 결정, Instagram 독립 Graph 조회 미수행(기존 한계).
+
+---
+
 # (261026_11:20pm ICT) | STEP 5-B / Gate 5 — IDN-000022 실게시 SUCCESS | Codex
 
 - **결과:** IDN-000022 `@951.0606`에 `1-1-261026-c2ed162a` 캐러셀 1건 게시. Instagram URL: https://www.instagram.com/p/De9spAvATTY/ · Media ID `18169277557477897`.
 - **Evidence:** Runtime 로그 23:20:29 Media ID, 23:20:32 Permalink 기록. Airtable `Instagram_Posts` 레코드 `reckQW6Euye60m4CK` = `posted`, 지정 content_id 일치, 계정 `IDN-000022`; 이후 ready 0건. 중복 0건.
-- **실행:** 기존 Producer 및 수동 게시 경로 재사용. 필요한 022 Producer/Slot/Carousel Flag는 실행 프로세스에만 적용 후 원래 상태로 복구. `.env`·코드·Airtable 설정 변경, Commit/Push 없음.
+- **실행:** 기존 Producer 및 수동 게시 경로 재사용. 필요한 022 Producer/Slot/Carousel Flag는 실행 프로세스에만 적용 후 원래 상태로 복구. `.env` 지속 변경·코드 변경·Commit/Push 없음. **Airtable IDN-000022 `automation_enabled`·PER-021 `active` 활성화는 이 운영 반영 중 수행됨**(앞 판에서 "Airtable 설정 변경 없음"으로 적은 것을 261027 정정).
 - **Boot Policy:** 일반 Codex 프로세스는 ProgramData Boot Policy 접근 거부로 사전 차단됐고, 관리자 PowerShell 확인은 `BOOT_POLICY_VALID mode=production`이었다. 관리자 실행 뒤 기존 경로 완료.
 - **Risk/한계:** Instagram 독립 Graph/API 조회는 하지 않음. 게시 URL·Media ID는 Runtime 로그, 상태·중복은 Airtable 조회로 확인. 진단 출력의 Instagram/Gemini/Slack Secret 교체 여부 UNKNOWN(OPEN, ERR-179); 값을 재출력하지 말고 소유자 교체 확인 필요. Gate 5 종료; 재게시 금지.
 

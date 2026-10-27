@@ -394,6 +394,7 @@
 
 정리 직후 Engagement 대상은 289개로 확인됐는데, 기존 정상 285개에 260721 12:23경 신규 게시물 4개가 추가된 결과였다. 현재 289개 전체를 Graph API 배치 재검증해 **available=289 / unavailable=0** 확인. ERR-039 패턴 재발은 해소됨.
 
+**현황(261027 확인):** 같은 계열 경고가 계속 — `engagement_tracker` 30분 주기마다 `updated=555 failed=226`(고정된 226개 media id, 10-26 로그 3,124줄·10-27 4,841줄). 인증·게시 실패 증거 없음, IDN-000022 media id(`18169277557477897`)는 실패 목록에 없음. 022 실게시와 무관 → DEFER(무효 ig_media_id 정리는 별도 승인).
 ---
 
 ## ERR-040 | post_status Single Select 옵션 소실
@@ -3240,4 +3241,5 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **조치 상태:** 261026 23:20 ICT 기준 교체·폐기 완료 증거 없음. Instagram/Gemini/Slack 값은 모두 교체 여부 UNKNOWN으로 유지하며, 새 문서·로그에 값이나 해시를 보관하지 않는다.
 - **다음 조치:** Credential 소유자가 노출된 각 값을 폐기·교체하고 이전 값의 무효화를 확인해야 한다.
 - **관련:** FP-113, ERR-165, ERR-167
+- **코드 재발방지(미커밋, 261027 확인):** 작업트리의 `core/error_handler.py`·`services/slack_notifier.py` 변경이 예외 문구·traceback·응답 본문 대신 예외 타입·상태 코드만 로그/알림에 남기도록 바꿈. 작성 주체·테스트 실행·Commit 여부는 UNKNOWN(Credential 교체와 별개).
 - **상태:** OPEN — 교체 확인 전까지 미종결
