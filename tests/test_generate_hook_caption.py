@@ -767,17 +767,17 @@ def test_generate_hook_caption_passes_when_caption_is_within_288_excluding_hasht
     assert returned_hashtags == hashtags
 
 
-def test_generate_hook_caption_holds_at_501_chars(monkeypatch):
-    """260810 신규 구조 Target Test — 501자는 HOLD."""
-    long_field = "가" * 30
+def test_generate_hook_caption_holds_when_caption_exceeds_357_chars(monkeypatch):
+    """261028 상한 357(해시태그 제외) — 캡션 본문만으로 357자를 넘으면 HOLD."""
+    long_field = "가" * 34
     fields = dict(
         hook_empathy=long_field, hook_question=long_field, hook_reveal=long_field,
         how1=long_field, how2=long_field, detail_title=long_field, detail_body=long_field,
         core_point=long_field, motto=long_field,
     )
     caption_only = _expected_caption(**fields)
-    hashtags = "#" + ("나" * 163)  # 위 PASS 케이스보다 해시태그 1자 더 길게 -> 501자
-    assert len(caption_only) + 1 + len(hashtags) == 501
+    hashtags = "#" + ("나" * 10)
+    assert len(caption_only) > 357
     fake_text = _structured_text(hashtags=hashtags, **fields)
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)

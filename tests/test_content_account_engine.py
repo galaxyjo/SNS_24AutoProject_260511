@@ -480,7 +480,7 @@ class TestAiContentGatePersona:
             False, "AI_CONTENT_PERSONA_MISMATCH")
 
     def test_unlisted_account_rejected(self):
-        assert passes_ai_content_gate_v0("캡션", "IDN-000027", "https://x.example", "PER-026") == (
+        assert passes_ai_content_gate_v0("캡션", "IDN-000999", "https://x.example", "PER-026") == (
             False, "AI_CONTENT_ACCOUNT_MISMATCH")
 
     def test_aijomoojin_unchanged(self):

@@ -75,12 +75,21 @@ _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY = {
     "IDN_000029": "IDN_000029",
     "IDN_000023": "IDN_000023",   # 261026 한식 계정 테스트(yummy.office)
     "IDN_000022": "IDN_000022",   # 261026 STEP 5-B AI 뉴스 정리 Canary(951.0606)
-    # 261027 1차 AI 일괄 연결 — 아래 3개는 CONTENT_ACCOUNTS와 같은 시점에 추가(Gemini Key는 .env에 있음 확인됨)
-    "IDN_000024": "IDN_000024",
-    "IDN_000027": "IDN_000027",
-    "IDN_000028": "IDN_000028",
-    "IDN_000030": "IDN_000030",
 }
+
+
+def gemini_env_prefix(credential_key: str) -> "str | None":
+    """credential_key의 Gemini `.env` 접두사. 위 표(예외 이름)에 있으면 그것을, 없으면 규칙
+    `{credential_key}_GEMINI_API_KEY`가 실제로 설정돼 있을 때만 credential_key 자체를 쓴다(261028 —
+    신규 계정마다 이 표를 고치지 않도록). 어느 쪽도 없으면 None(Fail-closed, 공유 Key로 대체하지 않음)."""
+    if not credential_key or not _KEY_PATTERN.fullmatch(credential_key):
+        return None
+    mapped = _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY.get(credential_key)
+    if mapped:
+        return mapped
+    if os.getenv(f"{credential_key}_GEMINI_API_KEY", "").strip():
+        return credential_key
+    return None
 
 
 class GeminiCredential:
@@ -102,7 +111,7 @@ def resolve_gemini_credential(credential_key: str) -> GeminiCredential:
             f"credential_key 형식 오류(허용: 대문자/숫자/언더스코어) | key={credential_key!r}"
         )
 
-    prefix = _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY.get(credential_key)
+    prefix = gemini_env_prefix(credential_key)
     if not prefix:
         logger.warning(f"[credential_resolver] Gemini 매핑 없음 | credential_key={credential_key}")
         raise CredentialResolutionError(

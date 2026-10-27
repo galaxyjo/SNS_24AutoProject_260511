@@ -136,6 +136,7 @@ class PublishAccountV2(PublishAccount, total=False):
     fb_page_id: str
     reply_mode: str
     category: str
+    content_theme: str   # 261028 — Account_Registry.content_theme(계정 대표 주제, 콘텐츠 생성 프롬프트용) 옵션 필드
 
 
 class PersonaProfile(TypedDict, total=False):

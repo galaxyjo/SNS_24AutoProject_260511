@@ -782,6 +782,7 @@ class AirtableRepository(RepositoryInterface):
             fb_page_id=f.get("fb_page_id", ""),
             reply_mode=reply_mode,
             category=category,
+            content_theme=str(f.get("content_theme", "") or "").strip(),
         )
 
     _IG_USER_ID_PATTERN = re.compile(r"^[0-9]+$")

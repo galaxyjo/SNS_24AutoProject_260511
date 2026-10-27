@@ -66,12 +66,10 @@ def run_account_preflight(
         ok = _env_present(env, f"{key}_INSTA_ACCESS_TOKEN") and _env_present(env, f"{key}_INSTA_IG_USER_ID")
         checks.append(_item("INSTAGRAM_CREDENTIAL", _PUBLISH, ok, "ENV_INSTAGRAM_CREDENTIAL_MISSING"))
     from modules.common.credential_resolver import _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY
-    prefix = _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY.get(key)
-    if not prefix:
-        checks.append(_item("GEMINI_CREDENTIAL", "all", False, "GEMINI_PREFIX_MAPPING_MISSING"))
-    else:
-        checks.append(_item("GEMINI_CREDENTIAL", "all", _env_present(env, f"{prefix}_GEMINI_API_KEY"),
-                            "ENV_GEMINI_KEY_MISSING"))
+    # 예외 이름 표 또는 규칙 `{credential_key}_GEMINI_API_KEY` 중 하나로 해석된다(261028 — 신규 계정은 표 수정 불필요).
+    prefix = _GEMINI_ENV_PREFIX_BY_CREDENTIAL_KEY.get(key) or key
+    checks.append(_item("GEMINI_CREDENTIAL", "all", _env_present(env, f"{prefix}_GEMINI_API_KEY"),
+                        "ENV_GEMINI_KEY_MISSING"))
 
     # 2) 도메인 정책 + Persona 매핑 (게시 직전 Gate가 쓰는 하드코딩 표)
     persona = None

@@ -73,7 +73,7 @@ def test_unknown_domain_account_is_not_ready():
         repo=_Repo(), stage="publish", env={})
     assert result["status"] == "NOT_READY"
     assert "NOT_IN_ACCOUNT_DOMAIN_POLICY" in result["not_ready"]
-    assert "GEMINI_PREFIX_MAPPING_MISSING" in result["not_ready"]
+    assert "ENV_GEMINI_KEY_MISSING" in result["not_ready"]
 
 
 def test_produce_stage_reports_brand_handle_and_persona_fields():

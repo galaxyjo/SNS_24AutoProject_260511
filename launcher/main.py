@@ -1555,6 +1555,12 @@ AIJOMOOJIN_PRODUCER_CREDENTIAL_KEY = "AI"
 # 소진 시 그 모듈을 아예 import하지 않는다"는 기존 불변조건(회귀 테스트로
 # 고정됨)을 지키기 위해 import하지 않고 리터럴을 그대로 둔다.
 AIJOMOOJIN_PRODUCER_GEMINI_MODEL = "gemini-3.5-flash-lite"
+# 261028 — 실측으로 확인된 일시 실패 코드만 재시도 대상(이미지 HTTP 400, 판독 오류, 캡션 길이·제목 형식 변동). 최대 3회 시도.
+_PRODUCER_MAX_ATTEMPTS = 3
+_PRODUCER_TRANSIENT_ERROR_CODES = frozenset({
+    "IMAGE_GENERATION_FAILED", "IMAGE_CHECK_ERROR", "CAPTION_GENERATION_FAILED",
+    "CAROUSEL_TEXT_FAILED:COVER_TITLE_INVALID",
+})
 
 
 # 261024 STEP 2 — 공통 콘텐츠 엔진의 계정별 설정. aijomoojin(IDN-000036)은 기존 상수·Flag 이름·
@@ -1570,6 +1576,9 @@ class ContentAccount:
     news_enabled: bool
     brand_handle: str = ""   # 카드 하단 핸들. aijomoojin은 렌더러 기본(@aijomoojin) 그대로
     sourcebook_path: "Path | None" = None   # 261026 — 계정 전용 Sourcebook. 없으면 공용 AI Sourcebook
+    # 261028 — 전 계정 공통 기본은 "note"(장별 이미지 장면+노트 렌더, 고도화 경로). 구형 "template"은 계정/환경에서 명시할 때만.
+    # {PREFIX}_CAROUSEL_STYLE 환경값이 있으면 그것이 우선한다.
+    carousel_style: str = "note"
 
 
 CONTENT_ACCOUNTS = {
@@ -1610,6 +1619,12 @@ CONTENT_ACCOUNTS = {
 
 def _account_flag(acct: ContentAccount, name: str, default: str = "false") -> str:
     return os.getenv(f"{acct.env_prefix}_{name}", default).strip().lower()
+
+
+def _carousel_enabled(acct: ContentAccount) -> bool:
+    """261028 — 공통 계정(vault 계정)은 캐러셀(고도화 경로)이 기본 ON이다. `{PREFIX}_CAROUSEL_ENABLED=false`로 끌 수 있다.
+    aijomoojin(vault_root=None)은 기존처럼 환경값이 true일 때만 켠다."""
+    return _account_flag(acct, "CAROUSEL_ENABLED", "true" if acct.vault_root is not None else "false") == "true"
 
 
 def _vault_kwargs(acct: ContentAccount) -> dict:
@@ -1658,6 +1673,12 @@ def _content_persona_kwargs(repo, acct: ContentAccount) -> "dict | None":
             acct.account_code, ",".join(missing),
         )
         return None
+    # 261028 — Account_Registry.content_theme를 기존 계정 조회 경로(get_publish_account)로 읽는다. 없거나 조회 실패여도
+    # 생성은 막지 않는다(Persona 기둥이 이미 주제를 제한하고, 테마는 관점·장면 보강용 선택 입력이다).
+    try:
+        content_theme = str((repo.get_publish_account(acct.account_code) or {}).get("content_theme", "") or "").strip()
+    except Exception:
+        content_theme = ""
     return {
         "persona_code": str(persona["persona_code"]).strip(),
         "tone_style": str(persona["tone_style"]).strip(),
@@ -1665,6 +1686,7 @@ def _content_persona_kwargs(repo, acct: ContentAccount) -> "dict | None":
         "content_pillars": str(persona["content_pillars"]).strip(),
         "seo_keywords": str(persona["seo_keywords"]).strip(),
         "conversion_cta": str(persona["conversion_cta"]).strip(),
+        "content_theme": content_theme,
     }
 
 
@@ -1917,7 +1939,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
     if not _require_own_gemini_key(acct, "AijomoojinProducer"):
         return
     if (acct.vault_root is not None and not acct.brand_handle
-            and (_account_flag(acct, "CAROUSEL_ENABLED") == "true" or _account_flag(acct, "HERO_CARD_ENABLED") == "true")):
+            and (_carousel_enabled(acct) or _account_flag(acct, "HERO_CARD_ENABLED") == "true")):
         logger.error(f"[AijomoojinProducer] brand_handle 미설정 계정의 카드 기능 — 진행하지 않음 | account_code={account_code}")
         return
 
@@ -2086,12 +2108,14 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
             package_kwargs.update(persona_kwargs)
             # 261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지. 기본 false(off): 슬롯 게시가 캐러셀을
             # 판별·게시하는 단계(4-AG)가 들어가기 전에는 켜지 않는다.
-            if _account_flag(acct, "CAROUSEL_ENABLED") == "true":
+            if _carousel_enabled(acct):
                 package_kwargs["carousel_slide_count"] = AIJOMOOJIN_CAROUSEL_SLIDE_COUNT
                 # 261023 STEP 4-AM — "note"면 장별 노트 손그림 캐러셀. 비어 있으면 기존 템플릿 그대로.
-                carousel_style = _account_flag(acct, "CAROUSEL_STYLE", "")
+                carousel_style = _account_flag(acct, "CAROUSEL_STYLE", "") or acct.carousel_style
                 if carousel_style == "note":
                     package_kwargs["carousel_style"] = "note"
+                elif carousel_style == "template":
+                    pass   # 구형 템플릿은 계정/환경에서 명시했을 때만(기본값 아님)
                 elif carousel_style:
                     logger.warning(f"[AijomoojinProducer] AIJOMOOJIN_CAROUSEL_STYLE 값 미지원 — 기존 템플릿 사용"
                                    f" | value={carousel_style}")
@@ -2114,7 +2138,17 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
                     package_kwargs["injected_topic"] = news_topic
                 else:
                     logger.info(f"[AijomoojinProducer] 뉴스 Topic 없음({news_code}) — Sourcebook으로 진행")
-            result = create_content_package(**package_kwargs)
+            # 261028 — 일시 오류(이미지 생성 HTTP 400·글자검출 판독 오류·캡션/제목 형식 변동)만 제한 횟수 재시도한다.
+            # 실패 시 파일을 남기지 않는 빌더 계약이라 재시도해도 중복 패키지가 생기지 않는다. 품질 Gate·Persona/Source 불일치·
+            # 중복·Credential 오류는 재시도하지 않고 기존처럼 그대로 실패 처리한다.
+            for _attempt in range(1, _PRODUCER_MAX_ATTEMPTS + 1):
+                result = create_content_package(**package_kwargs)
+                if result.success or result.error_code not in _PRODUCER_TRANSIENT_ERROR_CODES:
+                    break
+                logger.warning(
+                    "[AijomoojinProducer] 일시 오류 — 재시도 | account_code=%s | attempt=%d/%d | error_code=%s",
+                    account_code, _attempt, _PRODUCER_MAX_ATTEMPTS, result.error_code,
+                )
             if not result.success and result.error_code == "NO_SELECTABLE_TOPIC":
                 # 260805 회장 지시(Sourcebook SSOT 복구) — Research-to-Topic
                 # Adapter(Google Search Grounding/URL Context) fallback을 생산

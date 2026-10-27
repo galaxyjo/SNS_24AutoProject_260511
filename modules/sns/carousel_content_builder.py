@@ -672,10 +672,11 @@ def _validate_contract(payload: dict, account_cta: str = "") -> "str | None":
 def _build_prompt(
     core_message: str, title: str, slot_role: str, template_type: str,
     *, tone_style: str = "", target_language: str = "", content_pillars: str = "",
-    seo_keywords: str = "", conversion_cta: str = "",
+    seo_keywords: str = "", conversion_cta: str = "", content_theme: str = "",
 ) -> str:
     persona_block = _build_persona_prompt_block(
         tone_style, target_language, content_pillars, seo_keywords, conversion_cta,
+        content_theme=content_theme,
     )
     return (
         "You are writing an 8-slide Instagram carousel (card-news) for a Korean "
@@ -783,10 +784,14 @@ def _short_content_type_line(source_published_at: str) -> str:
 
 def _build_persona_prompt_block(
     tone_style: str, target_language: str, content_pillars: str,
-    seo_keywords: str, conversion_cta: str,
+    seo_keywords: str, conversion_cta: str, *, content_theme: str = "",
 ) -> str:
     """계정별 Persona 값을 기존 Gemini Prompt에만 덧붙인다(전부 공란이면 기존 Prompt 불변)."""
     lines = []
+    if content_theme:
+        # 261028 — Account_Registry.content_theme(계정 대표 주제). 출처 사실은 바꾸지 않고 관점·강조만 이 주제에 맞춘다.
+        lines.append(f"Account main theme: {content_theme}. Keep every fact from the source unchanged; "
+                     "choose the angle and wording that fit this theme.")
     if content_pillars:
         lines.append(f"Account content pillars: {content_pillars}")
     if tone_style:
@@ -830,9 +835,11 @@ def _build_short_prompt(core_message: str, title: str, slot_role: str, template_
                         slide_count: int, source_published_at: str = "", *,
                         tone_style: str = "", target_language: str = "",
                         content_pillars: str = "", seo_keywords: str = "",
-                        conversion_cta: str = "", card_facts: tuple = ()) -> str:
+                        conversion_cta: str = "", card_facts: tuple = (),
+                        content_theme: str = "") -> str:
     persona_block = _build_persona_prompt_block(
         tone_style, target_language, content_pillars, seo_keywords, conversion_cta,
+        content_theme=content_theme,
     ) + _card_facts_prompt_block(card_facts)
     return (
         f"You are writing a {slide_count}-slide Instagram carousel (card-news) for Korean small-business "
@@ -876,6 +883,7 @@ def generate_carousel_content(
     content_pillars: str = "",
     seo_keywords: str = "",
     conversion_cta: str = "",
+    content_theme: str = "",
 ) -> CarouselResult:
     """Sourcebook `topic`(source_selector.SourceTopic 또는 동일 필드를 가진
     객체) + 슬롯 역할 + 문장 템플릿으로 8-Slide 카드뉴스 구조화 콘텐츠 1건을
@@ -912,17 +920,26 @@ def generate_carousel_content(
                             getattr(topic, "source_published_at", "") or "",
                             tone_style=tone_style, target_language=target_language,
                             content_pillars=content_pillars, seo_keywords=seo_keywords,
-                            conversion_cta=conversion_cta, card_facts=card_facts)
+                            conversion_cta=conversion_cta, card_facts=card_facts,
+                            content_theme=content_theme)
         if short else _build_prompt(
             topic.core_message, topic.title, slot_role, template_type,
             tone_style=tone_style, target_language=target_language,
             content_pillars=content_pillars, seo_keywords=seo_keywords,
-            conversion_cta=conversion_cta,
+            conversion_cta=conversion_cta, content_theme=content_theme,
         )
     )
     if with_image_scenes:
+        # 261028 — 계정 주제는 "문구(wording)"에만 반영한다. 장면 프롬프트에 주제 세계관을 넣으면(028 실측 2회) 장 글과 무관한
+        # 요리 장면이 반복됐다. 그래서 theme가 있을 때는 장면을 그 장 글의 의미(업무·비즈니스 은유)로만 그리도록 못박는다.
+        scene_theme_rule = (
+            "The account theme applies to the wording only. Draw every image_scene from the idea of that slide's own text, "
+            "using clear work/business metaphors such as people at a laptop, charts, loops, checklists or tools, "
+            "and do not set any scene in the world of the account theme.\n"
+            if content_theme else ""
+        )
         prompt = prompt.replace("Return the result in the exact JSON schema provided.",
-                                _IMAGE_SCENE_RULE + "Return the result in the exact JSON schema provided.")
+                                _IMAGE_SCENE_RULE + scene_theme_rule + "Return the result in the exact JSON schema provided.")
     active_throttle = throttle_fn or _throttle
     # 260805 7B-4 Live Canary에서 발견된 결함 수정 — model=None을 그대로 SDK에
     # 넘기면 요청 URL에 "{model}"이 문자 그대로 들어가 404가 난다(실제 Runtime

@@ -427,6 +427,23 @@ _NOTE_SKETCH_RETRY_SUFFIX = (
 )
 
 
+_IMAGE_PERMANENT_PROVIDER_ERRORS = frozenset({
+    "DAILY_IMAGE_CAP_EXCEEDED", "CREDENTIALS_MISSING", "EMPTY_PROMPT", "API_ERROR",
+})
+
+
+def _image_failure_code(provider_error: str) -> str:
+    """261028 — 이미지 공급자 실패를 영구(정책 차단 NSFW 포함 4xx, 일일 상한, 자격증명)와 일시(네트워크·5xx·429·응답 변형)로
+    나눈다. 영구는 IMAGE_PROVIDER_REJECTED(재시도 금지), 일시는 IMAGE_GENERATION_FAILED(Producer가 제한 횟수 재시도)."""
+    if provider_error in _IMAGE_PERMANENT_PROVIDER_ERRORS:
+        return "IMAGE_PROVIDER_REJECTED"
+    if provider_error.startswith("HTTP_"):
+        status = provider_error[5:]
+        if status.isdigit() and 400 <= int(status) < 500 and status != "429":
+            return "IMAGE_PROVIDER_REJECTED"
+    return "IMAGE_GENERATION_FAILED"
+
+
 def _build_note_carousel_images(topic, carousel, *, client=None, throttle_fn=None, model=None,
                                 brand_handle: str = "") -> "tuple[list[bytes] | None, str]":
     """장별 image_scene으로 손그림을 만들고 Gemini로 글자·로고를 판독한다. 걸린 장만 다시 만들고
@@ -441,7 +458,7 @@ def _build_note_carousel_images(topic, carousel, *, client=None, throttle_fn=Non
             result = generate_image(prompt)
             if not result.success:
                 logger.warning(f"[NoteCarousel] 손그림 생성 실패 | slide={i + 1} | error_code={result.error_code}")
-                return None, "IMAGE_GENERATION_FAILED"
+                return None, _image_failure_code(result.error_code or "")
             sketches[i] = result.image_bytes
 
         check = check_images_for_text_and_logo(
@@ -483,7 +500,7 @@ def _create_carousel_package(
     slot_role: str, template_type: str, *, client=None, throttle_fn=None, model=None,
     carousel_style: str = "template", brand_handle: str = "",
     target_language: str = "", content_pillars: str = "", seo_keywords: str = "",
-    conversion_cta: str = "", persona_code: str = "",
+    conversion_cta: str = "", persona_code: str = "", content_theme: str = "",
 ) -> PackageResult:
     """261023 STEP 4-AF — 2~4장 캐러셀 v3 패키지(.md + N장 PNG). 텍스트·Safety·렌더링·쓰기
     중 하나라도 실패하면 파일을 하나도 남기지 않고 실패한다(단일 이미지로 대체하지 않음).
@@ -500,6 +517,7 @@ def _create_carousel_package(
         "content_pillars": content_pillars,
         "seo_keywords": seo_keywords,
         "conversion_cta": conversion_cta,
+        "content_theme": content_theme,
     } if persona_code else {})
     carousel_result = generate_carousel_content(
         topic, slot_role, template_type,
@@ -624,6 +642,7 @@ def create_content_package(
     conversion_cta: str = "",
     persona_code: str = "",
     sourcebook_path: "Path | None" = None,
+    content_theme: str = "",
 ) -> PackageResult:
     """261024 STEP 2 — `brand_handle`(선택, 기본 "")은 카드 하단 계정 핸들. 비우면 기존 @aijomoojin.
     261026 — `sourcebook_path`(선택)는 계정 전용 Sourcebook. 생략하면 공용 AI Sourcebook(기존 그대로).
@@ -723,7 +742,7 @@ def create_content_package(
             carousel_style=carousel_style, brand_handle=brand_handle,
             target_language=target_language, content_pillars=content_pillars,
             seo_keywords=seo_keywords, conversion_cta=conversion_cta,
-            persona_code=persona_code,
+            persona_code=persona_code, content_theme=content_theme,
         )
 
     caption_persona_kwargs = {}
