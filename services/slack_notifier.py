@@ -54,11 +54,11 @@ def _post(payload: dict) -> bool:
     try:
         resp = requests.post(url, json=payload, timeout=5)
         if resp.status_code != 200:
-            logger.warning(f"[Slack] 발송 실패 | {resp.status_code} | {resp.text[:120]}")
+            logger.warning(f"[Slack] 발송 실패 | status_code={resp.status_code}")
             return False
         return True
     except Exception as exc:
-        logger.warning(f"[Slack] 발송 예외 | {exc}")
+        logger.warning(f"[Slack] 발송 예외 | exception_type={type(exc).__name__}")
         return False
 
 

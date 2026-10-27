@@ -12,7 +12,6 @@ core/error_handler.py — 공통 예외처리 유틸
 """
 
 import functools
-import traceback
 from typing import Callable, Any, Optional
 
 from modules.common.logger import get_logger
@@ -39,11 +38,13 @@ def handle_errors(
             try:
                 return fn(*args, **kwargs)
             except Exception as exc:
-                tb = traceback.format_exc()
-                logger.error(f"[ErrorHandler] {label} 실패 | {exc}\n{tb}")
+                # Never log exception text or traceback: request exceptions can
+                # contain credential-bearing URLs, headers, or environment data.
+                safe_error = type(exc).__name__
+                logger.error(f"[ErrorHandler] {label} 실패 | exception_type={safe_error}")
                 if notify_fn:
                     try:
-                        notify_fn(f"[{label}] 오류: {exc}")
+                        notify_fn(f"[{label}] 오류 유형: {safe_error}")
                     except Exception:
                         pass
                 if reraise:
@@ -65,10 +66,11 @@ def safe_run(
     try:
         return fn(*args, **kwargs)
     except Exception as exc:
-        logger.error(f"[ErrorHandler] {label} 실패 | {exc}")
+        safe_error = type(exc).__name__
+        logger.error(f"[ErrorHandler] {label} 실패 | exception_type={safe_error}")
         if notify_fn:
             try:
-                notify_fn(f"[{label}] 오류: {exc}")
+                notify_fn(f"[{label}] 오류 유형: {safe_error}")
             except Exception:
                 pass
         return None
