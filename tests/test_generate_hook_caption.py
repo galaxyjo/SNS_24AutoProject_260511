@@ -745,19 +745,18 @@ def test_generate_hook_caption_holds_when_element_missing(monkeypatch):
     assert (caption, hashtags) == ("", "")
 
 
-def test_generate_hook_caption_passes_at_exactly_500_chars(monkeypatch):
-    """260810 신규 구조 Target Test — 한글·공백·고정 CTA·해시태그 포함 최종
-    500자는 PASS. 고정 시각 템플릿(번호·불릿·인용부호·CTA)의 실제 오버헤드를
-    _expected_caption()으로 런타임에 그대로 조립해 자기검증한다(수기 계산 대신)."""
-    long_field = "가" * 30
+def test_generate_hook_caption_passes_when_caption_is_within_288_excluding_hashtags(monkeypatch):
+    """261028 회장 지시 — 상한은 해시태그를 제외한 캡션 288자. 캡션이 288자 이내이면
+    해시태그가 길어도 PASS한다. 고정 시각 템플릿 오버헤드는 _expected_caption()으로 자기검증한다."""
+    long_field = "가" * 20
     fields = dict(
         hook_empathy=long_field, hook_question=long_field, hook_reveal=long_field,
         how1=long_field, how2=long_field, detail_title=long_field, detail_body=long_field,
         core_point=long_field, motto=long_field,
     )
     caption_only = _expected_caption(**fields)
-    hashtags = "#" + ("나" * 162)
-    assert len(caption_only) + 1 + len(hashtags) == 500
+    hashtags = "#" + ("나" * 400)
+    assert len(caption_only) <= 357
     fake_text = _structured_text(hashtags=hashtags, **fields)
     models = _FakeModels(text=fake_text)
     _patch_client(monkeypatch, models)

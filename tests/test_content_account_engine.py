@@ -390,7 +390,7 @@ class TestManualTools:
     @pytest.mark.parametrize("tool,func", [("run_aijomoojin_producer_manual.py", "_job_aijomoojin_content_producer"),
                                            ("run_aijomoojin_publish_manual.py", "_job_aijomoojin_scheduled_post")])
     def test_unknown_account_does_not_run(self, monkeypatch, tool, func):
-        calls, code = self._run_tool(monkeypatch, tool, func, ["--account-code", "IDN-000027"])
+        calls, code = self._run_tool(monkeypatch, tool, func, ["--account-code", "IDN-999999"])
         assert calls == [] and code not in (0, None)
 
     def test_lock_tool_reads_canary_lock(self, monkeypatch, capsys):

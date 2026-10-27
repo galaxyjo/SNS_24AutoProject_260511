@@ -117,6 +117,11 @@ ACCOUNT_DOMAIN_POLICY = {
     # 261026 테스트 — 한식 계정이지만 지금은 AI_CONTENT Gate(Persona·원천·언어·Safety)를 재사용. 전용 도메인은 추후 결정.
     "IDN-000023": "AI_CONTENT",
     "IDN-000022": "AI_CONTENT",   # 261026 STEP 5-B AI 뉴스 정리 Canary(951.0606)
+    # 261028 1차 AI 4계정 — 기존 성공 계정과 같은 AI_CONTENT Gate(Persona·원천·언어·Safety) 재사용.
+    "IDN-000024": "AI_CONTENT",
+    "IDN-000027": "AI_CONTENT",
+    "IDN-000028": "AI_CONTENT",
+    "IDN-000030": "AI_CONTENT",
 }
 
 # 261022 B1 — 위 계정 dict에 없는 계정은 Account_Registry.category로만 도메인을 정한다.
@@ -135,6 +140,10 @@ _AI_CONTENT_PERSONA_BY_ACCOUNT = {
     "IDN-000029": "PER-028",
     "IDN-000023": "PER-022",
     "IDN-000022": "PER-021",
+    "IDN-000024": "PER-023",
+    "IDN-000027": "PER-026",
+    "IDN-000028": "PER-027",
+    "IDN-000030": "PER-052",
 }
 
 

@@ -42,7 +42,7 @@ def load_generation_contract(path: "Path | None" = None) -> str:
 # 현재 Runtime에는 Threads 게시 경로 자체가 없다(Read-only 확인 — modules/
 # 전체에 Threads 연동 코드 0건, Instagram_Posts 스키마에도 Threads 필드
 # 없음) — 이 제한은 향후 연결 대비 + 캡션 압축 품질 기준으로 선제 적용한다.
-_MAX_FINAL_PAYLOAD_CHARS = 500
+_MAX_FINAL_PAYLOAD_CHARS = 357  # 261028 회장 지시: 해시태그 제외 캡션 상한 — 기존 성공 계정 캡션 최대치(IDN-000022 357자) 기준
 
 # 260810 회장 지시로 전면 개정(docs/design/CONTENT_PLAYBOOK_260807.md 260810
 # 변경 이력 참조) — 실게시 3건이 "깊이 없음·겉돎·친밀감 없음"으로 지적됨.
@@ -124,9 +124,8 @@ def _assemble_structured_caption(
         f"\n"
         f"{active_cta}"
     )
-    final_payload = f"{caption}\n{hashtags}" if hashtags else caption
-    if len(final_payload) > _MAX_FINAL_PAYLOAD_CHARS:
-        return "", "", f"PAYLOAD_TOO_LONG:{len(final_payload)}"
+    if len(caption) > _MAX_FINAL_PAYLOAD_CHARS:
+        return "", "", f"PAYLOAD_TOO_LONG:{len(caption)}"
 
     return caption, hashtags, ""
 

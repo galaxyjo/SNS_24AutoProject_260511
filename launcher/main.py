@@ -1127,6 +1127,21 @@ def _job_aijomoojin_scheduled_post(account_code: str = AIJOMOOJIN_SLOT_ACCOUNT_C
         logger.info("[AijomoojinSlot] 계정별 Kill Switch OFF — 이번 슬롯 스킵 | rid=%s", post_id)
         return
 
+    # 261028 STEP 3 — 신규 공통 계정은 게시 직전 온보딩 Preflight(등록 누락 한 번에 점검)가 READY일 때만 게시한다.
+    # aijomoojin(vault_root=None)은 기존 성공 경로를 그대로 유지한다. claim 이전이라 ready 상태가 유지된다.
+    if acct.vault_root is not None:
+        from modules.common.account_preflight import run_account_preflight
+        _pf = run_account_preflight(
+            account_code, content_accounts=CONTENT_ACCOUNTS, repo=repo, stage="publish",
+            publish_account=account, check_persona=False,  # Persona 불일치는 기존 Publish Gate가 rejected로 처리(계약 유지)
+        )
+        if _pf["status"] != "READY":
+            logger.error(
+                "[AijomoojinSlot][Preflight] NOT_READY — 게시하지 않음 | account_code=%s | rid=%s | reasons=%s",
+                account_code, post_id, ",".join(_pf["not_ready"]),
+            )
+            return
+
     gate_enabled = os.getenv("PUBLISH_TEXT_GATE_ENABLED", "false").lower() == "true"
     if gate_enabled:
         _persona_code = ""
@@ -1576,6 +1591,20 @@ CONTENT_ACCOUNTS = {
                                  _ROOT / "vault" / "accounts" / "IDN-000022", "content_producer_IDN-000022", False,
                                  brand_handle="@951.0606",
                                  sourcebook_path=_ROOT / "docs" / "design" / "SNS_AI_NEWS_SOURCEBOOK_IDN022_261026.md"),
+    # 261027 1차 AI 일괄 연결 — Airtable D_AI + .env 토큰·Gemini Key 확인 완료 계정. Sourcebook 전용 파일은 아직 없음(공용 AI Sourcebook 사용, 별도 작업).
+    "IDN-000024": ContentAccount("IDN-000024", "IDN_000024", "IDN_000024",
+                                 _ROOT / "vault" / "accounts" / "IDN-000024", "content_producer_IDN-000024", False,
+                                 brand_handle="@ai.beautique"),
+    "IDN-000027": ContentAccount("IDN-000027", "IDN_000027", "IDN_000027",
+                                 _ROOT / "vault" / "accounts" / "IDN-000027", "content_producer_IDN-000027", False,
+                                 brand_handle="@neuron.xray"),
+    "IDN-000028": ContentAccount("IDN-000028", "IDN_000028", "IDN_000028",
+                                 _ROOT / "vault" / "accounts" / "IDN-000028", "content_producer_IDN-000028", False,
+                                 brand_handle="@gojj771205"),
+    "IDN-000030": ContentAccount("IDN-000030", "IDN_000030", "IDN_000030",
+                                 _ROOT / "vault" / "accounts" / "IDN-000030", "content_producer_IDN-000030", False,
+                                 brand_handle="@mu901001",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_AI_AUTOMATION_SOURCEBOOK_IDN030_261028.md"),
 }
 
 

@@ -482,3 +482,17 @@ class TestPersonaCoverBackgroundPrompt022:
         else:
             assert got_concept == (expected_concept or DEFAULT_PERSONA_BACKGROUND_CONCEPT)
             assert got_path == tmp_path / "review" / "c22t_cover_bg_blocked.png"
+
+
+class TestPreflightBlocksPublish:
+    """261028 STEP 3 — 온보딩 Preflight가 NOT_READY면 claim·게시·상태변경 없이 ready 그대로 둔다."""
+
+    def test_missing_domain_policy_blocks_before_claim(self, monkeypatch, env):
+        _write(env.canary_vault, "c25v2", {"content_id": "c25v2", "caption": KO_CAPTION, "idempotency_version": 2})
+        monkeypatch.setattr("modules.sns.content_filter.ACCOUNT_DOMAIN_POLICY", {})
+        monkeypatch.setattr(lm, "publish_single", lambda *a, **k: pytest.fail("Preflight NOT_READY면 게시 금지"))
+        monkeypatch.setattr(lm, "publish_carousel", lambda *a, **k: pytest.fail("Preflight NOT_READY면 게시 금지"))
+
+        env.run([_post("c25v2")])
+
+        assert env.calls["claim"] == [] and env.calls["mark"] == []
