@@ -3288,3 +3288,9 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 
 - IDN-000038 게시 https://www.instagram.com/p/DfB5PGmgWqV/ (18219635440349189). 한국어(Persona `ko`), 근거 UNESCO 세계유산센터 1264, 이미지 Pexels(Saksham Vikram) 스톡, 캡션에 이미지·출처 표기. 모델의 "수백만 년" 표현은 근거(약 120만 년)와 달라 게시 전 수정(B_MED Gate는 여행 계정에 적용되지 않음 — 여행용 근거 검사는 미구현).
 - 변경: 코드 2파일 + Sourcebook 1, Airtable PER-036 active. 남은 것: launcher 재시작, 여행 계정용 사실 검사 Gate(수치 표현), Push 승인.
+
+### 261028 15:40 KST — A_BEAUTY 자격 정리(007·048·051) / 인수인계 문서
+
+- 회장 확인: 048 Gemini 키는 051과 동일, 007 인스타 토큰은 공용 EAA와 동일. 검증(해시 일치, `/{ig_id}` 조회, Gemini 200) 후 `.env` 반영: 007 Instagram 2줄+주석, `SALE1_GEMINI_*` 2줄. Airtable 007 `account_code`·`api_provider` 입력(회장 승인). 키·토큰 값은 기록하지 않음.
+- 신규 문서 `docs/SESSION_HANDOFF_ABEAUTY_261028.md`(새 세션이 041 방식의 크롤→게시를 A_BEAUTY로 확장). 코드 변경 없음.
+- 남은 것: 048 핸들 불일치 확인, 007·048 `automation_enabled`·게시 승인, A_BEAUTY 크롤 확장 설계(새 세션), launcher 재시작(038 등록 반영), Push 승인.

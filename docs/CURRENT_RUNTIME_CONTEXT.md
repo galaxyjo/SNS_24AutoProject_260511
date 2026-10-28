@@ -1,3 +1,12 @@
+# (261028_15:40 KST) | A_BEAUTY 자격 정리(007·048·051) + 인수인계 문서 | 담당: Claude Code | 문서 갱신
+
+- **.env(Git 비추적, 이전 파일 scratchpad 백업):** IDN_000007 Instagram 줄 추가(공용 EAA + IG ID 17841405537345918, 전용 주석 포함, 011 주석 앞에 정렬), `SALE1_GEMINI_ACCOUNT_EMAIL`·`SALE1_GEMINI_API_KEY` 추가(048은 credential_key `SALE1`이라 Gemini 해석이 `SALE1_` 접두사를 씀, 값은 051과 동일 — 해시 일치·generateContent 200). 줄 수 331→336.
+- **Airtable(승인):** IDN-000007 레코드 `account_code=IDN-000007`, `api_provider=facebook_login` 입력(기존 공란). `automation_enabled`는 변경 없음(false).
+- **검증:** 007·048 IG 조회 정상(`@hsy00718g`, `@ubk_office`), 007 Threads `/me` 일치, `AirtableRepository.get_publish_account('IDN-000007')` 정상. **미해결:** 048 Airtable `account_handle`(kbeautiquewholesale) ≠ IG 사용자명(ubk_office).
+- **문서:** `docs/SESSION_HANDOFF_ABEAUTY_261028.md` 신규 — A_BEAUTY 크롤→자동 게시 새 세션 인수인계와 시작 프롬프트.
+
+---
+
 # (261028_14:30 KST) | IDN-000038 C_TRAVEL 첫 게시 SUCCESS | 담당: Claude Code | 문서 갱신
 
 - **결과:** IDN-000038(@eco_travel_kr.officr) https://www.instagram.com/p/DfB5PGmgWqV/ (Media 18219635440349189, IMAGE, 한국어) posted, 레코드 1건·중복 0. 주제: 제주 화산섬과 용암동굴(UNESCO 목록 1264), 이미지: Pexels Saksham Vikram 스톡.

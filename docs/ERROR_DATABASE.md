@@ -3274,3 +3274,5 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **결과:** IDN-000017 게시 성공(Media 18235119232323082). ERR-184의 017 항목은 이로써 해소. **관련:** FP-120
 
 - **ERR-181 갱신(261028 13:26):** 관리자 재시작으로 launcher가 `afa9fc8`(HEAD)로 기동, 구버전 폴러 거절의 근본 원인 해소. 상태: RESOLVED(재발 시 `LAUNCHER_STALE` 경고로 감지).
+
+- **ERR-185 갱신(261028 15:35):** 같은 유형이 007에도 있었음 — 007은 `.env`에 Instagram 줄 자체가 없었고 Airtable `account_code`·`api_provider`가 비어 있었다. 공용 EAA·IG ID(`@hsy00718g` 확인)와 Airtable 값을 입력해 해소. 048은 credential_key `SALE1`이라 `SALE1_GEMINI_*` 줄이 없어 Gemini 해석이 실패할 상태였고 051과 동일 키로 추가해 해소. 048의 Airtable `account_handle`은 IG 사용자명과 불일치(미해결).
