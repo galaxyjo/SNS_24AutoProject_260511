@@ -35,4 +35,5 @@ if __name__ == "__main__":
             persona_loader=_content_persona_kwargs,
         )
         reasons = ",".join(result["not_ready"]) or "-"
-        print(f"{code} | {result['status']} | {reasons}")
+        warnings = ",".join(result.get("warnings") or []) or "-"
+        print(f"{code} | {result['status']} | {reasons} | warnings={warnings}")

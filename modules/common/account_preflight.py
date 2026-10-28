@@ -12,7 +12,10 @@ READY / NOT_READY(사유코드)로 돌려준다.
   stage="all": 둘 다 (CLI 점검용)
 """
 
+import json
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Callable, Optional
 
 from modules.common.logger import get_logger
@@ -151,9 +154,27 @@ def _sourcebook_check(acct, persona_kwargs: dict) -> dict:
         return _item("SOURCEBOOK_TOPIC_MATCH", _PRODUCE, False, "SOURCEBOOK_UNREADABLE")
 
 
+_BOOT_STATE_PATH = Path(__file__).resolve().parents[2] / "db" / "launcher_boot_state.json"
+_STALE_WATCH_FILES = ("launcher/main.py", "modules/sns/content_filter.py", "modules/sns/caption_generator.py")
+
+
+def launcher_stale_warnings(boot_state_path=None, root=None) -> list:
+    """261028 GPT 검수 D — 실행 중 launcher가 코드 수정 전 버전이면(감시 파일 수정시각 > launcher 기동시각) 경고 코드를 돌려준다.
+    읽기 전용·경고 전용이다(NOT_READY로 만들지 않는다). 기동 기록이 없거나 읽을 수 없으면 빈 목록."""
+    try:
+        state = json.loads(Path(boot_state_path or _BOOT_STATE_PATH).read_text(encoding="utf-8"))
+        started = datetime.strptime(str(state["started_at"]), "%Y-%m-%d %H:%M:%S").timestamp()
+        base = Path(root) if root else Path(__file__).resolve().parents[2]
+        newer = [name for name in _STALE_WATCH_FILES if (base / name).stat().st_mtime > started + 1]
+        return [f"LAUNCHER_STALE:{','.join(newer)}"] if newer else []
+    except Exception:
+        return []
+
+
 def _finish(account_code: str, stage: str, checks: list) -> dict:
     not_ready = [c["reason"] for c in checks if not c["ok"]]
     return {
+        "warnings": launcher_stale_warnings(),
         "account_code": account_code,
         "stage": stage,
         "status": "READY" if not not_ready else "NOT_READY",
