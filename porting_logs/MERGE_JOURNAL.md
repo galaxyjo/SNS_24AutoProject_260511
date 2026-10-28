@@ -3271,3 +3271,10 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **예외(회장 승인):** 035 게시 1건에 한해 031 Gemini 키를 일회성 래퍼로 메모리에서만 대여(`.env`·코드 무변경). 035 프로젝트는 무료 티어 불가(403, 결제 필요) — OPEN. 같은 점검 중 새 키 일부가 Claude 출력에 1회 노출 — 값 비기록, 교체 판단은 회장.
 - **게시 전 수작업 편집:** 018·019·035 캡션의 근거 없는 문구와 깨진 해시태그를 사람이 정리(2건 삭제) → 이후 B_MED Gate(A~C)가 같은 유형을 자동 차단. 4건 게시 캡션은 새 Gate를 모두 통과.
 - **남은 것:** launcher 재시작(Commit 반영, 관리자·별도 승인), 한국어·영어 Persona 설정 분리, 035 Gemini 결제/키, 017 토큰, 020·032 계정 등록, ERR-179 키 교체 확인, Push 승인.
+
+### 261028 13:25 KST — IDN-000017 게시 / INSTA 토큰 4계정 교체 / Commit
+
+- **토큰:** 011·014·017·023의 `INSTA_ACCESS_TOKEN`이 Threads 토큰(`THAA…`)이라 게시·조회 불가(ERR-185). 회장 승인으로 공용 `EAA…` 토큰으로 교체, 4계정 모두 `graph.facebook.com` 정상 조회. `.env` 변경분은 Git 비추적이며 이전 파일은 scratchpad 백업.
+- **게시:** IDN-000017 https://www.instagram.com/p/DfBxZ_hkiWn/ (18235119232323082) posted. 마이크로니들링 PMC11993440, Pexels 스톡. Airtable 017 `automation_enabled`·PER-045 `active`·CTA 영어 변경(승인).
+- **코드:** launcher/main.py(017 CONTENT_ACCOUNTS), content_filter.py(도메인·Persona·B_MED 대상), Sourcebook IDN017. Push 안 함.
+- **남은 것:** launcher 재시작(017 등록 반영), 한국어·영어 Persona 설정 분리, 035 Gemini 결제, 020·032 계정 등록, ERR-179 키 교체 확인, Push 승인.

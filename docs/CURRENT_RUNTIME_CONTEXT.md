@@ -1,3 +1,11 @@
+# (261028_13:25 KST) | IDN-000017 게시 SUCCESS + INSTA 토큰 4계정 교체 | 담당: Claude Code | 문서 갱신
+
+- **결과:** IDN-000017 https://www.instagram.com/p/DfBxZ_hkiWn/ (Media 18235119232323082) posted. B_MED 7개 중 5개 게시(017·018·019·031·035), SKIP 2(020·032 계정/키 없음).
+- **토큰(ERR-185):** 011·014·017·023의 `INSTA_ACCESS_TOKEN`을 Threads 토큰에서 공용 `EAA…` 토큰으로 교체(회장 승인), 4계정 정상 조회. 인스타 토큰은 19개 중 15개가 같은 EAA 1개를 공유.
+- **Runtime:** launcher는 12:39 재시작(commit 182281c) 이후 017 등록 코드가 반영되지 않았음(LAUNCHER_STALE) — 다음 신규 계정 작업 전 재시작 필요. Push는 017 Commit 이후 별도 승인.
+
+---
+
 # (261028_12:15pm ICT) | B_MED 피부과 시술 기원·원리 첫 게시 4건 SUCCESS | 담당: Claude Code | 문서 갱신(Commit 안 함)
 
 - **결과:** B_MED 7개 중 4개 게시(영어 단일 이미지). IDN-000031 https://www.instagram.com/p/DfBibu1klau/ (Media 17998707843047123, Commons 퍼블릭 도메인 차트) · IDN-000018 https://www.instagram.com/p/DfBnTtIIyc2/ (18110864942579099, Pexels Anna Shvets) · IDN-000019 https://www.instagram.com/p/DfBnYQ5kmu_/ (17955504498331102, Pexels ANVA Marketing) · IDN-000035 https://www.instagram.com/p/DfBpqKAkl_v/ (17970034556965154, Pexels Anna Shvets). 4건 모두 Airtable `posted`, Graph API 조회 확인, 계정당 레코드 1건(중복 0).

@@ -3266,3 +3266,9 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **035:** 새 키는 유효(모델 목록 200)하나 `generateContent`가 "free tier is not available for this project"(403). 프로젝트 400896396144에 결제 설정 필요. 회장 승인으로 게시 1건에 한해 031 키를 일회성 래퍼로 메모리에서만 대여(`.env`·코드 무변경) — 게시 성공. 이후 자동 운영은 키 문제 해결 전 불가.
 - **017:** Graph API가 "Cannot parse access token" 반환 — 토큰 재확인 필요, SKIP. 020·032는 Account Code와 `.env` 키 없음, SKIP.
 - **보안(ERR-179 추가):** 261028 035 점검 중 Claude 출력에 새 Gemini 키 일부가 1회 노출(값 비기록). 교체 판단은 회장.
+
+## ERR-185 | IDN_000011/014/017/023의 INSTA_ACCESS_TOKEN 자리에 Threads 토큰(THAA…)이 저장돼 Instagram 게시·조회 불가 — RESOLVED (261028 B_MED)
+- **증상:** 017 게시 시 Graph "Invalid OAuth access token - Cannot parse access token". 점검 결과 4개 계정의 `INSTA_ACCESS_TOKEN`이 Threads 토큰(`THAA…`)이었고 017은 Threads 토큰과 값이 동일(`graph.threads.net`에서만 정상). 정상 계정 15개(018·019·022·024·025·027·028·029·030·031·035·038·039·051·052)는 같은 `EAA…` 토큰 1개를 공유하며, 그 토큰은 페이지 22개에 접근하고 017 페이지(121739897685016)·IG 계정을 읽는다.
+- **Root Cause:** 회장 판단 — 이관 중 토큰을 잘못된 위치에 저장·누락(galaxy app instabot 공용 EAA 토큰 사용 계정). 정확한 이관 경위는 UNKNOWN. 023은 어제(261026) 게시에 성공한 기록이 있어 그 시점의 토큰 상태는 UNKNOWN.
+- **조치(회장 승인):** 4개 계정의 `INSTA_ACCESS_TOKEN` 값만 공용 EAA 토큰으로 교체(줄 수·Threads 토큰 무변경, 이전 `.env` scratchpad 백업), `graph.facebook.com`에서 ssadakbewuty(011)·galaxylab_official(014)·petit__phau_thuat(017)·yummy.office(023) 정상 조회 확인. 값은 출력·기록하지 않음.
+- **결과:** IDN-000017 게시 성공(Media 18235119232323082). ERR-184의 017 항목은 이로써 해소. **관련:** FP-120
