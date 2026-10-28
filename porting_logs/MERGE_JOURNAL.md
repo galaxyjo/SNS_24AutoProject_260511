@@ -3263,3 +3263,11 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **시간 소요 요인:** 완료된 품질 검수를 반복했고, Code/Content 경로와 운영 권한·등록 경로를 초기에 분리하지 못했다. 관리자 문맥 실행, Producer→Airtable ready, 게시 순으로 해결됐다.
 - **보안 후속:** ERR-179의 IG/Gemini/Slack Credential 교체 확인이 남아 있다. 게시 성공과 별도 OPEN으로 유지; 어떤 값도 이 저널에 기록하지 않는다.
 - **향후 확장:** 다음 23개 계정에서도 기존 엔진을 재사용하는 흐름(계정 설정·권한 → Producer → Airtable `ready` → 게시 → Media ID 확인)을 권고. 계정별 Credential·권한 차이는 사전 확인 필요. 이번 실행 범위는 IDN-000022만이며 확장은 수행하지 않았다.
+
+### 261028 12:50 ICT — B_MED 피부과 시술 기원·원리 첫 게시 / GPT 검수 반영 개선 A~D / Commit 4건
+
+- **결과:** B_MED 7개 중 4개 게시(031·018·019·035, URL·Media ID는 VALIDATION_STATUS `bmed_first_posts_261028`). SKIP 3: 017 토큰 형식 오류, 020·032 계정/키 없음. 중복 0.
+- **승인 범위 내 변경:** Airtable 4계정 `automation_enabled`·Persona active, PER-018/019/034 language=en, 4 Persona CTA 영어(회장 승인). Commit 06f2d79(계정 등록·B_MED Gate·diagram 옵션·Sourcebook 4), bc40f3f(영어 캡션 800자), 4b1fe4d(LAUNCHER_STALE 경고), fd40e65(문서). Push·launcher 재시작 안 함.
+- **예외(회장 승인):** 035 게시 1건에 한해 031 Gemini 키를 일회성 래퍼로 메모리에서만 대여(`.env`·코드 무변경). 035 프로젝트는 무료 티어 불가(403, 결제 필요) — OPEN. 같은 점검 중 새 키 일부가 Claude 출력에 1회 노출 — 값 비기록, 교체 판단은 회장.
+- **게시 전 수작업 편집:** 018·019·035 캡션의 근거 없는 문구와 깨진 해시태그를 사람이 정리(2건 삭제) → 이후 B_MED Gate(A~C)가 같은 유형을 자동 차단. 4건 게시 캡션은 새 Gate를 모두 통과.
+- **남은 것:** launcher 재시작(Commit 반영, 관리자·별도 승인), 한국어·영어 Persona 설정 분리, 035 Gemini 결제/키, 017 토큰, 020·032 계정 등록, ERR-179 키 교체 확인, Push 승인.

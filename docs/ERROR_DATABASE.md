@@ -3243,3 +3243,26 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **관련:** FP-113, ERR-165, ERR-167
 - **코드 재발방지(미커밋, 261027 확인):** 작업트리의 `core/error_handler.py`·`services/slack_notifier.py` 변경이 예외 문구·traceback·응답 본문 대신 예외 타입·상태 코드만 로그/알림에 남기도록 바꿈. 작성 주체·테스트 실행·Commit 여부는 UNKNOWN(Credential 교체와 별개).
 - **상태:** OPEN — 교체 확인 전까지 미종결
+
+## ERR-180 | 영어 캡션이 한국어 기준 공용 상한(357자)에 계속 걸림 — RESOLVED (261028 B_MED, bc40f3f)
+- **증상:** IDN-000031 영어 캡션이 `PAYLOAD_TOO_LONG:647~768`로 3회씩 연속 실패. **Root Cause:** 357자 상한이 한국어 캡션 최대치(IDN-000022)로 정해졌고 영어 9요소 캡션은 650~850자가 나온다.
+- **수정:** 모델 응답에 한글이 없을 때만 800자 상한·`3.Key takeaway?` 라벨 사용(한국어 357자 유지). 테스트 3개 추가. **관련:** FP-119
+
+## ERR-181 | 실행 중 launcher가 코드 수정 전 버전이라 폴러가 신규 계정 ready를 UNKNOWN_DOMAIN으로 거절 — MITIGATED (261028 B_MED, 4b1fe4d)
+- **증상:** IDN-000031 레코드가 `ready` 직후 5분 폴러(`_job_insta_upload`)에 의해 `rejected`(UNKNOWN_DOMAIN)가 되고 수동 게시는 `ready 후보 없음`으로 건너뜀. 게시·Meta 호출 0.
+- **복구:** 폴러 주기(:x1:32/:x6:32) 직후 `ready` 복구 후 관리자 수동 게시. 018·019·035는 같은 타이밍 회피로 충돌 없음.
+- **조치:** `LAUNCHER_STALE` 경고(읽기 전용, NOT_READY 아님) 추가. **근본:** Commit 후 관리자 재시작 필요(별도 승인, OPEN).
+
+## ERR-182 | 이미지 생성 한도 소진(HTTP 429)과 부적합한 AI 이미지(SF풍 얼굴) — MITIGATED (261028 B_MED)
+- **증상:** Cloudflare Workers AI 일일 무료 10,000 neurons 소진으로 018·019 이미지 생성 실패. 이전 생성 이미지는 의료 교육 글에 부적합한 SF풍 얼굴이라 폐기.
+- **조치:** Commons 퍼블릭 도메인 차트(031)·Pexels 스톡(018·019·035)으로 대체, `image_style="diagram"` 옵션 추가. 한도 자체는 외부 서비스(OPEN).
+
+## ERR-183 | 영어 Persona에 한국어 말투·CTA가 섞여 한국어로 출력, 모델이 근거 없는 의료 문구를 생성 — MITIGATED (261028 B_MED, 06f2d79)
+- **증상:** Persona 말투(`~그렇답니다`체)·한국어 CTA 때문에 영어 지시에도 한국어 캡션, 수작업 삭제 2건("top US clinics", "Epidermis remains unharmed" 등), 깨진 해시태그.
+- **조치:** 핵심 메시지 영어화, 4개 Persona CTA 영어화(승인), B_MED 게시 Gate(허위 표현·스톡 공개·출처 표기, Fail-closed) 추가.
+- **미해결:** 한국어·영어 Persona 설정 분리(말투 필드 언어 분리)는 이번 범위 밖(OPEN).
+
+## ERR-184 | IDN-000035 Gemini 프로젝트 무료 티어 불가(HTTP 403), IDN-000017 Instagram 토큰 형식 오류 — OPEN (261028 B_MED)
+- **035:** 새 키는 유효(모델 목록 200)하나 `generateContent`가 "free tier is not available for this project"(403). 프로젝트 400896396144에 결제 설정 필요. 회장 승인으로 게시 1건에 한해 031 키를 일회성 래퍼로 메모리에서만 대여(`.env`·코드 무변경) — 게시 성공. 이후 자동 운영은 키 문제 해결 전 불가.
+- **017:** Graph API가 "Cannot parse access token" 반환 — 토큰 재확인 필요, SKIP. 020·032는 Account Code와 `.env` 키 없음, SKIP.
+- **보안(ERR-179 추가):** 261028 035 점검 중 Claude 출력에 새 Gemini 키 일부가 1회 노출(값 비기록). 교체 판단은 회장.
