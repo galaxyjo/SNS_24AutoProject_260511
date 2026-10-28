@@ -1618,6 +1618,11 @@ CONTENT_ACCOUNTS = {
                                  brand_handle="@mu901001",
                                  sourcebook_path=_ROOT / "docs" / "design" / "SNS_AI_AUTOMATION_SOURCEBOOK_IDN030_261028.md"),
     # 261028 B_MED 피부과 시술 기원·원리 — Airtable B_MED + .env 토큰·Gemini Key 확인 완료 계정. 계정별 전용 Sourcebook만 읽는다.
+    # 261028 C_TRAVEL 첫 게시 — 여행 계정(제주 UNESCO). B_MED Gate 대상이 아니며 AI_CONTENT Gate(Persona·원천·언어·Safety)를 재사용한다.
+    "IDN-000038": ContentAccount("IDN-000038", "IDN_000038", "IDN_000038",
+                                 _ROOT / "vault" / "accounts" / "IDN-000038", "content_producer_IDN-000038", False,
+                                 brand_handle="@eco_travel_kr.officr",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_TRAVEL_SOURCEBOOK_IDN038_261028.md"),
     "IDN-000017": ContentAccount("IDN-000017", "IDN_000017", "IDN_000017",
                                  _ROOT / "vault" / "accounts" / "IDN-000017", "content_producer_IDN-000017", False,
                                  brand_handle="@petit__phau_thuat",

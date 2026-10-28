@@ -123,6 +123,7 @@ ACCOUNT_DOMAIN_POLICY = {
     "IDN-000028": "AI_CONTENT",
     "IDN-000030": "AI_CONTENT",
     # 261028 B_MED 4계정 — 피부과 시술 기원·원리 첫 게시. 전용 도메인 Gate는 없어 AI_CONTENT Gate(Persona·원천·언어·Safety)를 재사용.
+    "IDN-000038": "AI_CONTENT",   # 261028 C_TRAVEL 첫 게시(제주 UNESCO)
     "IDN-000017": "AI_CONTENT",   # 261028 B_MED 017(토큰 교체 후 추가)
     "IDN-000018": "AI_CONTENT",
     "IDN-000019": "AI_CONTENT",
@@ -150,6 +151,7 @@ _AI_CONTENT_PERSONA_BY_ACCOUNT = {
     "IDN-000027": "PER-026",
     "IDN-000028": "PER-027",
     "IDN-000030": "PER-052",
+    "IDN-000038": "PER-036",
     "IDN-000017": "PER-045",
     "IDN-000018": "PER-018",
     "IDN-000019": "PER-019",
