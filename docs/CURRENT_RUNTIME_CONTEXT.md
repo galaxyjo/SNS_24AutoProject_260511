@@ -1,3 +1,11 @@
+# (261028_13:26 KST) | launcher 재시작 반영 확인 | 담당: Claude Code(확인)·회장(관리자 재시작) | 문서 갱신
+
+- **결과:** SNS_Watchdog 재시작 후 `db/launcher_boot_state.json`이 commit `afa9fc8`, 기동 13:25:53(HEAD 일치). `/health` 200, 서비스 Running, 재시작 후 신규 오류 0건. `LAUNCHER_STALE` 경고 해소(점검 CLI `warnings=-`).
+- **반영된 것:** 017 등록, B_MED 4→5계정 Gate(허위 의료 표현·스톡 공개·출처 표기), 영어 캡션 800자 상한, 교체된 INSTA 토큰 4계정. 폴러가 이제 B_MED 5계정 도메인 정책을 안다.
+- **아직 꺼진 것:** 계정별 자동 게시 Flag(`IDN_0000xx_CONTENT_PRODUCER_ENABLED`·`SLOT_SCHEDULE_ENABLED`)는 `.env`에 없음 — B_MED는 수동 게시만(Preflight `FLAG_*_OFF`는 의도된 상태). Push 미실행(로컬 Commit 2개 선행: 0464da6, afa9fc8 + 이번 문서).
+
+---
+
 # (261028_13:25 KST) | IDN-000017 게시 SUCCESS + INSTA 토큰 4계정 교체 | 담당: Claude Code | 문서 갱신
 
 - **결과:** IDN-000017 https://www.instagram.com/p/DfBxZ_hkiWn/ (Media 18235119232323082) posted. B_MED 7개 중 5개 게시(017·018·019·031·035), SKIP 2(020·032 계정/키 없음).

@@ -3278,3 +3278,8 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **게시:** IDN-000017 https://www.instagram.com/p/DfBxZ_hkiWn/ (18235119232323082) posted. 마이크로니들링 PMC11993440, Pexels 스톡. Airtable 017 `automation_enabled`·PER-045 `active`·CTA 영어 변경(승인).
 - **코드:** launcher/main.py(017 CONTENT_ACCOUNTS), content_filter.py(도메인·Persona·B_MED 대상), Sourcebook IDN017. Push 안 함.
 - **남은 것:** launcher 재시작(017 등록 반영), 한국어·영어 Persona 설정 분리, 035 Gemini 결제, 020·032 계정 등록, ERR-179 키 교체 확인, Push 승인.
+
+### 261028 13:30 KST — launcher 재시작(관리자) 반영 확인
+
+- 회장이 관리자 PowerShell로 `Restart-Service SNS_Watchdog` 실행. 새 launcher commit `afa9fc8`(HEAD 일치), 기동 13:25:53, `/health` 200, 신규 오류 0, `LAUNCHER_STALE` 해소. 코드 변경 없음.
+- ERR-181(launcher 구버전 폴러 거절) 근본 조치 완료: 코드·토큰 변경 후 재시작 + 경고(`LAUNCHER_STALE`) 체계. 남은 것: 자동 게시 Flag 결정, 한국어·영어 Persona 분리, 035 Gemini 결제, 020·032 계정, ERR-179 키 교체 확인, Push 승인.

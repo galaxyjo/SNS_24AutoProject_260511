@@ -3272,3 +3272,5 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **Root Cause:** 회장 판단 — 이관 중 토큰을 잘못된 위치에 저장·누락(galaxy app instabot 공용 EAA 토큰 사용 계정). 정확한 이관 경위는 UNKNOWN. 023은 어제(261026) 게시에 성공한 기록이 있어 그 시점의 토큰 상태는 UNKNOWN.
 - **조치(회장 승인):** 4개 계정의 `INSTA_ACCESS_TOKEN` 값만 공용 EAA 토큰으로 교체(줄 수·Threads 토큰 무변경, 이전 `.env` scratchpad 백업), `graph.facebook.com`에서 ssadakbewuty(011)·galaxylab_official(014)·petit__phau_thuat(017)·yummy.office(023) 정상 조회 확인. 값은 출력·기록하지 않음.
 - **결과:** IDN-000017 게시 성공(Media 18235119232323082). ERR-184의 017 항목은 이로써 해소. **관련:** FP-120
+
+- **ERR-181 갱신(261028 13:26):** 관리자 재시작으로 launcher가 `afa9fc8`(HEAD)로 기동, 구버전 폴러 거절의 근본 원인 해소. 상태: RESOLVED(재발 시 `LAUNCHER_STALE` 경고로 감지).
