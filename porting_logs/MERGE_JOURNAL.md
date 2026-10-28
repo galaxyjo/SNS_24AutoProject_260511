@@ -3283,3 +3283,8 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 
 - 회장이 관리자 PowerShell로 `Restart-Service SNS_Watchdog` 실행. 새 launcher commit `afa9fc8`(HEAD 일치), 기동 13:25:53, `/health` 200, 신규 오류 0, `LAUNCHER_STALE` 해소. 코드 변경 없음.
 - ERR-181(launcher 구버전 폴러 거절) 근본 조치 완료: 코드·토큰 변경 후 재시작 + 경고(`LAUNCHER_STALE`) 체계. 남은 것: 자동 게시 Flag 결정, 한국어·영어 Persona 분리, 035 Gemini 결제, 020·032 계정, ERR-179 키 교체 확인, Push 승인.
+
+### 261028 14:30 KST — IDN-000038 C_TRAVEL 첫 게시
+
+- IDN-000038 게시 https://www.instagram.com/p/DfB5PGmgWqV/ (18219635440349189). 한국어(Persona `ko`), 근거 UNESCO 세계유산센터 1264, 이미지 Pexels(Saksham Vikram) 스톡, 캡션에 이미지·출처 표기. 모델의 "수백만 년" 표현은 근거(약 120만 년)와 달라 게시 전 수정(B_MED Gate는 여행 계정에 적용되지 않음 — 여행용 근거 검사는 미구현).
+- 변경: 코드 2파일 + Sourcebook 1, Airtable PER-036 active. 남은 것: launcher 재시작, 여행 계정용 사실 검사 Gate(수치 표현), Push 승인.

@@ -1,3 +1,11 @@
+# (261028_14:30 KST) | IDN-000038 C_TRAVEL 첫 게시 SUCCESS | 담당: Claude Code | 문서 갱신
+
+- **결과:** IDN-000038(@eco_travel_kr.officr) https://www.instagram.com/p/DfB5PGmgWqV/ (Media 18219635440349189, IMAGE, 한국어) posted, 레코드 1건·중복 0. 주제: 제주 화산섬과 용암동굴(UNESCO 목록 1264), 이미지: Pexels Saksham Vikram 스톡.
+- **변경:** launcher/main.py·content_filter.py(038 등록, AI_CONTENT 도메인, PER-036), Sourcebook `SNS_TRAVEL_SOURCEBOOK_IDN038_261028.md`, Airtable Persona PER-036 `active`(회장 승인 "이거 진행하자"). 038 계정 `automation_enabled`는 기존 true.
+- **Runtime:** launcher(commit afa9fc8, 13:25 기동)는 038 등록 전 코드 — 폴러 틈 실행으로 충돌 없이 게시, `LAUNCHER_STALE` 경고 발생. 다음 신규 계정 전 재시작 필요.
+
+---
+
 # (261028_13:26 KST) | launcher 재시작 반영 확인 | 담당: Claude Code(확인)·회장(관리자 재시작) | 문서 갱신
 
 - **결과:** SNS_Watchdog 재시작 후 `db/launcher_boot_state.json`이 commit `afa9fc8`, 기동 13:25:53(HEAD 일치). `/health` 200, 서비스 Running, 재시작 후 신규 오류 0건. `LAUNCHER_STALE` 경고 해소(점검 CLI `warnings=-`).
