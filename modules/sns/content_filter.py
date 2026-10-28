@@ -123,6 +123,7 @@ ACCOUNT_DOMAIN_POLICY = {
     "IDN-000028": "AI_CONTENT",
     "IDN-000030": "AI_CONTENT",
     # 261028 B_MED 4계정 — 피부과 시술 기원·원리 첫 게시. 전용 도메인 Gate는 없어 AI_CONTENT Gate(Persona·원천·언어·Safety)를 재사용.
+    "IDN-000017": "AI_CONTENT",   # 261028 B_MED 017(토큰 교체 후 추가)
     "IDN-000018": "AI_CONTENT",
     "IDN-000019": "AI_CONTENT",
     "IDN-000031": "AI_CONTENT",
@@ -149,6 +150,7 @@ _AI_CONTENT_PERSONA_BY_ACCOUNT = {
     "IDN-000027": "PER-026",
     "IDN-000028": "PER-027",
     "IDN-000030": "PER-052",
+    "IDN-000017": "PER-045",
     "IDN-000018": "PER-018",
     "IDN-000019": "PER-019",
     "IDN-000031": "PER-030",
@@ -220,7 +222,7 @@ def passes_ai_content_gate_v0(
 
 # 261028 GPT 검수(B_MED) — 피부과·의료 계정은 허위 의료 표현·스톡 사진 오인·출처 누락을 게시 직전에 막는다(Fail-closed).
 # 부정문("not a guaranteed ...")은 허용한다. 모델이 근거 없이 만든 표현을 사람이 지우던 수작업(261028 2건)을 자동화한 것이다.
-_BMED_ACCOUNTS = frozenset({"IDN-000018", "IDN-000019", "IDN-000031", "IDN-000035"})
+_BMED_ACCOUNTS = frozenset({"IDN-000017", "IDN-000018", "IDN-000019", "IDN-000031", "IDN-000035"})
 _BMED_BLOCKED_CLAIMS = re.compile(
     r"(?<!not a )(?<!not )(?<!no )\b("
     r"guarantee[sd]?|risk[- ]free|painless|permanent(?:ly)?|no side effects?|100%|cures?|cured|unharmed|"

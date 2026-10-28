@@ -1618,6 +1618,11 @@ CONTENT_ACCOUNTS = {
                                  brand_handle="@mu901001",
                                  sourcebook_path=_ROOT / "docs" / "design" / "SNS_AI_AUTOMATION_SOURCEBOOK_IDN030_261028.md"),
     # 261028 B_MED 피부과 시술 기원·원리 — Airtable B_MED + .env 토큰·Gemini Key 확인 완료 계정. 계정별 전용 Sourcebook만 읽는다.
+    "IDN-000017": ContentAccount("IDN-000017", "IDN_000017", "IDN_000017",
+                                 _ROOT / "vault" / "accounts" / "IDN-000017", "content_producer_IDN-000017", False,
+                                 brand_handle="@petit__phau_thuat",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_BMED_SOURCEBOOK_IDN017_261028.md",
+                                 image_style="diagram"),
     "IDN-000018": ContentAccount("IDN-000018", "IDN_000018", "IDN_000018",
                                  _ROOT / "vault" / "accounts" / "IDN-000018", "content_producer_IDN-000018", False,
                                  brand_handle="@beautygroup.1004",
