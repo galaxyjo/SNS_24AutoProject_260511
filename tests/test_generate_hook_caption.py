@@ -835,3 +835,29 @@ def test_generate_hook_caption_without_model_override_keeps_default(monkeypatch)
     generate_hook_caption("Title", "core message")
 
     assert captured["model"] == "gemini-2.5-flash-lite"
+
+
+# 261028 B_MED 영어 게시 — 한글이 전혀 없는 영어 캡션만 800자 상한과 영어 라벨을 쓴다. 한국어 상한(357자)은 그대로.
+def _assemble(field_text):
+    fields = {label: field_text for label in caption_generator._REQUIRED_ELEMENT_LABELS}
+    return caption_generator._assemble_structured_caption(fields, "#tag", cta_line="DM us to book a consultation.")
+
+
+def test_english_caption_uses_english_cap_and_label():
+    caption, _tags, reason = _assemble("a" * 60)
+    assert reason == ""
+    assert "3.Key takeaway?" in caption
+    assert "3.핵심은?" not in caption
+    assert 357 < len(caption) <= 800
+
+
+def test_english_caption_over_english_cap_is_rejected():
+    _caption, _tags, reason = _assemble("a" * 120)
+    assert reason.startswith("PAYLOAD_TOO_LONG:")
+
+
+def test_korean_caption_keeps_original_cap_and_label():
+    _caption, _tags, reason = _assemble("가" * 60)
+    assert reason.startswith("PAYLOAD_TOO_LONG:")
+    caption, _tags, reason = _assemble("가" * 20)
+    assert reason == "" and "3.핵심은?" in caption

@@ -43,6 +43,9 @@ def load_generation_contract(path: "Path | None" = None) -> str:
 # 전체에 Threads 연동 코드 0건, Instagram_Posts 스키마에도 Threads 필드
 # 없음) — 이 제한은 향후 연결 대비 + 캡션 압축 품질 기준으로 선제 적용한다.
 _MAX_FINAL_PAYLOAD_CHARS = 357  # 261028 회장 지시: 해시태그 제외 캡션 상한 — 기존 성공 계정 캡션 최대치(IDN-000022 357자) 기준
+# 261028 회장 승인(B_MED 영어 게시): 357자는 한국어 캡션 기준이다. 모델 응답에 한글이 전혀 없는 영어 캡션만 이 상한을 쓴다
+# (9요소 영어 캡션 실측 650~770자, 인스타 한도 2200자 이내). 한국어 캡션 상한·동작은 그대로다.
+_MAX_FINAL_PAYLOAD_CHARS_EN = 800
 
 # 260810 회장 지시로 전면 개정(docs/design/CONTENT_PLAYBOOK_260807.md 260810
 # 변경 이력 참조) — 실게시 3건이 "깊이 없음·겉돎·친밀감 없음"으로 지적됨.
@@ -105,6 +108,9 @@ def _assemble_structured_caption(
         return "", "", f"MISSING_ELEMENTS:{','.join(missing)}"
 
     active_cta = (cta_line or "").strip() or _FIXED_CTA_LINE
+    is_english = not any("가" <= ch <= "힣" for value in fields.values() for ch in value)
+    core_label = "3.Key takeaway?" if is_english else "3.핵심은?"
+    max_chars = _MAX_FINAL_PAYLOAD_CHARS_EN if is_english else _MAX_FINAL_PAYLOAD_CHARS
     caption = (
         f"{fields['HOOK_EMPATHY']}\n"
         f"{fields['HOOK_QUESTION']}\n"
@@ -117,14 +123,14 @@ def _assemble_structured_caption(
         f"2.{fields['DETAIL_TITLE']}\n"
         f": {fields['DETAIL_BODY']}\n"
         f"\n"
-        f"3.핵심은?\n"
+        f"{core_label}\n"
         f": {fields['CORE_POINT']}\n"
         f"\n"
         f"\"{fields['MOTTO']}\"\n"
         f"\n"
         f"{active_cta}"
     )
-    if len(caption) > _MAX_FINAL_PAYLOAD_CHARS:
+    if len(caption) > max_chars:
         return "", "", f"PAYLOAD_TOO_LONG:{len(caption)}"
 
     return caption, hashtags, ""
