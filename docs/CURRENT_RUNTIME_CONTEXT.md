@@ -1,3 +1,13 @@
+# (261028_12:15pm ICT) | B_MED 피부과 시술 기원·원리 첫 게시 4건 SUCCESS | 담당: Claude Code | 문서 갱신(Commit 안 함)
+
+- **결과:** B_MED 7개 중 4개 게시(영어 단일 이미지). IDN-000031 https://www.instagram.com/p/DfBibu1klau/ (Media 17998707843047123, Commons 퍼블릭 도메인 차트) · IDN-000018 https://www.instagram.com/p/DfBnTtIIyc2/ (18110864942579099, Pexels Anna Shvets) · IDN-000019 https://www.instagram.com/p/DfBnYQ5kmu_/ (17955504498331102, Pexels ANVA Marketing) · IDN-000035 https://www.instagram.com/p/DfBpqKAkl_v/ (17970034556965154, Pexels Anna Shvets). 4건 모두 Airtable `posted`, Graph API 조회 확인, 계정당 레코드 1건(중복 0).
+- **SKIP 3:** 017 토큰 형식 오류(Graph "Cannot parse access token") · 020·032 Account Code·.env 키 없음.
+- **변경(미커밋):** launcher/main.py(4계정 등록, ContentAccount.image_style) · content_filter.py(도메인·Persona 4계정) · caption_generator.py(영어 캡션 상한 800자·영어 라벨) · content_package_builder.py·visual_brief.py(diagram 이미지 옵션) · 테스트 2파일 · Sourcebook 4개 · docs/design/IMAGE_SOURCES_BMED_261028.md. Airtable: 4계정 automation_enabled·Persona active, PER-018/019/034 language=en, 4 Persona CTA 영어.
+- **예외 기록(회장 승인):** IDN-000035 게시 1건에 한해 031 Gemini 키를 일회성 래퍼로 메모리에서만 대여(.env·코드 무변경). 035 키 프로젝트(400896396144)는 무료 티어 불가(403)로 결제 설정 필요 — 미해결. 점검 중 신규 키 일부가 Claude 출력에 1회 노출됨(ERR-179 계열, 교체 판단은 회장).
+- **미해결 Risk:** ①launcher가 코드 수정 전 버전이라 폴러가 신규 계정 ready를 UNKNOWN_DOMAIN으로 거절할 수 있음(031 1회 발생, 재시작 승인 전까지 타이밍 회피로 운영) ②Persona 말투가 한국어식이라 영어 출력 시 한국어 혼입(핵심 메시지 영어화로 우회) ③모델이 근거 없는 의료 문구를 만들어 게시 전 수작업 삭제 2건 — 자동 차단 없음 ④스톡 사진은 일반 장비 사진이며 특정 시술 증거 아님 ⑤Cloudflare Workers AI 일일 무료 한도 소진(429).
+
+---
+
 # (261027_10:40pm ICT) | STEP 5-B — IDN-000022 실게시 SUCCESS 인계 반영(Codex·GPT 요약 ↔ 저장 문서 비교) | 담당: Claude Code | 문서 갱신(Commit 안 함)
 
 - **비교 결론:** 인계 파일(261026 20:50~21:19 Codex 대화)은 Gate 5 HOLD 시점의 중간 기록이다. 이후 진행(23:20 실게시 SUCCESS, 사후분석, ERR-179, 문서 Commit `b0dede8`)은 저장 문서에 이미 있어 **중복 기록하지 않았고**, 아래 문서에 없던 현재 사실만 보완했다. 인계 파일의 "Gate 5 HOLD / 022 미확인" 판정은 이후 실게시로 해소돼 폐기.
