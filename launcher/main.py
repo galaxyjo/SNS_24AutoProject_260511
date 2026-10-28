@@ -1135,6 +1135,8 @@ def _job_aijomoojin_scheduled_post(account_code: str = AIJOMOOJIN_SLOT_ACCOUNT_C
             account_code, content_accounts=CONTENT_ACCOUNTS, repo=repo, stage="publish",
             publish_account=account, check_persona=False,  # Persona 불일치는 기존 Publish Gate가 rejected로 처리(계약 유지)
         )
+        if _pf.get("warnings"):
+            logger.warning("[AijomoojinSlot][Preflight] 경고 | account_code=%s | %s", account_code, ",".join(_pf["warnings"]))
         if _pf["status"] != "READY":
             logger.error(
                 "[AijomoojinSlot][Preflight] NOT_READY — 게시하지 않음 | account_code=%s | rid=%s | reasons=%s",
@@ -1579,6 +1581,7 @@ class ContentAccount:
     # 261028 — 전 계정 공통 기본은 "note"(장별 이미지 장면+노트 렌더, 고도화 경로). 구형 "template"은 계정/환경에서 명시할 때만.
     # {PREFIX}_CAROUSEL_STYLE 환경값이 있으면 그것이 우선한다.
     carousel_style: str = "note"
+    image_style: str = ""   # 261028 — "diagram"이면 단일 이미지를 평면 도해 프롬프트로 생성(B_MED). 기본은 기존 프롬프트.
 
 
 CONTENT_ACCOUNTS = {
@@ -1614,6 +1617,26 @@ CONTENT_ACCOUNTS = {
                                  _ROOT / "vault" / "accounts" / "IDN-000030", "content_producer_IDN-000030", False,
                                  brand_handle="@mu901001",
                                  sourcebook_path=_ROOT / "docs" / "design" / "SNS_AI_AUTOMATION_SOURCEBOOK_IDN030_261028.md"),
+    # 261028 B_MED 피부과 시술 기원·원리 — Airtable B_MED + .env 토큰·Gemini Key 확인 완료 계정. 계정별 전용 Sourcebook만 읽는다.
+    "IDN-000018": ContentAccount("IDN-000018", "IDN_000018", "IDN_000018",
+                                 _ROOT / "vault" / "accounts" / "IDN-000018", "content_producer_IDN-000018", False,
+                                 brand_handle="@beautygroup.1004",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_BMED_SOURCEBOOK_IDN018_261028.md",
+                                 image_style="diagram"),
+    "IDN-000019": ContentAccount("IDN-000019", "IDN_000019", "IDN_000019",
+                                 _ROOT / "vault" / "accounts" / "IDN-000019", "content_producer_IDN-000019", False,
+                                 brand_handle="@dermaclinic.911",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_BMED_SOURCEBOOK_IDN019_261028.md",
+                                 image_style="diagram"),
+    "IDN-000031": ContentAccount("IDN-000031", "IDN_000031", "IDN_000031",
+                                 _ROOT / "vault" / "accounts" / "IDN-000031", "content_producer_IDN-000031", False,
+                                 brand_handle="@jiho2987",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_BMED_SOURCEBOOK_IDN031_261028.md"),
+    "IDN-000035": ContentAccount("IDN-000035", "IDN_000035", "IDN_000035",
+                                 _ROOT / "vault" / "accounts" / "IDN-000035", "content_producer_IDN-000035", False,
+                                 brand_handle="@kyungk785",
+                                 sourcebook_path=_ROOT / "docs" / "design" / "SNS_BMED_SOURCEBOOK_IDN035_261028.md",
+                                 image_style="diagram"),
 }
 
 
@@ -1639,6 +1662,8 @@ def _package_kwargs(acct: ContentAccount) -> dict:
     kwargs = {**_vault_kwargs(acct), "brand_handle": acct.brand_handle}
     if acct.sourcebook_path is not None:
         kwargs["sourcebook_path"] = acct.sourcebook_path
+    if acct.image_style:
+        kwargs["image_style"] = acct.image_style
     return kwargs
 
 

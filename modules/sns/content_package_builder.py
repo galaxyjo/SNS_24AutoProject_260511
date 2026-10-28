@@ -54,6 +54,7 @@ from modules.sns.visual_brief import (
     DEFAULT_PERSONA_BACKGROUND_CONCEPT,
     build_background_only_prompt,
     build_concept_background_prompt,
+    build_diagram_image_prompt,
     build_image_prompt,
     build_visual_brief,
 )
@@ -643,8 +644,10 @@ def create_content_package(
     persona_code: str = "",
     sourcebook_path: "Path | None" = None,
     content_theme: str = "",
+    image_style: str = "",
 ) -> PackageResult:
-    """261024 STEP 2 — `brand_handle`(선택, 기본 "")은 카드 하단 계정 핸들. 비우면 기존 @aijomoojin.
+    """261028 — `image_style="diagram"`(선택, 기본 "")은 단일 이미지를 사람 없는 평면 도해 프롬프트로 만든다. 생략하면 기존과 동일.
+    261024 STEP 2 — `brand_handle`(선택, 기본 "")은 카드 하단 계정 핸들. 비우면 기존 @aijomoojin.
     261026 — `sourcebook_path`(선택)는 계정 전용 Sourcebook. 생략하면 공용 AI Sourcebook(기존 그대로).
 
     260804 Track B 6G — `injected_topic`(선택, 기본 None)은 Research-to-Topic
@@ -789,7 +792,8 @@ def create_content_package(
         if image_bytes is None:
             return PackageResult(success=False, error_code="IMAGE_GENERATION_FAILED", content_id=content_id)
     else:
-        image_prompt = build_image_prompt(brief)
+        image_prompt = (build_diagram_image_prompt(brief) if image_style == "diagram"
+                        else build_image_prompt(brief))
         if image_prompt is None:
             return PackageResult(success=False, error_code="IMAGE_PROMPT_UNAVAILABLE")
 

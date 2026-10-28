@@ -106,6 +106,28 @@ def build_image_prompt(brief: VisualBrief) -> "ImagePrompt | None":
     )
 
 
+def build_diagram_image_prompt(brief: VisualBrief) -> "ImagePrompt | None":
+    """261028 B_MED — 의료·피부과 설명용 단일 이미지. 극적인 SF 일러스트(build_image_prompt) 대신 사람 없는 평면 도해로
+    글 내용(core_message)을 시각화한다. 기존 함수·호출부는 무수정이고 image_style="diagram" 계정만 쓴다."""
+    if not brief.core_message or not brief.core_message.strip():
+        return None
+    prompt_text = (
+        "No text, no letters, no numbers, no writing, no labels, no logos, no watermarks in any language. "
+        "A clean, calm, flat educational scientific diagram illustrating this idea: "
+        f"\"{brief.core_message.strip()}\". "
+        "Simple layered cross-section or schematic with soft pastel clinical colors on a plain light background, "
+        "minimal geometric shapes, arrows of light or energy drawn as simple lines, medical textbook style. "
+        "No people, no faces, no body parts, no photographs, no devices with brand marks, no dramatic lighting, "
+        "no neon, no futuristic or sci-fi look."
+    )
+    return ImagePrompt(
+        prompt_text=prompt_text,
+        negative_prompt=", ".join(brief.forbidden_elements),
+        aspect_ratio=DEFAULT_ASPECT_RATIO,
+        prompt_version=PROMPT_VERSION,
+    )
+
+
 DEFAULT_PERSONA_BACKGROUND_CONCEPT = "glowing abstract data streams and soft light waves"
 
 

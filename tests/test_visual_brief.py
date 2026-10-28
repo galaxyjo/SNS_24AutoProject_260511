@@ -125,3 +125,15 @@ def test_build_background_only_prompt_is_distinct_function_from_build_image_prom
     original = build_image_prompt(brief)
     background = build_background_only_prompt(brief)
     assert original.prompt_text != background.prompt_text
+
+
+# 261028 B_MED — 도해 스타일 프롬프트는 글 내용을 담고 사람·SF 표현을 배제하며, 기본 프롬프트는 그대로다.
+def test_diagram_prompt_uses_core_message_and_excludes_people():
+    from modules.sns.visual_brief import build_diagram_image_prompt, build_image_prompt, build_visual_brief
+
+    brief = build_visual_brief("1.1", "Light is absorbed by a target structure.", "Title")
+    diagram = build_diagram_image_prompt(brief)
+    assert "Light is absorbed by a target structure." in diagram.prompt_text
+    assert "No people" in diagram.prompt_text and "flat educational" in diagram.prompt_text
+    assert build_diagram_image_prompt(build_visual_brief("1.1", "", "Title")) is None
+    assert "futuristic" in build_image_prompt(brief).prompt_text  # 기존 프롬프트 무변경

@@ -122,6 +122,11 @@ ACCOUNT_DOMAIN_POLICY = {
     "IDN-000027": "AI_CONTENT",
     "IDN-000028": "AI_CONTENT",
     "IDN-000030": "AI_CONTENT",
+    # 261028 B_MED 4계정 — 피부과 시술 기원·원리 첫 게시. 전용 도메인 Gate는 없어 AI_CONTENT Gate(Persona·원천·언어·Safety)를 재사용.
+    "IDN-000018": "AI_CONTENT",
+    "IDN-000019": "AI_CONTENT",
+    "IDN-000031": "AI_CONTENT",
+    "IDN-000035": "AI_CONTENT",
 }
 
 # 261022 B1 — 위 계정 dict에 없는 계정은 Account_Registry.category로만 도메인을 정한다.
@@ -144,6 +149,10 @@ _AI_CONTENT_PERSONA_BY_ACCOUNT = {
     "IDN-000027": "PER-026",
     "IDN-000028": "PER-027",
     "IDN-000030": "PER-052",
+    "IDN-000018": "PER-018",
+    "IDN-000019": "PER-019",
+    "IDN-000031": "PER-030",
+    "IDN-000035": "PER-034",
 }
 
 
@@ -209,6 +218,41 @@ def passes_ai_content_gate_v0(
     return True, "PUBLISH_ALLOWED"
 
 
+# 261028 GPT 검수(B_MED) — 피부과·의료 계정은 허위 의료 표현·스톡 사진 오인·출처 누락을 게시 직전에 막는다(Fail-closed).
+# 부정문("not a guaranteed ...")은 허용한다. 모델이 근거 없이 만든 표현을 사람이 지우던 수작업(261028 2건)을 자동화한 것이다.
+_BMED_ACCOUNTS = frozenset({"IDN-000018", "IDN-000019", "IDN-000031", "IDN-000035"})
+_BMED_BLOCKED_CLAIMS = re.compile(
+    r"(?<!not a )(?<!not )(?<!no )\b("
+    r"guarantee[sd]?|risk[- ]free|painless|permanent(?:ly)?|no side effects?|100%|cures?|cured|unharmed|"
+    r"fda[- ](?:approved|cleared)|before[- ]and[- ]after|top (?:us )?clinics?|best clinic|safe and effective|proven to"
+    r")\b",
+    re.IGNORECASE,
+)
+_BMED_IMAGE_LINE = re.compile(r"^Image:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+_BMED_SOURCE_LINE = re.compile(r"^.*\bSource:\s*\S+", re.IGNORECASE | re.MULTILINE)
+_BMED_OPEN_LICENSE_WORDS = ("public domain", "cc0", "cc by", "cc-by", "wikimedia")
+
+
+def passes_bmed_claims_gate(caption: str) -> tuple[bool, str]:
+    """A 허위 의료 표현 / B 스톡 사진 공개 / C 이미지 출처·라이선스·논문 출처 표기를 캡션에서 확인한다."""
+    text = caption or ""
+    hit = _BMED_BLOCKED_CLAIMS.search(text)
+    if hit:
+        return False, f"BMED_BLOCKED_CLAIM:{hit.group(1).lower()}"
+    image = _BMED_IMAGE_LINE.search(text)
+    if not image:
+        return False, "BMED_IMAGE_CREDIT_MISSING"
+    credit = image.group(1).lower()
+    if "stock photo" in credit:
+        if "illustrative only" not in credit:
+            return False, "BMED_STOCK_DISCLOSURE_MISSING"
+    elif not any(word in credit for word in _BMED_OPEN_LICENSE_WORDS):
+        return False, "BMED_IMAGE_LICENSE_UNSTATED"
+    if not _BMED_SOURCE_LINE.search(text):
+        return False, "BMED_SOURCE_MISSING"
+    return True, "PUBLISH_ALLOWED"
+
+
 def resolve_publish_gate(
     caption: str,
     account_code_ref: str,
@@ -260,6 +304,10 @@ def resolve_publish_gate(
             return True, "PUBLISH_ALLOWED"
 
         if domain == "AI_CONTENT":
+            if account_code_ref in _BMED_ACCOUNTS:
+                bmed_ok, bmed_code = passes_bmed_claims_gate(caption)
+                if not bmed_ok:
+                    return False, bmed_code
             return passes_ai_content_gate_v0(
                 caption, account_code_ref, source_url, persona_code, required_language,
                 safety_client=safety_client, safety_throttle=safety_throttle, safety_model=safety_model,
