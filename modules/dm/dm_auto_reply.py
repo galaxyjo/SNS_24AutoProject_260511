@@ -4,6 +4,7 @@
 import os
 import json as _json
 import logging
+import re
 import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -183,6 +184,44 @@ def _release_template_en_slot(account_code_ref: str, sender_igsid: str) -> None:
     """발송 실패/예외 시 선점 해제 — 정당한 재시도까지 막지 않도록."""
     with _TEMPLATE_EN_DEDUP_LOCK:
         _TEMPLATE_EN_DEDUP.pop((account_code_ref, sender_igsid), None)
+        _HANDOFF_EN_SENT.pop((account_code_ref, sender_igsid), None)
+
+
+# 261029 STEP 2-B — reply_mode=handoff_en: 첫 문의 바이어를 WhatsApp 상담으로 안내(회장 확정 ①~④).
+# template_en과 같은 안전장치(계정 게이트·burst·UNKNOWN hold·영속 이벤트·재시도)를 그대로 쓰고,
+# 문구와 "같은 바이어에게 24시간 내 1회" 제한만 다르다. 연락처는 계정별 env(DM_HANDOFF_WHATSAPP_<계정코드>)이며
+# 없거나 형식이 맞지 않으면 발송하지 않고 알린다. 24시간 제한은 메모리 기반이라 재시작 시 초기화된다.
+HANDOFF_TEMPLATE_EN = (
+    "Thanks for your interest in Korean cosmetics wholesale. "
+    "Please continue your inquiry on WhatsApp: {contact}"
+)
+_HANDOFF_EN_WINDOW_SECONDS = 24 * 3600
+_HANDOFF_EN_SENT: dict[tuple, datetime] = {}
+_HANDOFF_CONTACT_RE = re.compile(r"^\+?[0-9][0-9 \-]{5,19}$")
+
+
+def _build_handoff_message(account_code_ref: str) -> str | None:
+    """계정별 WhatsApp 연락처로 안내문을 만든다. 연락처가 없거나 형식이 틀리면 None(발송 안 함)."""
+    env_key = "DM_HANDOFF_WHATSAPP_" + re.sub(r"[^A-Za-z0-9]", "_", account_code_ref or "")
+    contact = os.getenv(env_key, "").strip()
+    if not account_code_ref or not _HANDOFF_CONTACT_RE.match(contact):
+        return None
+    return HANDOFF_TEMPLATE_EN.format(contact=contact)
+
+
+def _try_reserve_handoff_slot(account_code_ref: str, sender_igsid: str) -> bool:
+    """같은 계정+바이어에게 24시간 안에 이미 안내했으면 False."""
+    key = (account_code_ref, sender_igsid)
+    now = datetime.now(timezone.utc)
+    with _TEMPLATE_EN_DEDUP_LOCK:
+        last = _HANDOFF_EN_SENT.get(key)
+        if last is not None and (now - last).total_seconds() < _HANDOFF_EN_WINDOW_SECONDS:
+            return False
+        _HANDOFF_EN_SENT[key] = now
+        if len(_HANDOFF_EN_SENT) > 5000:
+            for k in [k for k, v in _HANDOFF_EN_SENT.items() if (now - v).total_seconds() >= _HANDOFF_EN_WINDOW_SECONDS]:
+                del _HANDOFF_EN_SENT[k]
+        return True
 
 
 def _hold_template_en_after_unknown(account_code_ref: str, sender_igsid: str) -> None:
@@ -837,6 +876,17 @@ def handle_price_inquiry(
     if not reply_mode:
         reply_mode = "persona" if PRICE_AUTO_REPLY_ENABLED else "template"
 
+    handoff_msg = None
+    if reply_mode == "handoff_en":
+        # 261029 STEP 2-B — template_en 경로를 재사용하되 문구만 WhatsApp 안내로 바꾼다. 연락처 미설정은 Fail-closed.
+        handoff_msg = _build_handoff_message(account_code_ref)
+        if handoff_msg is None:
+            logger.warning(f"[AutoReply] HANDOFF_CONTACT_MISSING — 안내 보류 | account_code_ref={account_code_ref or 'unknown'}")
+            _alert_dm("WhatsApp 안내 보류 — 연락처 미설정", f"instagram_dm:{account_code_ref or 'UNRESOLVED'}", "",
+                      "handoff_en 계정의 WhatsApp 연락처 env가 없거나 형식 오류", manual=True, level="error", throttle=True)
+            return
+        reply_mode = "template_en"
+
     if reply_mode not in ("template_en", "ai_en"):
         # 261029 STEP 2 정정(회장 확정) — 041·036 등 기존 계정은 가격 문의 전용 응답 정책을 그대로
         # 유지한다(이전에는 dm_receiver가 하던 가격 키워드 판정을 처리기 안으로 옮긴 것, 동작 불변).
@@ -901,10 +951,15 @@ def handle_price_inquiry(
             if not _try_reserve_template_en_slot(account_code_ref, sender_igsid):
                 logger.info(f"[AutoReply] template_en 중복 skip(burst {_TEMPLATE_EN_BURST_SECONDS}초 또는 UNKNOWN hold) | sender={_mask_igsid(sender_igsid)}")
                 return
+            if handoff_msg and not _try_reserve_handoff_slot(account_code_ref, sender_igsid):
+                with _TEMPLATE_EN_DEDUP_LOCK:   # 24시간 기록은 남기고 burst 선점만 해제
+                    _TEMPLATE_EN_DEDUP.pop((account_code_ref, sender_igsid), None)
+                logger.info(f"[AutoReply] handoff_en 24시간 내 이미 안내함 — skip | sender={_mask_igsid(sender_igsid)}")
+                return
         elif not _try_reserve_awaiting_product_slot(sender_igsid, inquiry_text):
             logger.info(f"[AutoReply] 상품확인 요청 중복 skip(3분 이내, 동일 문의) | sender={_mask_igsid(sender_igsid)}")
             return
-        reply_msg = PRODUCT_CONFIRM_TEMPLATE_EN if reply_mode == "template_en" else PRODUCT_CONFIRM_TEMPLATE
+        reply_msg = handoff_msg or (PRODUCT_CONFIRM_TEMPLATE_EN if reply_mode == "template_en" else PRODUCT_CONFIRM_TEMPLATE)
         logger.info(f"[AutoReply] reply_mode={reply_mode} — 상품확인 요청으로 대체 | sender={_mask_igsid(sender_igsid)}")
     else:  # reply_mode == "persona"
         if not _try_reserve_persona_reply_slot(sender_igsid):
