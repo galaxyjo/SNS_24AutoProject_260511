@@ -78,6 +78,58 @@ _CENTRAL_LOGGER_MODULE = "modules.common.logger"
 _SESSION_TMP = Path(tempfile.mkdtemp(prefix="sns_pytest_isolation_"))
 
 
+# ── 4) Boot Policy 테스트 전용 주입 (261029) ────────────────────────────────────────
+# 운영 Boot Policy(C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json)는 SYSTEM·Administrators
+# 전용이라 일반 셸의 pytest는 modules.dm(dm_receiver) import에서 PermissionError로 죽는다. 테스트가
+# 운영 파일을 읽거나 쓰지 않도록, 프로젝트 운영 모듈이 부르는 인자 없는 기본 호출(policy_path=None,
+# require_boot_policy=False — dm_receiver의 import 시점 호출이 이 형태다)에만 세션 임시 폴더의 production 모드
+# 정책을 대신 쓴다. 테스트 코드가 직접 부르는 호출은 바꾸지 않는다.
+# 상수 DEFAULT_RUNTIME_BOOT_POLICY_PATH는 바꾸지 않는다(경로 계약을 검사하는 테스트 보존).
+# 명시적 policy_path를 넘기거나 require_boot_policy=True로 부르는 호출(운영 진입점 검증 테스트)은
+# 그대로 통과시킨다. 운영 정책을 실제로 읽어야 하는 환경(CI 등)은 SNS_TEST_REAL_BOOT_POLICY=1.
+_ORIG_GET_CANARY_STATE = None
+_csm = None
+
+
+def _install_test_boot_policy():
+    global _ORIG_GET_CANARY_STATE, _csm
+    import json
+    import os
+
+    if os.environ.get("SNS_TEST_REAL_BOOT_POLICY") == "1":
+        return
+    try:
+        from modules.common import canary_safe_mode as csm
+    except Exception:
+        return
+    if _relative_to(Path(csm.__file__), _PROJECT_ROOT) is None:
+        return   # 다른 저장소의 모듈이면 건드리지 않는다
+
+    policy = _SESSION_TMP / "test_boot_policy" / "runtime_boot_policy.json"
+    policy.parent.mkdir(parents=True, exist_ok=True)
+    policy.write_text(json.dumps({
+        "schema_version": 1, "mode": "production", "state": "active", "purpose": "production",
+        "context_id": "", "run_id": "", "expires_at": "",
+    }), encoding="utf-8")
+
+    original = csm.get_canary_safe_mode_state
+
+    def _get_state_with_test_policy(*, now=None, require_boot_policy=False,
+                                    activate_boot_policy=False, policy_path=None):
+        if policy_path is None and not require_boot_policy and not activate_boot_policy:
+            # 프로젝트 운영 모듈(modules.dm.dm_receiver 등)의 인자 없는 호출만 대체한다. 테스트가 직접
+            # 부르는 호출(환경변수 모드·경로 probe 오류 등을 검증)은 원래 동작 그대로 둔다.
+            caller = sys._getframe(1).f_globals.get("__name__", "")
+            if caller.split(".")[0] in _PROJECT_PACKAGES:
+                policy_path = policy
+        return original(now=now, require_boot_policy=require_boot_policy,
+                        activate_boot_policy=activate_boot_policy, policy_path=policy_path)
+
+    _get_state_with_test_policy.__wrapped__ = original
+    csm.get_canary_safe_mode_state = _get_state_with_test_policy
+    _ORIG_GET_CANARY_STATE, _csm = original, csm
+
+
 def _relative_to(path: Path, base: Path):
     try:
         return path.resolve().relative_to(base)
@@ -116,9 +168,12 @@ def _redirect_central_logger():
 
 
 _central_logger = _redirect_central_logger()
+_install_test_boot_policy()   # _relative_to 정의 이후에 호출해야 한다
 
 
 def pytest_unconfigure(config):
+    if _csm is not None and _ORIG_GET_CANARY_STATE is not None:
+        _csm.get_canary_safe_mode_state = _ORIG_GET_CANARY_STATE
     socket.getaddrinfo = _real_getaddrinfo
     socket.socket.connect = _real_connect
     socket.socket.connect_ex = _real_connect_ex
