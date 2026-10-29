@@ -1,0 +1,16 @@
+{
+  "account_code": "IDN-000051",
+  "approved": false,
+  "approved_by": "",
+  "approved_at": "",
+  "business": {
+    "name": "",
+    "description": ""
+  },
+  "moq_policy": "",
+  "shipping_regions": "",
+  "payment_terms": "",
+  "faq": [],
+  "products": [],
+  "notes": "골격 파일입니다. 회장 승인 전에는 approved=false로 두며, 이 상태에서는 AI가 가격·재고·인증·배송·MOQ를 말하지 않고 정보 수집+담당자 알림만 합니다. 채울 때는 사실로 확인된 항목만 넣고 approved=true로 바꿉니다."
+}

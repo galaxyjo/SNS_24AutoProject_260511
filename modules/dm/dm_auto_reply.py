@@ -5,8 +5,10 @@ import os
 import json as _json
 import logging
 import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from modules.common.logger import get_logger
 from modules.common.meta_graph import messaging_graph_url, instagram_login_graph_url
@@ -485,6 +487,188 @@ def send_telegram_price_pending(sender_igsid: str, inquiry: str) -> None:
         logger.warning(f"[AutoReply] Telegram 알림 실패 | {exc}")
 
 
+# ── 261029 STEP 2-B reply_mode=ai_en (Gemini 문맥형 영어 B2B 응답) ──────────────────────
+# Webhook 요청은 저장·알림 후 즉시 끝내고, AI 생성·발송은 백그라운드 스레드에서 한다. 같은 계정+발신자의
+# 메시지는 락으로 순차 처리해 뒤 메시지가 앞 답변을 이력에 반영하게 한다. 영속 중복 방지(DM_EVENT_DEDUP_ENABLED)가
+# 꺼져 있으면 Meta 재전송이 중복 AI 응답을 만들 수 있으므로 ai_en은 응답을 보류하고 알린다(Fail-closed).
+_AI_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dm_ai_en")
+_AI_KEY_LOCKS: dict[tuple, threading.Lock] = {}
+_AI_KEY_LOCKS_GUARD = threading.Lock()
+_AI_REPLY_MEMORY: dict[tuple, deque] = {}
+_AI_HISTORY_DAYS = 14
+_AI_HISTORY_MAX = 6
+_AI_PROMPT_VERSION = "gemini-b2b-en-v1"
+
+
+def _ai_key_lock(key: tuple) -> threading.Lock:
+    with _AI_KEY_LOCKS_GUARD:
+        lock = _AI_KEY_LOCKS.get(key)
+        if lock is None:
+            lock = _AI_KEY_LOCKS[key] = threading.Lock()
+        return lock
+
+
+def _unknown_hold_active(account_code_ref: str, sender_igsid: str) -> bool:
+    now = datetime.now(timezone.utc)
+    with _TEMPLATE_EN_DEDUP_LOCK:
+        held = _TEMPLATE_EN_HOLD.get((account_code_ref, sender_igsid))
+        return held is not None and (now - held).total_seconds() < _TEMPLATE_EN_UNKNOWN_HOLD_MINUTES * 60
+
+
+def _remember_ai_reply(account_code_ref: str, sender_igsid: str, text: str) -> None:
+    with _AI_KEY_LOCKS_GUARD:
+        mem = _AI_REPLY_MEMORY.setdefault((account_code_ref, sender_igsid), deque(maxlen=_AI_HISTORY_MAX))
+        mem.append(text)
+
+
+def _load_dm_history(account_code_ref: str, sender_igsid: str, current_text: str) -> tuple[list[str], list[str]]:
+    """같은 계정+발신자의 이전 바이어 메시지와 우리가 보낸 답변. Lead_Interactions(inquiry_message, 필드가 생기면
+    reply_text)와 프로세스 메모리(재시작 시 초기화)를 합친다. 다른 계정·발신자의 기록은 쓰지 않는다."""
+    buyer: list[str] = []
+    replies: list[str] = []
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(days=_AI_HISTORY_DAYS)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        records = _repo.fetch_all_lead_interactions(since)
+        mine = []
+        for r in records:
+            acc = r.get("account_code_ref")
+            if isinstance(acc, list):
+                acc = acc[0] if acc else ""
+            if acc == account_code_ref and r.get("inquiry_user_handle") == sender_igsid:
+                mine.append(r)
+        mine.sort(key=lambda r: str(r.get("relay_scheduled_at", "")))
+        for r in mine:
+            msg = (r.get("inquiry_message") or "").strip()
+            if msg:
+                buyer.append(msg)
+            reply = (r.get("reply_text") or "").strip()
+            if reply:
+                replies.append(reply)
+    except Exception as exc:
+        logger.warning(f"[AutoReply] AI 이력 조회 실패 — 이력 없이 진행 | exception_type={type(exc).__name__}")
+    if buyer and buyer[-1] == (current_text or "").strip():
+        buyer.pop()   # 현재 메시지는 프롬프트에 따로 들어간다
+    with _AI_KEY_LOCKS_GUARD:
+        for text in _AI_REPLY_MEMORY.get((account_code_ref, sender_igsid), ()):
+            if text not in replies:
+                replies.append(text)
+    return buyer[-_AI_HISTORY_MAX:], replies[-_AI_HISTORY_MAX:]
+
+
+def _record_reply_text(record_id: str, text: str) -> None:
+    """Lead_Interactions.reply_text 필드가 추가된 뒤(Airtable 스키마 변경은 별도 승인)에만
+    DM_REPLY_TEXT_FIELD_ENABLED=true로 켠다. 기본 OFF — 필드가 없는 상태에서 쓰기를 시도하지 않는다."""
+    if os.getenv("DM_REPLY_TEXT_FIELD_ENABLED", "false").strip().lower() != "true":
+        return
+    try:
+        _repo._patch_lead_interaction(record_id, {"reply_text": text[:1000]})
+    except Exception as exc:
+        logger.warning(f"[AutoReply] reply_text 기록 실패(무시) | exception_type={type(exc).__name__}")
+
+
+def _dispatch_ai_en(**kwargs) -> None:
+    try:
+        _AI_EXECUTOR.submit(_ai_en_worker, **kwargs)
+    except Exception as exc:
+        logger.error(f"[AutoReply] AI_EN_DISPATCH_FAILED | exception_type={type(exc).__name__}")
+        ev = kwargs.get("dm_event")
+        _alert_dm("AI 응답 작업 등록 실패", ev[0] if ev else "", ev[1] if ev else "", type(exc).__name__,
+                  manual=True, level="error", throttle=True)
+
+
+def _ai_en_worker(*, record_id, sender_igsid, inquiry_text, received_at, account_code_ref, credential_key, dm_event) -> None:
+    source, mid = dm_event[0], dm_event[1]
+    try:
+        with _ai_key_lock((account_code_ref, sender_igsid)):
+            _ai_en_process(record_id, sender_igsid, inquiry_text, received_at, account_code_ref, credential_key, dm_event)
+    except Exception as exc:
+        logger.error(f"[AutoReply] AI_EN_WORKER_ERROR | exception_type={type(exc).__name__}")
+        _alert_dm("AI 응답 처리 예외", source, mid, type(exc).__name__, manual=True, level="error")
+
+
+def _ai_en_process(record_id, sender_igsid, inquiry_text, received_at, account_code_ref, credential_key, dm_event) -> None:
+    from modules.comment import comment_event_store as _store
+    from modules.dm import ai_reply_en
+    source, mid, token = dm_event
+    if _unknown_hold_active(account_code_ref, sender_igsid):
+        logger.warning(f"[AutoReply] AI_EN_UNKNOWN_HOLD — 이전 발송 결과 불명 바이어, AI 응답 보류 | sender={_mask_igsid(sender_igsid)}")
+        _alert_dm("AI 응답 보류(UNKNOWN hold)", source, mid, "이전 발송 결과가 불명확한 바이어라 자동응답을 멈춤",
+                  manual=True, level="warning", throttle=True)
+        return
+    try:
+        state = (_store.get_status(source, mid) or {}).get("private_reply_status", "NOT_APPLICABLE")
+        if state != "NOT_APPLICABLE":
+            logger.warning(f"[AutoReply] DM_REPLY_STATE_HOLD(ai_en) — 이전 발송 상태={state} | source={source}")
+            if state in ("STARTED", "UNKNOWN", "SENDING"):
+                _notify_dm_manual_review(source, mid, f"이전 발송 상태({state})라 AI 자동응답을 중단")
+            return
+        if not _store.try_begin_effect(source, mid, token, "private_reply", ("NOT_APPLICABLE",)):
+            logger.warning(f"[AutoReply] DM_EVENT_FENCED(ai_en) — 선점 실패, 응답 보류 | source={source}")
+            return
+    except Exception as exc:
+        logger.error(f"[AutoReply] DM_EVENT_STORE_ERROR(ai_en) — 응답 HOLD | exception_type={type(exc).__name__}")
+        _alert_dm("저장소 장애 — AI 응답 HOLD", source, mid, "이벤트 저장소 오류", manual=True, level="error", throttle=True)
+        return
+
+    def _mark_unknown(detail: str) -> None:
+        try:
+            _store.mark_effect_unknown(source, mid, token, "private_reply")
+        except Exception:
+            pass
+        _hold_template_en_after_unknown(account_code_ref, sender_igsid)
+        _notify_dm_manual_review(source, mid, detail)
+
+    try:
+        buyer_hist, replies = _load_dm_history(account_code_ref, sender_igsid, inquiry_text)
+        facts = ai_reply_en.load_facts(account_code_ref)
+        result = ai_reply_en.generate_b2b_reply(
+            account_code_ref, credential_key, inquiry_text, buyer_hist, replies, facts,
+            intake_template=PRODUCT_CONFIRM_TEMPLATE_EN)
+        if result.needs_human:
+            _alert_dm("담당자 확인 필요", source, mid, f"AI 응답 사유={result.reason}", manual=True, level="warning")
+        if not result.text:
+            _store.finish_effect_failed(source, mid, token, "private_reply")   # 보낼 새 내용 없음 — 발송 안 함
+            logger.info(f"[AutoReply] AI 응답 생략(반복 방지) | reason={result.reason}")
+            return
+        _SEND_TLS.status = None
+        try:
+            ok = send_ig_reply(sender_igsid, result.text, account_code_ref)
+        except Exception:
+            _mark_unknown("AI 자동응답 발송 중 예외 — 전달 여부 불명(UNKNOWN)")
+            return
+        if not ok:
+            if not _last_send_failure_is_definite():
+                _mark_unknown("AI 자동응답 발송 응답이 모호(5xx 등) — 전달 여부 불명(UNKNOWN), retry 미등록")
+                return
+            _store.finish_effect_failed(source, mid, token, "private_reply")
+            from modules.common.retry_queue import get_retry_queue
+            rq = get_retry_queue()
+            rq.register("ig_auto_reply", _retry_send_ig_reply)
+            rq.start()
+            rq.enqueue("ig_auto_reply", {
+                "sender_igsid": sender_igsid, "message": result.text, "account_code_ref": account_code_ref,
+                "dm_event": list(dm_event), "received_at": received_at.isoformat(),
+            })
+            logger.warning(f"[AutoReply] AI 응답 발송 실패 → retry queue 등록 | to={_mask_igsid(sender_igsid)}")
+            return
+        try:
+            _store.mark_effect_done(source, mid, token, "private_reply")
+        except Exception as exc:
+            logger.warning(f"[AutoReply] 이벤트 DONE 표시 실패(무시) | exception_type={type(exc).__name__}")
+        _remember_ai_reply(account_code_ref, sender_igsid, result.text)
+        _check_reply_sla(received_at, dm_event, "ai_en")
+        try:
+            _repo.record_reply_observability(
+                record_id, reply_mode_used="persona", send_status="sent",
+                prompt_version=_AI_PROMPT_VERSION, persona_check_pass=bool(facts.get("approved")))
+        except Exception as exc:
+            logger.warning(f"[AutoReply] Observability 기록 실패(무시) | exception_type={type(exc).__name__}")
+        _record_reply_text(record_id, result.text)
+    except Exception as exc:
+        logger.error(f"[AutoReply] AI_EN_PROCESS_ERROR | exception_type={type(exc).__name__}")
+        _mark_unknown("AI 자동응답 처리 중 예외 — 발송 여부 불명(UNKNOWN)")
+
+
 def _notify_dm_manual_review(source: str, mid: str, reason: str) -> bool:
     """UNKNOWN/STARTED/SENDING으로 남아 자동 재발송이 중단된 DM을 운영자가 놓치지 않도록 알린다
     (기존 Slack 재사용 + 실패 시 ERROR 로그·Telegram 대체)."""
@@ -603,10 +787,12 @@ def handle_price_inquiry(
     # 계정 미지정·조회실패·공란은 전부 기존 전역 PRICE_AUTO_REPLY_ENABLED 동작으로
     # fallback한다(Fail-open, 기존 동작 100% 보존).
     reply_mode = ""
+    credential_key = ""
     try:
         account = _repo.get_publish_account(account_code_ref) if account_code_ref else None
         if account:
             reply_mode = account.get("reply_mode", "")
+            credential_key = account.get("credential_key", "")
     except Exception as exc:
         logger.warning(f"[AutoReply] 계정 reply_mode 조회 실패 — 전역 기본값 사용 | {exc}")
     if not reply_mode and account_code_ref != GLOBAL_FALLBACK_ACCOUNT_CODE_REF:
@@ -622,7 +808,7 @@ def handle_price_inquiry(
     if not reply_mode:
         reply_mode = "persona" if PRICE_AUTO_REPLY_ENABLED else "template"
 
-    if reply_mode != "template_en":
+    if reply_mode not in ("template_en", "ai_en"):
         # 261029 STEP 2 정정(회장 확정) — 041·036 등 기존 계정은 가격 문의 전용 응답 정책을 그대로
         # 유지한다(이전에는 dm_receiver가 하던 가격 키워드 판정을 처리기 안으로 옮긴 것, 동작 불변).
         # template_en 계정은 키워드와 무관하게 모든 DM에 계정 정책(reply_mode)을 적용한다.
@@ -646,7 +832,7 @@ def handle_price_inquiry(
             logger.info(f"[AutoReply] duplicate skip | record={record_id} sender={sender_igsid} status=auto_replied")
             return
     # Lead_Interactions.reply_mode_used 선택지에 template_en이 없으므로 기록은 template으로 남긴다.
-    reply_mode_logged = "template" if reply_mode == "template_en" else reply_mode
+    reply_mode_logged = "template" if reply_mode == "template_en" else ("persona" if reply_mode == "ai_en" else reply_mode)
 
     if reply_mode == "disabled":
         logger.info(f"[AutoReply] reply_mode=disabled — 응답 생략 | account_code_ref={account_code_ref or 'unknown'}")
@@ -654,6 +840,19 @@ def handle_price_inquiry(
             _repo.record_reply_observability(record_id, reply_mode_used="disabled", send_status="skipped")
         except Exception as exc:
             logger.warning(f"[AutoReply] Observability 기록 실패(무시) | {exc}")
+        return
+
+    if reply_mode == "ai_en":
+        # 261029 STEP 2-B — 영속 중복 방지가 켜진 경로(dm_event)에서만 AI 응답을 만든다. 꺼져 있으면 Meta 재전송이
+        # 중복 AI 응답을 만들 수 있으므로 보류하고 알린다(Fail-closed).
+        if not dm_event:
+            logger.warning(f"[AutoReply] AI_EN_REQUIRES_DEDUP — DM_EVENT_DEDUP_ENABLED OFF, AI 응답 보류 | account_code_ref={account_code_ref}")
+            _alert_dm("AI 응답 보류 — 중복 방지 OFF", f"instagram_dm:{account_code_ref or 'UNRESOLVED'}", "",
+                      "영속 중복 방지 플래그가 꺼져 있어 ai_en 자동응답을 보류", manual=True, level="error", throttle=True)
+            return
+        _dispatch_ai_en(record_id=record_id, sender_igsid=sender_igsid, inquiry_text=inquiry_text,
+                        received_at=received_at, account_code_ref=account_code_ref,
+                        credential_key=credential_key, dm_event=dm_event)
         return
 
     reply_price = None
