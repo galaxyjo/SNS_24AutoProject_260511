@@ -81,30 +81,74 @@ def test_send_ig_dm_still_falls_back_when_unresolved_account_is_the_fallback_own
     assert captured.get("called") is True
 
 
-def test_send_ig_dm_falls_back_to_global_when_account_code_ref_empty(monkeypatch):
-    """account_code_ref가 없는(레거시/미해석) DM은 기존처럼 전역 fallback을
-    그대로 유지해야 한다(회귀 방지)."""
+def test_send_ig_dm_blocks_when_account_code_ref_empty(monkeypatch):
+    """261029 STEP 1 — account_code_ref가 공란(미식별)이면 전역(yuna) 경로로 발송하지 않고 False."""
     dm_auto_reply._repo = _FakeRepo({})
     monkeypatch.setenv("FACEBOOK_PAGE_ID", "111222333")
     monkeypatch.setattr(dm_followup_scheduler, "_get_page_token", lambda: "global-fallback-token")
 
-    captured = {}
+    called = {"post": 0}
 
-    class _FakeResp:
-        ok = True
-
-        def json(self):
-            return {"message_id": "mid_legacy"}
-
-    def _fake_post(url, headers=None, data=None, timeout=None):
-        captured["url"] = url
-        captured["headers"] = headers
-        return _FakeResp()
+    def _fake_post(*a, **k):
+        called["post"] += 1
+        raise AssertionError("공란 참조로 실제 발송을 시도하면 안 된다")
 
     monkeypatch.setattr(dm_followup_scheduler.requests, "post", _fake_post)
 
     sent = dm_followup_scheduler._send_ig_dm("sender1", "hello", account_code_ref="")
 
-    assert sent is True
-    assert captured["url"] == "https://graph.facebook.com/v25.0/111222333/messages"
-    assert captured["headers"]["Authorization"] == "Bearer global-fallback-token"
+    assert sent is False
+    assert called["post"] == 0
+
+
+def _due_record(record_id, account_code_ref):
+    return {"id": record_id, "igsid": "sender1", "bridge_status": "auto_replied",
+            "account_code_ref": account_code_ref}
+
+
+class _FakeFollowupRepo:
+    def __init__(self, records):
+        self._records = records
+        self.patches = []
+        self.status_updates = []
+
+    def fetch_leads_due(self, statuses, before_iso, limit=20):
+        return self._records
+
+    def _patch_lead_interaction(self, record_id, fields):
+        self.patches.append((record_id, fields))
+
+    def update_followup_status(self, *a, **k):
+        self.status_updates.append((a, k))
+
+
+def test_process_due_followups_marks_error_and_sends_nothing_when_account_unresolved(monkeypatch):
+    """공란 참조 레코드는 _send_ig_dm·retry_queue 모두 호출하지 않고 followup_error로 표시한다."""
+    repo = _FakeFollowupRepo([_due_record("recBlank", "")])
+    monkeypatch.setattr(dm_followup_scheduler, "_repo", repo)
+    sends = []
+    monkeypatch.setattr(dm_followup_scheduler, "_send_ig_dm", lambda *a, **k: sends.append(a) or True)
+
+    dm_followup_scheduler.process_due_followups()
+
+    assert sends == []
+    assert repo.patches == [("recBlank", {
+        "bridge_status": "followup_error",
+        "last_error_msg": "ACCOUNT_UNRESOLVED_FOLLOWUP_SKIPPED",
+    })]
+    assert repo.status_updates == []
+
+
+def test_process_due_followups_still_sends_for_global_fallback_account(monkeypatch):
+    """IDN-000041 레코드는 기존대로 발송되고 다음 단계로 전진한다(회귀 방지)."""
+    repo = _FakeFollowupRepo([_due_record("rec041", "IDN-000041")])
+    monkeypatch.setattr(dm_followup_scheduler, "_repo", repo)
+    sends = []
+    monkeypatch.setattr(dm_followup_scheduler, "_send_ig_dm", lambda *a, **k: sends.append(a) or True)
+    monkeypatch.setattr(dm_followup_scheduler, "_send_telegram_followup", lambda *a, **k: None)
+
+    dm_followup_scheduler.process_due_followups()
+
+    assert len(sends) == 1 and sends[0][2] == "IDN-000041"
+    assert repo.patches == []
+    assert len(repo.status_updates) == 1
