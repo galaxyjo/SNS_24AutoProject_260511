@@ -3310,3 +3310,10 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - 환경: Codex CLI 0.165.0 설치·로그인 확인, 빈 폴더 읽기 전용 호출 시험 22초 성공(저장소·비밀값 미전송). 재시작 예약 작업 `SNS_Restart_Watchdog`(SYSTEM, 일반 셸에서 `schtasks /run` 가능) 생성 — 처음에는 배터리 구동 중이라 Queued로 대기(ERR-188), 회장이 배터리 허용 설정 적용.
 - **재시작 실행(회장 승인):** 261029 21:10:55 SNS_Watchdog 재시작(서비스 PID 37668→29984), launcher 21:11:32 기동, Flask 21:12:04 복구, `/health` 200(운영 모드), 신규 ERROR 0건, retry 핸들러 7종 등록, `_job_dm_dead_monitor` 첫 실행 성공, `LAUNCHER_STALE` 해소. launcher는 DM 변경 커밋(599185b·efcb467·2cfc4dd)을 반영했고 `DM_EVENT_DEDUP_ENABLED`는 기본 false로 ON 미실시, 051 `reply_mode=disabled`·Airtable `template_en` 선택지 없음(영어 자동응답 미활성).
 - 남은 것: Push 승인(미Push 9커밋+이번 docs), 실제 DM 수신 후 `app.log`의 `mid_present` 확인(미관측), 배터리 상태에서 예약 작업 실동작 확인, Airtable `template_en`·051 활성화 승인, 안 B(접수 확인 문구), Slack 채널 stray `[DM 수동 확인 필요]` 확인, 기존 미커밋 문서(ERR-186/FP-121/INC-070)는 이번 Commit에서 제외.
+
+### 261029 23:10 KST — STEP 2-B 영어 B2B Gemini 문맥형 DM 응답(ai_en) 구현·Codex 검수 2회(미배포·비활성)
+
+- Commit: `832551c`(ai_en 구현: `ai_reply_en.py`·`dm_auto_reply.py` 분기·FACTS 골격·테스트), `494cc01`(Codex 1차 지적 반영). 후속 수정(락 stripe)은 별도 Commit. 상세는 ERR-187.
+- 결과: DM 관련 14개 파일 308 PASS(mock). 변이 검증에서 방어 장치 4종을 끄면 신규 테스트 13건 실패. 운영 `comment_events.db` 56건·`retry_queue.db` 257건 미변경.
+- **미배포·비활성:** ai_en은 Airtable `reply_mode` 선택지에 없고 051은 disabled이며 `DM_EVENT_DEDUP_ENABLED`가 꺼져 있으면 응답을 보류한다. 승인된 FACTS(`configs/dm_b2b_facts/IDN-000051.json` approved=true)가 없으면 모델을 부르지 않는다.
+- 활성화 전 필요(각각 회장 승인): FACTS 작성·승인, Airtable `ai_en`·`template_en` 선택지와 `Lead_Interactions.reply_text` 필드, 실제 DM에서 `mid_present` 확인 후 플래그 ON, 048은 `DM_AI_EN_ALLOWED_CREDENTIAL_KEYS`에 `SALE1` 명시, 영어 확인 문구(`ACK_REPLY`) 확정.
