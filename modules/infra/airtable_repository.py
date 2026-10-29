@@ -257,6 +257,9 @@ class AirtableRepository(RepositoryInterface):
                 "fields[5]": "max_posts",
                 "fields[6]": "publish_account_code",
                 "fields[7]": "collection_purpose",
+                # 261029 B2 — 사용권 선언 필드(공란·미체크는 미확인으로 취급)
+                "fields[8]": "permission_status",
+                "fields[9]": "sns_reuse_allowed",
                 "pageSize": 100,
             }
             if offset:
@@ -290,6 +293,8 @@ class AirtableRepository(RepositoryInterface):
                             max_posts=int(f.get("max_posts", 10)),
                             publish_account_code=f.get("publish_account_code", ""),
                             collection_purpose=f.get("collection_purpose", ""),
+                            permission_status=f.get("permission_status", ""),
+                            sns_reuse_allowed=bool(f.get("sns_reuse_allowed", False)),
                         )
                     )
             offset = data.get("offset")

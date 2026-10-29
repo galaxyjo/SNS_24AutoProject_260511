@@ -1077,11 +1077,27 @@ class FacebookCrawlAllTargetsFailedError(RuntimeError):
 _PUBLISH_ACCOUNT_CODE_RE = re.compile(r"^IDN-\d{6}$")
 
 
+def _rights_required_accounts() -> set:
+    """261029 B2 — CRAWL_RIGHTS_REQUIRED_ACCOUNTS(쉼표 구분 account_code, 기본 비어 있음=OFF).
+    목록에 든 게시 계정의 크롤 대상은 사용권이 확인된 경우에만 크롤한다.
+    호출 시점에 os.environ을 읽지만 실행 중인 프로세스에 즉시 반영된다고 가정하지 않는다."""
+    raw = os.getenv("CRAWL_RIGHTS_REQUIRED_ACCOUNTS", "")
+    return {c.strip() for c in raw.split(",") if c.strip()}
+
+
+def _rights_confirmed(target: dict) -> bool:
+    """사용권 확인 = permission_status가 'allowed'이고 sns_reuse_allowed가 True.
+    공란·unknown·blocked·미체크는 모두 미확인이다. 이 값은 사람이 입력한 선언이며 권리 증빙이 아니다."""
+    status = str(target.get("permission_status") or "").strip().lower()
+    return status == "allowed" and target.get("sns_reuse_allowed") is True
+
+
 def _route_crawl_targets(targets: list[dict], max_posts, data_classification: str, canary_run_id: str) -> list:
     """261022 B2 — Crawl_Target별 (url, max_posts, 게시 계정)을 정한다. 하나라도 어긋나면
     그 대상만 건너뛴다(Fail-closed). 공란이어도 다른 계정(IDN-000041 등)으로 보내지 않는다."""
     from modules.sns.content_filter import ACCOUNT_DOMAIN_POLICY, CATEGORY_DOMAIN_POLICY
 
+    rights_required = _rights_required_accounts()
     checked: dict[str, str] = {}   # account_code -> "" (OK) 또는 Skip 코드, 계정당 1회 검증
     routes = []
     for t in targets:
@@ -1121,6 +1137,9 @@ def _route_crawl_targets(targets: list[dict], max_posts, data_classification: st
                 checked[code] = "" if domain == "PRODUCT" else "CRAWL_TARGET_DOMAIN_MISMATCH"
         if checked[code]:
             _skip(f"{checked[code]} | account={code}")
+            continue
+        if code in rights_required and not _rights_confirmed(t):
+            _skip(f"CRAWL_TARGET_RIGHTS_UNCONFIRMED | account={code}")
             continue
         routes.append((url, min(target_max, max_posts), code))
     return routes

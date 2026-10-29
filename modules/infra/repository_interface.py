@@ -165,6 +165,9 @@ class CrawlTarget(TypedDict, total=False):
     # 261022 B2 — 크롤 결과를 게시할 계정(account_ref=크롤 브라우저 ID와 별개)과 운영 구분.
     publish_account_code: str
     collection_purpose:   str
+    # 261029 B2 — 크롤 대상 사용권 선언(사람이 입력한 상태이며 권리 증빙이 아님). 공란=미확인.
+    permission_status:    str    # allowed / blocked / unknown / ""
+    sns_reuse_allowed:    bool
 
 
 class PostPublishResult(TypedDict):

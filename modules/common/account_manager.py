@@ -118,6 +118,9 @@ def _load_crawl_targets_from_airtable() -> list[dict]:
             "publish_account_code": t.get("publish_account_code", ""),
             "collection_purpose":   t.get("collection_purpose", ""),
             "max_posts":            t.get("max_posts"),
+            # 261029 B2 — 사용권 선언(없으면 미확인). CRAWL_RIGHTS_REQUIRED_ACCOUNTS 계정에서만 쓰인다.
+            "permission_status":    t.get("permission_status", ""),
+            "sns_reuse_allowed":    bool(t.get("sns_reuse_allowed", False)),
         }
         for t in targets if t.get("platform") == "facebook" and t.get("target_url")
     ]
