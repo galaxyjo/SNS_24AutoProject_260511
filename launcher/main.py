@@ -314,6 +314,15 @@ def _job_comment_dead_monitor():
         logger.warning(f"[comment_dead_monitor] 신규 dead 알림 {n}건")
 
 
+@handle_errors(task="dm_dead_monitor", notify_fn=_slack)
+def _job_dm_dead_monitor():
+    """261029 STEP 2 — DM retry_queue dead(ig_auto_reply/ig_followup/dm_record_interaction) 능동 알림."""
+    from modules.dm.dm_retry_dead_monitor import check_dead_dm_tasks
+    n = check_dead_dm_tasks()
+    if n:
+        logger.warning(f"[dm_dead_monitor] 신규 dead 알림 {n}건")
+
+
 # Provider별 Meta Graph API 호스트 — 계정마다 다른 로그인 방식(260725 설계)을 고정 매핑한다.
 # 미등록 Provider는 이 dict에 없으므로 .get()이 None을 반환해 호출부에서 게시 전 차단된다(폴백 금지).
 PROVIDER_CONFIG = {
@@ -2714,6 +2723,9 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
                   })
     sched.add_job(_job_comment_dead_monitor, "interval", minutes=15,
                   id="comment_dead_monitor", next_run_time=now + timedelta(seconds=420),
+                  max_instances=1, coalesce=True)
+    sched.add_job(_job_dm_dead_monitor, "interval", minutes=2,
+                  id="dm_dead_monitor", next_run_time=now + timedelta(seconds=450),
                   max_instances=1, coalesce=True)
     sched.add_job(_job_scheduler_heartbeat_main, "interval", seconds=60,
                   id="scheduler_heartbeat_main", next_run_time=now + timedelta(seconds=10),
