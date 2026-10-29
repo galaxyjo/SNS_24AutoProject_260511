@@ -27,6 +27,20 @@ CAPTION_BLOCKLIST = [
     "lily",
 ]
 
+# PRODUCT(화장품 도매) 도메인 제외어 — 261029 ERR-186/041 오염 조사(157건 중 뷰티 무관 33건).
+# KEYWORDS 한 단어("wholesale"/"b2b" 등)만 맞아도 통과하던 구조에서, 실제로 통과해 게시된
+# 무관 유형(금융·대출, 행사, AI 서비스 홍보, 식품·건강식품, 생활용품)만 좁게 차단한다.
+# 실제 사례에 없는 일반 단어(trip/tea/vitamin 등)는 오탐 위험이 커서 넣지 않는다.
+# passes_keyword_filter()는 PRODUCT 경로(크롤 필터·게시 직전 Gate)에서만 호출된다.
+PRODUCT_EXCLUDE_TERMS = [
+    "factoring", "팩토링", "loan", "대출", "working capital", "securitization", "대부중개",
+    "morning rave",
+    "ai content",
+    "supplement", "건강식품", "건강기능식품", "omega-3", "omega3", "cheonggukjang",
+    "hangover", "kfood", "koreanfood",
+    "zipper bag", "bento",
+]
+
 # 중국어/베트남어 유니코드 범위 — 비율 기반(260812).
 # ERR-033/FP-022(전체가 베트남어인 게시글 차단)는 그대로 유지하되, A003/A005처럼
 # 한국어/영어 위주 정상 게시글에 외국어 글자가 소량 섞인 경우까지 통째로 버리지
@@ -83,6 +97,9 @@ def _passes_global_safety(text: str) -> bool:
 def passes_keyword_filter(text: str) -> bool:
     lower = text.lower()
     if not _passes_global_safety(text):
+        return False
+    if any(term in lower for term in PRODUCT_EXCLUDE_TERMS):
+        logger.info("[ProductExclude] 뷰티 무관 제외어 감지 — 제외")
         return False
     return (
         any(kw in lower for kw in KEYWORDS)
