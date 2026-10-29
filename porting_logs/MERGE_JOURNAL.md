@@ -3317,3 +3317,15 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - 결과: DM 관련 14개 파일 308 PASS(mock). 변이 검증에서 방어 장치 4종을 끄면 신규 테스트 13건 실패. 운영 `comment_events.db` 56건·`retry_queue.db` 257건 미변경.
 - **미배포·비활성:** ai_en은 Airtable `reply_mode` 선택지에 없고 051은 disabled이며 `DM_EVENT_DEDUP_ENABLED`가 꺼져 있으면 응답을 보류한다. 승인된 FACTS(`configs/dm_b2b_facts/IDN-000051.json` approved=true)가 없으면 모델을 부르지 않는다.
 - 활성화 전 필요(각각 회장 승인): FACTS 작성·승인, Airtable `ai_en`·`template_en` 선택지와 `Lead_Interactions.reply_text` 필드, 실제 DM에서 `mid_present` 확인 후 플래그 ON, 048은 `DM_AI_EN_ALLOWED_CREDENTIAL_KEYS`에 `SALE1` 명시, 영어 확인 문구(`ACK_REPLY`) 확정.
+
+### 261029 23:25 KST — STEP 2-B 활성화 단계 보류 기록(회장 결정)
+
+- 회장 결정: ① FACTS(`configs/dm_b2b_facts/IDN-000051.json`) 작성·승인은 **보류**, ② Airtable `ai_en`·`template_en` 선택지와 `Lead_Interactions.reply_text` 필드 추가, ③ `mid_present` 확인 후 `DM_EVENT_DEDUP_ENABLED` ON도 **보류**, ④ 영어 확인 문구(`ACK_REPLY`) 확정과 051 `reply_mode=ai_en` 전환·Canary는 앞 단계가 끝나기 전까지 진행하지 않는다.
+- 현재 상태: ai_en 코드는 Commit 완료(`832551c`·`494cc01`·`2a2e74b`·`cd7009b`)이나 **미Push(5커밋)·미배포·비활성**. FACTS는 `approved=false` 골격이며 이 상태에서는 모델 호출 0, 051은 disabled 유지.
+- 재개 조건: 회장이 FACTS 내용을 확정하는 시점부터 위 ②→③→④를 승인 순서대로 진행한다.
+
+### 261029 23:52 KST — STEP 2-B 배포 완료·잔여 HOLD 기록(회장 지시)
+
+- 배포: Push `e686106..f0f223a`(6커밋, `handoff_en` 포함), 23:40 `SNS_Restart_Watchdog` 1회 실행으로 새 코드 로드. `/health` ok, 신규 ERROR 0건, 051 `disabled` 유지, 기능 모두 OFF.
+- 잔여 HOLD(DEFER): 051 활성화 / Meta DM 수신 검증(`mid_present`·041 실웹훅) / A005 사용권·CTA / 051 Canary. 원인·Risk·재개 조건은 ERR-187의 '잔여 HOLD / DEFER' 항목 참조.
+- 재개 조건: 회장이 FACTS·문구·WhatsApp 번호를 확정하면 단계별 별도 승인으로 재개. 그 전까지 코드·Airtable·설정 변경 없음.
