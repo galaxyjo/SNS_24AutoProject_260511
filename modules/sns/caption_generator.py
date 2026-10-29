@@ -245,8 +245,28 @@ def _throttle():
     _last_call_ts = time.time()
 
 
-def generate_caption(text: str) -> tuple[str, str]:
+def _seo_prompt_rules(seo_keywords: str) -> str:
+    """261029 B1 — 051 전용 Persona SEO 규칙. seo_keywords가 비면 빈 문자열을 반환해
+    generate_caption() 프롬프트가 기존과 바이트 단위로 동일하게 유지된다."""
+    keywords = (seo_keywords or "").strip()
+    if not keywords:
+        return ""
+    return (
+        "- Hashtags: English only and relevant to the product; no Korean or other non-English words\n"
+        "- SEO: if one of these B2B keywords fits the product described in the post, use that ONE "
+        "keyword naturally within the first 125 characters of the caption, at most twice in total: "
+        f"{keywords}\n"
+        "- Use only facts stated in the post. Never invent prices, MOQ, quantities, discounts, "
+        "certifications or health claims\n"
+        "- Do not add any call-to-action line\n"
+    )
+
+
+def generate_caption(text: str, *, seo_keywords: str = "") -> tuple[str, str]:
     """FB 포스트 텍스트 → (Instagram 캡션, 해시태그) 반환.
+
+    seo_keywords(261029 B1, 선택): 비어 있으면 기존 프롬프트·반환 형식과 100% 동일.
+    값이 있으면 상품에 맞는 B2B 키워드 1개 사용 규칙만 프롬프트에 추가한다(CTA는 코드가 붙인다).
 
     Transient error(429/408/500/502/503/504/Timeout/연결재설정)는 최초 호출
     포함 최대 _MAX_ATTEMPTS(4)회까지 재시도(5s→20s→60s ±20% jitter, Provider
@@ -263,6 +283,7 @@ def generate_caption(text: str) -> tuple[str, str]:
         "- Hashtags: 5-10 relevant keywords with #, separated by spaces\n"
         "- Hashtags: Korea-related tags only. Do NOT include other country names (Myanmar, Vietnam, Philippines, China, Japan, etc.)\n"
         "- Output MUST be in English only\n"
+        + _seo_prompt_rules(seo_keywords) +
         "- Response format (use exactly this format):\n"
         "CAPTION: <caption text>\n"
         "HASHTAGS: <hashtags>\n\n"
@@ -325,6 +346,62 @@ def generate_caption(text: str) -> tuple[str, str]:
             return "", ""
 
     return "", ""
+
+
+_SEO_NUMBER_RE = re.compile(r"\d[\d,\.]*")
+# 원문에 없는데 영어 출력에만 나오면 사람이 확인해야 하는 사실성 표현(번역 차이일 수 있어 폐기하지 않고 draft).
+_SEO_UNVERIFIED_CLAIM_WORDS = (
+    "fda", "certified", "certification", "guarantee", "lowest price", "best price",
+    "free shipping", "clinically", "cure", "heal",
+)
+
+
+def _seo_numbers(text: str) -> set:
+    out = set()
+    for token in _SEO_NUMBER_RE.findall(text or ""):
+        token = token.replace(",", "").strip(".")
+        if token:
+            out.add(token)
+    return out
+
+
+def validate_seo_caption(
+    caption: str, hashtags: str, source_text: str, seo_keywords: str = "",
+) -> tuple[str, str]:
+    """261029 B1 — 051 전용 Persona SEO 캡션 결정적 검수. (status, code) 반환.
+
+    status: "ok" / "draft"(사람 검수 후 승격 — 자동 게시 불가) / "reject"(저장하지 않음).
+    - reject: 캡션·해시태그에 한글 등 비영어 문자(CAPTION_LANGUAGE_INVALID)
+    - draft : 해시태그 5~10개 범위 밖, 캡션 숫자가 원문 숫자로 확인되지 않음, 원문에 없는
+              인증·보증류 표현, 키워드 3회 이상 반복
+    영어 숫자가 원문의 숫자와 같으면 통과한다(번역·단위 표기 차이는 오류로 보지 않으며,
+    만·천 같은 한글 단위 환산처럼 확인할 수 없는 숫자는 draft로 보내 사람이 확인한다)."""
+    caption = caption or ""
+    hashtags = hashtags or ""
+    for ch in caption + hashtags:
+        if ord(ch) > 127 and ch.isalpha():
+            return "reject", "CAPTION_LANGUAGE_INVALID"
+
+    tags = [t for t in hashtags.split() if t.startswith("#")]
+    if not 5 <= len(tags) <= 10:
+        return "draft", "CAPTION_HASHTAG_COUNT"
+
+    unknown_numbers = _seo_numbers(caption) - _seo_numbers(source_text)
+    if unknown_numbers:
+        return "draft", "CAPTION_FACT_UNVERIFIED"
+
+    source_lower = (source_text or "").lower()
+    caption_lower = caption.lower()
+    for word in _SEO_UNVERIFIED_CLAIM_WORDS:
+        pattern = rf"\b{re.escape(word)}\b"
+        if re.search(pattern, caption_lower) and not re.search(pattern, source_lower):
+            return "draft", "CAPTION_CLAIM_UNVERIFIED"
+
+    for keyword in (k.strip().lower() for k in (seo_keywords or "").split(",")):
+        if keyword and caption_lower.count(keyword) > 2:
+            return "draft", "CAPTION_KEYWORD_STUFFING"
+
+    return "ok", ""
 
 
 def generate_hook_caption(

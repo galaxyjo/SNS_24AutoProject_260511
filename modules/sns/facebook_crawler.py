@@ -440,6 +440,85 @@ def run_exact_permalink_canary(
             logger.warning(f"[Canary/CLEANUP] AdsPower Stop API 실패 | {exc}")
 
 
+# ── 261029 B1 — 051 전용 Persona SEO 캡션 (기본 OFF) ─────────────────────────────
+# CAPTION_PERSONA_SEO_ACCOUNTS(쉼표 구분 account_code)에 든 계정만 신규 경로를 탄다. 비어 있거나
+# 목록 밖(IDN-000041 포함) 계정은 Persona 조회 없이 기존 generate_caption(text) 경로 그대로다.
+# 플래그는 호출 시점에 os.environ에서 읽지만, 실행 중인 프로세스에서 즉시 꺼진다고 가정하지 않는다
+# (.env 수정 반영·Persona 캐시 TTL 때문) — 확실한 OFF는 .env 수정 + launcher 재시작이다.
+_CAPTION_SEO_CACHE: dict = {}
+_CAPTION_SEO_OK_TTL_SEC = 600
+_CAPTION_SEO_FAIL_TTL_SEC = 60
+_APPROVED_CTA_PATH = Path(__file__).resolve().parents[2] / "configs" / "approved_caption_cta.json"
+_CTA_FORBIDDEN_WORDS = (
+    "lowest", "best price", "guarantee", "certified", "certification", "fda", "free shipping",
+    "http", "www", "@",
+)
+
+
+def _caption_seo_accounts() -> set:
+    raw = os.getenv("CAPTION_PERSONA_SEO_ACCOUNTS", "")
+    return {c.strip() for c in raw.split(",") if c.strip()}
+
+
+def _resolve_caption_seo(repo, account_code: str) -> tuple:
+    """(ctx, error_code). ctx = {"persona_code", "seo_keywords"} 또는 None. 성공 600초·실패 60초 캐시."""
+    now = time.time()
+    hit = _CAPTION_SEO_CACHE.get(account_code)
+    if hit is not None:
+        ts, value, code = hit
+        ttl = _CAPTION_SEO_OK_TTL_SEC if value is not None else _CAPTION_SEO_FAIL_TTL_SEC
+        if now - ts < ttl:
+            return value, code
+
+    from modules.infra.repository_interface import RepositoryValidationError
+    value, code = None, ""
+    try:
+        persona = repo.get_active_persona_by_account_code_v2(account_code)
+    except RepositoryValidationError:
+        code = "CAPTION_PERSONA_AMBIGUOUS"
+    except Exception as exc:
+        logger.error(f"[CaptionSEO] Persona 조회 오류 | account={account_code} | {type(exc).__name__}")
+        code = "CAPTION_PERSONA_LOOKUP_ERROR"
+    else:
+        if not persona:
+            code = "CAPTION_PERSONA_NOT_FOUND"
+        else:
+            persona_code = str(persona.get("persona_code", "") or "").strip()
+            seo_keywords = str(persona.get("seo_keywords", "") or "").strip()
+            if not persona_code or not seo_keywords:
+                code = "CAPTION_PERSONA_FIELD_MISSING"
+            else:
+                value = {"persona_code": persona_code, "seo_keywords": seo_keywords}
+    _CAPTION_SEO_CACHE[account_code] = (now, value, code)
+    return value, code
+
+
+def _load_approved_cta(persona_code: str) -> str:
+    """configs/approved_caption_cta.json에서 회장이 승인한 영어 CTA를 읽는다(매 호출 재조회,
+    캐시 없음). 파일 없음·값 없음(null)·검증 실패는 모두 ""(미승인)이며, Persona.conversion_cta
+    (라이브 문구 등)는 어떤 경우에도 사용하지 않는다."""
+    try:
+        data = json.loads(_APPROVED_CTA_PATH.read_text(encoding="utf-8"))
+        cta = data.get(persona_code)
+    except Exception:
+        return ""
+    if not isinstance(cta, str):
+        return ""
+    cta = cta.strip()
+    lowered = cta.lower()
+    if (
+        not cta
+        or len(cta) > 140
+        or any(ord(ch) > 127 for ch in cta)
+        or any(ch.isdigit() for ch in cta)
+        or "dm" not in lowered
+        or any(word in lowered for word in _CTA_FORBIDDEN_WORDS)
+    ):
+        logger.warning(f"[CaptionSEO] 승인 CTA 검증 실패 — 미승인 처리 | persona={persona_code}")
+        return ""
+    return cta
+
+
 def save_to_airtable(
     image_url,
     source_url,
@@ -465,7 +544,43 @@ def save_to_airtable(
     if repo.exists_post_by_image_url(image_url):
         print(f"[AIRTABLE] 중복 이미지 - 저장 생략: {image_url[:80]}...")
         return False
-    caption, hashtags = generate_caption(text)
+    _seo_force_draft = False
+    if target_publish_account_code_ref in _caption_seo_accounts():
+        _seo_ctx, _seo_err = _resolve_caption_seo(repo, target_publish_account_code_ref)
+        if _seo_ctx is None:
+            logger.warning(
+                f"[CaptionSEO] {_seo_err} — 저장 생략(다음 크롤에서 재수집) | "
+                f"account={target_publish_account_code_ref}"
+            )
+            return False
+        from modules.sns.caption_generator import validate_seo_caption
+        caption, hashtags = generate_caption(text, seo_keywords=_seo_ctx["seo_keywords"])
+        if caption:
+            _seo_status, _seo_code = validate_seo_caption(
+                caption, hashtags, original_text or text, _seo_ctx["seo_keywords"],
+            )
+            if _seo_status == "reject":
+                logger.warning(
+                    f"[CaptionSEO] {_seo_code} — 저장 생략 | account={target_publish_account_code_ref}"
+                )
+                return False
+            if _seo_status == "draft":
+                _seo_force_draft = True
+                logger.warning(
+                    f"[CaptionSEO] {_seo_code} — draft 저장(사람 검수 필요) | "
+                    f"account={target_publish_account_code_ref}"
+                )
+            _approved_cta = _load_approved_cta(_seo_ctx["persona_code"])
+            if _approved_cta:
+                caption = f"{caption}\n{_approved_cta}"
+            else:
+                _seo_force_draft = True
+                logger.warning(
+                    f"[CaptionSEO] CAPTION_CTA_NOT_APPROVED — draft 저장(CTA 없이) | "
+                    f"account={target_publish_account_code_ref}"
+                )
+    else:
+        caption, hashtags = generate_caption(text)
     print(f"[CAPTION] {caption[:60]}..." if caption else "[CAPTION] 생성 없음")
     _original = original_text or text
     try:
@@ -478,7 +593,7 @@ def save_to_airtable(
                 _r = upload_to_imgbb(image_url)
                 if _r.get("success"):
                     image_url = _r["public_url"]
-                    post_status = "ready"
+                    post_status = "draft" if _seo_force_draft else "ready"
                     logger.info("[ImgBB] 업로드 성공 | " + image_url[:80])
                 else:
                     logger.warning("[ImgBB] 업로드 실패 — 저장 생략(다음 크롤에서 재수집) | " + str(_r.get("error")))
