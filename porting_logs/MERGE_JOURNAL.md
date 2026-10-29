@@ -3294,3 +3294,12 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - 회장 확인: 048 Gemini 키는 051과 동일, 007 인스타 토큰은 공용 EAA와 동일. 검증(해시 일치, `/{ig_id}` 조회, Gemini 200) 후 `.env` 반영: 007 Instagram 2줄+주석, `SALE1_GEMINI_*` 2줄. Airtable 007 `account_code`·`api_provider` 입력(회장 승인). 키·토큰 값은 기록하지 않음.
 - 신규 문서 `docs/SESSION_HANDOFF_ABEAUTY_261028.md`(새 세션이 041 방식의 크롤→게시를 A_BEAUTY로 확장). 코드 변경 없음.
 - 남은 것: 048 핸들 불일치 확인, 007·048 `automation_enabled`·게시 승인, A_BEAUTY 크롤 확장 설계(새 세션), launcher 재시작(038 등록 반영), Push 승인.
+
+### 261029 17:35 KST — STEP 2 DM 발송 경계·영속 중복 방지·영어 B2B 응답·60초 SLA 알림(Commit 3개, 미Push)
+
+- Commit: `599185b`(팔로업 미식별 계정 발송 차단), `efcb467`(공통 DM 엔진: fail-closed·template_en·영속 중복·retry fencing·실패 분류·SLA 알림·dead 감시 모듈), `2cfc4dd`(launcher DM dead monitor job). 대상: `modules/dm/*`, `modules/comment/comment_event_store.py`(신규 함수 2개 39줄 추가, 기존 무수정), `launcher/main.py`(+12줄), 테스트 13개 파일. 상세·근거·Risk는 ERR-187.
+- 결과: 13개 파일 261 PASS(mock·임시 SQLite), 동시성 Barrier 8×30·4프로세스·변이 검증 통과, 운영 `comment_events.db` 56건·`retry_queue.db` 257건 미변경. 외부 오픈소스(chatwoot·insta-messaging·brightbean-chat[AGPL]·rasa)는 도입하지 않고 기존 `modules/dm` ADAPT. 기존 실패 테스트 1건(`test_normal_scheduler_contract_is_unchanged`)은 이번 변경 전부터 실패.
+- **운영 미반영:** 미Push·미Restart, `DM_EVENT_DEDUP_ENABLED` 기본 false 유지(ON 미실시), Airtable `template_en` 선택지·051 `reply_mode` 변경 없음(051 disabled 유지).
+- **Codex 최종 PASS 미수령**, SLA·알림·dead 감시·launcher job 변경분은 회장 지시로 Codex 검수 생략(High-Risk 스케줄러 변경 포함).
+- Rollback: 플래그 OFF 유지 / Commit 단위 `git revert`(launcher job은 `2cfc4dd` 단독) / 필요 시 `instagram_dm:*` 이벤트 행 삭제(승인 후). 반영·원복은 launcher Restart 필요.
+- 남은 것: Push 승인, Restart(플래그 OFF) 후 `mid_present` 실수신 확인, 안 B(접수 확인 문구), Airtable `template_en` 선택지·051 활성화 승인, Slack 채널 stray 알림 확인, 수동 확인 이벤트 조회 도구(DEFER).
