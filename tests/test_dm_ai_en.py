@@ -517,17 +517,30 @@ def test_ai_queue_is_bounded_and_alerts_instead_of_piling_up(monkeypatch, alerts
     assert any("대기열 포화" in a[0] for a in alerts)
 
 
-def test_ai_state_dicts_are_pruned(monkeypatch):
+def test_buyer_locks_are_fixed_size_and_consistent_per_key():
+    keys = [("A", f"buyer{i}") for i in range(1000)]
+    locks = {id(dm_auto_reply._ai_key_lock(k)) for k in keys}
+    assert len(locks) <= 64                                              # 락 개수는 늘지 않는다
+    assert dm_auto_reply._ai_key_lock(("A", "buyer7")) is dm_auto_reply._ai_key_lock(("A", "buyer7"))   # 같은 키는 항상 같은 락
+    assert not hasattr(dm_auto_reply, "_AI_KEY_LOCKS")                    # 만들고 지우는 락 딕셔너리는 없다(정리 경합 제거)
+
+
+def test_same_buyer_messages_stay_ordered_while_pruning_runs(monkeypatch):
+    lock = dm_auto_reply._ai_key_lock((ACCT, "buyerA"))
+    lock.acquire()
+    try:
+        dm_auto_reply._prune_ai_state()                                  # 정리가 돌아도 사용 중인 락은 그대로
+        assert dm_auto_reply._ai_key_lock((ACCT, "buyerA")) is lock and lock.locked()
+    finally:
+        lock.release()
+
+
+def test_reply_memory_is_pruned(monkeypatch):
     monkeypatch.setattr(dm_auto_reply, "_AI_STATE_PRUNE_AT", 4)
-    busy = dm_auto_reply._ai_key_lock(("A", "busy"))
-    busy.acquire()
     for i in range(10):
-        dm_auto_reply._ai_key_lock(("A", f"idle{i}"))
         dm_auto_reply._remember_ai_reply("A", f"b{i}", "text")
     dm_auto_reply._prune_ai_state()
-    assert ("A", "busy") in dm_auto_reply._AI_KEY_LOCKS and len(dm_auto_reply._AI_KEY_LOCKS) <= 2   # 잠긴 락은 보존
     assert len(dm_auto_reply._AI_REPLY_MEMORY) <= 4
-    busy.release()
 
 
 def test_retry_enqueue_failure_marks_unknown_instead_of_leaving_a_ghost(monkeypatch, alerts):

@@ -492,8 +492,11 @@ def send_telegram_price_pending(sender_igsid: str, inquiry: str) -> None:
 # 메시지는 락으로 순차 처리해 뒤 메시지가 앞 답변을 이력에 반영하게 한다. 영속 중복 방지(DM_EVENT_DEDUP_ENABLED)가
 # 꺼져 있으면 Meta 재전송이 중복 AI 응답을 만들 수 있으므로 ai_en은 응답을 보류하고 알린다(Fail-closed).
 _AI_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dm_ai_en")
-_AI_KEY_LOCKS: dict[tuple, threading.Lock] = {}
-_AI_KEY_LOCKS_GUARD = threading.Lock()
+# 계정+발신자별 순차 처리용 락. 락 객체를 만들고 지우는 방식은 '락을 얻기 직전에 정리되는' 경합이 생기므로,
+# 고정 개수의 락 배열(stripe)에 키를 해시로 배정한다 — 같은 키는 항상 같은 락, 개수는 늘지 않고 정리도 필요 없다
+# (서로 다른 바이어가 같은 락을 공유할 수는 있으나 순서 보장은 깨지지 않는다).
+_AI_LOCK_STRIPES = tuple(threading.Lock() for _ in range(64))
+_AI_KEY_LOCKS_GUARD = threading.Lock()   # _AI_REPLY_MEMORY 보호용
 _AI_REPLY_MEMORY: dict[tuple, deque] = {}
 _AI_HISTORY_DAYS = 14
 _AI_HISTORY_MAX = 6          # 프롬프트에 넣는 바이어 메시지 수
@@ -505,11 +508,7 @@ _AI_PROMPT_VERSION = "gemini-b2b-en-v1"
 
 
 def _ai_key_lock(key: tuple) -> threading.Lock:
-    with _AI_KEY_LOCKS_GUARD:
-        lock = _AI_KEY_LOCKS.get(key)
-        if lock is None:
-            lock = _AI_KEY_LOCKS[key] = threading.Lock()
-        return lock
+    return _AI_LOCK_STRIPES[hash(key) % len(_AI_LOCK_STRIPES)]
 
 
 def _unknown_hold_active(account_code_ref: str, sender_igsid: str) -> bool:
@@ -520,11 +519,8 @@ def _unknown_hold_active(account_code_ref: str, sender_igsid: str) -> bool:
 
 
 def _prune_ai_state() -> None:
-    """무한 증가 방지: 락은 잠겨 있지 않은 것만, 메모리는 오래 들어온 순으로 정리한다."""
+    """무한 증가 방지: 답변 메모리는 오래 들어온 순으로 정리한다(락은 고정 개수라 정리 대상이 아니다)."""
     with _AI_KEY_LOCKS_GUARD:
-        if len(_AI_KEY_LOCKS) > _AI_STATE_PRUNE_AT:
-            for key in [k for k, lk in _AI_KEY_LOCKS.items() if not lk.locked()]:
-                del _AI_KEY_LOCKS[key]
         if len(_AI_REPLY_MEMORY) > _AI_STATE_PRUNE_AT:
             for key in list(_AI_REPLY_MEMORY)[: len(_AI_REPLY_MEMORY) - _AI_STATE_PRUNE_AT // 2]:
                 del _AI_REPLY_MEMORY[key]
