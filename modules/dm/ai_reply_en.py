@@ -55,8 +55,25 @@ class AIReplyResult:
 
 # ── FACTS ───────────────────────────────────────────────────────────────────────
 
+_ACCOUNT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def credential_is_account_scoped(account_code_ref: str, credential_key: str) -> bool:
+    """ai_en은 그 계정 자신의 Gemini 키만 쓴다(Codex 검수 반영). credential_key가 계정 코드에서 만들어진
+    이름(IDN-000051 → IDN_000051)이거나, 회장이 환경변수 DM_AI_EN_ALLOWED_CREDENTIAL_KEYS(쉼표 구분)에 명시한
+    키일 때만 허용한다. 'AI'처럼 여러 계정이 공유하는 이름 매핑(예: aijomoojin)은 기본 거부."""
+    if not _ACCOUNT_RE.match(account_code_ref or "") or not credential_key:
+        return False
+    if credential_key.upper() == account_code_ref.replace("-", "_").upper():
+        return True
+    allowed = {k.strip().upper() for k in os.getenv("DM_AI_EN_ALLOWED_CREDENTIAL_KEYS", "").split(",") if k.strip()}
+    return credential_key.upper() in allowed
+
+
 def load_facts(account_code_ref: str) -> dict:
     """configs/dm_b2b_facts/{account}.json. 없거나 깨졌거나 approved가 true가 아니면 '검증된 사실 없음'."""
+    if not _ACCOUNT_RE.match(account_code_ref or ""):
+        return {"approved": False}   # 경로 이탈(../) 방지: 계정 코드 형식이 아니면 파일을 읽지 않는다
     path = FACTS_DIR / f"{account_code_ref}.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -87,8 +104,11 @@ _CLAIM_PATTERNS = {
     "CERT": re.compile(r"\b(?:fda|kfda|ce mark|iso ?\d*|certified|certification|halal|vegan|cruelty[- ]free|dermatolog\w*)\b", re.I),
     "SHIP": re.compile(r"\b(?:free shipping|ships? (?:to|in|within)|delivery (?:time|within|in)|lead time)\b", re.I),
     "ORDER": re.compile(r"\b(?:order (?:is |has been )?confirmed|confirmed (?:your )?order|we (?:have )?(?:received|placed) your order|payment (?:received|confirmed))\b", re.I),
-    "GUARANTEE": re.compile(r"\b(?:guarantee\w*|100%|best price|lowest price)\b", re.I),
+    "GUARANTEE": re.compile(r"\b(?:guarantee\w*|warranty|100%|best price|lowest price|special price|refund\w*)\b", re.I),
+    "OFFER": re.compile(r"\b(?:discount\w*|% ?off|free samples?|we (?:can|will) (?:supply|offer|ship|deliver|provide)|"
+                        r"will be (?:shipped|delivered)|bank transfer|paypal|customs|import (?:tax|duty)|wholesale price is)\b", re.I),
 }
+_SENSITIVE_WORDS = re.compile(r"\b(?:price|cost|moq|stock|ship\w*|deliver\w*|days?|weeks?|discount\w*|off|pay\w*|total|per|usd|krw)\b|[$€£₩%]", re.I)
 
 
 def check_grounding(answer: str, blob: str, inbound_text: str) -> str | None:
@@ -99,9 +119,15 @@ def check_grounding(answer: str, blob: str, inbound_text: str) -> str | None:
             token = m.group(0).lower()
             if token not in low_blob:
                 return f"{name}"
-    for num in _NUM_RE.findall(answer):
-        n = num.strip(",.")
-        if n and n not in blob and n not in inbound_text:
+    # 숫자는 FACTS에 있을 때만 근거가 된다. 바이어가 말한 숫자는 되풀이(수량 확인 등)에만 쓸 수 있고, 가격·배송·재고 같은
+    # 민감한 말과 같은 문장에서는 근거가 되지 못한다(바이어 숫자가 다른 주장을 정당화하지 못하게).
+    for sentence in re.split(r"(?<=[.!?])\s+|\n", answer):
+        for num in _NUM_RE.findall(sentence):
+            n = num.strip(",.")
+            if not n or n in blob:
+                continue
+            if n in inbound_text and not _SENSITIVE_WORDS.search(sentence):
+                continue
             return "NUMBER"
     return None
 
@@ -110,11 +136,23 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9가-힣 ]+", "", (text or "").lower()).strip()
 
 
+def _word_overlap(a: str, b: str) -> float:
+    wa, wb = set(a.split()), set(b.split())
+    if min(len(wa), len(wb)) < 4:
+        return 0.0
+    return len(wa & wb) / len(wa | wb)
+
+
 def is_repeat(answer: str, previous_replies: list[str]) -> bool:
+    """직전 답변들과 같거나 거의 같은 문장(문자열 유사도 또는 단어 집합 유사도)이면 반복으로 본다."""
     a = _norm(answer)
     if not a:
         return True
-    return any(difflib.SequenceMatcher(None, a, _norm(p)).ratio() >= REPEAT_SIMILARITY for p in previous_replies)
+    for prev in previous_replies:
+        p = _norm(prev)
+        if difflib.SequenceMatcher(None, a, p).ratio() >= REPEAT_SIMILARITY or _word_overlap(a, p) >= 0.75:
+            return True
+    return False
 
 
 # ── Gemini ──────────────────────────────────────────────────────────────────────
@@ -131,13 +169,15 @@ def _client_for(credential_key: str):
         except Exception as exc:
             raise AICredentialError(type(exc).__name__) from exc
         from google import genai
-        client = genai.Client(api_key=cred.api_key)
+        client = genai.Client(api_key=cred.api_key, http_options={"timeout": int(CALL_TIMEOUT_SECONDS * 1000)})
         _CLIENTS[credential_key] = client
         return client
 
 
 def build_prompt(blob: str, buyer_history: list[str], previous_replies: list[str], inbound_text: str) -> str:
     facts_part = blob if blob else "NO VERIFIED FACTS ARE AVAILABLE."
+    previous_replies = previous_replies[-6:]
+    inbound_text = inbound_text.replace("<<<", "< < <").replace(">>>", "> > >")   # 구분자 위조 방지
     buyer_part = "\n".join(f"- {t[:_MAX_HISTORY_CHARS]}" for t in buyer_history) or "(none)"
     reply_part = "\n".join(f"- {t[:_MAX_HISTORY_CHARS]}" for t in previous_replies) or "(none)"
     return (
@@ -199,6 +239,11 @@ def generate_b2b_reply(account_code_ref: str, credential_key: str, inbound_text:
                        facts: dict | None = None, intake_template: str = "") -> AIReplyResult:
     """한 건의 바이어 메시지에 대한 영어 답변. 어떤 실패도 예외로 올리지 않고 안전 문구/무발송으로 낮춘다."""
     blob = facts_blob(facts if facts is not None else load_facts(account_code_ref))
+    if not credential_is_account_scoped(account_code_ref, credential_key):
+        return _fallback("CREDENTIAL_NOT_ACCOUNT_SCOPED", previous_replies, intake_template)
+    if not blob:
+        # 승인된 FACTS가 없으면 모델을 부르지 않는다(Fail-closed) — 접수 템플릿/확인 문구만, 담당자 알림.
+        return _fallback("NO_VERIFIED_FACTS", previous_replies, intake_template)
     try:
         client = _client_for(credential_key)
     except AICredentialError:
@@ -227,7 +272,6 @@ def generate_b2b_reply(account_code_ref: str, credential_key: str, inbound_text:
         return _fallback(f"UNGROUNDED:{ungrounded}", previous_replies, intake_template, intent)
     if is_repeat(answer, previous_replies):
         return _fallback("REPEATED", previous_replies, intake_template, intent)
-    needs_human = bool(data.get("needs_human")) or not blob
+    needs_human = bool(data.get("needs_human"))
     return AIReplyResult(text=answer, needs_human=needs_human,
-                         reason="NO_VERIFIED_FACTS" if not blob else ("MODEL_NEEDS_HUMAN" if data.get("needs_human") else "OK"),
-                         intent=intent, used_ai=True)
+                         reason="MODEL_NEEDS_HUMAN" if needs_human else "OK", intent=intent, used_ai=True)

@@ -47,8 +47,35 @@ def _fetch_dead_tasks(since: str) -> list[dict]:
         conn.close()
 
 
+_STUCK_ALERTED: set[tuple[str, str]] = set()
+_STUCK_SECONDS = 180
+
+
+def check_stuck_sending(older_than_seconds: int = _STUCK_SECONDS) -> int:
+    """발송 중(SENDING)으로 오래 멈춘 DM 이벤트(작업 스레드가 선점 뒤 죽은 경우 등)를 한 번씩 알린다.
+    프로세스 안 메모리로 중복 알림을 막으므로 재시작하면 다시 알릴 수 있다(누락보다 중복이 안전)."""
+    alerted = 0
+    try:
+        stuck = event_store.list_stale_effects("instagram_dm:", "private_reply", "SENDING", older_than_seconds)
+    except Exception as exc:
+        logger.warning(f"[DmDeadMonitor] 멈춘 SENDING 조회 실패 | exception_type={type(exc).__name__}")
+        return 0
+    for source, mid in stuck:
+        if (source, mid) in _STUCK_ALERTED:
+            continue
+        if _alert_dm("발송 중 멈춤(SENDING)", source, mid,
+                     f"{older_than_seconds}초 넘게 발송 중 상태 — 작업이 중단됐을 수 있음", manual=True, level="error"):
+            _STUCK_ALERTED.add((source, mid))
+            alerted += 1
+    return alerted
+
+
 def check_dead_dm_tasks(since: str | None = None) -> int:
-    """기동 이후 새로 dead가 된 DM 작업을 알린다. 반환: 이번 실행에서 알림이 전달된 건수."""
+    """기동 이후 새로 dead가 된 DM 작업을 알린다. 반환: 이번 실행에서 알림이 전달된 dead 건수.
+    같은 주기에 멈춘 SENDING 이벤트도 점검한다(별도 건수는 로그로만 남긴다)."""
+    stuck = check_stuck_sending()
+    if stuck:
+        logger.warning(f"[DmDeadMonitor] 멈춘 SENDING 알림 {stuck}건")
     dead_tasks = _fetch_dead_tasks(since or _STARTED_AT)
     alerted = 0
     for task in dead_tasks:

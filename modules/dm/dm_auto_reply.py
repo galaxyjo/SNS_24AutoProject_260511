@@ -496,7 +496,11 @@ _AI_KEY_LOCKS: dict[tuple, threading.Lock] = {}
 _AI_KEY_LOCKS_GUARD = threading.Lock()
 _AI_REPLY_MEMORY: dict[tuple, deque] = {}
 _AI_HISTORY_DAYS = 14
-_AI_HISTORY_MAX = 6
+_AI_HISTORY_MAX = 6          # 프롬프트에 넣는 바이어 메시지 수
+_AI_REPLY_WINDOW = 12        # 반복 감지에 쓰는 우리 답변 수(프롬프트에는 최근 6개만)
+_AI_STATE_PRUNE_AT = 2000    # 락·메모리 항목이 이 수를 넘으면 오래된/미사용 항목을 정리한다
+# 대기 중이거나 실행 중인 AI 작업 상한. 넘으면 새 작업을 만들지 않고(무한 대기 금지) 담당자에게 알린다.
+_AI_PENDING = threading.BoundedSemaphore(int(os.getenv("DM_AI_MAX_PENDING", "20")))
 _AI_PROMPT_VERSION = "gemini-b2b-en-v1"
 
 
@@ -515,9 +519,20 @@ def _unknown_hold_active(account_code_ref: str, sender_igsid: str) -> bool:
         return held is not None and (now - held).total_seconds() < _TEMPLATE_EN_UNKNOWN_HOLD_MINUTES * 60
 
 
+def _prune_ai_state() -> None:
+    """무한 증가 방지: 락은 잠겨 있지 않은 것만, 메모리는 오래 들어온 순으로 정리한다."""
+    with _AI_KEY_LOCKS_GUARD:
+        if len(_AI_KEY_LOCKS) > _AI_STATE_PRUNE_AT:
+            for key in [k for k, lk in _AI_KEY_LOCKS.items() if not lk.locked()]:
+                del _AI_KEY_LOCKS[key]
+        if len(_AI_REPLY_MEMORY) > _AI_STATE_PRUNE_AT:
+            for key in list(_AI_REPLY_MEMORY)[: len(_AI_REPLY_MEMORY) - _AI_STATE_PRUNE_AT // 2]:
+                del _AI_REPLY_MEMORY[key]
+
+
 def _remember_ai_reply(account_code_ref: str, sender_igsid: str, text: str) -> None:
     with _AI_KEY_LOCKS_GUARD:
-        mem = _AI_REPLY_MEMORY.setdefault((account_code_ref, sender_igsid), deque(maxlen=_AI_HISTORY_MAX))
+        mem = _AI_REPLY_MEMORY.setdefault((account_code_ref, sender_igsid), deque(maxlen=_AI_REPLY_WINDOW))
         mem.append(text)
 
 
@@ -552,7 +567,7 @@ def _load_dm_history(account_code_ref: str, sender_igsid: str, current_text: str
         for text in _AI_REPLY_MEMORY.get((account_code_ref, sender_igsid), ()):
             if text not in replies:
                 replies.append(text)
-    return buyer[-_AI_HISTORY_MAX:], replies[-_AI_HISTORY_MAX:]
+    return buyer[-_AI_HISTORY_MAX:], replies[-_AI_REPLY_WINDOW:]
 
 
 def _record_reply_text(record_id: str, text: str) -> None:
@@ -567,11 +582,19 @@ def _record_reply_text(record_id: str, text: str) -> None:
 
 
 def _dispatch_ai_en(**kwargs) -> None:
+    ev = kwargs.get("dm_event")
+    _prune_ai_state()
+    if not _AI_PENDING.acquire(blocking=False):
+        # 대기열 포화 — 60초 SLA를 지킬 수 없으므로 새 작업을 쌓지 않고 담당자에게 넘긴다(이벤트는 선점 전 상태 유지).
+        logger.error("[AutoReply] AI_EN_QUEUE_FULL — AI 작업 상한 도달, 담당자 확인 필요")
+        _alert_dm("AI 응답 대기열 포화", ev[0] if ev else "", ev[1] if ev else "",
+                  "동시 AI 작업이 상한에 도달해 자동응답을 보류", manual=True, level="error", throttle=True)
+        return
     try:
         _AI_EXECUTOR.submit(_ai_en_worker, **kwargs)
     except Exception as exc:
+        _AI_PENDING.release()
         logger.error(f"[AutoReply] AI_EN_DISPATCH_FAILED | exception_type={type(exc).__name__}")
-        ev = kwargs.get("dm_event")
         _alert_dm("AI 응답 작업 등록 실패", ev[0] if ev else "", ev[1] if ev else "", type(exc).__name__,
                   manual=True, level="error", throttle=True)
 
@@ -584,6 +607,11 @@ def _ai_en_worker(*, record_id, sender_igsid, inquiry_text, received_at, account
     except Exception as exc:
         logger.error(f"[AutoReply] AI_EN_WORKER_ERROR | exception_type={type(exc).__name__}")
         _alert_dm("AI 응답 처리 예외", source, mid, type(exc).__name__, manual=True, level="error")
+    finally:
+        try:
+            _AI_PENDING.release()
+        except ValueError:
+            pass   # 테스트 등에서 dispatch를 거치지 않고 직접 호출된 경우
 
 
 def _ai_en_process(record_id, sender_igsid, inquiry_text, received_at, account_code_ref, credential_key, dm_event) -> None:
@@ -641,14 +669,19 @@ def _ai_en_process(record_id, sender_igsid, inquiry_text, received_at, account_c
                 _mark_unknown("AI 자동응답 발송 응답이 모호(5xx 등) — 전달 여부 불명(UNKNOWN), retry 미등록")
                 return
             _store.finish_effect_failed(source, mid, token, "private_reply")
-            from modules.common.retry_queue import get_retry_queue
-            rq = get_retry_queue()
-            rq.register("ig_auto_reply", _retry_send_ig_reply)
-            rq.start()
-            rq.enqueue("ig_auto_reply", {
-                "sender_igsid": sender_igsid, "message": result.text, "account_code_ref": account_code_ref,
-                "dm_event": list(dm_event), "received_at": received_at.isoformat(),
-            })
+            try:
+                from modules.common.retry_queue import get_retry_queue
+                rq = get_retry_queue()
+                rq.register("ig_auto_reply", _retry_send_ig_reply)
+                rq.start()
+                rq.enqueue("ig_auto_reply", {
+                    "sender_igsid": sender_igsid, "message": result.text, "account_code_ref": account_code_ref,
+                    "dm_event": list(dm_event), "received_at": received_at.isoformat(),
+                })
+            except Exception as exc:
+                # 재시도 등록에 실패하면 '재시도 가능한 채 큐에 없는' 이벤트가 되므로 UNKNOWN으로 명시하고 알린다.
+                _mark_unknown(f"AI 응답 발송 실패 후 retry 등록 실패({type(exc).__name__}) — 수동 확인 필요")
+                return
             logger.warning(f"[AutoReply] AI 응답 발송 실패 → retry queue 등록 | to={_mask_igsid(sender_igsid)}")
             return
         try:

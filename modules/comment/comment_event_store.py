@@ -299,6 +299,20 @@ def finish_effect_failed(source: str, source_event_id: str, claim_token: str, ef
         return cur.rowcount == 1
 
 
+def list_stale_effects(source_prefix: str, effect: str, state: str, older_than_seconds: int) -> list[tuple[str, str]]:
+    """읽기 전용: source가 prefix로 시작하고 effect 상태가 state인 채로 older_than_seconds보다 오래 갱신되지 않은
+    이벤트 목록(source, source_event_id). 발송 중(SENDING)에 멈춘 이벤트를 찾는 데 쓴다."""
+    assert effect in _VALID_EFFECTS
+    col = f"{effect}_status"
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    with _LOCK:
+        rows = _c().execute(
+            f"SELECT source, source_event_id FROM comment_events WHERE source LIKE ? AND {col}=? AND updated_at < ?",
+            (source_prefix + "%", state, cutoff),
+        ).fetchall()
+    return [(r["source"], r["source_event_id"]) for r in rows]
+
+
 # ── Airtable 기록 상태 ────────────────────────────────────────────────────────
 
 def mark_airtable_retry_pending(source: str, source_event_id: str, claim_token: str, retry_task_id: int) -> bool:
