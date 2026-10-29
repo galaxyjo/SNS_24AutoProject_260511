@@ -3277,6 +3277,14 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 
 - **ERR-185 갱신(261028 15:35):** 같은 유형이 007에도 있었음 — 007은 `.env`에 Instagram 줄 자체가 없었고 Airtable `account_code`·`api_provider`가 비어 있었다. 공용 EAA·IG ID(`@hsy00718g` 확인)와 Airtable 값을 입력해 해소. 048은 credential_key `SALE1`이라 `SALE1_GEMINI_*` 줄이 없어 Gemini 해석이 실패할 상태였고 051과 동일 키로 추가해 해소. 048의 Airtable `account_handle`은 IG 사용자명과 불일치(미해결).
 
+## ERR-186 | 051 A_BEAUTY Canary 첫 자동 게시가 뷰티와 무관한 B2B 금융(팩토링·대출) 홍보글로 올라감 — 게시는 성공, 내용은 실패, HOLD (261028 A_BEAUTY)
+- **증상:** 261028 16:22 IDN-000051(kbeautymcn)에 https://www.instagram.com/p/DfCGcxskrn8/ (Media 17956188525276295) 게시. 내용은 "Struggling with cash flow for your B2B business… accounts receivable factoring… working capital" + `#koreafactoring #korealoans` 등 — 화장품이 아닌 금융 서비스 홍보글. 041에 이미 올라간 글(`A-F3-261026-001`)의 중복 노출이기도 함. 회장 판정: "글은 올라갔지만 내용은 실패. HOLD. 이렇게 진행하면 안 된다."
+- **직접 원인(FACT):** ① 회장 요청 "조회수 1위"를 인사이트가 전 건 공란(57건)이라 판단할 수 없었고, 후속 지시 "최근에 올린 거"를 문자 그대로 적용해 041의 가장 최근 게시글을 선택했다. ② 그 글은 041 자신의 크롤 결과였는데 이미 뷰티 무관 내용이었다(PRODUCT 키워드 Gate가 041에서도 통과시킨 것으로 보임 — 041 `posted` 이력 자체에 오염이 있음, 아직 전수 조사 안 함). ③ 선택 시 내용이 금융 홍보임을 인지했는데도 확인 없이 게시했다 — 진행 방식 결함. ④ 레코드를 정상 크롤 경로(`save_to_airtable`→Gate)가 아니라 Airtable에 직접 `ready`로 만들어 게시해, 크롤 단계의 필터·`exists_post_by_image_url` 중복 차단을 거치지 않았다.
+- **미확인(UNKNOWN):** 게시 시점 `PUBLISH_TEXT_GATE_ENABLED` 값과 PRODUCT Gate가 이 글을 왜 통과시켰는지, 041 `posted` 57건 중 뷰티 무관 글 비율.
+- **같은 세션의 부수 결함:** (a) ImgBB URL(`i.ibb.co/bgR59npp`)이 Meta에서 `9004/2207052`(Only photo or video…)로 3회 실패 — 새로 호스팅해 재시도 성공(HEAD 200인데도 Meta 수집 실패, 원인 UNKNOWN). (b) A026(그룹 596545258124858)은 크롤 프로필이 피드를 못 열어 `div[role='feed']` 실패 — 가입 안 된 그룹으로 추정(INFERENCE). (c) `CRAWL_OPEN_CEILING=1000` 해제 직후 AdsPower 무료 한도(20회)를 소진, 16:18 "Exceeding open daily limit, recovery after 23 hours"로 크롤·친구요청 약 23시간 정지 — 해제는 회장 지시였으나 한도 소진 위험을 경고만 하고 막지 못했다. (d) 실행 중 launcher가 크롤 대상 목록을 캐시해 Airtable 변경이 재시작 전엔 반영되지 않음(재시작 후 크롤마다 재조회 확인). 
+- **변경 상태(원복 대상):** 051 `automation_enabled=true`(Airtable), A005 `publish_account_code=IDN-000051`·`max_posts=1`, A026은 training 원복 완료, `.env` `CRAWL_OPEN_CEILING=1000`(백업 scratchpad `env.bak_261028`), 게시물 DfCGcxskrn8(삭제는 회장 몫). **판정: HOLD** — 051 자동 게시는 내용 검수 체계 확정 전까지 진행하지 않는다.
+- **재발 방지(제안, 미구현):** ① "조회수 1위" 같은 근거 데이터가 비면 임의 대체 선택을 하지 않고 먼저 묻는다. ② 선택한 게시 내용이 계정 주제(A_BEAUTY=화장품)와 맞는지 게시 전에 회장에게 내용을 보여주고 확인받는다. ③ Canary 게시물은 정상 크롤 경로를 통해서만 만든다(수동 ready 레코드 금지). ④ PRODUCT 키워드 Gate에 금융·대출·팩토링 등 비(非)상품 키워드 차단 검토. ⑤ 크롤 상한 해제 시 AdsPower 일일 잔여 Open을 먼저 확인한다. **관련:** FP-121, INC-070
+
 ## ERR-187 | DM 자동응답·팔로업이 수신 계정을 모를 때 yuna 전역 자격증명으로 발송 가능, DM 중복·retry 경계 미비 — MITIGATED(코드·테스트·배포 완료: 261029 21:10 launcher 재시작, 플래그 OFF, 미Push) (261029 A-COS STEP 1·2)
 - **증상(감사에서 발견, 운영 사고 아님):** 수신 계정을 식별하지 못한 DM(`account_code_ref` 공란)이 `handle_price_inquiry`·`send_ig_reply`·`_retry_send_ig_reply`·`_send_ig_dm`(팔로업)에서 전역 yuna Page Token으로 fallback 발송될 수 있었다(오계정 발송 위험). 영어 B2B 계정(051)은 영어 응답이 없고 한국어 템플릿이 나갈 수 있었으며, DM에는 `mid` 기반 중복 방지와 발송 지연(SLA)·장애 알림이 없었다.
 - **근거(Evidence):** 코드 대조(`dm_auto_reply.py`·`dm_followup_scheduler.py`·`dm_receiver.py`), Airtable 읽기 전용(Account_Registry 51계정 중 reply_mode 공란 49·persona 1·disabled 1, Lead_Interactions 165건 중 140건 계정 참조 공란), `db/retry_queue.db` 읽기 전용(공란 참조 `ig_auto_reply` 19·`ig_followup` 12건 전부 `dead`, 대기 0건). 실제 오발송 발생 증거는 없다.
@@ -3301,3 +3309,14 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **판단 오류(정직 기록):** 21:03 보고에서 '권한 설정 성공'이라고 했으나 재시작 효과는 미확인이었고, 다음 확인에서 정정했다. 성공 판정은 State·프로세스 PID 교체·SCM 이벤트로 해야 한다.
 - **조치:** 충전기 연결로 재시작 실행, 회장이 관리자 PowerShell에서 `-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 5분` 설정 적용(작업 State=Ready 확인, **배터리 상태에서의 실제 동작은 UNKNOWN**). 재발 방지: 서버는 AC 상시 연결(ERR-134), 재시작 확인은 State·PID·SCM 이벤트로 판정.
 - **관련:** ERR-134(AC 상시 연결), ERR-187
+
+---
+
+## ERR-189 | 테스트 실행이 운영 `db/retry_queue.db`와 운영 로그에 테스트 데이터(`rec1`·`b1`)를 남겨, 가짜 dead 작업과 에러 약 146건이 운영 장애처럼 보임 — OPEN (정확한 원인 테스트 UNKNOWN, 261029)
+
+- **증상:** 261029 15:10~16:33 `logs/error/error.log`에 `retry_queue 최대 재시도 초과 → dead | type=lead_update_score` 143건과 `[Airtable] 기록 실패 ... sender_id=b1 | airtable down` 3건이 찍혔다. 같은 날 error.log 153줄 중 나머지 7건은 별개 원인(AdsPower 열기 한도 4, Selenium 렌더러 timeout 1, `yuna_friend_request` RepositoryUnavailableError 1, aijomoojin `MissedSlot` 1)이다.
+- **근거(Evidence):** `db/retry_queue.db`(읽기 전용 조회)에서 id 10090~10250 범위 dead `lead_update_score` 145건의 payload가 전부 `{"record_id":"rec1","score":0,"grade":"cold"}`(고유 record_id 1개). 각 시도는 `[Lead_Interactions] 레코드 없음: NOT_FOUND`로 실패했다. created_at 08:08~09:17은 UTC로 보이며 ICT 15:08~16:17과 로그 시각이 일치한다. `sender_id=b1`·mid `mA`/`mB`는 `tests/test_dm_receiver_webhook.py`, `tests/test_dm_account_routing.py`의 테스트 값과 같고, 같은 시간대에 다른 세션이 DM 엔진 테스트를 실행했다. Airtable 실제 장애 증거는 없다.
+- **판정(FACT/추정 분리):** FACT — 운영 큐와 운영 로그에 테스트 값이 들어왔다. 추정 — 테스트 실행이 운영 큐·로그 경로를 격리하지 않은 것이 원인이다. UNKNOWN — "rec1/score 0/cold"를 만든 정확한 테스트(`test_crm_write_retry_queue.py`는 rec1을 쓰지만 25/hot이라 값이 다름), DB 145건 대 로그 143건의 차이 2건, 큐에 남은 다른 dead(`ig_auto_reply` 19, `ig_followup` 20, `lead_mark_closed` 31, `lead_update_score` 총 185)와 이번 건의 관계.
+- **영향:** 실제 리드·051 게시·Kill Switch에는 영향 없음(확인). 영향은 진짜 장애와의 구분 불가, 오경보·SLA 알림·Gate 판정 오염 가능성이다.
+- **조치:** 없음(읽기 전용 조사와 문서 기록만 수행). dead 정리, 테스트 격리 수정, 커밋은 별도 승인 대상이다.
+- **관련:** ERR-187, ERR-188, FP-122
