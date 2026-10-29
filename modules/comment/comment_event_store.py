@@ -260,6 +260,45 @@ def mark_effect_unknown(source: str, source_event_id: str, claim_token: str, eff
     )
 
 
+# ── 원자적 발송 선점 (261029 DM retry 동시 실행 fencing, 댓글 경로에서는 사용하지 않음) ──────
+
+def try_begin_effect(source: str, source_event_id: str, claim_token: str, effect: str, from_states: tuple) -> bool:
+    """effect 상태를 from_states 중 하나일 때만 'SENDING'으로 바꾸는 단일 UPDATE.
+    claim_token 일치 + 현재 상태 조건을 한 문장에 담아, 같은 이벤트를 동시에 처리하려는
+    호출자 중 정확히 한 곳만 True를 받는다(get_status 후 mark_effect_started 조합의 TOCTOU 방지).
+    상태값 'SENDING'은 '발송 진행 중(또는 진행 중 중단)'을 뜻하며, 프로세스가 이 상태에서 죽으면
+    자동으로 풀리지 않고 호출부가 수동 확인 대상으로 취급한다."""
+    assert effect in _VALID_EFFECTS
+    assert from_states, "from_states 필수"
+    col = f"{effect}_status"
+    marks = ",".join("?" for _ in from_states)
+    now = _now_iso()
+    with _LOCK:
+        cur = _c().execute(
+            f"UPDATE comment_events SET updated_at=?, {col}='SENDING' "
+            f"WHERE source=? AND source_event_id=? AND claim_token=? AND {col} IN ({marks})",
+            (now, source, source_event_id, claim_token, *from_states),
+        )
+        _c().commit()
+        return cur.rowcount == 1
+
+
+def finish_effect_failed(source: str, source_event_id: str, claim_token: str, effect: str) -> bool:
+    """확정 실패(예: HTTP 오류로 미발송이 분명) 시 'SENDING' → 'STARTED'로 되돌려 재시도를 허용한다.
+    claim_token과 현재 상태('SENDING')가 모두 맞을 때만 갱신한다."""
+    assert effect in _VALID_EFFECTS
+    col = f"{effect}_status"
+    now = _now_iso()
+    with _LOCK:
+        cur = _c().execute(
+            f"UPDATE comment_events SET updated_at=?, {col}='STARTED' "
+            f"WHERE source=? AND source_event_id=? AND claim_token=? AND {col}='SENDING'",
+            (now, source, source_event_id, claim_token),
+        )
+        _c().commit()
+        return cur.rowcount == 1
+
+
 # ── Airtable 기록 상태 ────────────────────────────────────────────────────────
 
 def mark_airtable_retry_pending(source: str, source_event_id: str, claim_token: str, retry_task_id: int) -> bool:

@@ -108,6 +108,30 @@ class TestAutoReplyHook:
         yield
         dm_auto_reply._AWAITING_PRODUCT_DEDUP.clear()
 
+    @pytest.fixture(autouse=True)
+    def _hermetic_repo(self):
+        """실제 AirtableRepository 호출(조회 실패가 try/except에 삼켜져 통과하는 False Positive)을
+        차단하기 위해 메모리 fake로 대체. get_publish_account=None → reply_mode 공란."""
+        from modules.dm import dm_auto_reply
+
+        class _NoNetworkRepo:
+            def has_recent_auto_reply(self, *a, **k):
+                return False
+
+            def get_publish_account(self, *a, **k):
+                return None
+
+            def get_persona_by_account_code(self, *a, **k):
+                return None
+
+            def record_reply_observability(self, *a, **k):
+                return None
+
+        original = dm_auto_reply._repo
+        dm_auto_reply._repo = _NoNetworkRepo()
+        yield
+        dm_auto_reply._repo = original
+
     def test_handle_price_inquiry_blocked_by_rule(self, monkeypatch):
         """banned 메시지 수신 시 handle_price_inquiry가 조기 반환되어야 한다."""
         from modules.dm import dm_auto_reply
@@ -146,6 +170,7 @@ class TestAutoReplyHook:
             sender_igsid="ig_test",
             inquiry_text="가격 문의드립니다",
             received_at=datetime.now(timezone.utc),
+            account_code_ref="IDN-000041",
         )
 
         assert "price" not in called, "Gate C: PRICE_AUTO_REPLY_ENABLED=false인데 get_base_price가 호출됨"
@@ -168,6 +193,7 @@ class TestAutoReplyHook:
             sender_igsid="ig_test",
             inquiry_text="가격 문의드립니다",
             received_at=datetime.now(timezone.utc),
+            account_code_ref="IDN-000041",
         )
 
         assert "price" in called, "PRICE_AUTO_REPLY_ENABLED=true인데 get_base_price 미호출 — 필터가 잘못 차단함"
@@ -271,10 +297,12 @@ class TestAutoReplyHook:
         dm_auto_reply.handle_price_inquiry(
             record_id="rec_test", sender_igsid="ig_dedup_test",
             inquiry_text="가격 문의드립니다", received_at=now,
+            account_code_ref="IDN-000041",
         )
         dm_auto_reply.handle_price_inquiry(
             record_id="rec_test2", sender_igsid="ig_dedup_test",
             inquiry_text="가격 문의드립니다", received_at=now,
+            account_code_ref="IDN-000041",
         )
 
         assert len(send_calls) == 1, "3분 내 동일 문의 재수신인데 상품확인 요청이 또 발송됨"
@@ -295,10 +323,12 @@ class TestAutoReplyHook:
         dm_auto_reply.handle_price_inquiry(
             record_id="rec_test", sender_igsid="ig_dedup_test",
             inquiry_text="A상품 가격이 얼마예요", received_at=now,
+            account_code_ref="IDN-000041",
         )
         dm_auto_reply.handle_price_inquiry(
             record_id="rec_test2", sender_igsid="ig_dedup_test",
             inquiry_text="B상품 단가 문의드려요", received_at=now,
+            account_code_ref="IDN-000041",
         )
 
         assert len(send_calls) == 2, "같은 buyer의 다른 상품 문의가 중복으로 취급되어 응답이 유실됨"
@@ -330,10 +360,12 @@ class TestAutoReplyHook:
         dm_auto_reply.handle_price_inquiry(
             record_id="rec_test", sender_igsid="ig_dedup_test",
             inquiry_text="가격이요", received_at=now,
+            account_code_ref="IDN-000041",
         )
         dm_auto_reply.handle_price_inquiry(
             record_id="rec_test2", sender_igsid="ig_dedup_test",
             inquiry_text="가격이요", received_at=now,
+            account_code_ref="IDN-000041",
         )
 
         assert len(send_calls) == 2, "1차 발송 실패 후 재시도가 중복으로 막힘 — 선점 해제 안 됨"
@@ -362,12 +394,14 @@ class TestAutoReplyHook:
             dm_auto_reply.handle_price_inquiry(
                 record_id="rec1", sender_igsid="ig_exc_test",
                 inquiry_text="가격이요", received_at=now,
+                account_code_ref="IDN-000041",
             )
 
         # 재시도 — 선점이 해제됐으면 두 번째 호출이 통과해야 한다.
         dm_auto_reply.handle_price_inquiry(
             record_id="rec2", sender_igsid="ig_exc_test",
             inquiry_text="가격이요", received_at=now,
+            account_code_ref="IDN-000041",
         )
 
         assert call_count["n"] == 2, "예외 발생 후 재시도가 중복으로 막힘 — 선점 해제 안 됨"
@@ -398,6 +432,7 @@ class TestAutoReplyHook:
             dm_auto_reply.handle_price_inquiry(
                 record_id=rec_id, sender_igsid="ig_concurrent_test",
                 inquiry_text="가격이요", received_at=now,
+                account_code_ref="IDN-000041",
             )
 
         t1 = threading.Thread(target=_worker, args=("rec1",))

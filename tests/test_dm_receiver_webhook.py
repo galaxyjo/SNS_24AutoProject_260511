@@ -186,6 +186,7 @@ class TestTwoPhaseProcessing:
         monkeypatch.setattr(dm_receiver, "is_repeat_inquiry", lambda *a, **k: False)
         monkeypatch.setattr(dm_receiver, "detect_order", lambda *a, **k: False)
         monkeypatch.setattr(dm_receiver, "detect_price_inquiry", lambda *a, **k: False)
+        monkeypatch.setattr(dm_receiver, "handle_price_inquiry", lambda *a, **k: None)  # 261029: 모든 DM이 처리기로 위임되므로 격리
 
         payload = {
             "object": "instagram",

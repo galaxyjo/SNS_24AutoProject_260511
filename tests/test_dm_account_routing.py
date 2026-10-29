@@ -50,6 +50,7 @@ def _stub_common(monkeypatch, dm_calls):
     monkeypatch.setattr(dm_receiver, "is_repeat_inquiry", lambda *a, **k: False)
     monkeypatch.setattr(dm_receiver, "detect_order", lambda *a, **k: False)
     monkeypatch.setattr(dm_receiver, "detect_price_inquiry", lambda *a, **k: False)
+    monkeypatch.setattr(dm_receiver, "handle_price_inquiry", lambda *a, **k: None)  # 261029: 모든 DM이 처리기로 위임되므로 격리
 
 
 class TestKillSwitchDefaultOff:
@@ -255,3 +256,58 @@ class TestCommentCallerUnaffected:
         assert args == ("c1", "b1", "가격문의", "media1")
         assert kwargs == {"ingress": "webhook", "commenter_id": "u1"}
         assert "account_code_ref" not in kwargs, "댓글 Caller에 계정 관련 인자가 유입되면 안 됨"
+
+
+class TestAllDmsAcceptedRegardlessOfKeywords:
+    """261029 STEP 2 정정(회장 확정): 키워드와 무관하게 모든 텍스트 DM을 저장·알림하고
+    계정 정책 처리기로 위임한다. 자동응답 여부·언어는 처리기(계정 reply_mode)가 결정."""
+
+    def _setup(self, monkeypatch, lookup):
+        monkeypatch.setattr(dm_receiver, "DM_ACCOUNT_ROUTING_ENABLED", True)
+        monkeypatch.setattr(dm_receiver._repo, "get_publish_account_by_ig_user_id", lookup)
+        saved, alerts, handled = [], [], []
+        monkeypatch.setattr(dm_receiver, "record_interaction",
+                             lambda *a, **k: saved.append((a, k)) or "rec1")
+        monkeypatch.setattr(dm_receiver, "send_telegram", lambda *a, **k: alerts.append(a))
+        monkeypatch.setattr(dm_receiver, "is_repeat_inquiry", lambda *a, **k: False)
+        monkeypatch.setattr(dm_receiver, "detect_order", lambda *a, **k: False)
+        monkeypatch.setattr(dm_receiver, "handle_price_inquiry",
+                             lambda *a, **k: handled.append((a, k)))
+        return saved, alerts, handled
+
+    def test_new_sender_general_dm_is_saved_alerted_and_delegated(self, client, monkeypatch):
+        lookup = lambda ig_user_id: {"account_code": "IDN-000051", "api_provider": "facebook_login",
+                                       "ig_user_id": ig_user_id, "credential_key": "IDN_000051"}
+        saved, alerts, handled = self._setup(monkeypatch, lookup)
+
+        resp = _signed_post(client, "/webhook", _dm_payload(sender="new_buyer", text="Hello, nice to meet you"))
+
+        assert resp.status_code == 200
+        assert len(saved) == 1 and saved[0][1]["account_code_ref"] == "IDN-000051"
+        assert len(alerts) == 1
+        assert len(handled) == 1 and handled[0][1]["account_code_ref"] == "IDN-000051"
+
+    def test_unresolved_account_still_saved_and_alerted_handler_gets_blank_ref(self, client, monkeypatch):
+        saved, alerts, handled = self._setup(monkeypatch, lambda ig_user_id: None)
+
+        resp = _signed_post(client, "/webhook", _dm_payload(sender="new_buyer", text="Hello"))
+
+        assert resp.status_code == 200
+        assert len(saved) == 1 and saved[0][1]["account_code_ref"] == ""
+        assert len(alerts) == 1
+        assert len(handled) == 1 and handled[0][1]["account_code_ref"] == ""
+
+    def test_order_dm_runs_order_conversion_and_also_delegates_with_is_order(self, client, monkeypatch):
+        lookup = lambda ig_user_id: {"account_code": "IDN-000051", "api_provider": "facebook_login",
+                                       "ig_user_id": ig_user_id, "credential_key": "IDN_000051"}
+        saved, alerts, handled = self._setup(monkeypatch, lookup)
+        converted = []
+        monkeypatch.setattr(dm_receiver, "detect_order", lambda *a, **k: True)
+        monkeypatch.setattr(dm_receiver, "handle_order_conversion", lambda *a, **k: converted.append(a))
+
+        resp = _signed_post(client, "/webhook", _dm_payload(sender="buyer", text="I want to order 200 pcs"))
+
+        assert resp.status_code == 200
+        assert len(converted) == 1
+        assert len(handled) == 1
+        assert handled[0][1]["is_order"] is True and handled[0][1]["account_code_ref"] == "IDN-000051"

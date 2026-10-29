@@ -21,7 +21,7 @@ from modules.infra.repository_interface import (
     RepositoryValidationError,
 )
 
-from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry, _mask_igsid, _telegram_preview
+from modules.dm.dm_auto_reply import detect_price_inquiry, handle_price_inquiry, _mask_igsid, _telegram_preview, _alert_dm
 from modules.common.canary_safe_mode import (
     CanarySafeModeState,
     get_canary_safe_mode_state,
@@ -49,6 +49,9 @@ AI_WEBHOOK_APP_SECRET   = os.getenv("AI_WEBHOOK_APP_SECRET", "")
 # Bundle B(260726) 킬스위치 — false(기본값)면 아래 계정 역조회·account_code_ref 기록을
 # 전혀 수행하지 않고 기존 DM 경로와 완전히 동일하게 동작한다(Codex/GPT 승인 조건).
 DM_ACCOUNT_ROUTING_ENABLED = os.getenv("DM_ACCOUNT_ROUTING_ENABLED", "false").lower() == "true"
+# 261029 STEP 2 — DM 영속 중복 방지(기존 comment_event_store 재사용, source=instagram_dm:{account_code},
+# id=Meta mid). 기본 false면 claim·저장소 호출이 전혀 없어 기존 DM 경로와 완전히 동일하다.
+DM_EVENT_DEDUP_ENABLED = os.getenv("DM_EVENT_DEDUP_ENABLED", "false").lower() == "true"
 CANARY_SAFE_MODE_STATE = get_canary_safe_mode_state()
 CANARY_SAFE_MODE_ENABLED = CANARY_SAFE_MODE_STATE.enabled
 
@@ -185,6 +188,48 @@ def _resolve_dm_account_code_ref(recipient_id: str | None) -> str:
     return account["account_code"]
 
 
+def _claim_dm_event(account_code_ref: str, mid: str):
+    """DM_EVENT_DEDUP_ENABLED=true일 때만 호출. (dm_event, reply_hold, duplicate) 반환.
+    - mid 없음 → 해시 대체 없이 응답만 HOLD(저장·알림 유지)
+    - 저장소 오류 → 응답만 HOLD(저장·알림 유지)
+    - 같은 (계정, mid)가 이미 claim됨 → duplicate=True(저장·알림·응답 모두 건너뜀)"""
+    source = f"instagram_dm:{account_code_ref or 'UNRESOLVED'}"
+    if not mid:
+        logger.warning("[DM] DM_MID_MISSING_REPLY_HOLD — mid 없음, 응답 HOLD(저장·알림 유지)")
+        _alert_dm("mid 누락 — 응답 HOLD", source, "", "자동응답 보류(저장·Telegram 알림은 유지)",
+                  manual=True, level="error", throttle=True)
+        return None, True, False
+    try:
+        from modules.comment import comment_event_store as store
+        token = store.try_claim(source, mid, "dm_webhook")
+    except Exception as exc:
+        logger.error(f"[DM] DM_EVENT_STORE_ERROR — 응답 HOLD(저장·알림 유지) | {exc}")
+        _alert_dm("저장소 장애 — 응답 HOLD", source, mid, "이벤트 저장소 오류로 자동응답 보류(저장·Telegram 알림은 유지)",
+                  manual=True, level="error", throttle=True)
+        return None, True, False
+    if token is None:
+        logger.info(f"[DM] 중복 이벤트 skip | source={source}")
+        return None, False, True
+    return (source, mid, token), False, False
+
+
+def _complete_dm_event(dm_event) -> str:
+    """레코드 접수(또는 retry queue 위임)가 영속 확정된 뒤 호출 — 이후 같은 mid는 재claim되지 않는다.
+    COMPLETED의 의미는 '접수(저장) 단계 완료'이며 Telegram 알림·자동응답 완료를 뜻하지 않는다.
+    반환: "ok"(또는 이벤트 없음) / "fenced"(claim을 잃음 — 호출부는 후속 부작용을 중단) / "error"."""
+    if not dm_event:
+        return "ok"
+    try:
+        from modules.comment import comment_event_store as store
+        if store.mark_airtable_done(*dm_event):
+            return "ok"
+        logger.warning("[DM] DM_EVENT_FENCED — 완료 표시 거절(claim 상실), 후속 알림·응답 중단")
+        return "fenced"
+    except Exception as exc:
+        logger.warning(f"[DM] 이벤트 완료 표시 실패 | {exc}")
+        return "error"
+
+
 # ── Webhook 엔드포인트 ────────────────────────────────────────────────────────
 
 @app.get("/webhook")
@@ -316,6 +361,16 @@ def _process_webhook_event(data: dict):
                 if recipient_id:
                     _account_code_cache[recipient_id] = account_code_ref
 
+            # 261029 STEP 2 — 플래그와 무관하게 mid 존재 여부만 로그로 남긴다(값은 기록하지 않음).
+            mid = (message.get("mid") or "").strip()
+            logger.info(f"[DM] mid_present={bool(mid)}")
+            dm_event, reply_hold = None, False
+            if DM_EVENT_DEDUP_ENABLED:
+                dm_event, reply_hold, duplicate = _claim_dm_event(account_code_ref, mid)
+                if duplicate:
+                    continue
+            reply_kwargs = {"dm_event": dm_event} if dm_event else {}
+
             # ERR-085: 웹훅 처리는 재실행 주기가 없으므로(크롤 배치와 달리) 여기서 실패를
             # 삼키면 그 DM 자체가 영구 유실된다 — retry_queue에 위임한다. record_interaction()
             # 실패와 send_telegram() 실패를 분리해, Telegram 실패로 레코드 재생성이 되지
@@ -334,7 +389,15 @@ def _process_webhook_event(data: dict):
                 rq.enqueue("dm_record_interaction", {
                     "sender_id": sender_id, "text": text, "account_code_ref": account_code_ref,
                 })
+                _complete_dm_event(dm_event)   # retry queue가 영속 보유 — 같은 mid 재처리 방지
                 continue
+            _completion = _complete_dm_event(dm_event)
+            if _completion == "fenced":
+                continue   # claim을 잃은 처리자는 알림·응답 등 후속 부작용을 진행하지 않는다
+            if _completion == "error":
+                reply_hold = True   # 저장소 상태를 확정하지 못했으므로 알림은 유지하되 자동응답만 HOLD
+                _alert_dm("저장소 장애 — 응답 HOLD", dm_event[0], dm_event[1], "접수 완료 표시 실패로 자동응답 보류",
+                          manual=True, level="error", throttle=True)
             send_telegram(sender_id, text)
 
             # Lead 스코어링
@@ -359,12 +422,24 @@ def _process_webhook_event(data: dict):
                     handle_order_conversion(record_id, sender_id, text)
                 except Exception as exc:
                     logger.error(f"[Order] 전환 처리 실패 | sender_id={sender_id} | {exc}")
-
-            # 단가 문의 감지 → 자동 응답 (주문이 아닌 경우)
-            elif detect_price_inquiry(text):
-                logger.info(f"[AutoReply] 단가 문의 감지 | from={sender_id}")
+                # 261029 회장 확정 — 주문 의사 DM도 template_en 계정은 영어 자동응답을 받는다.
+                # 기존 계정(041·036)은 처리기 안에서 is_order로 걸러져 기존 주문 처리 우선 정책 유지.
                 try:
-                    handle_price_inquiry(record_id, sender_id, text, received_at, account_code_ref=account_code_ref)
+                    if not reply_hold:
+                        handle_price_inquiry(record_id, sender_id, text, received_at,
+                                             account_code_ref=account_code_ref, is_order=True, **reply_kwargs)
+                except Exception as exc:
+                    logger.error(f"[AutoReply] 주문 DM 처리 실패 | sender_id={sender_id} | {exc}")
+
+            # 261029 STEP 2 정정(회장 확정) — 주문이 아닌 모든 DM을 키워드와 무관하게 처리기로 위임한다.
+            # 접수·저장·알림은 위에서 이미 끝났고, 자동응답 여부·언어는 수신 계정의 reply_mode가
+            # 처리기 안에서 결정한다(기존 계정의 가격 문의 전용 정책도 처리기에서 유지).
+            else:
+                logger.info(f"[AutoReply] 계정 정책 판정 위임 | from={_mask_igsid(sender_id)}")
+                try:
+                    if not reply_hold:
+                        handle_price_inquiry(record_id, sender_id, text, received_at,
+                                             account_code_ref=account_code_ref, **reply_kwargs)
                 except Exception as exc:
                     logger.error(f"[AutoReply] 처리 실패 | sender_id={sender_id} | {exc}")
 

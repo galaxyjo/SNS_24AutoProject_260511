@@ -121,33 +121,25 @@ def test_unsupported_provider_returns_none(monkeypatch):
     assert dm_auto_reply._resolve_dm_send_target("IDN-000099") is None
 
 
-def test_send_ig_reply_falls_back_to_global_when_target_unresolved(monkeypatch):
-    """account_code_ref가 없거나 해석 실패해도 send_ig_reply는 기존 전역 경로로
-    100% 동일하게 동작해야 한다(회귀 방지 — 이번 변경의 핵심 계약)."""
+def test_send_ig_reply_blocks_when_account_code_ref_empty(monkeypatch):
+    """261029 STEP 2 Codex 반영 — account_code_ref가 공란(미식별)이면 전역(yuna) 경로로
+    발송하지 않고 False를 반환한다. 직접 호출과 retry 재생 경계 모두 동일하다."""
     dm_auto_reply._repo = _FakeRepo({})
     monkeypatch.setenv("FACEBOOK_PAGE_ID", "111222333")
     monkeypatch.setattr(dm_auto_reply, "_get_page_token", lambda: "global-fallback-token")
 
-    captured = {}
+    posts = []
+    monkeypatch.setattr(dm_auto_reply.requests, "post", lambda *a, **k: posts.append(1))
 
-    class _FakeResp:
-        ok = True
+    assert dm_auto_reply.send_ig_reply("sender1", "hello", account_code_ref="") is False
+    assert posts == []
 
-        def json(self):
-            return {"message_id": "mid_123"}
-
-    def _fake_post(url, headers=None, data=None, timeout=None):
-        captured["url"] = url
-        captured["headers"] = headers
-        return _FakeResp()
-
-    monkeypatch.setattr(dm_auto_reply.requests, "post", _fake_post)
-
-    sent = dm_auto_reply.send_ig_reply("sender1", "hello", account_code_ref="")
-
-    assert sent is True
-    assert captured["url"] == "https://graph.facebook.com/v25.0/111222333/messages"
-    assert captured["headers"]["Authorization"] == "Bearer global-fallback-token"
+    # retry 재생: 공란 참조 payload(옛 큐 항목 포함)는 전송 없이 실패(예외)로 처리된다
+    with pytest.raises(RuntimeError):
+        dm_auto_reply._retry_send_ig_reply({"sender_igsid": "sender1", "message": "hello"})
+    with pytest.raises(RuntimeError):
+        dm_auto_reply._retry_send_ig_reply({"sender_igsid": "sender1", "message": "hello", "account_code_ref": ""})
+    assert posts == []
 
 
 def test_send_ig_reply_still_falls_back_when_unresolved_account_is_the_fallback_owner(monkeypatch):
