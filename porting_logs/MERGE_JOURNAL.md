@@ -3335,3 +3335,15 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - 사실: Facebook 그룹 `groups/3289570041331131`(Crawl_Targets A004, 게시 계정 IDN-000041)이 관리자에 의해 2026-08-03 일시중지됨(회장 스크린샷 확인).
 - 조치: Airtable Crawl_Targets 레코드 `recNoQfkvS1HB5oHq` status Active→Hold, notes 기록(코드 변경 없음). IDN-000041 크롤링 그룹은 A002·A003 2건.
 - 재개 조건: 그룹이 재개되면 status를 Active로 복원.
+
+### 261030 17:30 KST — IDN-000052(helper.for_u) HOLD(회장 지시)
+
+- 사실: 테스트 게시가 Meta code 25/subcode 2207050 "User access is restricted"로 실패. 회장이 혼동으로 연결 Facebook 페이지를 삭제함(Account_Registry의 fb_page_id 278800545319844는 39와 공유값이라 무효 가능).
+- 조치: automation_enabled=False 원복, last_error_msg에 HOLD 사유 기록. 코드 변경 없음. 같은 날 011·048·007·014 4계정은 게시 성공(회장 확인).
+- 재개 조건: 회장이 페이지·계정 구성을 확정한 뒤 확장 단계에서 fb_page_id 재설정 → Instagram 앱에서 제한 알림 확인 → 단일 Canary.
+
+### 261030 17:55 KST — 6계정 Instagram 게시 테스트 결과(회장 승인)
+
+- 게시 성공(회장 URL 확인): 011 https://www.instagram.com/p/DfG-cAoAQxh/ · 048 https://www.instagram.com/p/DfHBTf4AQaE/ · 007 https://www.instagram.com/p/DfHEu7EgSBt/ · 014 https://www.instagram.com/p/DfHF4F_AYuK/ · 051 https://www.instagram.com/p/DfHJ479ndyA/ (051은 게시 확인만, 회장 별도 확인 전).
+- 방식: 41의 posted 글을 Instagram_Posts에 ready로 복제(TEST-xxx 코드) → launcher 5분 폴러가 게시. Airtable 변경: 5계정 automation_enabled=True, 007·014 content_theme 변경, 크롤 대상 A040·A041(프로필) 추가, A004 Hold. 상세 ERR-190.
+- 미검증: 계정별 Crawl_Targets 행 추가 후 크롤링 자동 게시. 052 HOLD(위 항목). 테스트 레코드는 Instagram_Posts에 남아 있음.

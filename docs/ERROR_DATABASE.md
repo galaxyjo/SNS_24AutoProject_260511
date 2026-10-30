@@ -3322,3 +3322,11 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **영향:** 실제 리드·051 게시·Kill Switch에는 영향 없음(확인). 영향은 진짜 장애와의 구분 불가, 오경보·SLA 알림·Gate 판정 오염 가능성이다.
 - **조치:** 없음(읽기 전용 조사와 문서 기록만 수행). dead 정리, 테스트 격리 수정, 커밋은 별도 승인 대상이다.
 - **관련:** ERR-187, ERR-188, FP-122
+
+## ERR-190 | 6계정 게시 테스트에서 IDN-000052 Meta 계정 제한(code 25/subcode 2207050), 007·014 DOMAIN_CONTENT_REJECTED·이미지 형식 오류 — 052 HOLD, 나머지 RESOLVED (261030)
+
+- **증상:** 41 게시물 복제 테스트에서 011·048·007·014·051은 게시 성공, 052는 Meta `User access is restricted`(code 25/subcode 2207050)로 실패. 007·014는 첫 시도 `DOMAIN_CONTENT_REJECTED`, 014는 재시도에서 `code 9004/subcode 2207052`(이미지가 사진으로 인식 안 됨).
+- **근거:** logs/summary/app.log `[PublishGate] DOMAIN_CONTENT_REJECTED`·`publish_single` 3회 실패 meta_error. 052 토큰은 계정 조회 200·게시 한도 0/100 사용, 게시 요청에서만 거부 → 해당 인스타 계정 제한(사유 Meta 미제공, UNKNOWN).
+- **원인 정정:** 007·014 거부는 계정 주제(content_theme)가 아니라 제가 고른 테스트 글(건강식품)이 `passes_keyword_filter`(PRODUCT 도메인, 뷰티 키워드)에 걸린 것. 이후 화장품 글로 성공. 014 이미지 오류는 선택한 ibb 이미지 문제로 다른 이미지로 성공.
+- **조치:** 011·048·007·014·051 `automation_enabled=True`(Airtable), 007·014 `content_theme`를 화장품(병원·피부과 화장품 포함)으로 변경, 052는 `automation_enabled=False`로 원복 후 HOLD. 코드 변경 없음.
+- **남은 것:** 이번 게시는 41 글 복제 테스트이며 계정별 Crawl_Targets 추가를 통한 크롤링 자동 게시 경로는 미검증. 051의 사용권 규칙(CRAWL_RIGHTS_REQUIRED_ACCOUNTS)은 게시 경로에서 적용되지 않았고 크롤 경로 적용 여부는 미확인. 052는 페이지 삭제·제한 해소 후 재개.
