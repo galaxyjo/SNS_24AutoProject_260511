@@ -3329,3 +3329,9 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - 배포: Push `e686106..f0f223a`(6커밋, `handoff_en` 포함), 23:40 `SNS_Restart_Watchdog` 1회 실행으로 새 코드 로드. `/health` ok, 신규 ERROR 0건, 051 `disabled` 유지, 기능 모두 OFF.
 - 잔여 HOLD(DEFER): 051 활성화 / Meta DM 수신 검증(`mid_present`·041 실웹훅) / A005 사용권·CTA / 051 Canary. 원인·Risk·재개 조건은 ERR-187의 '잔여 HOLD / DEFER' 항목 참조.
 - 재개 조건: 회장이 FACTS·문구·WhatsApp 번호를 확정하면 단계별 별도 승인으로 재개. 그 전까지 코드·Airtable·설정 변경 없음.
+
+### 261030 12:15 KST — 크롤링 대상 A004 제외(회장 지시)
+
+- 사실: Facebook 그룹 `groups/3289570041331131`(Crawl_Targets A004, 게시 계정 IDN-000041)이 관리자에 의해 2026-08-03 일시중지됨(회장 스크린샷 확인).
+- 조치: Airtable Crawl_Targets 레코드 `recNoQfkvS1HB5oHq` status Active→Hold, notes 기록(코드 변경 없음). IDN-000041 크롤링 그룹은 A002·A003 2건.
+- 재개 조건: 그룹이 재개되면 status를 Active로 복원.
