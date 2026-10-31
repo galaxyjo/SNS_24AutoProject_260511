@@ -788,6 +788,8 @@ class AirtableRepository(RepositoryInterface):
             reply_mode=reply_mode,
             category=category,
             content_theme=str(f.get("content_theme", "") or "").strip(),
+            post_hours=str(f.get("post_hours", "") or "").strip(),
+            daily_post_limit=int(f["daily_post_limit"]) if isinstance(f.get("daily_post_limit"), (int, float)) else 0,
         )
 
     _IG_USER_ID_PATTERN = re.compile(r"^[0-9]+$")

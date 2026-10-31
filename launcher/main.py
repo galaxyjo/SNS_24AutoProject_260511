@@ -2691,6 +2691,41 @@ def _job_threads_token_refresh():
                    f"60일 안에 갱신하지 못하면 토큰을 되살릴 수 없습니다. 내일 다시 시도합니다.")
 
 
+def _parse_post_hours(raw: str, limit: int = 0) -> tuple:
+    """261031 — Account_Registry.post_hours("6,10,19", Bangkok 시) 파싱. (시각 목록, 오류) 반환.
+    0~23 정수만 허용, 중복은 제거, 오름차순. limit>0이면 앞에서 limit개만 쓴다. 공란·형식 오류는 ([], 사유)."""
+    text = str(raw or "").strip()
+    if not text:
+        return [], "post_hours 공란"
+    try:
+        hours = [int(p.strip()) for p in text.split(",") if p.strip()]
+    except ValueError:
+        return [], "post_hours 형식 오류"
+    if not hours or any(h < 0 or h > 23 for h in hours):
+        return [], "post_hours 범위 오류(0~23)"
+    hours = sorted(set(hours))
+    if limit and limit > 0:
+        hours = hours[:limit]
+    return hours, ""
+
+
+def _load_account_slot_hours(repo, account_code: str, attempts: int = 3) -> tuple:
+    """261031 — 등록 시점에 Airtable에서 계정의 post_hours·daily_post_limit를 읽는다. 일시 장애는 짧게 재시도하고,
+    끝내 못 읽거나 계정 조회가 0/중복이면 ([], 사유)로 돌려 호출부가 등록하지 않게 한다(Fail-closed)."""
+    last = ""
+    for i in range(attempts):
+        try:
+            account = repo.get_publish_account(account_code)
+            if account is None:
+                return [], "계정 조회 실패(없음/중복/형식오류)"
+            return _parse_post_hours(account.get("post_hours", ""), int(account.get("daily_post_limit", 0) or 0))
+        except Exception as exc:  # 네트워크·Airtable 오류 — 원인은 타입만 남긴다
+            last = f"Airtable 조회 실패({type(exc).__name__})"
+            if i + 1 < attempts:
+                time.sleep(2)
+    return [], last
+
+
 def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
     now = datetime.now()
     sched = BackgroundScheduler(timezone="Asia/Seoul")
@@ -2792,20 +2827,35 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
             )
     # 261024 STEP 2 — 공통 엔진의 새 계정(aijomoojin 외). 그 계정의 CONTENT_PRODUCER·SLOT_SCHEDULE
     # 두 Flag가 모두 true일 때만 게시·Producer 잡을 등록한다(기본 미등록). 시각은 aijomoojin과 같다.
+    # 261031 — 게시 시각은 코드 고정값이 아니라 Airtable Account_Registry.post_hours(Bangkok 시, 쉼표 구분)에서
+    # 읽고, 하루 게시 수는 min(시각 개수, daily_post_limit). 공란·형식 오류면 그 계정은 등록하지 않는다(Fail-closed).
+    # Producer는 각 게시 시각 1시간 전. 크론이 하루 1회만 발화하므로 상한은 등록 개수가 구조적으로 보장한다.
+    _slot_repo = None
     for _acct in CONTENT_ACCOUNTS.values():
         if _acct.vault_root is None:
             continue
         if not (_account_flag(_acct, "CONTENT_PRODUCER_ENABLED") == "true"
                 and _account_flag(_acct, "SLOT_SCHEDULE_ENABLED") == "true"):
             continue
-        for _slot_hour in (6, 9, 12, 15, 18):
+        if _slot_repo is None:
+            from modules.infra.airtable_repository import AirtableRepository
+            _slot_repo = AirtableRepository()
+        _slot_hours, _slot_err = _load_account_slot_hours(_slot_repo, _acct.account_code)
+        if not _slot_hours:
+            logger.error(f"[SlotSchedule] 슬롯 등록 안 함(Fail-closed) | account_code={_acct.account_code} | {_slot_err}")
+            if _slack:
+                _slack(f"[경고] 자동게시 슬롯 등록 안 됨 — {_acct.account_code}\n사유={_slot_err}\n"
+                       f"Airtable post_hours 확인 후 launcher 재시작이 필요합니다.")
+            continue
+        logger.info(f"[SlotSchedule] 슬롯 등록 | account_code={_acct.account_code} | post_hours={_slot_hours}")
+        for _slot_hour in _slot_hours:
             sched.add_job(
                 _job_aijomoojin_scheduled_post, "cron", kwargs={"account_code": _acct.account_code},
                 hour=_slot_hour, minute=0, timezone="Asia/Bangkok",
                 id=f"content_slot_{_acct.account_code}_{_slot_hour:02d}00",
                 max_instances=1, coalesce=False, misfire_grace_time=60,
             )
-        for _producer_hour in (5, 8, 11, 14, 17):
+        for _producer_hour in sorted({(h - 1) % 24 for h in _slot_hours}):
             sched.add_job(
                 _job_aijomoojin_content_producer, "cron", kwargs={"account_code": _acct.account_code},
                 hour=_producer_hour, minute=0, timezone="Asia/Bangkok",

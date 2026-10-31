@@ -80,14 +80,62 @@ class TestSchedulerRegistration:
         sched = launcher_main._build_scheduler()
         assert not any(CANARY in j.id for j in sched.get_jobs())
 
-    def test_canary_flags_on_registers_5_slots_and_5_producers(self, monkeypatch, canary_flags_on):
-        sched = launcher_main._build_scheduler()
-        jobs = [j for j in sched.get_jobs() if CANARY in j.id]
+    @staticmethod
+    def _fake_registry(monkeypatch, account):
+        """261031 — 등록 시점 Airtable 조회를 Fake로 대체(account가 예외 인스턴스면 조회 실패)."""
+        class _Repo:
+            def get_publish_account(self, code):
+                if isinstance(account, Exception):
+                    raise account
+                return account
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository", _Repo)
+        monkeypatch.setattr(launcher_main.time, "sleep", lambda s: None)
+
+    def _jobs(self):
+        jobs = [j for j in launcher_main._build_scheduler().get_jobs() if CANARY in j.id]
         slot = sorted(j.id for j in jobs if j.id.startswith("content_slot_"))
         prod = sorted(j.id for j in jobs if j.id.startswith("content_producer_"))
-        assert slot == [f"content_slot_{CANARY}_{h:02d}00" for h in (6, 9, 12, 15, 18)]
-        assert prod == [f"content_producer_{CANARY}_{h:02d}00" for h in (5, 8, 11, 14, 17)]
+        return jobs, slot, prod
+
+    def test_canary_flags_on_registers_slots_from_post_hours(self, monkeypatch, canary_flags_on):
+        self._fake_registry(monkeypatch, {"post_hours": "6,10,19", "daily_post_limit": 3})
+        jobs, slot, prod = self._jobs()
+        assert slot == [f"content_slot_{CANARY}_{h:02d}00" for h in (6, 10, 19)]
+        assert prod == [f"content_producer_{CANARY}_{h:02d}00" for h in (5, 9, 18)]
         assert all(j.kwargs == {"account_code": CANARY} for j in jobs)
+
+    def test_daily_post_limit_caps_slot_count(self, monkeypatch, canary_flags_on):
+        self._fake_registry(monkeypatch, {"post_hours": "6,10,19,22", "daily_post_limit": 3})
+        _, slot, prod = self._jobs()
+        assert len(slot) == 3 and len(prod) == 3
+
+    def test_midnight_slot_pairs_producer_at_23(self, monkeypatch, canary_flags_on):
+        self._fake_registry(monkeypatch, {"post_hours": "0,12", "daily_post_limit": 0})
+        _, slot, prod = self._jobs()
+        assert slot == [f"content_slot_{CANARY}_{h:02d}00" for h in (0, 12)]
+        assert prod == [f"content_producer_{CANARY}_{h:02d}00" for h in (11, 23)]
+
+    @pytest.mark.parametrize("account", [
+        {"post_hours": "", "daily_post_limit": 3},          # 공란
+        {"post_hours": "6,abc", "daily_post_limit": 3},     # 형식 오류
+        {"post_hours": "6,25", "daily_post_limit": 3},      # 범위 오류
+        {"daily_post_limit": 3},                            # 필드 없음
+        None,                                               # 계정 조회 0건/중복
+        RuntimeError("airtable down"),                      # 조회 실패
+    ])
+    def test_invalid_or_unreadable_post_hours_registers_nothing(self, monkeypatch, canary_flags_on, account):
+        self._fake_registry(monkeypatch, account)
+        _, slot, prod = self._jobs()
+        assert slot == [] and prod == []
+
+    def test_flags_off_never_queries_airtable(self, monkeypatch):
+        monkeypatch.setattr("modules.infra.airtable_repository.AirtableRepository",
+                            lambda: pytest.fail("Airtable 호출되면 안 됨"))
+        assert not any(CANARY in j.id for j in launcher_main._build_scheduler().get_jobs())
+
+    def test_parse_post_hours_dedupes_sorts_and_limits(self):
+        assert launcher_main._parse_post_hours("19, 6,10,6", 0) == ([6, 10, 19], "")
+        assert launcher_main._parse_post_hours("19,6,10", 2) == ([6, 10], "")
 
     def test_canary_single_flag_registers_nothing(self, monkeypatch):
         monkeypatch.setenv("IDN_000025_SLOT_SCHEDULE_ENABLED", "true")

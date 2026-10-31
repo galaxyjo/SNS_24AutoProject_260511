@@ -137,6 +137,8 @@ class PublishAccountV2(PublishAccount, total=False):
     reply_mode: str
     category: str
     content_theme: str   # 261028 — Account_Registry.content_theme(계정 대표 주제, 콘텐츠 생성 프롬프트용) 옵션 필드
+    post_hours: str          # 261031 — Account_Registry.post_hours(자동게시 시각, Asia/Bangkok 시, 쉼표 구분) 옵션 필드
+    daily_post_limit: int    # 261031 — Account_Registry.daily_post_limit(하루 최대 게시 수, 0=미설정) 옵션 필드
 
 
 class PersonaProfile(TypedDict, total=False):
