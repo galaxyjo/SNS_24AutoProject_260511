@@ -547,7 +547,7 @@ class TestKfoodAccount023:
         assert kw["sourcebook_path"] == self.KFOOD and kw["brand_handle"] == "@yummy.office"
         assert acct.news_enabled is False and acct.lock_name == "content_producer_IDN-000023"
 
-    @pytest.mark.parametrize("code", ["IDN-000025", "IDN-000029"])
+    @pytest.mark.parametrize("code", ["IDN-000029"])
     def test_other_accounts_have_no_sourcebook_kwarg(self, code):
         assert "sourcebook_path" not in launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS[code])
 
@@ -606,8 +606,16 @@ class TestAiNewsAccount022:
     def test_existing_accounts_unchanged(self):
         assert launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS["IDN-000036"]) == {}
         assert launcher_main.CONTENT_ACCOUNTS["IDN-000023"].sourcebook_path.name == "SNS_KFOOD_SOURCEBOOK_IDN023_261026.md"
-        for code in ("IDN-000025", "IDN-000029"):
+        for code in ("IDN-000029",):
             assert "sourcebook_path" not in launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS[code])
+
+    def test_025_carries_own_showhost_sourcebook_matching_its_pillars(self):
+        from modules.sns.source_selector import list_selectable_topics, parse_sourcebook, topic_matches_content_pillars
+        sb = launcher_main._ROOT / "docs" / "design" / "SNS_AI_SHOWHOST_SOURCEBOOK_IDN025_261101.md"
+        assert launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS["IDN-000025"])["sourcebook_path"] == sb
+        pillars = "AI 쇼호스트 제작 과정 / 라이브 판매 화법 / AI 콘텐츠 / 영화 속 세일즈"
+        topics = list_selectable_topics(parse_sourcebook(sb))
+        assert len(topics) >= 3 and all(topic_matches_content_pillars(t, pillars) for t in topics)
 
     def test_022_vault_and_lock_distinct_from_other_accounts(self):
         accts = launcher_main.CONTENT_ACCOUNTS.values()
