@@ -547,9 +547,9 @@ class TestKfoodAccount023:
         assert kw["sourcebook_path"] == self.KFOOD and kw["brand_handle"] == "@yummy.office"
         assert acct.news_enabled is False and acct.lock_name == "content_producer_IDN-000023"
 
-    @pytest.mark.parametrize("code", ["IDN-000029"])
-    def test_other_accounts_have_no_sourcebook_kwarg(self, code):
-        assert "sourcebook_path" not in launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS[code])
+    def test_aijomoojin_has_no_sourcebook_kwarg(self):
+        # 261102 — 024·027·028·029는 계정 전용 Sourcebook을 쓴다(test_content_account_sourcebook_wiring.py). 036만 공용을 유지한다.
+        assert "sourcebook_path" not in launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS["IDN-000036"])
 
     def test_aijomoojin_kwargs_still_empty(self):
         assert launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS["IDN-000036"]) == {}
@@ -606,8 +606,7 @@ class TestAiNewsAccount022:
     def test_existing_accounts_unchanged(self):
         assert launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS["IDN-000036"]) == {}
         assert launcher_main.CONTENT_ACCOUNTS["IDN-000023"].sourcebook_path.name == "SNS_KFOOD_SOURCEBOOK_IDN023_261026.md"
-        for code in ("IDN-000029",):
-            assert "sourcebook_path" not in launcher_main._package_kwargs(launcher_main.CONTENT_ACCOUNTS[code])
+        # 261102 — 029도 전용 Sourcebook을 쓰게 되어(wiring 테스트 참조) 공용을 쓰는 계정은 036뿐이다.
 
     def test_025_carries_own_showhost_sourcebook_matching_its_pillars(self):
         from modules.sns.source_selector import list_selectable_topics, parse_sourcebook, topic_matches_content_pillars
