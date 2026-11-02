@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from modules.common.logger import get_logger
+from modules.sns import image_pool
 from modules.sns.caption_generator import generate_hook_caption
 from modules.sns.carousel_content_builder import (
     generate_carousel_content,
@@ -445,30 +446,67 @@ def _image_failure_code(provider_error: str) -> str:
     return "IMAGE_GENERATION_FAILED"
 
 
+_ACCOUNT_VAULT_RE = re.compile(r"IDN-\d{6}")
+
+
+def _pool_scope_for_root(root: Path) -> str:
+    """풀의 계정 식별자. 공용 Vault는 aijomoojin(IDN-000036), 계정 Vault는 폴더명이 계정 코드 형식일 때만 쓴다.
+    그 외(임의 폴더·테스트 임시 경로)는 ""로 풀을 쓰지 않는다 — 폴더명 우연 일치로 scope가 합쳐지지 않게 한다."""
+    try:
+        if root.resolve() == DEFAULT_VAULT_ROOT.resolve():
+            return "IDN-000036"
+    except OSError:
+        return ""
+    return root.name if _ACCOUNT_VAULT_RE.fullmatch(root.name) else ""
+
+
 def _build_note_carousel_images(topic, carousel, *, client=None, throttle_fn=None, model=None,
-                                brand_handle: str = "") -> "tuple[list[bytes] | None, str]":
+                                brand_handle: str = "", pool_scope: str = "") -> "tuple[list[bytes] | None, str]":
     """장별 image_scene으로 손그림을 만들고 Gemini로 글자·로고를 판독한다. 걸린 장만 다시 만들고
-    (장당 최대 NOTE_IMAGE_MAX_REGENERATIONS회), 끝까지 걸리거나 판독이 실패하면 (None, 사유)."""
+    (장당 최대 NOTE_IMAGE_MAX_REGENERATIONS회), 끝까지 걸리거나 판독이 실패하면 (None, 사유).
+
+    261102 STEP 3-2 — `pool_scope`(계정 식별, 기본 "")가 있고 IMAGE_POOL_ENABLED=true일 때만: 판독을 통과한 손그림을
+    풀에 저장하고, 생성이 DAILY_IMAGE_CAP_EXCEEDED로 막히면 이 계정이 아직 쓰지 않은 풀 손그림(이미 판독 통과)으로
+    대체한다. 풀이 비었거나 오류면 기존과 같이 실패한다. 기본 OFF에서는 기존 동작과 완전히 같다."""
     slides = carousel.slides
     sketches: "list[bytes]" = [b""] * len(slides)
     regenerations = [0] * len(slides)
     pending = list(range(len(slides)))
+    pool_on = bool(pool_scope) and image_pool.enabled()
+    from_pool: "set[int]" = set()
+    used_pool: "set[str]" = set()
     while pending:
         for i in pending:
             prompt = slides[i].image_scene + (_NOTE_SKETCH_RETRY_SUFFIX if regenerations[i] else "") + _NOTE_SKETCH_STYLE
             result = generate_image(prompt)
             if not result.success:
+                if pool_on and result.error_code == "DAILY_IMAGE_CAP_EXCEEDED":
+                    picked = image_pool.take_unused_sketch(pool_scope, exclude=used_pool)
+                    if picked is not None:
+                        sha, sketches[i] = picked
+                        used_pool.add(sha)
+                        from_pool.add(i)
+                        logger.info(f"[NoteCarousel] 일일 한도 도달 — 풀 손그림으로 대체 | scope={pool_scope} | slide={i + 1} | sha={sha[:12]}")
+                        continue
                 logger.warning(f"[NoteCarousel] 손그림 생성 실패 | slide={i + 1} | error_code={result.error_code}")
                 return None, _image_failure_code(result.error_code or "")
             sketches[i] = result.image_bytes
+            from_pool.discard(i)
 
-        check = check_images_for_text_and_logo(
-            [sketches[i] for i in pending], client=client, throttle_fn=throttle_fn, model=model,
-        )
-        if not check.success:
-            logger.warning(f"[NoteCarousel] 글자·로고 판독 실패 | error_code={check.error_code}")
-            return None, "IMAGE_CHECK_ERROR"
-        failed = [pending[c.index - 1] for c in check.checks if not c.passed]
+        to_check = [i for i in pending if i not in from_pool]  # 풀 손그림은 이미 판독을 통과했다
+        failed = []
+        if to_check:
+            check = check_images_for_text_and_logo(
+                [sketches[i] for i in to_check], client=client, throttle_fn=throttle_fn, model=model,
+            )
+            if not check.success:
+                logger.warning(f"[NoteCarousel] 글자·로고 판독 실패 | error_code={check.error_code}")
+                return None, "IMAGE_CHECK_ERROR"
+            failed = [to_check[c.index - 1] for c in check.checks if not c.passed]
+            if pool_on:
+                for i in to_check:
+                    if i not in failed:
+                        image_pool.save_sketch(pool_scope, sketches[i])
         for i in failed:
             regenerations[i] += 1
         if any(regenerations[i] > NOTE_IMAGE_MAX_REGENERATIONS for i in failed):
@@ -537,6 +575,7 @@ def _create_carousel_package(
     if carousel_style == "note":
         images, image_error = _build_note_carousel_images(
             topic, carousel, client=client, throttle_fn=throttle_fn, model=model, brand_handle=brand_handle,
+            pool_scope=_pool_scope_for_root(root),
         )
         if images is None:
             return PackageResult(success=False, error_code=image_error, content_id=content_id)
