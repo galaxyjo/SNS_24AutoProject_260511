@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1092,12 +1093,84 @@ def _rights_confirmed(target: dict) -> bool:
     return status == "allowed" and target.get("sns_reuse_allowed") is True
 
 
+# 261103 — 대상별 최소 크롤 간격(AdsPower Open 절약). 기본 0=OFF(기존 동작 그대로).
+# 상태는 SQLite(db/, gitignore): 행 단위 UPSERT라 프로세스 간 동시 기록이 서로를 덮지 않는다(잠금 파일·stale 회수 없음).
+_CRAWL_LAST_RUN_PATH = Path(__file__).resolve().parents[2] / "db" / "crawl_target_last_run.db"
+
+
+def _min_interval_hours() -> float:
+    """CRAWL_TARGET_MIN_INTERVAL_HOURS(시간, 소수 허용). 비어 있거나 숫자가 아니거나 0 이하면 0(OFF)."""
+    try:
+        value = float((os.getenv("CRAWL_TARGET_MIN_INTERVAL_HOURS", "") or "0").strip())
+    except ValueError:
+        return 0.0
+    return value if value > 0 else 0.0
+
+
+def _crawl_route_key(code: str, url: str) -> str:
+    return f"{code}|{url}"
+
+
+def _crawl_state_db() -> sqlite3.Connection:
+    _CRAWL_LAST_RUN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_CRAWL_LAST_RUN_PATH), timeout=10, isolation_level=None)
+    conn.execute("CREATE TABLE IF NOT EXISTS crawl_last_run (route_key TEXT PRIMARY KEY, last_run TEXT NOT NULL)")
+    return conn
+
+
+def _load_crawl_last_run() -> dict:
+    """{route_key: ISO 시각}. DB가 아직 없으면 {}(만들지 않는다). 읽기 실패·손상은 오류 로그 후 {}
+    (그 경우 크롤이 허용된다 — AdsPower 한도가 최종 방어선)."""
+    if not _CRAWL_LAST_RUN_PATH.exists():
+        return {}
+    try:
+        conn = _crawl_state_db()
+        try:
+            return dict(conn.execute("SELECT route_key, last_run FROM crawl_last_run").fetchall())
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error) as exc:
+        logger.error(f"[FB Crawler] 크롤 간격 상태 읽기 실패 — 간격 제한 없이 진행 | {type(exc).__name__}: {exc}")
+        return {}
+
+
+def _recently_crawled(state: dict, code: str, url: str, hours: float, now: "datetime | None" = None) -> bool:
+    raw = state.get(_crawl_route_key(code, url))
+    if not raw:
+        return False
+    try:
+        last = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return False
+    return ((now or datetime.now()) - last) < timedelta(hours=hours)
+
+
+def _mark_crawled(code: str, url: str, now: "datetime | None" = None) -> None:
+    """간격 제한이 켜져 있을 때만, 크롤이 예외 없이 끝난 대상의 시각을 기록한다. 대상(행) 하나를 원자적으로 UPSERT하므로
+    다른 프로세스의 기록과 동시에 일어나도 서로 덮지 않는다. 기록 실패는 경고만 남기고 크롤은 계속한다."""
+    if not _min_interval_hours():
+        return
+    try:
+        conn = _crawl_state_db()
+        try:
+            conn.execute(
+                "INSERT INTO crawl_last_run (route_key, last_run) VALUES (?, ?) "
+                "ON CONFLICT(route_key) DO UPDATE SET last_run = excluded.last_run",
+                (_crawl_route_key(code, url), (now or datetime.now()).isoformat(timespec="seconds")),
+            )
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[FB Crawler] 크롤 간격 기록 실패(크롤은 계속) | account={code} | {type(exc).__name__}: {exc}")
+
 def _route_crawl_targets(targets: list[dict], max_posts, data_classification: str, canary_run_id: str) -> list:
     """261022 B2 — Crawl_Target별 (url, max_posts, 게시 계정)을 정한다. 하나라도 어긋나면
     그 대상만 건너뛴다(Fail-closed). 공란이어도 다른 계정(IDN-000041 등)으로 보내지 않는다."""
     from modules.sns.content_filter import ACCOUNT_DOMAIN_POLICY, CATEGORY_DOMAIN_POLICY
 
     rights_required = _rights_required_accounts()
+    interval_hours = _min_interval_hours()
+    last_run = _load_crawl_last_run() if interval_hours else {}
     checked: dict[str, str] = {}   # account_code -> "" (OK) 또는 Skip 코드, 계정당 1회 검증
     routes = []
     for t in targets:
@@ -1140,6 +1213,9 @@ def _route_crawl_targets(targets: list[dict], max_posts, data_classification: st
             continue
         if code in rights_required and not _rights_confirmed(t):
             _skip(f"CRAWL_TARGET_RIGHTS_UNCONFIRMED | account={code}")
+            continue
+        if interval_hours and _recently_crawled(last_run, code, url, interval_hours):
+            logger.info(f"[FB Crawler] 크롤 대상 건너뜀 | CRAWL_TARGET_RECENTLY_CRAWLED | account={code} | target={tid}")
             continue
         routes.append((url, min(target_max, max_posts), code))
     return routes
@@ -1192,6 +1268,8 @@ def run_all_accounts(
                     data_classification=data_classification,
                     canary_run_id=canary_run_id,
                 ))
+                if getattr(acct, "crawl_targets", None):    # Airtable 대상 경로만(레거시 crawl_urls 경로는 기존 그대로)
+                    _mark_crawled(publish_code, url)
             except Exception as exc:
                 logger.error(f"[FB Crawler] 크롤링 실패 | account={acct.name} | url={url} | {exc}")
                 failed_urls.append(url)
