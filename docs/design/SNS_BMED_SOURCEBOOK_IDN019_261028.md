@@ -26,3 +26,49 @@ Do not say one is better. Do not state or imply results, safety, or guarantees. 
 이미지 개념: split illustration comparing a single narrow beam of light and a broad band of mixed colored light reaching skin layers, clean clinical tones
 카드 사실: 2010년 IPL 리뷰 | 레이저는 단일 파장 | IPL은 여러 파장이 섞인 펄스 광 | 둘 다 선택적 열 손상 원리 | 비교 근거 수준 2b~4
 주제 해시태그: ipl | laser | dermatology | skincare
+
+---
+
+### 1.2 Acne — 피부 고민 Q&A
+
+상태: USE_WITH_CAUTION
+
+공식 URL: https://www.aad.org/public/diseases/acne/derm-treat/treat
+
+검증 범위:
+- 미국피부과학회(AAD) 여드름 관련 페이지들을 검색 요약으로 확인했다(원문 전문 미확인).
+- AAD는 여드름이 모공이 막혀 생기고 호르몬이 관여할 가능성이 있다고 설명한다.
+- 치료는 여러 방식을 병용하는 것이 권장되며, 같은 치료를 6~8주 사용해야 개선을 판단할 수 있고, 짜거나 만지면 흉터 위험이 커진다고 안내한다.
+
+SNS 콘텐츠 핵심 메시지:
+A common skin question (피부 고민 Q&A): why do I get acne? The American Academy of Dermatology explains that acne develops when pores become clogged and that hormones likely play a role. Its guidance says dermatologists often combine different treatments, that you generally need to use the same treatment for 6 to 8 weeks before judging improvement, and that squeezing or picking raises the risk of scarring.
+
+주의:
+Do not name drugs or doses. Do not say acne can be cured or guarantee results. Do not diagnose; point to a dermatologist for personal advice.
+
+이미지 개념: friendly flat illustration of a face-care routine with soft pastel colors
+카드 사실: AAD 안내 | 모공이 막혀 생김·호르몬 관여 가능 | 같은 치료 6~8주 유지 후 판단 | 짜거나 만지면 흉터 위험
+주제 해시태그: acne | skincare | dermatology | skinqa
+
+---
+
+### 1.3 Medical tourism — 의료관광 안내
+
+상태: USE_WITH_CAUTION
+
+공식 URL: https://www.cdc.gov/yellow-book/hcp/health-care-abroad/medical-tourism.html
+
+검증 범위:
+- 미국 CDC Yellow Book의 의료관광 장을 검색 요약으로 확인했다(원문 전문 미확인).
+- 의료관광을 다른 나라로 의료를 받으러 가는 여행으로 정의하고, 고려하는 사람은 출발 훨씬 전에 주치의와 상담하라고 안내한다.
+- CDC 관련 요약은 기록 이전이 어렵거나 영어가 아닐 수 있고, 의료 후송을 보장하는 여행자 보험을 권한다고 전한다.
+
+SNS 콘텐츠 핵심 메시지:
+The CDC Yellow Book's medical tourism chapter defines it as traveling to another country for medical care and advises people who are considering it to talk with their primary care provider well before the trip. CDC guidance also points to risks such as records that are hard to transfer or not in English, and suggests travel health insurance that covers medical evacuation (의료관광 안내).
+
+주의:
+Do not name clinics or countries as recommended. Do not state or imply safety, cost, or outcome guarantees. Do not give medical advice for an individual.
+
+이미지 개념: clean illustration of a passport, a map pin and a medical cross, pastel tones
+카드 사실: CDC Yellow Book | 의료관광=의료를 위해 다른 나라로 가는 여행 | 출발 전 주치의 상담 | 의료 후송 보장 보험 고려
+주제 해시태그: medicaltourism | cdc | travelhealth | koreabeauty

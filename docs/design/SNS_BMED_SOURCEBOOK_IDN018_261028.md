@@ -26,3 +26,48 @@ Do not state or imply the size or duration of results or safety. No power, tempe
 이미지 개념: abstract illustration of gentle warm energy waves spreading through layered skin tissue, soft warm clinical tones
 카드 사실: 2013년 리뷰 | 진동하는 전류가 열로 변환 | 열 자극이 새 콜라겐 형성 촉진으로 여겨짐 | 색소·피부색에 의존하지 않음
 주제 해시태그: radiofrequency | skintightening | dermatology | collagen
+
+---
+
+### 1.2 Sunscreen — 화장품 고르는 기준
+
+상태: USE_WITH_CAUTION
+
+공식 URL: https://www.aad.org/public/everyday-care/sun-protection/shade-clothing-sunscreen/choosing-right-sunscreen
+
+검증 범위:
+- 미국피부과학회(AAD) 안내를 검색 요약으로 확인했다(원문 전문 미확인).
+- AAD는 SPF 30 이상, 광범위 차단(broad-spectrum, UVA·UVB 모두), 내수성의 세 가지를 확인하라고 안내한다.
+
+SNS 콘텐츠 핵심 메시지:
+The American Academy of Dermatology says to look for three things on a sunscreen label: SPF 30 or higher, broad-spectrum protection against both UVA and UVB rays, and water resistance. Check the label before you buy, and ask a dermatologist if you have a skin condition (화장품).
+
+주의:
+Do not name brands or claim a product prevents skin cancer, is safe for everyone, or replaces shade and clothing. Do not claim a specific SPF is always enough.
+
+이미지 개념: flat illustration of a sunscreen tube and a sun symbol, clean pastel tones
+카드 사실: AAD 안내 | SPF 30 이상 | 광범위(UVA·UVB) 차단 | 내수성 확인
+주제 해시태그: sunscreen | skincare | spf | kbeauty
+
+---
+
+### 1.3 Dermal fillers — 의료기기 안전 정보
+
+상태: USE_WITH_CAUTION
+
+공식 URL: https://www.fda.gov/consumers/consumer-updates/dermal-filler-dos-and-donts-wrinkles-lips-and-more
+
+검증 범위:
+- FDA 소비자 안내를 검색 요약으로 확인했다(원문 전문 미확인).
+- FDA는 필러를 면허가 있고 경험 있는 제공자만 주입해야 한다고 안내하며, 흔한 부작용으로 멍·발적·부기·통증·가려움, 드문 심각한 문제로 흉터·시야 흐림·조직 괴사를 든다.
+- 승인된 제품은 특정 용도에만 허가되며, FDA는 유방·엉덩이 주입을 경고한다.
+
+SNS 콘텐츠 핵심 메시지:
+The FDA's consumer update on dermal fillers, which it handles as medical devices (의료기기), says they should be injected only by a licensed, experienced provider. It lists common side effects such as bruising, redness, swelling, pain and itching, and rarer serious problems including scarring, blurred vision and tissue death. Approved products are cleared only for specific uses, and the FDA warns against filler injections in the breasts or buttocks.
+
+주의:
+Do not name brands or recommend a product. Do not state or imply results, safety, or guarantees. Do not give injection steps, amounts, or locations. No body-enhancement content.
+
+이미지 개념: abstract illustration of a clinical consultation setting, soft pastel tones, no needles in focus
+카드 사실: FDA 소비자 안내 | 면허·경험 있는 제공자만 주입 | 흔한 부작용: 멍·발적·부기·통증·가려움 | 승인 제품은 특정 용도만
+주제 해시태그: dermalfiller | fda | skincare | cosmeticsafety
