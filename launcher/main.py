@@ -36,7 +36,7 @@ if str(_ROOT) not in sys.path:
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_MISSED
@@ -742,6 +742,59 @@ def _maybe_publish_threads(repo, post_id: str, credential_key: str, account_code
         logger.error("[Threads] 처리 중 예외 — Instagram 결과 무변경 | rid=%s | %s", post_id, type(exc).__name__)
 
 
+_POLLER_SLOT_STATE_PATH = _ROOT / "db" / "poller_slot_state.json"
+
+
+def _load_poller_slot_state():
+    """261102 STEP 1-C — {account_code: {"date": "YYYY-MM-DD", "n": 오늘 소비한 슬롯 수}}. 파일 없음은 {},
+    읽기·형식 오류는 None(호출부가 Gate 대상 계정을 보류한다 — 중복 게시보다 보류가 안전)."""
+    import json as _json
+    try:
+        data = _json.loads(_POLLER_SLOT_STATE_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _save_poller_slot_state(data: dict) -> None:
+    import json as _json
+    _POLLER_SLOT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _POLLER_SLOT_STATE_PATH.with_name(f"{_POLLER_SLOT_STATE_PATH.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(_json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, _POLLER_SLOT_STATE_PATH)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _poller_slot_allowed(account: dict, now_bangkok: datetime, consumed_today: int = 0) -> tuple:
+    """261102 STEP 1-C — 5분 폴러 계정의 예약시각·하루 상한 Gate. (허용 여부, 사유) 반환.
+
+    Account_Registry.post_hours(Bangkok 시)·daily_post_limit를 슬롯 계정과 같은 규칙(`_parse_post_hours`)으로 읽는다.
+    post_hours 공란이면 기존 동작(즉시 게시)을 유지한다. 형식 오류는 게시하지 않는다(Fail-closed).
+    오늘 이미 시작된 슬롯 수(시각 <= 현재 시)가 오늘 소비한 슬롯 수(consumed_today, 실제 게시 claim 건수)보다
+    많을 때만 허용한다. 따라서 ① 놓친 슬롯은 이후 폴링에서 보충되고 ② 하루 실제 게시 건수는
+    min(시각 개수, daily_post_limit)을 넘지 못하며 ③ 재시작해도 상태 파일 덕분에 같은 슬롯이 두 번 쓰이지 않는다."""
+    raw = str(account.get("post_hours", "") or "").strip()
+    if not raw:
+        return True, "NO_POST_HOURS"
+    hours, err = _parse_post_hours(raw, int(account.get("daily_post_limit", 0) or 0))
+    if not hours:
+        return False, err
+    due = sum(1 for h in hours if h <= now_bangkok.hour)
+    if due == 0:
+        return False, "BEFORE_FIRST_SLOT"
+    if consumed_today >= due:
+        return False, "SLOT_CONSUMED"
+    return True, "SLOT_DUE"
+
+
 def _job_insta_upload():
     from modules.infra.airtable_repository import AirtableRepository
     from modules.infra.repository_interface import PostPublishResult
@@ -759,6 +812,12 @@ def _job_insta_upload():
         return
 
     logger.info(f"[Main] insta_upload | {len(posts)}건 처리 시작")
+    # 261102 STEP 1-C — 기본 false. 켜면 post_hours가 있는 폴러 계정은 예약 창에서만, 폴링당 계정 1건만 게시한다.
+    slot_gate_on = os.getenv("POLLER_SLOT_GATE_ENABLED", "false").strip().lower() == "true"
+    slot_used: set = set()
+    now_bangkok = datetime.now(timezone(timedelta(hours=7)))
+    slot_today = now_bangkok.strftime("%Y-%m-%d")
+    slot_state = _load_poller_slot_state() if slot_gate_on else {}
     for post in posts:
         post_id           = post["post_id"]
         logger.info(f"[Approval] ready 레코드 처리 시작 | rid={post_id}")
@@ -854,6 +913,25 @@ def _job_insta_upload():
             )
             continue
 
+        # 261102 STEP 1-C 예약시각·하루 상한 Gate — claim 이전이라 보류 시 ready 그대로 유지(상태 변화 0).
+        if slot_gate_on:
+            if account_code_ref in slot_used:
+                logger.info("[Main] 폴러 슬롯 — 이번 폴링 계정 1건 이미 처리, 보류 | rid=%s | account_code_ref=%s",
+                            post_id, account_code_ref)
+                continue
+            if slot_state is None and str(account.get("post_hours", "") or "").strip():
+                logger.error("[Main] 폴러 슬롯 상태 파일 읽기 실패 — 보류(Fail-closed) | rid=%s | account_code_ref=%s",
+                             post_id, account_code_ref)
+                continue
+            _entry = (slot_state or {}).get(account_code_ref) or {}
+            _consumed = int(_entry.get("n", 0) or 0) if _entry.get("date") == slot_today else 0
+            _slot_ok, _slot_reason = _poller_slot_allowed(account, now_bangkok, _consumed)
+            if not _slot_ok:
+                logger.info("[Main] 폴러 슬롯 Gate 보류 | rid=%s | account_code_ref=%s | reason=%s",
+                            post_id, account_code_ref, _slot_reason)
+                continue
+            slot_used.add(account_code_ref)
+
         # 발행 직전 계정별 콘텐츠 Gate (기본 비활성 — PUBLISH_TEXT_GATE_ENABLED=true 시에만 적용)
         # Identity는 위에서 이미 통과했으므로 Router는 Global Safety → Domain Routing →
         # Domain Gate만 수행한다(중복 구현 금지).
@@ -932,6 +1010,17 @@ def _job_insta_upload():
         # claim: uploading 마킹 (non-atomic, single-worker only) — 자격증명 해석 성공 이후에만 도달
         if not repo.claim_post_for_upload(post_id):
             continue
+
+        # 261102 STEP 1-C — claim 성공 = 슬롯 1개 소비(게시 실패·결과불명도 소비로 센다: 재시도 폭주 방지).
+        if slot_gate_on and slot_state is not None and str(account.get("post_hours", "") or "").strip():
+            _entry = slot_state.get(account_code_ref) or {}
+            _n = int(_entry.get("n", 0) or 0) if _entry.get("date") == slot_today else 0
+            slot_state[account_code_ref] = {"date": slot_today, "n": _n + 1}
+            try:
+                _save_poller_slot_state(slot_state)
+            except Exception as exc:
+                logger.error("[Main] 폴러 슬롯 상태 저장 실패(%s) — 이번 프로세스 내 중복만 차단됨 | account_code_ref=%s",
+                             type(exc).__name__, account_code_ref)
 
         raw = publish_single(post_id, image_url, caption, token, ig_user_id, api_host=api_host)
 
