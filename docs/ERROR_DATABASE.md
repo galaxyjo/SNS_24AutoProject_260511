@@ -3330,3 +3330,25 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **원인 정정:** 007·014 거부는 계정 주제(content_theme)가 아니라 제가 고른 테스트 글(건강식품)이 `passes_keyword_filter`(PRODUCT 도메인, 뷰티 키워드)에 걸린 것. 이후 화장품 글로 성공. 014 이미지 오류는 선택한 ibb 이미지 문제로 다른 이미지로 성공.
 - **조치:** 011·048·007·014·051 `automation_enabled=True`(Airtable), 007·014 `content_theme`를 화장품(병원·피부과 화장품 포함)으로 변경, 052는 `automation_enabled=False`로 원복 후 HOLD. 코드 변경 없음.
 - **남은 것:** 이번 게시는 41 글 복제 테스트이며 계정별 Crawl_Targets 추가를 통한 크롤링 자동 게시 경로는 미검증. 051의 사용권 규칙(CRAWL_RIGHTS_REQUIRED_ACCOUNTS)은 게시 경로에서 적용되지 않았고 크롤 경로 적용 여부는 미확인. 052는 페이지 삭제·제한 해소 후 재개.
+
+## ERR-191 | IDN-000036(aijomoojin) 게시 실패(Meta checkpoint 190/459→460) 이후 무만료 토큰 발급 중 `No permissions available` 오류 — Threads 연결 누락 추정, 시스템 사용자 토큰 발급·이관 SUCCESS (261102)
+
+- **증상:** ① 036 게시가 Graph error 190(subcode 459 checkpoint) 후 로그인 확인 뒤에도 subcode 460(세션 무효화)로 실패. ② 사용자 토큰을 단기→장기(2027-01-01 만료)로 교체해 복구한 뒤, 계속 갱신하지 않아도 되는 무만료 토큰을 만들려고 비즈니스 설정 → 시스템 사용자에서 토큰을 생성하는 중 `No permissions available`이 표시되어 발급 불가.
+- **근거(Evidence):** ①은 운영 로그의 190/459 오류와 교체 후 subcode 460, 장기 토큰으로 교체한 뒤 launcher 기동(15:22) `/health` 200·신규 ERROR 0건, 같은 토큰으로 18:01:03 036 캐러셀 실게시 성공(media 18468351376142272, CAROUSEL_ALBUM, children 3). ②는 회장 보고(오류 문구)와 이후 발급 성공 화면: 비즈니스 포트폴리오 `AI Strategist`, 시스템 사용자 `selected_user_id=61595788456484`, 앱 AI Strategist(4522543077982497), 토큰 생성 마법사 4단계(앱 선택·만료 설정·권한 할당·완료) 완료. 발급 토큰 검증(debug_token, 값 미출력): `type=SYSTEM_USER`, `is_valid=True`, `expires_at=0`(무만료), `app_id=4522543077982497`, 권한에 `instagram_basic`·`instagram_content_publish`·`pages_show_list`·`pages_read_engagement`·`threads_business_basic` 포함. `ig_user_id` 17841467725643424 조회 200(계정명 aijomoojin).
+- **Root Cause(추정, 미검증):** **Threads 연결(앱의 Threads 사용 사례/자산) 누락 추정.** 회장이 "Threads 미추가가 원인이었다"고 확인했으나 Threads 추가 전후 동일 조건 비교(재현 테스트)는 하지 않았다 → 인과관계는 FACT가 아니라 추정. 발급 성공 후 권한 목록에 `threads_business_basic`이 나타난 것은 사실이다.
+- **정상 여부 확인(FACT):** 앱(AI Strategist)·Instagram 계정·Facebook 페이지 권한은 정상이다(위 IG 조회 200, 필수 4개 권한 보유). 문제는 기존 앱·페이지·Instagram 권한이 아니라 토큰 생성 단계의 가용 권한 목록이었다.
+- **조치:** 회장이 Threads를 추가한 뒤 시스템 사용자 토큰 생성 성공 → 토큰을 `backup\token_candidate\AI TOKEN _261102.txt`에 저장 → `.env`의 `AI_INSTA_ACCESS_TOKEN` 1줄만 교체(344줄 중 1줄, BOM 유지, 백업 `scratchpad\env.bak_036sut`) → 새 프로세스에서 `resolve_credential("AI")`로 검증(valid·무만료·IG 200). 코드 변경 없음. 회장이 18:14:25 launcher를 재시작해 새 무만료 토큰이 반영됨(이전 장기 토큰은 2027-01-01 만료).
+- **UNKNOWN / Risk:** ① Threads 추가가 `No permissions available`의 실제 원인인지 미검증 ② 이 토큰 하나가 시스템 사용자 권한 범위를 넓게 가짐(위 권한 목록 전체 — 최소권한 원칙상 유출 시 영향 큼, 노출 금지) ③ 18:01 실게시 성공은 직전 장기 토큰으로 한 것이며, **새 무만료 토큰으로 한 실게시는 UNKNOWN**(다음 036 슬롯에서 확인) ④ 이 토큰은 AI Strategist 앱의 별도 시스템 사용자 토큰이며, YUNA 앱 계정들의 토큰 공유 구조(단일 실패점)는 이번 건과 무관한 별건.
+- **재발 방지:** 시스템 사용자 토큰 생성 시 `No permissions available`이 나오면 해당 앱에 필요한 사용 사례(Instagram·Threads 등)가 추가돼 있는지 먼저 확인한다(가설, 검증 필요). 사람이 반복 토큰 교체를 하지 않도록(무인 운영 원칙 A 금지) 만료 없는 시스템 사용자 토큰을 표준으로 한다.
+- **관련:** ERR-077/079(계정별 토큰·단기 만료), ERR-190(052 제한 별건), 무인 운영 원칙(260907)
+
+## ERR-192 | 캐러셀 텍스트 생성 실패(`CAROUSEL_TEXT_FAILED:GENERATION_FAILED`)의 Gemini 예외가 로그에 남지 않음 — 로그 추가 수정 완료(커밋 363c6e5, 미Push·launcher 미재시작), 실패 근본원인 UNKNOWN (261102)
+
+- **증상:** aijomoojin Producer가 오늘 05:01, 09:01, 18:01(ICT)에 `[AijomoojinProducer] 콘텐츠 생성 실패 | error_code=CAROUSEL_TEXT_FAILED:GENERATION_FAILED`로 슬롯 1건씩 생성 실패. 로그에 원인(예외 종류·HTTP 코드·시도 횟수)이 없어 원인 규명 불가.
+- **근거(Evidence):** `modules/sns/carousel_content_builder.py`의 Gemini 호출 `except Exception as exc` 분기(260805 커밋 `2d7ed9d7`부터)가 `_classify_retry(exc)` 결과(`_category`)를 계산하고 버리며 로그 없이 `GENERATION_FAILED`를 반환. 같은 파일의 다른 실패 경로는 `error_type`을 로깅하므로 이 분기만 누락. 상위 `launcher/main.py`의 실패 로그에도 `account_code`·시도 정보 없음. `GENERATION_FAILED`는 Producer 재시도 허용 목록(`_PRODUCER_TRANSIENT_ERROR_CODES`)에 없어 호출 단계(최대 4회) 외 Producer 수준 재시도는 없음. 05:01 실패는 3분 뒤 신규 패키지 생성 성공, 09:01·18:01 실패 후 복구 여부는 미확인.
+- **Root Cause:** 로그 누락은 FACT(코드 확인). `GENERATION_FAILED`가 난 실제 원인(429/5xx/타임아웃/기타)은 **UNKNOWN**.
+- **영향:** 해당 슬롯의 글이 생성되지 않음. 이미 생성·게시된 글에는 영향 없음. 상위 규칙(CLAUDE.md §9.1 조용한 실패 금지) 위반 상태였음.
+- **조치:** 커밋 `363c6e5` — Gemini 호출 예외를 시도마다 기록(모델·시도 N/4·예외 종류·HTTP 코드·분류·재시도 여부·다음 대기·메시지 앞 200자, 공용 `redact_sensitive` + `AIza…`/`Bearer …` 마스킹), `response is None` 경로 로그, Producer 실패 로그에 `account_code`·`max_attempts` 추가. 반환 코드·재시도 흐름 불변. 새 테스트 `tests/test_carousel_generation_failure_log.py` 10건(최초 작성 4건은 수정 전 코드에서 4건 모두 실패 확인), 캐러셀 관련 230건 통과, 넓은 범위 비교(수정 전후 모두 20 failed, 실패 목록 동일·신규 실패 0). Codex 검수 통과(1차 지적: 마스킹 형식·시도 횟수 표기 → 반영 후 재검수 통과).
+- **UNKNOWN / Risk:** ① 실제 예외 원인은 launcher 재시작 후 다음 실패 시 로그로 확인(그때까지 원인 로그 없음) ② 원인 확정 후 `GENERATION_FAILED`의 재시도 허용 여부 결정 필요 ③ 운영 반영(Push·launcher 재시작) 미실시.
+- **Rollback:** `git revert 363c6e5`(반영 후엔 launcher 재시작 필요).
+- **관련:** ERR-191, CLAUDE.md §9.1(조용한 실패 금지)
