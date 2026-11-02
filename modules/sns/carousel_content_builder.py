@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 
 from google.genai import types as genai_types
 
+from modules.common.log_sanitizer import redact_sensitive
 from modules.common.logger import get_logger
 from modules.sns.caption_generator import (
     _MAX_ATTEMPTS,
@@ -412,6 +413,29 @@ def _normalize_short_cta(payload: dict) -> dict:
     if lines and fixed != lines:
         caption = ("\n\n" if "\n\n" in caption else "\n").join(fixed)
     return {**payload, "slides": ordered, "caption": caption}
+
+
+_SECRET_LIKE = re.compile(r"(AIza[0-9A-Za-z_\-]{20,}|key=[^\s&'\"]+|Bearer\s+\S+)")
+
+
+def _log_generation_exception(exc, model, attempt, category, retryable, will_retry, delay) -> None:
+    """261102 ERR-192 — Gemini 호출 예외를 시도마다 남긴다(종류·HTTP 코드·분류·재시도 여부·메시지 앞부분).
+    프롬프트·API 키는 남기지 않으며, 키처럼 보이는 문자열은 마스킹한다. 로그 실패가 생성 흐름을 바꾸지 않는다."""
+    try:
+        code = getattr(exc, "code", None)
+        # 공용 sanitizer(access_token·api_key·authorization·key= 등) 후, 키 모양 단독 문자열(AIza…, Bearer …)을 추가로 가린다.
+        message = _SECRET_LIKE.sub("***", redact_sensitive(str(exc)))[:200].replace("\n", " ")
+        text = (
+            "[CarouselContent] Gemini 호출 예외 | model=%s | attempt=%d/%d | error_type=%s | http_code=%s | "
+            "category=%s | retryable=%s | will_retry=%s | next_delay=%.1fs | message=%s"
+        )
+        args = (model, attempt, _MAX_ATTEMPTS, type(exc).__name__, code, category, retryable, will_retry, delay, message)
+        if will_retry:
+            logger.warning(text, *args)
+        else:
+            logger.error(text, *args)
+    except Exception:  # noqa: BLE001 — 로깅 자체의 실패로 본 흐름을 바꾸지 않는다
+        logger.error("[CarouselContent] Gemini 예외 로그 작성 실패 | error_type=%s", type(exc).__name__)
 
 
 def _cta_location_summary(payload: dict) -> str:
@@ -956,12 +980,16 @@ def generate_carousel_content(
             )
             break
         except Exception as exc:
-            retryable, _category = _classify_retry(exc)
-            if retryable and attempt < _MAX_ATTEMPTS:
-                time.sleep(_next_retry_delay(attempt - 1, exc))
+            retryable, category = _classify_retry(exc)
+            will_retry = retryable and attempt < _MAX_ATTEMPTS
+            delay = _next_retry_delay(attempt - 1, exc) if will_retry else 0.0
+            _log_generation_exception(exc, active_model, attempt, category, retryable, will_retry, delay)
+            if will_retry:
+                time.sleep(delay)
                 continue
             return CarouselResult(success=False, error_code="GENERATION_FAILED")
     if response is None:
+        logger.error("[CarouselContent] 생성 실패 | 응답 없음(response is None) | model=%s", active_model)
         return CarouselResult(success=False, error_code="GENERATION_FAILED")
 
     try:

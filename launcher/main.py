@@ -2303,7 +2303,10 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
                 return
 
             if not result.success:
-                logger.error(f"[AijomoojinProducer] 콘텐츠 생성 실패 | error_code={result.error_code}")
+                logger.error(
+                    f"[AijomoojinProducer] 콘텐츠 생성 실패 | account_code={account_code} | "
+                    f"max_attempts={_PRODUCER_MAX_ATTEMPTS} | error_code={result.error_code}"
+                )
                 if _slack:
                     _slack(f"[알림] aijomoojin Producer 콘텐츠 생성 실패 | error_code={result.error_code}")
                 return
