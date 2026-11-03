@@ -1135,10 +1135,10 @@ class TestFactLockAndControlledRepair022:
         from modules.sns.source_selector import parse_sourcebook
         return next(t for t in parse_sourcebook(self.SB_022) if t.topic_id == "1.1")
 
-    def _payload(self, slide2=None, caption=None, last=None):
+    def _payload(self, slide2=None, caption=None, last=None, cover=None):
         return {
             "slides": [
-                {"index": 1, "role": "cover", "text": "Granite 음성 AI 3종 공개, 무엇이 달라졌나?"},
+                {"index": 1, "role": "cover", "text": cover or "Granite 음성 AI 3종 공개, 무엇이 달라졌나?"},
                 {"index": 2, "role": "fact", "text": slide2 or self.GOOD_SLIDE2},
                 {"index": 3, "role": "cta", "text": last or ("공개 모델 확인 · 지원 언어 선택 · " + self.CTA)},
             ],
@@ -1207,6 +1207,36 @@ class TestFactLockAndControlledRepair022:
         crammed = self._payload(slide2=self.CRAMMED_SLIDE2)
         result, models = self._run(monkeypatch, [crammed, crammed])
         assert (result.success, result.error_code) == (False, "CARD_FACT_EXTRA") and len(models.calls) == 2
+
+    # 261103 — 표지 오류에 가려진 캡션 CTA 오류(022 16:00 실측)는 재작성 2회째에 고친다.
+    LONG_COVER = "가" * 45                                                   # COVER_TITLE_INVALID(40자 초과)
+    MID_LINE_CTA_CAPTION = CAPTION.replace("정리했습니다.", "정리했습니다. 저장해 두면 비교가 쉽습니다.")
+
+    def test_hidden_caption_error_is_repaired_in_second_round(self, monkeypatch):
+        bad = self._payload(cover=self.LONG_COVER, caption=self.MID_LINE_CTA_CAPTION)
+        cover_fixed = self._payload(caption=self.MID_LINE_CTA_CAPTION)       # 표지만 고쳐지고 캡션은 그대로
+        result, models = self._run(monkeypatch, [bad, cover_fixed, self._payload()])
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 3
+        assert "Rewrite ONLY the field named 'cover'" in models.calls[1]["contents"]
+        second = models.calls[2]["contents"]
+        assert "Rewrite ONLY the field named 'caption'" in second and "CAPTION_CTA_NOT_LAST" in second
+        assert all(word in second for word in builder._CTA_KEYWORDS)         # 키워드 목록이 지시문에 있다
+        assert result.content.slides[0].text == "Granite 음성 AI 3종 공개, 무엇이 달라졌나?"
+        assert result.content.caption == self.CAPTION
+
+    def test_repair_stops_after_two_rounds(self, monkeypatch):
+        bad = self._payload(cover=self.LONG_COVER, caption=self.MID_LINE_CTA_CAPTION)
+        cover_fixed = self._payload(caption=self.MID_LINE_CTA_CAPTION)
+        result, models = self._run(monkeypatch, [bad, cover_fixed, cover_fixed, self._payload()])
+        assert (result.success, result.error_code) == (False, "CAPTION_CTA_NOT_LAST")
+        assert len(models.calls) == 3                                        # 첫 생성 + 재작성 2회, 4번째 호출 없음
+
+    def test_keyword_list_is_only_added_for_caption_cta_repair(self, monkeypatch):
+        result, models = self._run(monkeypatch, [self._payload(slide2=self.CRAMMED_SLIDE2), self._payload()])
+        assert result.success is True
+        assert "Rewrite ONLY the field named 'body'" in models.calls[1]["contents"]
+        assert "댓글" not in models.calls[1]["contents"]                    # 본문 재작성 지시문에는 CTA 키워드 목록이 없다
 
     def test_safety_block_stops_without_repair(self, monkeypatch):
         result, models = self._run(monkeypatch, [self._payload()], safety=("UNSAFE", "blocked"))

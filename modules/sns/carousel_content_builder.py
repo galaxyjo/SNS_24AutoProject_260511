@@ -537,6 +537,9 @@ def _forbidden_scene_hits(payload: dict) -> "list[tuple[int, str]]":
     return hits
 
 
+# 261103 — 재작성 최대 횟수(서로 다른 재작성 가능 오류가 겹칠 때만 2회째 사용).
+_MAX_REPAIR_ROUNDS = 2
+
 # 261026 STEP 5-B — 다시 쓰게 할 수 있는 LAYOUT·STYLE 오류와, 그때 고칠 필드(나머지 필드는 원래 값 유지).
 _REPAIRABLE_CONTRACT_ERRORS = {
     "COVER_TITLE_INVALID": ("cover", "the cover title (slide 1) must be one line of at most 40 characters, "
@@ -549,7 +552,9 @@ _REPAIRABLE_CONTRACT_ERRORS = {
     "LAST_SLIDE_CTA_COUNT_INVALID": ("body", "the last slide must end with exactly one call-to-action sentence"),
     "IMPERATIVE_NOT_LAST_SLIDE": ("body", "requests or imperative sentences may appear only on the last slide"),
     "CAPTION_CTA_COUNT_INVALID": ("caption", "the caption's last line must be exactly one call-to-action sentence"),
-    "CAPTION_CTA_NOT_LAST": ("caption", "no caption line except the last may contain a call to action"),
+    "CAPTION_CTA_NOT_LAST": ("caption", "no caption line except the last may contain a call to action; the checker "
+                                        "counts any sentence containing these words as a call to action, so use "
+                                        f"them only in the caption's last line: {', '.join(_CTA_KEYWORDS)}"),
     "CAPTION_LENGTH_INVALID": ("caption", "the caption must be at most 400 characters"),
     "HASHTAG_COUNT_INVALID": ("hashtags", "there must be 5-8 hashtags"),
 }
@@ -1012,20 +1017,31 @@ def generate_carousel_content(
     # 261026 STEP 5-B CONTROLLED REPAIR — 카드 사실이 지정된 계정만, LAYOUT·STYLE 계약 오류일 때 실패 필드만
     # 1회 다시 쓰게 하고 같은 검사를 처음부터 다시 적용한다. 재작성 후에도 실패하면 그대로 Fail-closed.
     # 사실(POSSIBLE_FABRICATION)·Safety·중복은 아래 단계에서 재작성 없이 멈춘다.
+    # 261103 — 검증은 오류를 하나씩만 돌려줘서 먼저 걸린 오류(예: COVER_TITLE_INVALID)에 가려진 다른
+    # 재작성 가능 오류(예: CAPTION_CTA_NOT_LAST)가 1회 재작성 뒤에 처음 드러나 그대로 실패하던 문제(022 16:00 실측).
+    # 재작성 뒤 *다른* 재작성 가능 오류로 바뀌었을 때만 한 번 더 재작성한다(최대 _MAX_REPAIR_ROUNDS회).
+    # 같은 오류가 그대로면 즉시 중단 — 기존 "같은 오류 재작성 1회 뒤 STOP" 동작과 Gemini 호출 수는 변하지 않는다.
     if card_facts and contract_error in _REPAIRABLE_CONTRACT_ERRORS:
-        logger.warning(f"[CarouselContent] 계약 실패 — 실패 필드만 1회 재작성 | {contract_error}")
-        repaired = _repair_contract_fields(
-            payload, contract_error, card_facts, conversion_cta,
-            client=client or _get_client(), throttle_fn=active_throttle, model=active_model, config=config,
-        )
-        if repaired is None:
-            contract_error = "CONTRACT_REPAIR_FAILED"
-        else:
+        for round_no in range(1, _MAX_REPAIR_ROUNDS + 1):
+            logger.warning(f"[CarouselContent] 계약 실패 — 실패 필드만 재작성 {round_no}/{_MAX_REPAIR_ROUNDS} | "
+                           f"{contract_error}")
+            failed_before = contract_error
+            repaired = _repair_contract_fields(
+                payload, contract_error, card_facts, conversion_cta,
+                client=client or _get_client(), throttle_fn=active_throttle, model=active_model, config=config,
+            )
+            if repaired is None:
+                contract_error = "CONTRACT_REPAIR_FAILED"
+                break
             payload = _merge_topic_hashtags(
                 _separate_account_cta_line(_normalize_short_cta(repaired), conversion_cta), topic_hashtags)
             contract_error = _validate_short_contract(payload, slide_count, conversion_cta, card_facts)
-            if contract_error:
+            if not contract_error:
+                break
+            if (contract_error == failed_before or contract_error not in _REPAIRABLE_CONTRACT_ERRORS
+                    or round_no == _MAX_REPAIR_ROUNDS):
                 logger.warning(f"[CarouselContent] 재작성 후에도 계약 실패 — 중단 | {contract_error}")
+                break
     if not contract_error and with_image_scenes:
         contract_error = _validate_image_scenes(payload)
         if contract_error == "IMAGE_SCENE_FORBIDDEN_WORD":
