@@ -116,6 +116,22 @@ class InstagramPostCreate(_InstagramPostCreateRequired, total=False):
     media_type:           str
     insta_post_code:      str
     canary_run_id:        str
+    run_id:               str   # 261103 재사용 보충 — 생성 배치 추적용(선택 키)
+
+
+class ReuseSourcePost(TypedDict, total=False):
+    """261103 재사용 보충 — 원본 계정의 posted 행 중 재사용에 필요한 필드만."""
+    post_id:            str
+    image_url:          str
+    original_image_url: str
+    image_url_hash:     str
+    source_url:         str
+    caption:            str
+    hashtag:            str
+    original_text:      str
+    media_type:         str
+    insta_post_code:    str
+    ig_media_id:        str
 
 
 class PublishAccount(TypedDict):
@@ -291,6 +307,23 @@ class RepositoryInterface(ABC):
     @abstractmethod
     def save_instagram_post(self, post: InstagramPostCreate) -> str:
         """Instagram_Posts 테이블에 신규 레코드 저장. 생성된 record_id 반환."""
+
+    # 261103 재사용 보충 — 선택 확장. 추상이 아니어서 기존 구현체·Fake/Stub 에 영향이 없다.
+    def count_ready_posts_by_account(self) -> dict[str, int]:
+        """게시 대상 ready 행(분류 production/공란, canary_run_id 공란)의 계정별 건수."""
+        raise NotImplementedError
+
+    def fetch_reuse_source_posts(self, source_account_code: str) -> list[ReuseSourcePost]:
+        """source_account_code 의 posted 행 중 캡션이 있는 것 전부(전체 페이지 순회)."""
+        raise NotImplementedError
+
+    def fetch_image_hashes_for_account(self, account_code: str) -> set[str]:
+        """account_code_ref 가 account_code 인 모든 상태 행의 image_url_hash 집합."""
+        raise NotImplementedError
+
+    def count_recent_failed_posts_by_run_prefix(self, run_id_prefix: str, hours: int) -> int:
+        """run_id 가 run_id_prefix 로 시작하고 최근 hours 시간 안에 생성된 failed 행 수."""
+        raise NotImplementedError
 
     @abstractmethod
     def fetch_active_crawl_targets(self) -> list[CrawlTarget]:

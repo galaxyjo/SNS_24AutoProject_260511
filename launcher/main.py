@@ -2788,6 +2788,24 @@ def _job_threads_token_refresh():
                    f"60일 안에 갱신하지 못하면 토큰을 되살릴 수 없습니다. 내일 다시 시도합니다.")
 
 
+def _reuse_replenish_accounts() -> list:
+    raw = os.getenv("REUSE_REPLENISH_ACCOUNTS", "")
+    return [a.strip() for a in raw.split(",") if a.strip()]
+
+
+@handle_errors(task="reuse_replenish", notify_fn=_slack)
+def _job_reuse_replenish():
+    """261103 — IDN-000041 과거 게시 자산을 허용 목록 계정의 ready 로 보충한다(계정당 2건 유지,
+    전체 ready 40건 상한). 게시 경로·슬롯 Gate 는 바꾸지 않고 ready 행만 만든다.
+    설계: docs/design/REUSE_REPLENISHER_DESIGN_261103.md
+
+    Flag: REUSE_REPLENISH_ENABLED=true 여야 _build_scheduler 에서 등록된다. 허용 계정은 REUSE_REPLENISH_ACCOUNTS."""
+    if os.getenv("REUSE_REPLENISH_ENABLED", "false").strip().lower() != "true":
+        return
+    from modules.sns.reuse_replenisher import run_once
+    run_once(_reuse_replenish_accounts(), notify=_slack)
+
+
 def _parse_post_hours(raw: str, limit: int = 0) -> tuple:
     """261031 — Account_Registry.post_hours("6,10,19", Bangkok 시) 파싱. (시각 목록, 오류) 반환.
     0~23 정수만 허용, 중복은 제거, 오름차순. limit>0이면 앞에서 limit개만 쓴다. 공란·형식 오류는 ([], 사유)."""
@@ -2990,6 +3008,14 @@ def _build_scheduler(canary_safe_mode: bool = False) -> BackgroundScheduler:
             hour=3, minute=30, timezone="Asia/Bangkok",
             id="threads_token_refresh",
             max_instances=1, coalesce=True, misfire_grace_time=3600,
+        )
+    # 261103 — 041 자산 재사용 보충. 기본 false(미등록). 원복(끄기)은 `.env` 수정 + launcher 재시작.
+    if os.getenv("REUSE_REPLENISH_ENABLED", "false").strip().lower() == "true":
+        sched.add_job(
+            _job_reuse_replenish, "interval", minutes=30,
+            id="reuse_replenish",
+            next_run_time=now + timedelta(minutes=2),
+            max_instances=1, coalesce=True, misfire_grace_time=300,
         )
     sched.add_listener(_on_aijomoojin_job_missed, EVENT_JOB_MISSED)
     return sched

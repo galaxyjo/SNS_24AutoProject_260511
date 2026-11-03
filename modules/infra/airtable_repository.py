@@ -37,6 +37,7 @@ from modules.infra.repository_interface import (
     PublishAccount,
     PublishAccountV2,
     RepositoryError,
+    ReuseSourcePost,
     RepositoryInterface,
     RepositoryNotFoundError,
     RepositoryUnavailableError,
@@ -239,6 +240,94 @@ class AirtableRepository(RepositoryInterface):
             raise RepositoryUnavailableError(str(e)) from e
 
         return r.json().get("id", "")
+
+    # ── 3-B. 재사용 보충(261103) — 읽기 전용 조회 ─────────────────────────────
+
+    _REUSE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+
+    def _get_all_records(self, table: str, formula: str, fields: list) -> list[dict]:
+        """filterByFormula 로 거른 레코드를 전체 페이지 순회로 반환한다."""
+        out: list[dict] = []
+        offset = ""
+        while True:
+            params = {"filterByFormula": formula, "pageSize": 100, "fields[]": fields}
+            if offset:
+                params["offset"] = offset
+            try:
+                r = requests.get(_url(table), headers=_headers(), params=params, timeout=_TIMEOUT)
+                r.raise_for_status()
+                log_api_call(table, "GET")
+            except requests.HTTPError as e:
+                _raise(e, table)
+            except requests.RequestException as e:
+                raise RepositoryUnavailableError(str(e)) from e
+            body = r.json()
+            out.extend(body.get("records", []))
+            offset = body.get("offset", "")
+            if not offset:
+                return out
+
+    def count_ready_posts_by_account(self) -> dict[str, int]:
+        # fetch_pending_posts 와 같은 ready 조건(production/공란, canary_run_id 공란)이다.
+        rows = self._get_all_records(
+            "Instagram_Posts",
+            f"AND({{post_status}}='{InstagramPostStatus.READY.value}',"
+            "OR({data_classification}=BLANK(),{data_classification}='production'),"
+            "{canary_run_id}=BLANK())",
+            ["account_code_ref"],
+        )
+        counts: dict[str, int] = {}
+        for rec in rows:
+            key = (rec.get("fields", {}).get("account_code_ref") or "").strip()
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def fetch_reuse_source_posts(self, source_account_code: str) -> list[ReuseSourcePost]:
+        source_account_code = (source_account_code or "").strip()
+        if not self._ACCOUNT_CODE_PATTERN.fullmatch(source_account_code):
+            raise RepositoryValidationError("source_account_code 형식 오류")
+        rows = self._get_all_records(
+            "Instagram_Posts",
+            f"AND({{account_code_ref}}='{source_account_code}',{{post_status}}='posted')",
+            ["image_url", "original_image_url", "image_url_hash", "source_url", "caption", "hashtag",
+             "original_text", "media_type", "insta_post_code", "ig_media_id"],
+        )
+        result: list[ReuseSourcePost] = []
+        for rec in rows:
+            f = rec.get("fields", {})
+            if not (f.get("caption") or "").strip():
+                continue
+            post: ReuseSourcePost = {"post_id": rec["id"]}
+            for key in ("image_url", "original_image_url", "image_url_hash", "source_url", "caption",
+                        "hashtag", "original_text", "media_type", "insta_post_code", "ig_media_id"):
+                post[key] = f.get(key, "") or ""
+            result.append(post)
+        return result
+
+    def fetch_image_hashes_for_account(self, account_code: str) -> set[str]:
+        account_code = (account_code or "").strip()
+        if not self._ACCOUNT_CODE_PATTERN.fullmatch(account_code):
+            raise RepositoryValidationError("account_code 형식 오류")
+        rows = self._get_all_records(
+            "Instagram_Posts", f"{{account_code_ref}}='{account_code}'", ["image_url_hash"],
+        )
+        return {
+            rec["fields"]["image_url_hash"] for rec in rows if rec.get("fields", {}).get("image_url_hash")
+        }
+
+    def count_recent_failed_posts_by_run_prefix(self, run_id_prefix: str, hours: int) -> int:
+        run_id_prefix = (run_id_prefix or "").strip()
+        if not self._REUSE_ID_PATTERN.fullmatch(run_id_prefix):
+            raise RepositoryValidationError("run_id_prefix 형식 오류")
+        if isinstance(hours, bool) or not isinstance(hours, int) or not (1 <= hours <= 168):
+            raise RepositoryValidationError("hours 는 1~168 정수")
+        rows = self._get_all_records(
+            "Instagram_Posts",
+            f"AND({{post_status}}='failed',LEFT({{run_id}},{len(run_id_prefix)})='{run_id_prefix}',"
+            f"IS_AFTER(CREATED_TIME(),DATEADD(NOW(),-{hours},'hours')))",
+            ["post_status"],
+        )
+        return len(rows)
 
     # ── 4. 활성 크롤 대상 조회 ────────────────────────────────────────────────
 
