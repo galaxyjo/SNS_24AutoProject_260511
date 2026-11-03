@@ -461,8 +461,16 @@ def _cta_location_summary(payload: dict, account_cta: str = "") -> str:
     account_core = (account_cta or "").strip().rstrip(".!? ")
     line_keywords = [[k for k in _CTA_KEYWORDS if k in _without_cta_exempt(line)] for line in lines]
     line_account = [int(bool(account_core and account_core in line)) for line in lines]
+    # 261104 025 CTA_NOT_LAST_SLIDE('댓글' 오탐 의심) 확인용 — 장별로 어떤 키워드가 몇 번째 문장에서 걸렸는지만 남긴다(본문 미기록).
+    slide_keywords = [[k for k in _CTA_KEYWORDS if k in _without_cta_exempt(s.get("text", ""))] for s in slides]
+    slide_hit_sentences = [
+        [n for n, sent in enumerate(re.split(r"[.!?\n]+", s.get("text", "")), start=1)
+         if sent.strip() and any(k in _without_cta_exempt(sent) for k in _CTA_KEYWORDS)]
+        for s in slides
+    ]
     return (f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]} "
-            f"caption_line_kw={line_keywords} caption_line_acct={line_account}")
+            f"caption_line_kw={line_keywords} caption_line_acct={line_account} "
+            f"slide_kw={slide_keywords} slide_hit_sent={slide_hit_sentences}")
 
 
 def _validate_short_contract(payload: dict, slide_count: int, account_cta: str = "",
@@ -1104,7 +1112,8 @@ def generate_carousel_content(
                     logger.warning(f"[CarouselContent] 재요청 후에도 금지어 | hits={_forbidden_scene_hits(payload)}")
     if contract_error:
         if short:
-            logger.warning(f"[CarouselContent] 계약 실패 | {contract_error} | {_cta_location_summary(payload, conversion_cta)}")
+            logger.warning(f"[CarouselContent] 계약 실패 | {contract_error} | topic_id={topic.topic_id} | "
+                           f"{_cta_location_summary(payload, conversion_cta)}")
         return CarouselResult(success=False, error_code=contract_error)
 
     slides = tuple(

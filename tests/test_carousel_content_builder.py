@@ -675,6 +675,25 @@ class TestShortCtaNormalization:
         assert "caption_line_acct=[0, 1]" in summary
         assert "냉장" not in summary and "알려드립니다" not in summary and "수출" not in summary
 
+    def test_summary_lists_slide_keywords_and_sentence_positions_without_body(self):
+        payload = {
+            "slides": [{"index": 1, "text": "표지"},
+                       {"index": 2, "text": "방송이 이어집니다. 시청자 댓글에 답하는 처리가 있습니다."},
+                       {"index": 3, "text": "문의는 DM"}],
+            "caption": "a\nb",
+        }
+        summary = builder._cta_location_summary(payload, "문의는 DM")
+        assert "slide_kw=[[], ['댓글'], []]" in summary
+        assert "slide_hit_sent=[[], [2], []]" in summary
+        assert "시청자" not in summary and "방송" not in summary
+
+    def test_failure_log_includes_topic_id(self, monkeypatch, caplog):
+        payload = _norm_payload(["AI 영업 자동화 시작", "데이터를 저장해 두면 비교가 쉽습니다.", "필요할 때 다시 보도록 저장하세요."])
+        with caplog.at_level(logging.WARNING):
+            _run_short(monkeypatch, payload, 3)
+        log = " ".join(r.getMessage() for r in caplog.records if "CarouselContent" in r.getMessage())
+        assert "topic_id=" in log and "slide_kw=" in log
+
     def test_summary_without_account_cta_keeps_old_fields(self):
         summary = builder._cta_location_summary({"slides": [], "caption": "a\nb"})
         assert summary.startswith("slide_cta=[] caption_line_cta=[0, 0]")
