@@ -438,12 +438,17 @@ def _log_generation_exception(exc, model, attempt, category, retryable, will_ret
         logger.error("[CarouselContent] Gemini 예외 로그 작성 실패 | error_type=%s", type(exc).__name__)
 
 
-def _cta_location_summary(payload: dict) -> str:
-    """실패 위치 로그용 — 본문 없이 장·줄별 CTA 문장 수만."""
+def _cta_location_summary(payload: dict, account_cta: str = "") -> str:
+    """실패 위치 로그용 — 본문 없이 장·줄별 CTA 문장 수, 그리고 261103 022 CAPTION_CTA_NOT_LAST 원인 확인용으로
+    줄별로 어떤 고정 CTA 키워드(_CTA_KEYWORDS)가 걸렸는지와 계정 CTA 문구 포함 여부만 덧붙인다(캡션 본문은 기록하지 않는다)."""
     slides = sorted(payload.get("slides") or [], key=lambda s: s.get("index", -1))
     slide_counts = [_count_cta_sentences(s.get("text", "")) for s in slides]
     lines = [line for line in (payload.get("caption") or "").splitlines() if line.strip()]
-    return f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]}"
+    account_core = (account_cta or "").strip().rstrip(".!? ")
+    line_keywords = [[k for k in _CTA_KEYWORDS if k in line] for line in lines]
+    line_account = [int(bool(account_core and account_core in line)) for line in lines]
+    return (f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]} "
+            f"caption_line_kw={line_keywords} caption_line_acct={line_account}")
 
 
 def _validate_short_contract(payload: dict, slide_count: int, account_cta: str = "",
@@ -1038,7 +1043,7 @@ def generate_carousel_content(
                     logger.warning(f"[CarouselContent] 재요청 후에도 금지어 | hits={_forbidden_scene_hits(payload)}")
     if contract_error:
         if short:
-            logger.warning(f"[CarouselContent] 계약 실패 | {contract_error} | {_cta_location_summary(payload)}")
+            logger.warning(f"[CarouselContent] 계약 실패 | {contract_error} | {_cta_location_summary(payload, conversion_cta)}")
         return CarouselResult(success=False, error_code=contract_error)
 
     slides = tuple(

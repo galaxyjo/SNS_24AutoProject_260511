@@ -664,6 +664,29 @@ class TestShortCtaNormalization:
         assert "slide_cta=[0, 1, 1]" in log and "caption_line_cta=" in log
         assert "데이터를 저장해" not in log
 
+    def test_summary_lists_matched_keywords_and_account_cta_without_caption_text(self):
+        payload = {
+            "slides": [{"index": 1, "text": "표지"}, {"index": 2, "text": "본문"}],
+            "caption": "냉장 저장 팁을 알려드립니다.\n식재료 수출 문의는 DM",
+        }
+        summary = builder._cta_location_summary(payload, "식재료 수출 문의는 DM")
+        assert "caption_line_cta=[1, 0]" in summary          # 기존 필드는 그대로(계정 문구 없이 키워드만 집계)
+        assert "caption_line_kw=[['저장'], []]" in summary    # 첫 줄은 일반 키워드 '저장' 때문에 CTA로 집계됨
+        assert "caption_line_acct=[0, 1]" in summary
+        assert "냉장" not in summary and "알려드립니다" not in summary and "수출" not in summary
+
+    def test_summary_without_account_cta_keeps_old_fields(self):
+        summary = builder._cta_location_summary({"slides": [], "caption": "a\nb"})
+        assert summary.startswith("slide_cta=[] caption_line_cta=[0, 0]")
+        assert "caption_line_acct=[0, 0]" in summary
+
+    def test_failure_log_includes_keyword_and_account_fields(self, monkeypatch, caplog):
+        payload = _norm_payload(["AI 영업 자동화 시작", "데이터를 저장해 두면 비교가 쉽습니다.", "필요할 때 다시 보도록 저장하세요."])
+        with caplog.at_level(logging.WARNING):
+            _run_short(monkeypatch, payload, 3)
+        log = " ".join(r.getMessage() for r in caplog.records if "CarouselContent" in r.getMessage())
+        assert "caption_line_kw=" in log and "caption_line_acct=" in log
+
     def test_eight_slide_path_is_not_normalized(self, monkeypatch):
         models = _FakeModels(response=_FakeResponse(_valid_payload()))
         _patch_gemini(monkeypatch, models)
