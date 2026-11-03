@@ -45,18 +45,34 @@ def max_items() -> int:
     return value if value > 0 else DEFAULT_MAX_ITEMS
 
 
-def _valid_png(data: bytes) -> bool:
+# 261103 — Flux(Cloudflare)는 JPEG를 돌려주므로 PNG만 받던 풀이 매번 거부했다(ERR 기록 대상). 흔한 래스터
+# 형식만 허용하고 확장자는 실제 형식을 따른다(내용 검증은 Pillow, 이름은 SHA).
+_EXT_BY_FORMAT = {"PNG": "png", "JPEG": "jpg", "BMP": "bmp", "GIF": "gif", "WEBP": "webp"}
+_MAX_PIXELS = 4096 * 4096   # Flux 출력은 약 1024×1024 — 그보다 훨씬 큰 이미지는 풀에 넣지 않는다(디컴프레션 봄 방지)
+
+
+def _image_format(data: bytes) -> str:
+    """허용 형식이고 디코딩 검증을 통과하면 Pillow 형식명(PNG/JPEG/…)을, 아니면 ""를 반환한다."""
     if not data or len(data) < _MIN_BYTES:
-        return False
+        return ""
     try:
         from PIL import Image
         with Image.open(BytesIO(data)) as img:
-            if img.format != "PNG":
-                return False
+            fmt = img.format or ""
+            if fmt not in _EXT_BY_FORMAT:
+                return ""
+            width, height = img.size                       # 헤더만 읽은 상태 — 디코딩 전에 크기·프레임 상한을 적용한다
+            if width * height > _MAX_PIXELS or getattr(img, "n_frames", 1) > 1:
+                return ""
             img.verify()
-        return True
+        return fmt
     except Exception:  # noqa: BLE001 — 디코딩 실패는 모두 "유효하지 않음"
-        return False
+        return ""
+
+
+def _valid_png(data: bytes) -> bool:
+    """하위호환 이름 — 이제 허용 형식(PNG/JPEG/BMP/GIF/WEBP) 전체를 유효로 본다."""
+    return bool(_image_format(data))
 
 
 def _connect(db_path: "Path | None") -> sqlite3.Connection:
@@ -153,12 +169,13 @@ def save_sketch(scope: str, image_bytes: bytes, *, pool_dir: "Path | None" = Non
     DB 변경(삽입 2건 + 보존 정리)은 하나의 트랜잭션이라 중간에 실패하면 모두 되돌아간다."""
     if not scope or not image_bytes:
         return ""
-    if not _valid_png(image_bytes):
-        logger.warning("[ImagePool] 유효한 PNG가 아니어서 저장하지 않음 | scope=%s | bytes=%d", scope, len(image_bytes))
+    fmt = _image_format(image_bytes)
+    if not fmt:
+        logger.warning("[ImagePool] 허용 이미지 형식이 아니어서 저장하지 않음 | scope=%s | bytes=%d", scope, len(image_bytes))
         return ""
     sha = hashlib.sha256(image_bytes).hexdigest()
     directory = Path(pool_dir or POOL_DIR)
-    target = directory / f"{sha}.png"             # 전체 SHA 파일명 — 다른 이미지의 파일을 덮어쓸 수 없다
+    target = directory / f"{sha}.{_EXT_BY_FORMAT[fmt]}"            # 전체 SHA 파일명 — 다른 이미지의 파일을 덮어쓸 수 없다
     created_new = False
     tmp = directory / f".{sha}.{os.getpid()}.tmp"
     try:

@@ -149,6 +149,70 @@ def test_non_png_or_tiny_bytes_are_not_saved(env, tmp_path):
     assert not (tmp_path / "pool").exists() or not list((tmp_path / "pool").glob("*.png"))
 
 
+def _img(fmt, seed=1, size=(1024, 1024)):
+    buf = BytesIO()
+    Image.new("RGB", size, (seed * 11 % 255, seed * 23 % 255, seed * 37 % 255)).save(buf, format=fmt)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("fmt,ext", [("PNG", "png"), ("JPEG", "jpg"), ("BMP", "bmp"), ("GIF", "gif"), ("WEBP", "webp")])
+def test_allowed_formats_are_saved_with_matching_extension_and_round_trip(env, tmp_path, fmt, ext):
+    data = _img(fmt, seed=3)
+    sha = pool.save_sketch("A", data)
+    assert sha
+    assert (tmp_path / "pool" / f"{sha}.{ext}").read_bytes() == data
+    picked = pool.take_unused_sketch("B")
+    assert picked == (sha, data)                                    # 다른 계정이 같은 바이트를 그대로 받는다
+
+
+@pytest.mark.parametrize("fmt", ["TIFF", "ICO"])
+def test_formats_outside_allowlist_are_not_saved(env, tmp_path, fmt):
+    assert pool.save_sketch("A", _img(fmt, size=(256, 256))) == ""
+    assert not (tmp_path / "pool").exists() or not list((tmp_path / "pool").iterdir())
+
+
+def test_oversized_image_is_rejected_before_save(env, monkeypatch, tmp_path):
+    monkeypatch.setattr(pool, "_MAX_PIXELS", 1024 * 1024 - 1)
+    assert pool.save_sketch("A", _img("JPEG")) == ""                # 1024×1024는 상한 초과
+    monkeypatch.setattr(pool, "_MAX_PIXELS", 1024 * 1024)
+    assert pool.save_sketch("A", _img("JPEG"))                      # 정확히 상한이면 통과(경계)
+
+
+def test_multi_frame_gif_and_webp_are_rejected(env, tmp_path):
+    for fmt in ("GIF", "WEBP"):
+        buf = BytesIO()
+        frames = [Image.new("RGB", (512, 512), (i * 60, 10, 10)) for i in range(3)]
+        frames[0].save(buf, format=fmt, save_all=True, append_images=frames[1:], duration=100)
+        assert len(buf.getvalue()) >= 1024
+        assert pool.save_sketch("A", buf.getvalue()) == ""
+    assert not (tmp_path / "pool").exists() or not list((tmp_path / "pool").iterdir())
+
+
+def test_empty_tiny_and_fake_extension_bytes_are_rejected(env):
+    assert pool.save_sketch("A", b"") == ""
+    assert pool.save_sketch("A", _img("JPEG", size=(8, 8))) == ""   # 1KB 미만
+    assert pool.save_sketch("A", b"\xff\xd8\xff" + b"\x00" * 3000) == ""   # JPEG 헤더 흉내만 낸 바이트
+
+
+def test_resaving_same_jpeg_keeps_single_jpg_file(env, tmp_path):
+    data = _img("JPEG", seed=7)
+    assert pool.save_sketch("A", data) == pool.save_sketch("B", data)
+    assert [p.suffix for p in (tmp_path / "pool").iterdir()] == [".jpg"]
+
+
+def test_truncated_jpeg_is_not_saved(env, tmp_path):
+    assert pool.save_sketch("A", _img("JPEG")[:600] + b"\x00" * 600) == ""
+
+
+def test_jpeg_from_provider_is_pooled_during_generation(env, monkeypatch, tmp_path):
+    seeds = iter(range(1, 50))
+    monkeypatch.setattr(builder, "generate_image",
+                        lambda prompt, negative_prompt="": ProviderResult(success=True, image_bytes=_img("JPEG", next(seeds))))
+    images, err = _build("IDN-000036")
+    assert not err and len(images) == 3
+    assert len(list((tmp_path / "pool").glob("*.jpg"))) == 3
+
+
 def test_existing_corrupt_file_with_same_hash_name_is_repaired(env, tmp_path):
     data = _png(5)
     import hashlib
