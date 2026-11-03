@@ -3351,4 +3351,16 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **조치:** 커밋 `363c6e5` — Gemini 호출 예외를 시도마다 기록(모델·시도 N/4·예외 종류·HTTP 코드·분류·재시도 여부·다음 대기·메시지 앞 200자, 공용 `redact_sensitive` + `AIza…`/`Bearer …` 마스킹), `response is None` 경로 로그, Producer 실패 로그에 `account_code`·`max_attempts` 추가. 반환 코드·재시도 흐름 불변. 새 테스트 `tests/test_carousel_generation_failure_log.py` 10건(최초 작성 4건은 수정 전 코드에서 4건 모두 실패 확인), 캐러셀 관련 230건 통과, 넓은 범위 비교(수정 전후 모두 20 failed, 실패 목록 동일·신규 실패 0). Codex 검수 통과(1차 지적: 마스킹 형식·시도 횟수 표기 → 반영 후 재검수 통과).
 - **UNKNOWN / Risk:** ① 실제 예외 원인은 launcher 재시작 후 다음 실패 시 로그로 확인(그때까지 원인 로그 없음) ② 원인 확정 후 `GENERATION_FAILED`의 재시도 허용 여부 결정 필요 ③ 운영 반영(Push·launcher 재시작) 미실시.
 - **Rollback:** `git revert 363c6e5`(반영 후엔 launcher 재시작 필요).
+- **갱신(261103 11:00대 조사):** 반영 후 첫 실패 로그에서 실제 원인 확인 — IDN-000025가 05:01·09:01에 Gemini **HTTP 429 RESOURCE_EXHAUSTED**(분당 요청 한도, `provider_http_429`, 시도 4/4 모두 429, 백오프 5→19→60초 후 포기)로 `GENERATION_FAILED`. 따라서 이 코드는 최소한 025에서는 429 소진이 원인이다(FACT, `logs/error/error.log` 05:01:43·09:01:27). 20:35 `ConnectError`(2026-11-02)는 별건 가능성. 429 반복 시 025 Gemini 프로젝트 한도·호출 간격 조정이 필요하나 이번에는 미조치.
 - **관련:** ERR-191, CLAUDE.md §9.1(조용한 실패 금지)
+
+## ERR-193 | 이미지 풀(IMAGE_POOL)이 PNG만 받아 Flux(JPEG) 이미지를 전부 거부 — 풀 저장 0건, 일일 한도 폴백 무력 — 형식 확대 수정 완료(커밋 cfe3bf0, 261103)
+
+- **증상:** 261103 036 Producer(05:04, 08:01)에서 `[ImagePool] 유효한 PNG가 아니어서 저장하지 않음` 4건(bytes 166881·91389·194026·251699). `vault/image_pool`·`db/image_pool.db`는 생성되지 않음. 이미지 풀 폴백(일일 이미지 50장 한도 도달 시 재사용, 커밋 555acd8)이 사실상 동작할 수 없는 상태.
+- **근거(Evidence):** Cloudflare FLUX 응답을 직접 호출해 확인 — 첫 바이트 `ffd8ffe0` = JPEG(263,790 bytes, HTTP 200; 일일 한도 카운터 미기록 경로, 이미지 미저장). `modules/sns/image_pool.py`의 `_valid_png`가 `img.format != "PNG"`이면 거부. 생성 경로(`image_provider_cloudflare.generate_image`)는 base64 디코드 바이트를 형식 변환 없이 반환. 소비처 `render_note_card`는 `Image.open().convert("RGB")`라 형식 무관.
+- **Root Cause(FACT):** 풀 개발·테스트가 PNG만 가정했고(테스트 입력도 PNG) 실제 제공자 출력 형식을 운영 전에 확인하지 않음. 555acd8 module_verified가 provider 실출력과 분리된 가정 위에서 만들어짐.
+- **영향:** 풀이 비어 있어 한도 도달 시 대체 이미지 없음(기존과 같은 실패 경로). 게시·생성 흐름은 영향 없음(저장 실패는 경고만 남기고 계속).
+- **조치:** 커밋 `cfe3bf0` — 허용 형식 PNG·JPEG·BMP·GIF·WEBP(Pillow verify), 파일 확장자는 실제 형식, 4096×4096 초과·다중 프레임(GIF/WEBP/APNG) 거부(디컴프레션 봄 방지), 레거시 `{sha}.png` 항목 호환 유지. 테스트 32→45건(JPEG 왕복·경계·다중 프레임·위조 헤더·중복 저장), 운영 경로 오염 없음, Codex 2차 검수 YES. 11:19 launcher 재시작으로 반영.
+- **UNKNOWN / Risk:** ① 운영에서 실제 풀 저장은 아직 관측 전 — 내일 05시 036 Producer 로그 `[ImagePool]`·`vault/image_pool/*.jpg`로 확인 ② `image_text_checker`가 모든 이미지를 `image/png` MIME으로 전송(기존 동작, 이번 변경 밖) — 05:04 JPEG 3장 판독 통과 증거로 차단 사유 아님, 별도 정리 후보 ③ GIF/WEBP 투명도 RGB 변환(현재 Flux JPEG만 사용해 영향 없음).
+- **Rollback:** `git revert cfe3bf0` 후 launcher 재시작. 풀 정리는 `vault/image_pool`·`db/image_pool.db` 삭제(부가 폴백이라 게시 영향 없음).
+- **관련:** ERR-192, 555acd8(이미지 풀 최초 구현), 재발방지 원칙 — 새 입력 경로 구현 시 실제 제공자 출력 샘플로 검증(module_verified ≠ e2e_verified)
