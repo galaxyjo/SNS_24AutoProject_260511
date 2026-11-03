@@ -53,6 +53,7 @@ from modules.common.health_monitor import get_health, print_health, record_boot_
 from modules.comment.comment_auto_reply import register_retry_handlers as _register_comment_retry_handlers
 from modules.infra.airtable_usage_logger import log_api_call
 from modules.common.log_sanitizer import redact_sensitive
+from modules.common import error_events as _error_events  # 모듈 import 시점에 로드(테스트 격리가 모듈 상수를 임시 경로로 돌릴 수 있게)
 from modules.sns.content_filter import resolve_publish_gate
 
 init_logging()
@@ -384,6 +385,16 @@ def _is_meta_media_fetch_error(exc) -> bool:
     if not isinstance(err, dict):
         return False
     return str(err.get("code")) == "9004" and str(err.get("error_subcode")) == "2207052"
+
+
+def _record_meta_failure(raw, *, account_code, rid, stage):
+    """261103 오류 이벤트 원장 1단계 — 게시 실패를 분류·기록하고 인증/권한/정책 차단 계열만 계정당 하루 1회 Slack.
+    기록만 하며 게시 흐름·재시도·상태 변경은 바꾸지 않는다. 어떤 실패도 호출자에게 전파하지 않는다."""
+    try:
+        _error_events.record_publish_failure(raw, account_code=account_code or "", record_id=rid, stage=stage,
+                                             notify=_slack)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ErrEvt] 호출 실패(게시 흐름 무영향) | %s", type(exc).__name__)
 
 
 def publish_single(rid, image_url, caption, access_token, ig_user_id, api_host="graph.facebook.com"):
@@ -735,7 +746,8 @@ def _maybe_publish_threads(repo, post_id: str, credential_key: str, account_code
         elif status == "failed":
             logger.warning("[Threads] 게시 실패(재시도 없음) | rid=%s | %s", post_id, res.get("error", ""))
             if _slack:
-                _slack(f"[알림] Threads 게시 실패(재시도 없음) — rid={post_id} | {res.get('error','')} | account_ref={account_code_ref}")
+                _slack(f"[알림] Threads 게시 실패(재시도 없음) — rid={post_id} | "
+                       f"{_error_events.safe_text(res.get('error', ''))} | account_ref={account_code_ref}")
         else:
             logger.info("[Threads] 건너뜀 | rid=%s | %s", post_id, res.get("error", ""))
     except Exception as exc:
@@ -1023,6 +1035,8 @@ def _job_insta_upload():
                              type(exc).__name__, account_code_ref)
 
         raw = publish_single(post_id, image_url, caption, token, ig_user_id, api_host=api_host)
+        if not raw.get("ok"):
+            _record_meta_failure(raw, account_code=account_code_ref, rid=post_id, stage="poller_publish")
 
         if raw.get("outcome_unknown"):
             # media_publish 결과 불명(응답 유실 가능) — 자동으로 failed/재게시 처리하지 않는다.
@@ -1058,7 +1072,7 @@ def _job_insta_upload():
                 # 복구 가능하게 Slack으로만 알린다. 분류·재시도 로직은 변경 없음.
                 _slack(
                     f"[알림] Instagram 게시 실패 확정 — 필요 시 creation_id로 수동 재시도 확인\n"
-                    f"rid={post_id} | error={raw.get('error','')} | "
+                    f"rid={post_id} | error={_error_events.safe_text(raw.get('error', ''))} | "
                     f"creation_id={raw.get('creation_id','')} | account_ref={account_code_ref or 'legacy'}"
                 )
         except Exception as exc:
@@ -1345,6 +1359,8 @@ def _job_aijomoojin_scheduled_post(account_code: str = AIJOMOOJIN_SLOT_ACCOUNT_C
         raw = publish_single(
             post_id, image_url, caption, cred.access_token, cred.ig_user_id, api_host=provider_conf["host"],
         )
+    if not raw.get("ok"):
+        _record_meta_failure(raw, account_code=account_code, rid=post_id, stage=f"slot_publish_{post_kind}")
 
     if raw.get("outcome_unknown"):
         logger.error(
@@ -1379,7 +1395,8 @@ def _job_aijomoojin_scheduled_post(account_code: str = AIJOMOOJIN_SLOT_ACCOUNT_C
         if not raw.get("ok") and _slack:
             _slack(
                 f"[알림] aijomoojin 슬롯 게시 실패 확정\n"
-                f"rid={post_id} | error={raw.get('error','')} | creation_id={raw.get('creation_id','')}"
+                f"rid={post_id} | error={_error_events.safe_text(raw.get('error', ''))} | "
+                f"creation_id={raw.get('creation_id','')}"
             )
     except Exception as exc:
         if raw.get("ok"):

@@ -3352,6 +3352,7 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** ① 실제 예외 원인은 launcher 재시작 후 다음 실패 시 로그로 확인(그때까지 원인 로그 없음) ② 원인 확정 후 `GENERATION_FAILED`의 재시도 허용 여부 결정 필요 ③ 운영 반영(Push·launcher 재시작) 미실시.
 - **Rollback:** `git revert 363c6e5`(반영 후엔 launcher 재시작 필요).
 - **갱신(261103 11:00대 조사):** 반영 후 첫 실패 로그에서 실제 원인 확인 — IDN-000025가 05:01·09:01에 Gemini **HTTP 429 RESOURCE_EXHAUSTED**(분당 요청 한도, `provider_http_429`, 시도 4/4 모두 429, 백오프 5→19→60초 후 포기)로 `GENERATION_FAILED`. 따라서 이 코드는 최소한 025에서는 429 소진이 원인이다(FACT, `logs/error/error.log` 05:01:43·09:01:27). 20:35 `ConnectError`(2026-11-02)는 별건 가능성. 429 반복 시 025 Gemini 프로젝트 한도·호출 간격 조정이 필요하나 이번에는 미조치.
+- **갱신(261103 16:55, 025 읽기 전용 진단 — 근본원인 확정):** 025 전용 키로 모델 3종(`gemini-3.5-flash-lite`·`gemini-2.5-flash-lite`·`gemini-2.5-flash`)에 각 1회 최소 호출(maxOutputTokens=4)을 보내니 **전부 즉시 HTTP 429 `RESOURCE_EXHAUSTED`**(분당 요청 한도, `consumer 'project_number:130069634177'`)였다. 같은 시각 036·022 키는 같은 호출이 200. 몇 시간 동안 호출이 없던 프로젝트가 모든 모델에서 첫 호출부터 429이므로 **호출 빈도나 동시 실행 문제가 아니라 025 키의 Google 프로젝트(130069634177) 자체에 사용 가능한 분당 쿼터가 없는 상태**다(FACT). 쿼터가 0인 이유(결제 미설정·지역/무료 등급 제한 등)는 UNKNOWN — Google AI Studio/Cloud 콘솔에서만 확인 가능. Airtable `Account_Registry.gemini_project_number`가 025·022 모두 공란이라 이 프로젝트가 기록돼 있지 않았다. **조치(미실시, 회장 몫):** 해당 프로젝트에 결제/쿼터를 설정하거나 새 프로젝트·키를 만들어 `.env`의 `IDN_000025_GEMINI_API_KEY`를 교체(규칙 9: 공유 키 폴백 금지). 코드·재시도 간격 조정으로는 해결되지 않는다(백오프 5→19→60초 후에도 4/4 모두 429).
 - **관련:** ERR-191, CLAUDE.md §9.1(조용한 실패 금지)
 
 ## ERR-193 | 이미지 풀(IMAGE_POOL)이 PNG만 받아 Flux(JPEG) 이미지를 전부 거부 — 풀 저장 0건, 일일 한도 폴백 무력 — 형식 확대 수정 완료(커밋 cfe3bf0, 261103)
@@ -3364,3 +3365,13 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** ① 운영에서 실제 풀 저장은 아직 관측 전 — 내일 05시 036 Producer 로그 `[ImagePool]`·`vault/image_pool/*.jpg`로 확인 ② `image_text_checker`가 모든 이미지를 `image/png` MIME으로 전송(기존 동작, 이번 변경 밖) — 05:04 JPEG 3장 판독 통과 증거로 차단 사유 아님, 별도 정리 후보 ③ GIF/WEBP 투명도 RGB 변환(현재 Flux JPEG만 사용해 영향 없음).
 - **Rollback:** `git revert cfe3bf0` 후 launcher 재시작. 풀 정리는 `vault/image_pool`·`db/image_pool.db` 삭제(부가 폴백이라 게시 영향 없음).
 - **관련:** ERR-192, 555acd8(이미지 풀 최초 구현), 재발방지 원칙 — 새 입력 경로 구현 시 실제 제공자 출력 샘플로 검증(module_verified ≠ e2e_verified)
+
+## ERR-194 | 게시 실패 Slack 알림이 requests 예외 문자열(access_token 쿼리 포함)을 그대로 전송할 수 있음 — 수정 구현(미커밋, 261103)
+
+- **증상(잠재):** `publish_single()`의 Phase A는 `access_token`을 URL 쿼리(`params=`)로 보내고, 최종 실패 시 `{"error": str(e)}`를 반환한다. `requests.HTTPError` 문자열은 요청 URL 전체(쿼리 포함)를 담는다. `launcher/main.py`의 Slack 알림 3곳(폴러 `[알림] Instagram 게시 실패 확정`, 슬롯 `[알림] aijomoojin 슬롯 게시 실패 확정`, `[알림] Threads 게시 실패`)이 그 값을 `error=...`로 그대로 보냈다. 로그 경로(`redact_sensitive`)에는 이미 마스킹이 있었으나 Slack 경로에는 없었다.
+- **근거(Evidence):** 코드 확인(`main.py` 게시 실패 알림 3곳, `publish_single` Phase A `return {"ok": False, "error": str(e), ...}`). 261103 15:15 폴러 게시 실패 2건(IDN-000014·039, Meta 9004)이 같은 경로를 탔으나, 실제로 Slack 채널에 토큰이 전달됐는지는 **UNKNOWN**(채널 직접 확인 필요; 당시 Slack 발송 성공 여부도 로그로 단정 불가).
+- **Root Cause(FACT):** 오류 문자열을 알림 전에 URL 쿼리 제거·마스킹하지 않음(코드 사실). 실제 노출 여부는 UNKNOWN.
+- **조치:** `modules/common/error_events.safe_text()`(URL 쿼리 제거 → `redact_sensitive` → 앞 200자)를 3곳에 적용, 테스트 `tests/test_error_events.py`(토큰·쿼리 미포함 확인 + 3곳 정적 고정). 오류 이벤트 원장 1단계(`error_events.py`)의 저장 값도 같은 함수를 쓴다.
+- **UNKNOWN / Risk:** ① 과거 Slack 메시지에 토큰이 실렸는지(채널 이력 확인은 회장 몫) — 실렸다면 해당 계정 토큰 교체 판단 필요 ② `logger`로 직접 남기는 `res.get("error")`(Threads 로그 3줄)는 이번 범위 밖 — 중앙 로거 필터 적용 여부 별도 확인 필요.
+- **Rollback:** `git revert` 후 launcher 재시작.
+- **관련:** ERR-179(Secret 노출 계열), CLAUDE.md §14.1(Secret 로그·응답 노출 금지)
