@@ -269,3 +269,13 @@
 | `bmed_idn017_post_261028` | **SUCCESS (production_verified: Graph API + Airtable posted)** — IDN-000017 https://www.instagram.com/p/DfBxZ_hkiWn/ (Media 18235119232323082, IMAGE, 영어, Pexels 스톡 Daniel & Hannah Snipes), 선행 조치 ERR-185(INSTA 토큰 4계정 공용 EAA로 교체·정상 조회 확인). B_MED 누계 5/7 게시(020·032 계정/키 없음 SKIP), 중복 0. launcher는 017 등록 전 코드(LAUNCHER_STALE 경고 후 재시작 필요). | 2026-10-28 |
 
 | `travel_idn038_post_261028` | **SUCCESS (production_verified: Graph API + Airtable posted)** — IDN-000038 https://www.instagram.com/p/DfB5PGmgWqV/ (Media 18219635440349189, IMAGE, 한국어, 제주 UNESCO 1264, Pexels 스톡). 중복 0, 폴러 충돌 없음. launcher 038 등록 반영 전(재시작 필요). | 2026-10-28 |
+| `token_idn036_nonexpiring_261102` | **SUCCESS (production_verified: Graph owner=aijomoojin + Airtable posted)** — 시스템 사용자 무만료 토큰(AI Strategist 앱, expires_at=0)으로 036 실게시 Canary, media 18111022358235678(CAROUSEL_ALBUM, children 3), 중복 0. 자동 슬롯의 새 토큰 게시는 관측 전(UNKNOWN). |
+| `gen_failed_logging_261102` | **module_verified** — Gemini 호출 예외 시도별 로그(마스킹, 커밋 363c6e5), 테스트 10건·Codex 통과, 실제 원인은 UNKNOWN(20:35 ConnectError 1건). |
+| `sourcebook_topics_10accounts_261102` | **module_verified** — 부족 10계정 Topic 3개 확보(7bc4231, 7fa033e), 파서·Pillar 매칭 확인, 운영 생성 관측 전. |
+| `sourcebook_path_wiring_4accounts_261102` | **module_verified** — 024·027·028·029 전용 sourcebook_path(7fa033e), 테스트 20건·Codex 통과, Flag OFF라 운영 영향 없음. |
+| `image_pool_fallback_261102` | **module_verified (Flag ON, runtime UNKNOWN)** — 한도 도달 시 풀 손그림 재사용(555acd8), 테스트 32건·Codex 4회 검수, 풀 저장·폴백 운영 관측 전. |
+| `crawl_target_min_interval_261103` | **module_verified (Flag ON, runtime UNKNOWN)** — 대상당 하루 1회 크롤(ec677f1), 테스트 23건·Codex 통과, 첫 크롤은 AdsPower 차단(blocked_until 22:31) 이후. |
+| `poller_slots_19accounts_261102` | **Airtable 입력 확인(read-back 불일치 0)** — 19계정 post_hours·daily_post_limit=3, 폴러 Gate가 적용되나 실제 게시 증거는 없음(ready 글 0건). |
+| `idn022_canary_flags_261102` | **PENDING** — 022 Flag ON·launcher 슬롯 등록(post_hours 11,17,23) 확인, 첫 Producer 10:00·게시 11:00(261103) 결과 대기. |
+| `image_pool_format_fix_261103` | **module_verified (Runtime 반영, 운영 저장 UNKNOWN)** — PNG/JPEG/BMP/GIF/WEBP 허용·픽셀/프레임 상한(cfe3bf0), 테스트 45건·Codex 2차 YES, 11:19 재시작 반영, 풀 실저장은 내일 05시 036 Producer에서 확인. |
+| `cta_failure_log_261103` | **module_verified (Runtime 반영)** — 계약 실패 로그에 `caption_line_kw`·`caption_line_acct` 추가(7007491), 테스트 162건·Codex YES, 11:30 재시작 반영, 022 오탐 키워드 확인은 16시 Producer 실패 시. |

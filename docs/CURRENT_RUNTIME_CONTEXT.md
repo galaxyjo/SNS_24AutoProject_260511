@@ -1,3 +1,29 @@
+# (261103_11:35 KST) | 261103 오전 확인 결과 — 이미지 풀 JPEG 수정·022 CTA 로그 보강 반영 | 담당: Claude Code | 문서 갱신
+
+- **오전 확인(10:35, 읽기 전용):** 036 05시 Producer는 성공(record `recY9ZbBVNUyy04lu`, 새 무만료 토큰으로 첫 생성). 이미지 풀은 저장 0건(`유효한 PNG가 아니어서 저장하지 않음` 4건). 022 10시 Producer는 `CAPTION_CTA_NOT_LAST`로 실패해 11시 슬롯은 `ready 후보 없음`으로 스킵. 025는 05·09시 Gemini 429(분당 한도)로 실패.
+- **원인 확정:** 이미지 풀 — Cloudflare FLUX가 JPEG(`ffd8ffe0`)를 돌려주는데 풀이 PNG만 허용(ERR-193). 025 `GENERATION_FAILED` — Gemini 429 RESOURCE_EXHAUSTED(ERR-192 갱신). 022 — 원인 미확정(키워드 오탐 유력, 캡션 원문 없음).
+- **수정·반영:** `cfe3bf0` 풀이 PNG·JPEG·BMP·GIF·WEBP 허용(4096×4096 초과·다중 프레임 거부, 레거시 `.png` 호환) — Codex 2차 YES, 테스트 45건. `7007491` 계약 실패 로그에 `caption_line_kw`·`caption_line_acct` 추가(본문 미기록, 판정 불변) — Codex YES, 테스트 162건. `7039ea8` ERR-193 기록. 관리자 재시작 2회(11:19, 11:30), `/health` 200·신규 ERROR 0건.
+- **내일 이어서 확인할 것:** ① 036 Producer(05시)에서 `vault/image_pool/*.jpg` 생성·`[ImagePool]` 로그(풀 저장은 아직 운영 관측 전) ② 022 16시·22시 Producer 결과 — 실패 시 새 로그 필드로 오탐 키워드 확인(오늘 16시 확인 가능) ③ AdsPower 결제 후 `blocked_until` 초기화(승인 필요, 22:31 이후 자동 해제도 가능) ④ 폴러 5계정 첫 크롤 Canary ⑤ 슬롯 12계정 Flag 순차 활성화.
+- **보류·미해결:** 025 Gemini 429 반복 시 025 프로젝트 한도·호출 간격 조정(미조치), `image_text_checker`가 모든 이미지를 `image/png` MIME으로 전송(기존 동작, JPEG 3장 판독 통과 증거로 차단 사유 아님 — 별도 정리 후보), 037·052 HOLD, 051 사용권 선언.
+- **UNKNOWN:** 이미지 풀의 실제 운영 저장·폴백, 022 CAPTION_CTA_NOT_LAST의 실제 원인, 036 자동 슬롯의 새 토큰 게시.
+
+---
+
+# (261103_00:38 KST) | 261102~03 세션 종료 인수인계 — 036 복구·글감·이미지 풀·폴러 크롤 연결 | 담당: Claude Code | 문서 갱신
+
+- **현재 단계:** 23계정 자동게시 STEP 3(콘텐츠 공급) 마무리, 막힘은 AdsPower 한도 하나. STEP 2 완료, STEP 4 대부분 완료, STEP 5 부분(011·036 성공, 022 내일 첫 시험).
+- **Runtime(launcher):** 261103 00:34:05 기동, `/health` 200, 코드 `ec677f1` 로드(포함: 363c6e5 Gemini 예외 로그, 7fa033e 4계정 sourcebook_path, 555acd8 이미지 풀 폴백, ec677f1 크롤 간격). 모든 커밋 Push 완료(origin/master = ec677f1).
+- **켜진 Flag(.env 끝에 추가, 백업은 세션 scratchpad `env.bak_*`):** `IMAGE_POOL_ENABLED=true`(풀 비어 있음, 036 Producer부터 저장 시작), `IDN_000022_CONTENT_PRODUCER_ENABLED=true`·`IDN_000022_SLOT_SCHEDULE_ENABLED=true`(022 Canary, Producer 10/16/22시·게시 11/17/23시 ICT), `CRAWL_TARGET_MIN_INTERVAL_HOURS=24`(대상당 하루 1회 크롤). 036 토큰은 시스템 사용자 무만료 토큰으로 교체(18:12, ERR-191).
+- **Airtable 변경:** 19계정 `post_hours`·`daily_post_limit=3` 입력(폴러 007·014·039·041·048·051·… / 슬롯 017·018·019·022·023·024·027·028·029·030·031·035·038, 011·025·036·037은 유지, 적용 전 값 백업 `%TEMP%\stage2e_before.json`), 039 `category=A_BEAUTY`·`content_theme`·Persona(PER-037) 수정, Crawl_Targets `A042~A049` 8행 신규(007·014·039·048 각 2개, production, 학습용 원본 행 유지).
+- **막힘:** AdsPower 무료 열기 한도 소진 — `db/adspower_open_daily.json` `blocked_until=2026-11-03 22:31:16`. 회장이 유료 결제 예정. 결제 후 이 차단 기록 초기화(별도 승인)와 `CRAWL_OPEN_CEILING`(현재 1000) 재설정 필요. 그 전까지 폴러 5계정은 `ready` 글이 없어 게시 0건.
+- **내일 이어서(순서):** ① AdsPower 결제 확인 → 차단 기록 초기화·열기 상한 정리 ② 036 Producer(05:00)에서 `[ImagePool]` 로그와 `vault/image_pool` 생성 확인 ③ 022 첫 Canary(10:00 Producer → 11:00 게시): 계정 일치·중복 0건 ④ 폴러 5계정 첫 크롤 Canary(ImgBB 재업로드·계정 일치·중복 0건) ⑤ 이상 없으면 슬롯 12계정 Flag(022 다음부터 순서대로).
+- **보류:** IDN-000037(맨 마지막, pass), IDN-000052(삭제 안 함·기록만, 백업 `backup/held_accounts/`), 051(사용권 선언 `allowed`+`sns_reuse_allowed` 입력 전까지 크롤 제외), 039 크롤 그룹과 K-뷰티 페르소나 적합성 회장 확인.
+- **UNKNOWN(운영 증거 없음):** 이미지 풀 저장·폴백, 크롤 간격 제한, 4계정 sourcebook_path는 모두 module_verified(테스트)까지만. 036의 새 무만료 토큰 자동 슬롯 게시는 아직 관측 전. `GENERATION_FAILED` 실제 원인(ERR-192, 20:35 `ConnectError` 단서 1건).
+- **제약:** 비관리자 세션은 `C:\ProgramData\SNS_24AutoProject\runtime_boot_policy.json`을 읽지 못해 Airtable 저장 경로(Boot Policy)가 막힌다 — 게시·Producer 수동 실행은 관리자 PowerShell에서만 가능.
+- **사고 기록:** 이미지 풀 테스트 1건이 `monkeypatch.undo()`로 운영 경로(`vault/image_pool`, `db/image_pool.db`)에 잠시 기록했으나 테스트 산출물임을 확인하고 삭제(운영 영향 없음), 테스트에서 `undo()` 제거.
+
+---
+
 # (261028_15:40 KST) | A_BEAUTY 자격 정리(007·048·051) + 인수인계 문서 | 담당: Claude Code | 문서 갱신
 
 - **.env(Git 비추적, 이전 파일 scratchpad 백업):** IDN_000007 Instagram 줄 추가(공용 EAA + IG ID 17841405537345918, 전용 주석 포함, 011 주석 앞에 정렬), `SALE1_GEMINI_ACCOUNT_EMAIL`·`SALE1_GEMINI_API_KEY` 추가(048은 credential_key `SALE1`이라 Gemini 해석이 `SALE1_` 접두사를 씀, 값은 051과 동일 — 해시 일치·generateContent 200). 줄 수 331→336.

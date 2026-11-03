@@ -3347,3 +3347,23 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - 게시 성공(회장 URL 확인): 011 https://www.instagram.com/p/DfG-cAoAQxh/ · 048 https://www.instagram.com/p/DfHBTf4AQaE/ · 007 https://www.instagram.com/p/DfHEu7EgSBt/ · 014 https://www.instagram.com/p/DfHF4F_AYuK/ · 051 https://www.instagram.com/p/DfHJ479ndyA/ (051은 게시 확인만, 회장 별도 확인 전).
 - 방식: 41의 posted 글을 Instagram_Posts에 ready로 복제(TEST-xxx 코드) → launcher 5분 폴러가 게시. Airtable 변경: 5계정 automation_enabled=True, 007·014 content_theme 변경, 크롤 대상 A040·A041(프로필) 추가, A004 Hold. 상세 ERR-190.
 - 미검증: 계정별 Crawl_Targets 행 추가 후 크롤링 자동 게시. 052 HOLD(위 항목). 테스트 레코드는 Instagram_Posts에 남아 있음.
+
+
+### 261103 00:38 KST — 261102~03 세션 커밋·Airtable·.env 변경 일괄 기록(회장 승인 범위)
+
+- **커밋(전부 Push, origin/master=ec677f1):** `363c6e5` Gemini 예외를 시도마다 로그(`carousel_content_builder`, ERR-192) · `2893d04` ERR-191/192 문서 · `7fa033e` 024·027·028·029 전용 `sourcebook_path` + 신규 Sourcebook 4개 · `7bc4231` BMED 5·여행 1 Sourcebook에 Topic 12개 추가 · `555acd8` 노트 손그림 풀 폴백(`image_pool.py`, 기본 OFF) · `ec677f1` Crawl_Target별 최소 크롤 간격(SQLite UPSERT, 기본 OFF). Codex 검수는 각 변경마다 통과 후 Commit.
+- **Airtable:** 19계정 `post_hours`·`daily_post_limit=3`, 039 `category/content_theme/Persona`, Crawl_Targets `A042~A049` 8행. IDN-000052는 삭제하지 않고 백업만(`backup/held_accounts/IDN-000052_hold_261102.json`).
+- **.env(Git 비추적):** AI_INSTA_ACCESS_TOKEN 교체(시스템 사용자 무만료), `IMAGE_POOL_ENABLED=true`, `IDN_000022_CONTENT_PRODUCER_ENABLED`·`IDN_000022_SLOT_SCHEDULE_ENABLED=true`, `CRAWL_TARGET_MIN_INTERVAL_HOURS=24`. 각 변경 전 세션 scratchpad에 백업.
+- **Runtime 반영:** 관리자 재시작(Restart-Service SNS_Watchdog) 3회(18:14·19:22·23:48 전후 포함, 마지막 00:34 기동) 후 `/health` 200, 신규 ERROR 0건.
+- **Rollback:** 코드는 커밋별 `git revert`, 설정은 `.env`의 위 줄 삭제 + 재시작, Airtable 신규 Crawl_Targets 행은 `status=Hold`.
+- **미완·UNKNOWN:** AdsPower 한도 차단(`blocked_until 22:31`)으로 폴러 5계정 첫 크롤 미실행, 이미지 풀·크롤 간격·022 Canary는 운영 관측 전.
+
+
+### 261103 11:35 KST — 이미지 풀 JPEG 허용 수정(cfe3bf0)·ERR-193/192 기록(7039ea8)·CTA 로그 보강(7007491)
+
+- **cfe3bf0 (`image_pool.py`·`test_image_pool_fallback.py`):** 풀이 PNG만 받아 FLUX JPEG를 전부 거부하던 문제 수정. 허용 PNG/JPEG/BMP/GIF/WEBP, 확장자는 실제 형식, 4096×4096 초과·다중 프레임 거부. 테스트 32→45건, 운영 경로 오염 없음, Codex 2차 YES.
+- **7039ea8 (`docs/ERROR_DATABASE.md`):** ERR-193 신규, ERR-192 근본원인 갱신(025 Gemini 429).
+- **7007491 (`carousel_content_builder.py`·`test_carousel_content_builder.py`):** short 경로 계약 실패 로그에 줄별 키워드·계정 CTA 플래그 추가(본문 미기록, 판정·반환 코드 불변). 테스트 162건, 넓은 묶음의 기존 실패 1건(`test_flags_off_never_queries_airtable`)은 변경 전에도 동일. Codex YES.
+- **Runtime:** 관리자 재시작 11:19·11:30, `/health` 200, 022 슬롯 `[11, 17, 23]` 재등록, 신규 ERROR 0건.
+- **Rollback:** 각 커밋 `git revert` 후 launcher 재시작. 풀 정리는 `vault/image_pool`·`db/image_pool.db` 삭제.
+- **미완·UNKNOWN:** 풀 실저장(내일 05시 036 Producer로 확인), 022 CTA 원인(오늘 16시 Producer 로그).
