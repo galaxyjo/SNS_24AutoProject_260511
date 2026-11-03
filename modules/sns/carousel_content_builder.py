@@ -285,6 +285,18 @@ def _validate_card_facts(payload: dict, card_facts: tuple) -> "str | None":
     return None
 
 
+# 261103 — CTA 키워드가 일반 명사의 일부일 뿐인 복합어는 행동 요청이 아니다. '저장소'(repository)는 '저장'을 포함하지만
+# 행동 요청이 아니다(022 글감 1.2: "저장소에 push 권한" 설명이 매번 CAPTION_CTA_NOT_LAST 로 걸린 것으로 보임 — 어떤 글감이
+# 쓰였는지 로그에 없어 UNKNOWN). '저장해/저장하세요/저장 공간' 등 다른 쓰임은 기존처럼 CTA 로 센다.
+_CTA_EXEMPT_COMPOUNDS = ("저장소",)
+
+
+def _without_cta_exempt(text: str) -> str:
+    for word in _CTA_EXEMPT_COMPOUNDS:
+        text = text.replace(word, "")
+    return text
+
+
 def _count_cta_sentences(text: str, account_cta: str = "") -> int:
     """텍스트를 문장 단위로 나눠 CTA 키워드를 포함한 문장 수를 센다(최선노력
     키워드 매칭 — 의미 기반 CTA 탐지 아님, 범위 명시).
@@ -296,12 +308,14 @@ def _count_cta_sentences(text: str, account_cta: str = "") -> int:
     sentences = re.split(r"[.!?\n]+", text)
     return sum(
         1 for s in sentences
-        if s.strip() and (any(keyword in s for keyword in _CTA_KEYWORDS)
+        if s.strip() and (any(keyword in _without_cta_exempt(s) for keyword in _CTA_KEYWORDS)
                           or (account_core and account_core in s))
     )
 
 
 _SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
+
+
 _IMPERATIVE_END_RE = re.compile(r"세요[.!?]*$")
 # 261023 STEP 4-AV — 비마지막 장 행동 요청 판정. 문장이 '~세요/~십시오'로 끝날 때만 본다('?'로 끝나는
 # 질문형 훅 '하고 계세요?'와 문장 중간·인용 속 '~하세요'는 제외).
@@ -445,7 +459,7 @@ def _cta_location_summary(payload: dict, account_cta: str = "") -> str:
     slide_counts = [_count_cta_sentences(s.get("text", "")) for s in slides]
     lines = [line for line in (payload.get("caption") or "").splitlines() if line.strip()]
     account_core = (account_cta or "").strip().rstrip(".!? ")
-    line_keywords = [[k for k in _CTA_KEYWORDS if k in line] for line in lines]
+    line_keywords = [[k for k in _CTA_KEYWORDS if k in _without_cta_exempt(line)] for line in lines]
     line_account = [int(bool(account_core and account_core in line)) for line in lines]
     return (f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]} "
             f"caption_line_kw={line_keywords} caption_line_acct={line_account}")

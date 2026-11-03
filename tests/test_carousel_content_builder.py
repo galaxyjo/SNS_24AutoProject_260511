@@ -1229,7 +1229,7 @@ class TestFactLockAndControlledRepair022:
         bad = self._payload(cover=self.LONG_COVER, caption=self.MID_LINE_CTA_CAPTION)
         cover_fixed = self._payload(caption=self.MID_LINE_CTA_CAPTION)
         result, models = self._run(monkeypatch, [bad, cover_fixed, cover_fixed, self._payload()])
-        assert (result.success, result.error_code) == (False, "CAPTION_CTA_NOT_LAST")
+        assert (result.success, result.error_code) == (False, "CAPTION_CTA_NOT_LAST")   # 재작성 2회 뒤에도 남으면 그대로 Fail-closed(코드가 문장을 지우지 않는다)
         assert len(models.calls) == 3                                        # 첫 생성 + 재작성 2회, 4번째 호출 없음
 
     def test_keyword_list_is_only_added_for_caption_cta_repair(self, monkeypatch):
@@ -1237,6 +1237,26 @@ class TestFactLockAndControlledRepair022:
         assert result.success is True
         assert "Rewrite ONLY the field named 'body'" in models.calls[1]["contents"]
         assert "댓글" not in models.calls[1]["contents"]                    # 본문 재작성 지시문에는 CTA 키워드 목록이 없다
+
+    # 261103 — 재작성 뒤에도 앞 줄에 CTA 키워드가 남으면 card_facts 계정은 코드가 그 문장만 지운다(022 22:00 실측).
+    # 261103 — '저장소'(repository)는 '저장'을 포함하지만 CTA 가 아니다(022 글감 1.2 오탐 후보). 다른 쓰임은 그대로 CTA.
+    def test_repository_word_is_not_counted_as_cta(self):
+        assert builder._count_cta_sentences("GitHub 저장소에 push 권한이 필요합니다.") == 0
+        assert builder._count_cta_sentences("저장소 연결을 확인했습니다. 코드를 저장소로 옮깁니다") == 0
+        assert builder._count_cta_sentences("지금 저장하세요.") == 1
+        assert builder._count_cta_sentences("저장소를 저장하세요.") == 1                # 같은 문장에 진짜 '저장하세요'
+        assert builder._count_cta_sentences("저장 공간이 부족합니다.") == 1             # 기존 보수 규칙 유지
+        assert builder._count_cta_sentences("데이터를 저장해 두면 편합니다.") == 1       # 기존 pinned 동작 유지
+
+    def test_repository_sentence_in_caption_first_line_passes_without_repair(self, monkeypatch):
+        caption = self.CAPTION.replace("정리했습니다.", "정리했습니다. 저장소에 push 권한이 있어야 합니다.")
+        result, models = self._run(monkeypatch, [self._payload(caption=caption)])
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 1 and "저장소에 push 권한" in result.content.caption
+
+    def test_failure_log_does_not_report_repository_as_cta_keyword(self):
+        summary = builder._cta_location_summary({"slides": [], "caption": "저장소 설명입니다.\n문의는 DM"}, "문의는 DM")
+        assert "caption_line_kw=[[], []]" in summary
 
     # 261103 — card_facts 없는 계정(025·036)도 CTA 위치 오류만 재작성한다(025 18:00 CTA_NOT_LAST_SLIDE 실측).
     def _no_facts_topic(self):
