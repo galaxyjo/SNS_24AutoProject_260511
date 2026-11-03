@@ -1,3 +1,32 @@
+# (261103_23:10 ICT) | 세션 마감 인수인계 — 이 문서가 20:40 항목보다 최신 | 담당: Claude Code | 문서 갱신
+
+- **Runtime(launcher):** 22:24:11 기동, 커밋 `3210b41`, `/health` 200. 코드 커밋 6개와 문서 커밋을 Push 완료(origin/master 동기). 재시작은 매번 관리자 `Restart-Service SNS_Watchdog`.
+- **완료(CLOSED, 재검사 금지):** 011 하루 3건 e2e(보충→폴러→게시, `post_hours=9,15,19`) · 041 자산 재사용 설계·구현(보충 잡 007·011) · 슬롯 계정 Gemini 키 점검(22개 중 21개 200, 035는 `.env` 기존 키 정상) · 025 새 프로젝트 키 교체 · 오류 이벤트 원장 1단계 · Slack 토큰 마스킹 · 011 Kill Switch ON.
+- **오늘 게시한 계정:** 007·011·014·039·048(합계 12건). 036은 별도 경로라 집계 누락 가능(UNKNOWN). 23계정 전체 자동게시는 **미달성**: 슬롯 12계정은 Producer Flag OFF(공급 미시작), 022·025는 수정 검증 대기, 041·051은 크롤 의존.
+- **내일 이어서(순서):**
+  1. **11/04 05:05 읽기 전용 확인:** 025 Producer(새 키 + 419bb68 CTA 재작성, 게시 슬롯 6·10·19시), 036 Producer(이미지 풀 JPEG 저장: `[ImagePool]` 로그·`vault/image_pool/*.jpg`), 007·011 보충 `ready` 유지.
+  2. **11/04 10:05:** 022 Producer(3210b41 `저장소` 오탐 수정) — 실패 시 `caption_line_kw` 값만 확인하고 다음 오탐 후보(공유지·구독자·링크드인·정보 문맥 댓글)를 좁힌다.
+  3. **크롤 점검:** AdsPower 차단이 22:31에 해제되어 22:56부터 크롤 재개(Open 11회째). Instagram_Posts에 신규 크롤 행이 안 생긴 이유(필터·학습 큐 여부)와 신규 폴러 대상 A042~A049 첫 크롤 Canary(ImgBB 재업로드·계정 일치·중복 0) 확인.
+  4. **보충 확대:** 007·011 하루 관찰 후 014·039·048을 `REUSE_REPLENISH_ACCOUNTS`에 추가(`.env` 1줄, 승인 필요).
+  5. **슬롯 12계정 첫 Canary:** 022·025 통과 후 순서대로 Flag 활성화(키는 모두 정상, 029는 036과 같은 Gemini 프로젝트 450464150865라 켜기 전 재확인, 035는 `.env` 키 200).
+  6. 오류 원장 2단계(META_AUTH 소프트 보류)·3단계(AdsPower·Gemini·ImgBB 출처) 설계 후속.
+- **회장 결정 대기:** AdsPower 결제(보류 — AdsPower 거부 응답은 확정이나 유료 한도 근거 없고 게시는 AdsPower 비의존) · Threads 토큰 일부와 025 이전 Gemini 키가 대화 출력에 노출된 건의 교체 여부(진단 중 마스킹 실패 2회) · 029 전용 프로젝트 키 발급 여부.
+- **UNKNOWN(운영 증거 없음):** 022·025·036 11/04 결과, 크롤 재개 후 신규 행 미생성 이유, 007 보충 생성 e2e, 오류 원장 첫 실제 기록, 036 오늘 게시 건수.
+- **기존 실패 테스트(변경과 무관):** `tests/test_publish_outcome_unknown.py` 3건, `tests/test_aijomoojin_content_producer.py::TestCarouselFlag::test_style_unset_or_unknown_keeps_template` 2건. 무관한 미커밋: `docs/design/SNS_AI_SHOWHOST_SOURCEBOOK_IDN025_261101.md`, `docs/design/SOURCE_SITES_MASTER_261102.md`(건드리지 말 것).
+- **제약:** 비관리자 세션은 Boot Policy 파일을 못 읽어 Repository 저장 경로가 막힘. 출력에 키·토큰 값을 절대 찍지 않는다(해시·길이·200/403만).
+
+---
+
+# (261103_20:40 ICT) | 오후 작업 인수인계 — 재사용 보충·025 키·CTA 재작성·오류 원장 | 담당: Claude Code | 문서 갱신
+
+- **Runtime(launcher):** 20:30:48 기동, 커밋 `0c4eb52`(로컬 커밋 5개 Push 전: ac79fe9·9d9b9bd·d7ff2b0·419bb68·0c4eb52), `/health` 200. `.env` Flag: `REUSE_REPLENISH_ENABLED=true`(007·011), 022·025 Producer/Slot Flag ON, `CRAWL_TARGET_MIN_INTERVAL_HOURS=24`, 이미지 풀 ON.
+- **공급 현황:** 폴러 007·014·039·048은 041 재사용 `ready` 4~5건(007·011은 자동 보충, 014·039·048은 수동 배치 소진 시 중단 — 확대 대기), 011 보충 첫 생성 2건(20:35). 슬롯 12계정은 Flag OFF(공급 미시작). 025는 새 프로젝트 키+CTA 재작성 반영, 022는 재작성 2회 반영 — 둘 다 첫 Runtime 증거 대기. AdsPower 차단 `blocked_until=22:31:16`(자동 해제 예정, 결제 보류: AdsPower 거부 응답은 확정이나 유료 한도 근거 없음, 폴러·슬롯 공급은 AdsPower 비의존).
+- **내일 이어서(순서):** ① 22:00 022 Producer 재작성 로그(`1/2`·`2/2`)와 결과 ② 22:31 이후 041 크롤 재개·신규 폴러 대상 첫 크롤 Canary ③ 11/04 05:00 025(새 키+CTA 재작성)·036(이미지 풀 JPEG 저장) ④ 007·011 보충 관찰 후 014·039·048 확대 ⑤ 슬롯 12계정 첫 계정 Canary(Gemini 키 상태: 035만 403·결제 필요, 029·036 같은 프로젝트) ⑥ 오류 원장 2단계(META_AUTH 소프트 보류)·3단계(AdsPower·Gemini·ImgBB 출처) 설계 후속 ⑦ Push.
+- **UNKNOWN(운영 증거 없음):** 022 22:00 결과, 025·036 11/04 05:00 결과, 011 재사용 행 게시, 보충 잡 e2e, 오류 원장의 첫 실제 기록.
+- **제약:** 비관리자 세션은 Boot Policy 파일을 읽지 못해 Repository 저장 경로가 막힘(게시·Producer 수동 실행은 관리자 PowerShell). 재시작은 매번 관리자 `Restart-Service SNS_Watchdog`.
+
+---
+
 # (261103_11:35 KST) | 261103 오전 확인 결과 — 이미지 풀 JPEG 수정·022 CTA 로그 보강 반영 | 담당: Claude Code | 문서 갱신
 
 - **오전 확인(10:35, 읽기 전용):** 036 05시 Producer는 성공(record `recY9ZbBVNUyy04lu`, 새 무만료 토큰으로 첫 생성). 이미지 풀은 저장 0건(`유효한 PNG가 아니어서 저장하지 않음` 4건). 022 10시 Producer는 `CAPTION_CTA_NOT_LAST`로 실패해 11시 슬롯은 `ready 후보 없음`으로 스킵. 025는 05·09시 Gemini 429(분당 한도)로 실패.

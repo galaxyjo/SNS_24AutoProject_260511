@@ -3375,3 +3375,20 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** ① 과거 Slack 메시지에 토큰이 실렸는지(채널 이력 확인은 회장 몫) — 실렸다면 해당 계정 토큰 교체 판단 필요 ② `logger`로 직접 남기는 `res.get("error")`(Threads 로그 3줄)는 이번 범위 밖 — 중앙 로거 필터 적용 여부 별도 확인 필요.
 - **Rollback:** `git revert` 후 launcher 재시작.
 - **관련:** ERR-179(Secret 노출 계열), CLAUDE.md §14.1(Secret 로그·응답 노출 금지)
+
+## ERR-195 | IDN-000035 Gemini 새 키(project 28719837256)가 403 "무료 등급 불가" — 무시 결정(현재 .env 키는 정상), 재발 시 참조용 (261103)
+
+- **증상:** 261103 21:43 회장이 발급해 `backup/token_candidate/google key_261024.txt`에 저장한 035용 새 키로 호출하면 HTTP 403 "The Gemini API free tier is not available for this project". AI Studio 화면에 "Gemini-Free-01에 확인이 필요합니다 — 이 프로젝트에서는 Gemini API 무료 등급을 사용할 수 없습니다. 결제 설정" 경고.
+- **현재 상태(FACT):** `.env`의 `IDN_000035_GEMINI_API_KEY`(21:39에 회장이 수정)는 호출 200 정상. 새 키는 `.env`에 이관하지 않았다(검증 403). 035는 지금 막혀 있지 않다.
+- **회장 결정(261103 21:55):** 이 경고는 무시. 새 키(Gemini-Free-01 프로젝트)는 쓰지 않는다.
+- **재발 시 확인:** 035 Producer가 `GENERATION_FAILED`/403을 내면 ① `.env`의 035 키가 위 새 키로 바뀌었는지(키 지문 비교) ② AI Studio 키 목록의 "프로젝트" 열에서 `.env` 키의 프로젝트와 Gemini-Free-01이 같은지 ③ 그 프로젝트에 결제(유료 등급) 설정이 필요한지. 원인(계정 국가·약관 지역 등)은 UNKNOWN.
+- **관련:** ERR-192(025 프로젝트 쿼터 0 — 같은 계열이지만 025는 429), FP-124.
+
+## ERR-196 | 022 캡션 계약 `CAPTION_CTA_NOT_LAST` 3회 연속 실패 — 키워드 `저장`이 복합어 `저장소`(repository)를 CTA로 오탐한 것으로 보임, 예외 처리 수정 완료(커밋 3210b41, 261103)
+
+- **증상:** 022 Producer가 11/03 10:00·16:00·22:00 모두 `CAROUSEL_TEXT_FAILED:CAPTION_CTA_NOT_LAST`로 실패, 11·17·23시 슬롯 게시 0건. 재작성 2회 경로(d7ff2b0)는 22:00에 처음 동작했으나 같은 오류로 최종 실패(`caption_line_kw=[['저장'],[]]`, `slide_cta=[0,0,1]`).
+- **근거(Evidence):** `_count_cta_sentences()`가 `_CTA_KEYWORDS`를 부분 문자열로 매칭한다. 022 소스북 글감 1.2 원문에 "저장소에 push 권한이 있는 것이다"가 있고 `저장소`가 `저장`을 포함해 CTA 문장으로 세어진다. 글감 1.2 외 글감(1.1·1.3)은 CTA 단어가 원문에 없다. 기존 정리 로직(`_normalize_short_cta`)은 순수 CTA 문장을 이미 처리하므로 남는 실패는 혼합(정보) 문장 때문이다. 어느 글감이 쓰였는지 로그에 없어 연결은 **UNKNOWN(유력 후보)**.
+- **조치:** `_CTA_EXEMPT_COMPOUNDS=("저장소",)`를 `_count_cta_sentences`·실패 로그 키워드 요약에 적용(3210b41, 빌더 테스트 174건, Codex 통과). `저장하세요`·`저장해 두면`·`저장 공간`은 기존대로 CTA. "앞 줄 CTA 문장 삭제 후처리"는 구현 후 Codex 지적(소수점·정보 문장 훼손 위험)과 분석(순수 CTA는 이미 정리됨)으로 철회.
+- **UNKNOWN / Risk:** 22시 실패가 글감 1.2였는지, 글감 외 원인(예: '공유지'·'구독자'·'링크드인'·정보 문맥 '댓글' 등 다른 부분 문자열 오탐)이 남아 있는지는 11/04 10:00 022 Producer 로그(`caption_line_kw`)로 확인.
+- **Rollback:** `git revert 3210b41` 후 launcher 재시작.
+- **관련:** ERR-192, d7ff2b0(재작성 2회), 419bb68(card_facts 없는 계정 CTA 재작성), FP-126

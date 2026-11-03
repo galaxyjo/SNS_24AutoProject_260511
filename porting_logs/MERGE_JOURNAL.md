@@ -3367,3 +3367,20 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **Runtime:** 관리자 재시작 11:19·11:30, `/health` 200, 022 슬롯 `[11, 17, 23]` 재등록, 신규 ERROR 0건.
 - **Rollback:** 각 커밋 `git revert` 후 launcher 재시작. 풀 정리는 `vault/image_pool`·`db/image_pool.db` 삭제.
 - **미완·UNKNOWN:** 풀 실저장(내일 05시 036 Producer로 확인), 022 CTA 원인(오늘 16시 Producer 로그).
+
+### 261103 20:40 ICT — 오후 작업 기록(커밋 5개 로컬, Push 전)
+- **커밋:** `ac79fe9` 재사용 보충기(`modules/sns/reuse_replenisher.py`, Repository 선택 메서드 4개, launcher 잡 `REUSE_REPLENISH_ENABLED`) · `9d9b9bd` 수동 재배정 도구 `tools/reassign_041_assets.py` · `d7ff2b0` 캐러셀 재작성 최대 2회 · `419bb68` card_facts 없는 계정 CTA 위치 오류 재작성(검출된 장만 교체, 지연 Client 생성) · `0c4eb52` 오류 이벤트 원장 1단계(`modules/common/error_events.py`) + Slack 게시 실패 알림 마스킹(ERR-194).
+- **Airtable 변경(승인):** 041 재사용 `ready` 행 24건(run_id `R041-261103-A007/A014/A039/A048`) 생성, 도매꾹 캡션 시험 행 1건 `rejected` 원복(`recbOkCsqcleKMeSa`), IDN-000025 `gemini_project_number=531613925263`, IDN-000011 `automation_enabled=True`(20:2x). 보충 잡이 011에 `R041-AUTO-261103-011-*` 2건 생성(20:35).
+- **.env 변경(백업 scratchpad, 값 비출력):** `REUSE_REPLENISH_ENABLED=true`, `REUSE_REPLENISH_ACCOUNTS=IDN-000007,IDN-000011`, `IDN_000025_GEMINI_API_KEY` 교체(284행, 새 프로젝트 키 200 확인 후).
+- **재시작(관리자):** 16:07, 16:19~16:24, 17:18, 19:11, 19:48, 20:30 — 최종 launcher 커밋 `0c4eb52`.
+- **발견·기록:** ERR-192 근본원인(025 프로젝트 쿼터 0, 키 교체 후에도 같은 프로젝트면 무효), ERR-194(Slack 토큰 노출 가능성, 과거 7건은 회장 "이상 없음"), FP-123~125, INC-071~072. AdsPower 차단은 AdsPower 응답(`Exceeding open daily limit`)으로 확인되나 유료 플랜 한도는 근거 없음 → 결제 보류. 진단 중 출력 마스킹 실패 2회로 Threads 토큰 일부·025 이전 키가 대화 출력에 노출(회장 판단 항목).
+- **UNKNOWN:** 022 22:00·025 11/04 05:00 Producer 결과, 재사용 행의 실제 게시(011), 보충 잡 생성 경로의 게시까지의 e2e.
+
+### 261103 23:10 ICT — 세션 마감(21:50 이후 작업, 코드 커밋 6개·문서 커밋·Push 완료)
+- **코드 커밋(이 세션 누적, 전부 Push):** `ac79fe9` 재사용 보충기 · `9d9b9bd` 수동 재배정 도구 · `d7ff2b0` 재작성 최대 2회 · `419bb68` card_facts 없는 계정 CTA 위치 재작성 · `0c4eb52` 오류 이벤트 원장 1단계 + Slack 토큰 마스킹 · `3210b41` `저장소` CTA 오탐 제외.
+- **Airtable 변경(승인):** IDN-000011 `automation_enabled=True`(20:2x), `post_hours` `13`→`9,15,19`(22:45, 원복=`13`), IDN-000025 `gemini_project_number=531613925263`.
+- **.env 변경(백업 scratchpad, 값 비출력):** `REUSE_REPLENISH_ACCOUNTS=IDN-000007,IDN-000011`. IDN-000035 새 키(project 28719837256, 403)는 이관하지 않음 — `.env`의 기존 035 키가 21:39 이후 200 정상(ERR-195, 회장 "무시" 결정).
+- **재시작(관리자):** 19:48, 20:30, 22:23 — 최종 launcher 커밋 `3210b41`(22:24:11).
+- **발견·기록:** ERR-195(035 새 키 403, 무시 결정), ERR-196(022 `저장소` CTA 오탐, 삭제 후처리안 철회), FP-126, INC-073, AdsPower 증거(거부 응답 확정·결제 효과 근거 없음 → 보류). 진단 중 출력 마스킹 실패 2회로 Threads 토큰 일부·025 이전 키가 대화 출력에 노출(회장 판단 항목, 코드 반영 없음).
+- **테스트:** 새 테스트 약 100건 추가(보충기 19·Repository 조회·원장 58·빌더 +21 등), 관련 322~323건 통과. 기존 실패 5건 유지: `tests/test_publish_outcome_unknown.py` 3건, `tests/test_aijomoojin_content_producer.py::TestCarouselFlag::test_style_unset_or_unknown_keeps_template` 2건(변경 전부터 동일 실패).
+- **UNKNOWN:** 022 11/04 10:00·025/036 11/04 05:00 Producer 결과, 크롤 재개 후 신규 행 미생성 이유(필터·학습 큐 여부), 007 보충 생성 e2e, 오류 원장의 첫 실제 기록.

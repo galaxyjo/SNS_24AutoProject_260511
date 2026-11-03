@@ -279,3 +279,15 @@
 | `idn022_canary_flags_261102` | **PENDING** — 022 Flag ON·launcher 슬롯 등록(post_hours 11,17,23) 확인, 첫 Producer 10:00·게시 11:00(261103) 결과 대기. |
 | `image_pool_format_fix_261103` | **module_verified (Runtime 반영, 운영 저장 UNKNOWN)** — PNG/JPEG/BMP/GIF/WEBP 허용·픽셀/프레임 상한(cfe3bf0), 테스트 45건·Codex 2차 YES, 11:19 재시작 반영, 풀 실저장은 내일 05시 036 Producer에서 확인. |
 | `cta_failure_log_261103` | **module_verified (Runtime 반영)** — 계약 실패 로그에 `caption_line_kw`·`caption_line_acct` 추가(7007491), 테스트 162건·Codex YES, 11:30 재시작 반영, 022 오탐 키워드 확인은 16시 Producer 실패 시. |
+
+| `reuse_replenisher_261103` | **module_verified + 부분 Runtime** — 041 posted 자산 재사용 보충 잡(ac79fe9, Codex 3차), 007 Flag ON, 011 추가. 20:35 첫 생성 증거: `created={'IDN-000011': 2}`, 이미지 복구 실패 1건 건너뜀. 생성된 행의 실제 게시 확인은 UNKNOWN. |
+| `reuse_manual_batch_261103` | **production_verified(부분)** — 수동 배치 24건(007·014·039·048) 중 4건 게시(ig_media_id 확인), 2건 Meta 9004 실패(ImgBB 간헐, 원인 UNKNOWN). |
+| `carousel_repair_261103` | **module_verified (Runtime 반영 19:48, 검증 UNKNOWN)** — 재작성 최대 2회(d7ff2b0)·card_facts 없는 계정 CTA 위치 오류 재작성(419bb68), 빌더 테스트 161건·Codex 통과. 022 22:00, 025 11/04 05:00 결과 대기. |
+| `error_events_ledger_261103` | **module_verified (Runtime 반영 19:48)** — Meta 게시 실패 분류·SQLite 기록·인증/권한/정책 알림(0c4eb52), 테스트 58건·Codex 조건부 통과 후 수정. 첫 실제 실패 기록은 아직 없음. |
+| `slack_token_mask_261103` | **module_verified (Runtime 반영 19:48)** — 게시 실패 Slack 알림 3곳 `safe_text` 적용(ERR-194), 인코딩·줄바꿈 우회 테스트 포함. 과거 노출 7건은 회장 "이상 없음" 정리. |
+| `gemini_keys_probe_261103` | **Runtime 확인(최소 호출 1회/키)** — 자동화 계정 키 22개 중 21개 200. IDN-000035 403(프로젝트 무료 등급 불가, 결제 필요), IDN-000041 전용 키 없음(공유 키 200). 029·036 같은 프로젝트(450464150865), 048·051 같은 키. |
+
+| `cta_repository_word_261103` | **module_verified (Runtime 반영 22:24, 검증 UNKNOWN)** — `저장소` CTA 오탐 제외(3210b41), 빌더 테스트 174건·Codex 통과. 022 11/04 10:00 Producer 대기. |
+| `idn011_reuse_e2e_261103` | **production_verified (011 한정)** — 보충 잡 생성(R041-AUTO) → 폴러 슬롯 Gate → 게시까지 오늘 3건(ig_media_id 3개 서로 다름, 계정 일치, 중복 0). `post_hours=9,15,19` 변경 반영(Airtable). 다른 계정(007)은 보충 생성 e2e 미관측. |
+| `accounts_posting_today_261103` | **Runtime 확인(로그·Airtable 대조)** — 오늘 게시 계정 5개(007 3·011 3·014 2·039 1·048 3, 합계 12건). 036은 별도 경로 집계에서 누락 가능(UNKNOWN). 23계정 전체 자동게시는 미달성. |
+| `adspower_block_release_261103` | **Runtime 확인** — `blocked_until 22:31` 해제 후 22:56부터 크롤 재개. 차단은 AdsPower 거부 응답(`Exceeding open daily limit`)으로 확정, 유료 플랜 한도는 근거 없음(결제 보류). 크롤 결과의 Instagram_Posts 반영은 미확인. |
