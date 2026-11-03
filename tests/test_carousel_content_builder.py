@@ -1238,6 +1238,87 @@ class TestFactLockAndControlledRepair022:
         assert "Rewrite ONLY the field named 'body'" in models.calls[1]["contents"]
         assert "댓글" not in models.calls[1]["contents"]                    # 본문 재작성 지시문에는 CTA 키워드 목록이 없다
 
+    # 261103 — card_facts 없는 계정(025·036)도 CTA 위치 오류만 재작성한다(025 18:00 CTA_NOT_LAST_SLIDE 실측).
+    def _no_facts_topic(self):
+        topic = _topic(core_message=self._topic().core_message)
+        assert topic.card_facts == ()
+        return topic
+
+    def test_no_card_facts_cta_not_last_slide_is_repaired(self, monkeypatch):
+        bad = self._payload(slide2=self.GOOD_SLIDE2 + " 댓글 기능도 있습니다.")           # 2장에 CTA 키워드
+        result, models = self._run(monkeypatch, [bad, self._payload()], topic=self._no_facts_topic())
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 2
+        repair = models.calls[1]["contents"]
+        assert "Rewrite ONLY the field named 'body'" in repair and "CTA_NOT_LAST_SLIDE" in repair
+        assert all(word in repair for word in builder._CTA_KEYWORDS)
+        assert "Assigned slide 2 facts" not in repair                                    # 사실 문구는 card_facts 계정 전용
+
+    def test_cta_slide_repair_replaces_only_the_offending_slide(self, monkeypatch):
+        """Codex 리뷰: CTA 가 검출된 장만 교체하고 마지막 CTA 장·나머지 장은 응답이 달라도 보존한다."""
+        bad = self._payload(slide2=self.GOOD_SLIDE2 + " 댓글 기능도 있습니다.")
+        original_last = bad["slides"][2]["text"]
+        fixed = self._payload(slide2="새로 쓴 2장 내용입니다.", last="응답이 바꿔 버린 마지막 장 " + self.CTA)
+        result, models = self._run(monkeypatch, [bad, fixed], topic=self._no_facts_topic())
+        assert result.success is True, result.error_code
+        assert "Only slide(s) 2 contain the misplaced call to action" in models.calls[1]["contents"]
+        assert result.content.slides[1].text == "새로 쓴 2장 내용입니다."
+        assert result.content.slides[2].text == original_last                           # 마지막 CTA 장 보존
+
+    def test_cover_only_cta_is_not_sent_for_repair(self, monkeypatch):
+        bad = self._payload(cover="지금 저장하세요 AI 뉴스")                              # 표지에만 CTA
+        models = _SeqModels([bad, self._payload()])
+        _patch_gemini(monkeypatch, models)                                             # builder._get_client 를 가짜로 교체
+        monkeypatch.setattr(builder, "check_caption_safety", lambda text, **k: ("SAFE", "STOP"))
+        calls = {"get_client": 0}
+        fake_get_client = builder._get_client
+
+        def counting_get_client():
+            calls["get_client"] += 1
+            return fake_get_client()
+
+        monkeypatch.setattr(builder, "_get_client", counting_get_client)
+        result = builder.generate_carousel_content(self._no_facts_topic(), "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=self.CTA)
+        assert (result.success, result.error_code) == (False, "CTA_NOT_LAST_SLIDE")
+        assert len(models.calls) == 1                                                  # 고칠 본문 장이 없으면 호출하지 않는다
+        # 호출 생략 경로에서는 재작성용 Client 를 만들지 않는다: 최초 생성 때 1번만 만들어진다
+        assert calls["get_client"] == 1
+
+    def test_four_slide_repair_keeps_untouched_middle_slide(self, monkeypatch):
+        """4장 계약: 2장만 CTA 오염이면 3장(대상 아닌 중간 본문)과 4장(마지막 CTA)은 응답이 달라도 보존한다."""
+        topic = self._no_facts_topic()
+
+        def payload(s2, s3, s4):
+            return {"slides": [
+                {"index": 1, "role": "cover", "text": "Granite 음성 AI 3종 공개, 무엇이 달라졌나?"},
+                {"index": 2, "role": "fact", "text": s2},
+                {"index": 3, "role": "body", "text": s3},
+                {"index": 4, "role": "cta", "text": "공개 모델 확인 · " + self.CTA}],
+                "caption": self.CAPTION, "hashtags": ["IBM", "음성인식", "음성AI", "해외이슈", "AI뉴스"]}
+
+        models = _SeqModels([payload("2장 내용 댓글 기능이 있습니다.", "원래 3장 내용입니다.", ""),
+                             payload("새로 쓴 2장입니다.", "응답이 바꿔 버린 3장", "")])
+        _patch_gemini(monkeypatch, models)
+        monkeypatch.setattr(builder, "check_caption_safety", lambda text, **k: ("SAFE", "STOP"))
+        result = builder.generate_carousel_content(topic, "REACH", "HOOK_IMPACT", slide_count=4,
+                                                   conversion_cta=self.CTA)
+        assert result.success is True, result.error_code
+        assert [s.text for s in result.content.slides][1:3] == ["새로 쓴 2장입니다.", "원래 3장 내용입니다."]
+        assert result.content.slides[3].text == "공개 모델 확인 · " + self.CTA
+
+    def test_no_card_facts_caption_cta_not_last_is_repaired(self, monkeypatch):
+        result, models = self._run(monkeypatch, [self._payload(caption=self.MID_LINE_CTA_CAPTION), self._payload()],
+                                   topic=self._no_facts_topic())
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 2 and "CAPTION_CTA_NOT_LAST" in models.calls[1]["contents"]
+
+    def test_no_card_facts_non_cta_error_is_not_repaired(self, monkeypatch):
+        result, models = self._run(monkeypatch, [self._payload(cover=self.LONG_COVER), self._payload()],
+                                   topic=self._no_facts_topic())
+        assert (result.success, result.error_code) == (False, "COVER_TITLE_INVALID")
+        assert len(models.calls) == 1                                                  # CTA 위치 오류가 아니면 기존대로
+
     def test_safety_block_stops_without_repair(self, monkeypatch):
         result, models = self._run(monkeypatch, [self._payload()], safety=("UNSAFE", "blocked"))
         assert (result.success, result.error_code) == (False, "SAFETY_BLOCKED:blocked") and len(models.calls) == 1

@@ -540,6 +540,17 @@ def _forbidden_scene_hits(payload: dict) -> "list[tuple[int, str]]":
 # 261103 — 재작성 최대 횟수(서로 다른 재작성 가능 오류가 겹칠 때만 2회째 사용).
 _MAX_REPAIR_ROUNDS = 2
 
+# 261103 — card_facts 가 없는 계정에도 재작성을 허용하는 오류(CTA 위치만). 나머지 재작성 가능 오류는 card_facts 계정 전용.
+_CTA_POSITION_ERRORS = frozenset({"CTA_NOT_LAST_SLIDE", "CAPTION_CTA_NOT_LAST"})
+
+
+def _repair_eligible(error_code, card_facts, short) -> bool:
+    if error_code not in _REPAIRABLE_CONTRACT_ERRORS:
+        return False
+    if card_facts:
+        return True
+    return bool(short) and error_code in _CTA_POSITION_ERRORS
+
 # 261026 STEP 5-B — 다시 쓰게 할 수 있는 LAYOUT·STYLE 오류와, 그때 고칠 필드(나머지 필드는 원래 값 유지).
 _REPAIRABLE_CONTRACT_ERRORS = {
     "COVER_TITLE_INVALID": ("cover", "the cover title (slide 1) must be one line of at most 40 characters, "
@@ -548,7 +559,9 @@ _REPAIRABLE_CONTRACT_ERRORS = {
     "CARD_FACT_MISSING": ("body", "slide 2 must state every assigned card fact with its numbers unchanged"),
     "CARD_FACT_EXTRA": ("body", "slide 2 may use only the numbers in the assigned card facts; move other facts "
                                 "to the caption"),
-    "CTA_NOT_LAST_SLIDE": ("body", "only the last slide may contain the call to action"),
+    "CTA_NOT_LAST_SLIDE": ("body", "only the last slide may contain the call to action; the checker counts any "
+                                   "sentence containing these words as a call to action, so use them only on the "
+                                   f"last slide: {', '.join(_CTA_KEYWORDS)}"),
     "LAST_SLIDE_CTA_COUNT_INVALID": ("body", "the last slide must end with exactly one call-to-action sentence"),
     "IMPERATIVE_NOT_LAST_SLIDE": ("body", "requests or imperative sentences may appear only on the last slide"),
     "CAPTION_CTA_COUNT_INVALID": ("caption", "the caption's last line must be exactly one call-to-action sentence"),
@@ -561,18 +574,30 @@ _REPAIRABLE_CONTRACT_ERRORS = {
 
 
 def _repair_contract_fields(payload: dict, error_code: str, card_facts: tuple, account_cta: str, *,
-                            client, throttle_fn, model, config) -> "dict | None":
+                            client, throttle_fn, model, config, client_factory=None) -> "dict | None":
     """`_repair_forbidden_scenes()`와 같은 1회 재요청 패턴. 실패한 필드 묶음(cover/body/caption/hashtags)만
     새 응답에서 가져오고 나머지는 원래 값을 그대로 둔다. 호출·파싱 실패나 장 번호 불일치면 None."""
     field, reason = _REPAIRABLE_CONTRACT_ERRORS[error_code]
-    facts = "; ".join(card_facts)
+    only_slides = None
+    if error_code == "CTA_NOT_LAST_SLIDE":
+        # 261103 Codex 리뷰 — CTA 위치 오류는 CTA 가 검출된 비마지막 본문 장만 다시 받고, 나머지 장(마지막 CTA 장 포함)은
+        # 원래 값을 보존한다. 그런 장이 없으면(표지에만 CTA 등) Gemini 를 부르지 않고 그대로 돌려줘 같은 오류로 멈춘다.
+        ordered = sorted(payload.get("slides") or [], key=lambda s: s.get("index", -1))
+        only_slides = [s["index"] for s in ordered[1:-1] if _count_cta_sentences(s.get("text", ""), account_cta) > 0]
+        if not only_slides:
+            return payload
+    scope_line = (f"Only slide(s) {', '.join(str(i) for i in only_slides)} contain the misplaced call to action; "
+                  f"rewrite just those slides and keep every other slide exactly as it is.\n" if only_slides else "")
+    facts_line = (f"Assigned slide 2 facts (numbers, units and product names must stay exactly as written): "
+                  f"{'; '.join(card_facts)}.\n" if card_facts else "")
     cta_line = (f"The account call to action, used once on the last slide and as the caption's last line, is "
                 f"exactly: \"{account_cta}\". " if account_cta else "")
     prompt = (
         "The Instagram carousel JSON below failed one quality check. Rewrite ONLY the field named "
         f"'{field}' so that it passes; keep every other field exactly as it is.\n"
         f"Failed check: {error_code} — {reason}.\n"
-        f"Assigned slide 2 facts (numbers, units and product names must stay exactly as written): {facts}.\n"
+        f"{scope_line}"
+        f"{facts_line}"
         f"{cta_line}"
         "Do not add any fact, number or claim that is not already in the JSON or the assigned facts, and never "
         "re-express a number.\n\n"
@@ -581,7 +606,9 @@ def _repair_contract_fields(payload: dict, error_code: str, card_facts: tuple, a
     )
     try:
         throttle_fn()
-        response = client.models.generate_content(model=model, contents=prompt, config=config)
+        # 261103 Codex 리뷰 — Client(자격증명 해석 포함)는 실제로 호출할 때만 만든다(호출 생략 경로에서는 만들지 않는다).
+        active_client = client or (client_factory() if client_factory else None)
+        response = active_client.models.generate_content(model=model, contents=prompt, config=config)
         fixed = json.loads(response.text)
     except Exception as exc:
         logger.warning(f"[CarouselContent] 계약 재작성 요청 실패 | error_type={type(exc).__name__}")
@@ -589,7 +616,8 @@ def _repair_contract_fields(payload: dict, error_code: str, card_facts: tuple, a
     old_slides = sorted((dict(s) for s in payload.get("slides") or []), key=lambda s: s.get("index", -1))
     new_slides = {s.get("index"): s for s in fixed.get("slides") or [] if isinstance(s, dict)}
     if field in ("cover", "body"):
-        targets = [s["index"] for s in old_slides if (s["index"] == 1) == (field == "cover")]
+        targets = (only_slides if only_slides
+                   else [s["index"] for s in old_slides if (s["index"] == 1) == (field == "cover")])
         if any(not isinstance(new_slides.get(i, {}).get("text"), str) for i in targets):
             logger.warning(f"[CarouselContent] 계약 재작성 응답 장 불일치 | field={field}")
             return None
@@ -1021,14 +1049,17 @@ def generate_carousel_content(
     # 재작성 가능 오류(예: CAPTION_CTA_NOT_LAST)가 1회 재작성 뒤에 처음 드러나 그대로 실패하던 문제(022 16:00 실측).
     # 재작성 뒤 *다른* 재작성 가능 오류로 바뀌었을 때만 한 번 더 재작성한다(최대 _MAX_REPAIR_ROUNDS회).
     # 같은 오류가 그대로면 즉시 중단 — 기존 "같은 오류 재작성 1회 뒤 STOP" 동작과 Gemini 호출 수는 변하지 않는다.
-    if card_facts and contract_error in _REPAIRABLE_CONTRACT_ERRORS:
+    # 261103 — card_facts 가 없는 짧은 캐러셀(025·036 등)도 CTA 위치 오류(_CTA_POSITION_ERRORS)에 한해 같은 재작성을 쓴다
+    # (025 18:00 CTA_NOT_LAST_SLIDE 실측: 본문 2·3장 모두 CTA). 그 밖의 오류는 card_facts 계정만 재작성한다.
+    if _repair_eligible(contract_error, card_facts, short):
         for round_no in range(1, _MAX_REPAIR_ROUNDS + 1):
             logger.warning(f"[CarouselContent] 계약 실패 — 실패 필드만 재작성 {round_no}/{_MAX_REPAIR_ROUNDS} | "
                            f"{contract_error}")
             failed_before = contract_error
             repaired = _repair_contract_fields(
                 payload, contract_error, card_facts, conversion_cta,
-                client=client or _get_client(), throttle_fn=active_throttle, model=active_model, config=config,
+                client=client, client_factory=_get_client, throttle_fn=active_throttle, model=active_model,
+                config=config,
             )
             if repaired is None:
                 contract_error = "CONTRACT_REPAIR_FAILED"
@@ -1038,7 +1069,7 @@ def generate_carousel_content(
             contract_error = _validate_short_contract(payload, slide_count, conversion_cta, card_facts)
             if not contract_error:
                 break
-            if (contract_error == failed_before or contract_error not in _REPAIRABLE_CONTRACT_ERRORS
+            if (contract_error == failed_before or not _repair_eligible(contract_error, card_facts, short)
                     or round_no == _MAX_REPAIR_ROUNDS):
                 logger.warning(f"[CarouselContent] 재작성 후에도 계약 실패 — 중단 | {contract_error}")
                 break
