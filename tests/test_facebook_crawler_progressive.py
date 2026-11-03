@@ -125,6 +125,20 @@ def _run(env, batches, *, max_posts=20, cdp_fail=False):
     return env.driver
 
 
+# ── 0. 261104: 번역 429 → HOLD(저장 안 함·폐기 로그 아님), 탈락은 사유·본문 길이 기록 ──────
+def test_translate_429_is_hold_and_reject_logs_reason(env, monkeypatch):
+    def _kw(t):
+        if t == "post A":
+            raise fc.TranslationRateLimited("429")
+        return ""
+    monkeypatch.setattr(fc, "keyword_filter_text", _kw)
+    _run(env, [["post A", "post B"]])
+    assert env.saved == []
+    assert env.log.has("warning", "POST 1 HOLD | reason=TRANSLATE_429 | text_len=6")
+    assert not env.log.has("info", "POST 1 필터 제외")
+    assert env.log.has("info", "POST 2 필터 제외 | reason=TRANSLATE_EMPTY | text_len=6")
+
+
 # ── 1. Flag OFF: 기존 1회 수집 그대로 ─────────────────────────────────────────
 def test_flag_off_keeps_single_collection(env):
     d = _run(env, [["post A", EMPTY, EMPTY], ["post B", "post C"]])

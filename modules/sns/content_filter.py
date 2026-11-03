@@ -1,4 +1,5 @@
 import os
+import time
 from deep_translator import GoogleTranslator
 import re
 from modules.common.logger import get_logger
@@ -114,6 +115,56 @@ def passes_keyword_filter(text: str) -> bool:
 # - 원문이 키워드를 통과하면 번역 없이 원문을 판정 텍스트로 쓴다.
 # - 통과 못 한 경우에만 기존 번역 경로(detect_and_translate)로 넘긴다.
 # 반환값은 필터 판정 전용이다 — 저장 본문은 호출부가 raw_text 로 만든다.
+#
+# 261104 — 번역이 429(TooManyRequests)로 막혔을 때 '키워드 불일치'와 구분한다.
+# 예전에는 429도 "" 로 돌아와 조용히 '필터 제외'(폐기)됐다. 이제 짧게 재시도한 뒤에도
+# 막혀 있으면 TranslationRateLimited 를 올려 호출부가 그 게시물을 HOLD(폐기 아님,
+# 다음 크롤 사이클에 다시 판정)로 처리하게 한다. 그 외 번역 오류는 기존대로 "" 이다.
+class TranslationRateLimited(Exception):
+    """번역 서버가 429 로 막혀 키워드 판정을 못 한 상태 — 폐기하지 말고 HOLD."""
+
+
+_TRANSLATE_429_RETRY_DELAYS = (2, 4)   # 초. 첫 시도 뒤 최대 2회 재시도.
+
+
+# 429 가 한 번 소진되면 이 시간(초) 동안은 재시도 대기 없이 바로 HOLD — 크롤 시간 누적 방지.
+_TRANSLATE_429_COOLDOWN_SEC = 60
+_translate_429_until = 0.0   # time.monotonic() 기준
+
+
+def _is_translate_rate_limited(exc: Exception) -> bool:
+    # 예외 클래스(TooManyRequests)·상태코드 속성·명확한 문구만 인정한다. "429" 부분문자열은 오탐이라 쓰지 않는다.
+    if type(exc).__name__ == "TooManyRequests":
+        return True
+    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 429:
+        return True
+    msg = str(exc).lower()
+    return "too many requests" in msg or "toomanyrequests" in msg
+
+
+def _translate_for_filter(text: str) -> str:
+    global _translate_429_until
+    if not text:
+        return ""
+    if _has_excluded_language(text):
+        return ""
+    if time.monotonic() < _translate_429_until:
+        raise TranslationRateLimited("translate 429 cooldown — HOLD")
+    src = 'ko' if _korean_ratio(text) > 0.2 else 'auto'
+    attempts = len(_TRANSLATE_429_RETRY_DELAYS) + 1
+    for n in range(attempts):
+        try:
+            return GoogleTranslator(source=src, target='en').translate(text[:4000])
+        except Exception as exc:
+            if not _is_translate_rate_limited(exc):
+                return ""
+            if n < attempts - 1:
+                time.sleep(_TRANSLATE_429_RETRY_DELAYS[n])
+    _translate_429_until = time.monotonic() + _TRANSLATE_429_COOLDOWN_SEC
+    raise TranslationRateLimited("translate 429 — HOLD")
+
+
 def keyword_filter_text(raw_text: str) -> str:
     if not raw_text:
         return ""
@@ -121,7 +172,23 @@ def keyword_filter_text(raw_text: str) -> str:
         return ""
     if passes_keyword_filter(raw_text):
         return raw_text
-    return detect_and_translate(raw_text)
+    return _translate_for_filter(raw_text)
+
+
+# 필터 탈락 사유 코드(로그 전용, 부수효과 없음) — 본문은 기록하지 않는다.
+def filter_reject_reason(raw_text: str, filter_text: str) -> str:
+    if not raw_text:
+        return "EMPTY_TEXT"
+    if _has_excluded_language(raw_text):
+        return "EXCLUDED_LANGUAGE"
+    if not filter_text:
+        return "TRANSLATE_EMPTY"   # 번역 실패(429 외) 또는 빈 번역 결과 — 오류 확정 아님
+    lower = filter_text.lower()
+    if any(bl in lower for bl in CAPTION_BLOCKLIST):
+        return "CAPTION_BLOCKLIST"
+    if any(term in lower for term in PRODUCT_EXCLUDE_TERMS):
+        return "PRODUCT_EXCLUDE"
+    return "KEYWORD_MISS"
 
 
 # ── Account Domain Routing (Track B-1D, 260731) ─────────────────────────────

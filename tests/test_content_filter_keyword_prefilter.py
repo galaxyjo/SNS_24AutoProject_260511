@@ -37,6 +37,9 @@ def translator(monkeypatch):
             return state.result
 
     monkeypatch.setattr(cf, "GoogleTranslator", _FakeTranslator)
+    state.sleeps = []
+    monkeypatch.setattr(cf.time, "sleep", lambda s: state.sleeps.append(s))
+    monkeypatch.setattr(cf, "_translate_429_until", 0.0)
     return state
 
 
@@ -66,10 +69,79 @@ def test_excluded_language_blocked_even_with_keyword(translator):
 
 
 # ── 3. 원문 키워드 없음 → 기존 번역 경로 (기존 유지) ─────────────────────────
-def test_no_keyword_falls_back_to_translation_blocked(translator):
+def test_no_keyword_translation_429_is_hold_not_discard(translator):
+    # 261104: 번역 429 는 '키워드 불일치(폐기)'가 아니라 HOLD — 2회 재시도(2s,4s) 후 예외
     raw = "오늘 날씨가 정말 좋네요"
-    assert cf.keyword_filter_text(raw) == ""          # 번역 차단 → 기존과 동일하게 ""
+    with pytest.raises(cf.TranslationRateLimited):
+        cf.keyword_filter_text(raw)
+    assert len(translator.calls) == 3
+    assert translator.sleeps == [2, 4]
+
+
+def test_translation_429_recovers_on_retry(translator):
+    seq = iter([Exception("TooManyRequests"), "the weather is nice today"])
+
+    def _translate(self, text):
+        translator.calls.append(text)
+        r = next(seq)
+        if isinstance(r, Exception):
+            raise r
+        return r
+    cf.GoogleTranslator.translate = _translate
+    assert cf.keyword_filter_text("오늘 날씨가 정말 좋네요") == "the weather is nice today"
+    assert len(translator.calls) == 2
+
+
+def test_non_429_translate_error_keeps_old_empty_result(translator):
+    def _boom(self, text):
+        translator.calls.append(text)
+        raise ValueError("network down")
+    cf.GoogleTranslator.translate = _boom
+    assert cf.keyword_filter_text("오늘 날씨가 정말 좋네요") == ""   # 기존 동작 유지(재시도·HOLD 없음)
     assert len(translator.calls) == 1
+
+
+def test_429_substring_in_other_error_is_not_rate_limit(translator):
+    def _boom(self, text):
+        translator.calls.append(text)
+        raise ValueError("bad request id 4291 at https://x/429")
+    cf.GoogleTranslator.translate = _boom
+    assert cf.keyword_filter_text("오늘 날씨가 정말 좋네요") == ""
+    assert len(translator.calls) == 1 and translator.sleeps == []
+
+
+def test_status_code_429_attribute_is_rate_limit(translator):
+    class _Http(Exception):
+        status_code = 429
+
+    def _boom(self, text):
+        translator.calls.append(text)
+        raise _Http("blocked")
+    cf.GoogleTranslator.translate = _boom
+    with pytest.raises(cf.TranslationRateLimited):
+        cf.keyword_filter_text("오늘 날씨가 정말 좋네요")
+    assert len(translator.calls) == 3
+
+
+def test_cooldown_skips_retry_wait_after_exhaustion(translator):
+    with pytest.raises(cf.TranslationRateLimited):
+        cf.keyword_filter_text("오늘 날씨가 정말 좋네요")          # 소진: 3회 호출, 2s+4s 대기
+    translator.calls.clear()
+    translator.sleeps.clear()
+    with pytest.raises(cf.TranslationRateLimited):
+        cf.keyword_filter_text("내일 날씨도 좋네요")                # 쿨다운: 호출·대기 없이 즉시 HOLD
+    assert translator.calls == [] and translator.sleeps == []
+    # 원문 키워드 통과 글은 쿨다운 중에도 영향 없음
+    assert cf.keyword_filter_text("화장품 도매 세럼") == "화장품 도매 세럼"
+
+
+def test_filter_reject_reason_codes():
+    assert cf.filter_reject_reason("", "") == "EMPTY_TEXT"
+    assert cf.filter_reject_reason("Nguồn sỉ mỹ phẩm Hàn Quốc chính hãng cosmetic, giá tốt", "") == "EXCLUDED_LANGUAGE"
+    assert cf.filter_reject_reason("오늘 날씨", "") == "TRANSLATE_EMPTY"
+    assert cf.filter_reject_reason("coslife 화장품", "coslife cosmetic") == "CAPTION_BLOCKLIST"
+    assert cf.filter_reject_reason("대출 도매", "loan wholesale") == "PRODUCT_EXCLUDE"
+    assert cf.filter_reject_reason("오늘 날씨", "the weather is nice") == "KEYWORD_MISS"
 
 
 def test_no_keyword_falls_back_to_translation_success(translator):
@@ -84,8 +156,9 @@ def test_no_keyword_falls_back_to_translation_success(translator):
 # ── 4. 차단어는 여전히 제외 (기존 유지) ──────────────────────────────────────
 def test_blocklist_word_blocked_when_translation_fails(translator):
     raw = "coslife 화장품 도매"
-    out = cf.keyword_filter_text(raw)
-    assert not out or not cf.passes_keyword_filter(out)
+    # 차단어 때문에 원문 통과 못 해 번역 경로로 넘어가고, 429 면 폐기 대신 HOLD (게시 방향으로는 절대 통과 안 함)
+    with pytest.raises(cf.TranslationRateLimited):
+        cf.keyword_filter_text(raw)
 
 
 def test_blocklist_word_blocked_when_translation_succeeds(translator):
