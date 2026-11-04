@@ -1398,6 +1398,14 @@ class TestFactLockAndControlledRepair022:
         assert result.success is True, result.error_code
         assert len(models.calls) == 2 and "CAPTION_CTA_NOT_LAST" in models.calls[1]["contents"]
 
+    def test_no_card_facts_caption_too_long_is_repaired(self, monkeypatch):
+        too_long = ("설명 " * 200) + "\n" + self.CTA                                       # 400자 초과 caption
+        result, models = self._run(monkeypatch, [self._payload(caption=too_long), self._payload()],
+                                   topic=self._no_facts_topic())
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 2 and "CAPTION_LENGTH_INVALID" in models.calls[1]["contents"]
+        assert len(result.content.caption) <= builder._CAPTION_MAX_CHARS
+
     def test_no_card_facts_non_cta_error_is_not_repaired(self, monkeypatch):
         result, models = self._run(monkeypatch, [self._payload(cover=self.LONG_COVER), self._payload()],
                                    topic=self._no_facts_topic())
