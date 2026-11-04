@@ -662,7 +662,7 @@ class TestShortCtaNormalization:
         assert result.error_code == "CTA_NOT_LAST_SLIDE"
         log = " ".join(r.getMessage() for r in caplog.records if "CarouselContent" in r.getMessage())
         assert "slide_cta=[0, 1, 1]" in log and "caption_line_cta=" in log
-        assert "데이터를 저장해" not in log
+        assert "데이터를 저장해 두면 비교가 쉽습니다." not in log   # 261104 — 앞뒤 10자 조각은 남지만 문장 전체는 남지 않는다
 
     def test_summary_lists_matched_keywords_and_account_cta_without_caption_text(self):
         payload = {
@@ -673,7 +673,7 @@ class TestShortCtaNormalization:
         assert "caption_line_cta=[1, 0]" in summary          # 기존 필드는 그대로(계정 문구 없이 키워드만 집계)
         assert "caption_line_kw=[['저장'], []]" in summary    # 첫 줄은 일반 키워드 '저장' 때문에 CTA로 집계됨
         assert "caption_line_acct=[0, 1]" in summary
-        assert "냉장" not in summary and "알려드립니다" not in summary and "수출" not in summary
+        assert "냉장 저장 팁을 알려드립니다." not in summary and "수출" not in summary   # 261104 — 키워드 앞뒤 10자 조각만 허용
 
     def test_summary_lists_slide_keywords_and_sentence_positions_without_body(self):
         payload = {
@@ -1280,6 +1280,19 @@ class TestFactLockAndControlledRepair022:
         s2 = builder._cta_location_summary({"slides": [{"index": 1, "text": two_line_cover}], "caption": "a"})
         assert "cover_newline=1 body_words=[]" in s2
         assert "cover_len=0 cover_newline=0 body_words=[]" in builder._cta_location_summary({"slides": [], "caption": "a"})
+
+    # 261104 — 걸린 키워드 앞뒤 10자만 남기고 본문 전체는 남기지 않는다.
+    def test_summary_reports_keyword_context_only_not_full_body(self):
+        body = "처음 문장입니다 그리고 가나다라마바사아자차 댓글 카타파하가나다라마바사아자 이어서 긴 뒷문장이 계속됩니다"
+        summary = builder._cta_location_summary(
+            {"slides": [{"index": 1, "text": "표지"}, {"index": 2, "text": body}], "caption": "a"})
+        assert "slide_kw_ctx=[[], ['나다라마바사아자차 댓글 카타파하가나다라마']]" in summary
+        assert "caption_kw_ctx=[[]]" in summary
+        assert "처음 문장입니다" not in summary and "긴 뒷문장" not in summary
+        assert len(builder._keyword_contexts("댓글 " * 10)) == 3
+        # Codex 리뷰 — 키워드 배열 순서가 아니라 텍스트 위치순('댓글'이 '저장'보다 앞이면 먼저).
+        ordered = builder._keyword_contexts("먼저 댓글 그다음 저장 마지막 링크")
+        assert [("댓글" in c, "저장" in c) for c in ordered][0][0] is True and len(ordered) == 3
 
     # Codex 리뷰 반영 — card_facts 계정은 검증과 같은 strict 규칙('·' 도 단어 경계)으로 센다.
     def test_summary_body_words_follow_validator_strictness(self):

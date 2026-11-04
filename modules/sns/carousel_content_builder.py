@@ -454,6 +454,28 @@ def _log_generation_exception(exc, model, attempt, category, retryable, will_ret
         logger.error("[CarouselContent] Gemini 예외 로그 작성 실패 | error_type=%s", type(exc).__name__)
 
 
+_KEYWORD_CONTEXT_RADIUS = 10
+_KEYWORD_CONTEXT_MAX = 3
+
+
+def _keyword_contexts(text: str) -> "list[str]":
+    """진단 로그용 — 검증이 보는 텍스트(예외 복합어 제거 후)에서 CTA 키워드가 걸린 곳의 앞뒤 10자만 돌려준다.
+    한 텍스트당 최대 3개이며 텍스트에 나온 위치 순서다(Codex 리뷰: 키워드 배열 순서가 아니라 위치순). 본문 전체는 돌려주지 않는다."""
+    cleaned = _without_cta_exempt(text or "").replace("\n", " ")
+    hits: "list[tuple[int, str]]" = []
+    for keyword in _CTA_KEYWORDS:
+        start = 0
+        while True:
+            at = cleaned.find(keyword, start)
+            if at < 0:
+                break
+            hits.append((at, keyword))
+            start = at + len(keyword)
+    hits.sort()
+    return [cleaned[max(0, at - _KEYWORD_CONTEXT_RADIUS):at + len(keyword) + _KEYWORD_CONTEXT_RADIUS]
+            for at, keyword in hits[:_KEYWORD_CONTEXT_MAX]]
+
+
 def _cta_location_summary(payload: dict, account_cta: str = "", card_facts: tuple = ()) -> str:
     """실패 위치 로그용 — 본문 없이 장·줄별 CTA 문장 수, 그리고 261103 022 CAPTION_CTA_NOT_LAST 원인 확인용으로
     줄별로 어떤 고정 CTA 키워드(_CTA_KEYWORDS)가 걸렸는지와 계정 CTA 문구 포함 여부만 덧붙인다(캡션 본문은 기록하지 않는다)."""
@@ -475,10 +497,14 @@ def _cta_location_summary(payload: dict, account_cta: str = "", card_facts: tupl
     cover_newline = int("\n" in cover_text)
     # 검증(_validate_short_contract)과 같은 규칙으로 센다 — card_facts 계정은 '·'·'→'도 단어 경계(strict).
     body_words = [_count_words(s.get("text", ""), strict=bool(card_facts)) for s in slides[1:]]
+    # 261104 025 '댓글' 오탐 문구 확인용 — 걸린 키워드 앞뒤 10자만(본문 전체 미기록).
+    slide_kw_ctx = [_keyword_contexts(s.get("text", "")) for s in slides]
+    caption_kw_ctx = [_keyword_contexts(line) for line in lines]
     return (f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]} "
             f"caption_line_kw={line_keywords} caption_line_acct={line_account} "
             f"slide_kw={slide_keywords} slide_hit_sent={slide_hit_sentences} "
-            f"cover_len={len(cover_text)} cover_newline={cover_newline} body_words={body_words}")
+            f"cover_len={len(cover_text)} cover_newline={cover_newline} body_words={body_words} "
+            f"slide_kw_ctx={slide_kw_ctx} caption_kw_ctx={caption_kw_ctx}")
 
 
 def _validate_short_contract(payload: dict, slide_count: int, account_cta: str = "",
