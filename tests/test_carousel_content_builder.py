@@ -1267,6 +1267,27 @@ class TestFactLockAndControlledRepair022:
         assert builder._count_cta_sentences("저장 공간이 부족합니다.") == 1             # 기존 보수 규칙 유지
         assert builder._count_cta_sentences("데이터를 저장해 두면 편합니다.") == 1       # 기존 pinned 동작 유지
 
+    # 261104 — 036 표지·본문 길이 계약 실패 진단: 글자 수·줄바꿈·단어 수만 기록하고 본문은 기록하지 않는다.
+    def test_summary_reports_cover_length_newline_and_body_words_without_body(self):
+        long_cover = "가" * 41
+        two_line_cover = "첫 줄\n둘째 줄"
+        body31 = " ".join(["단어"] * 31)
+        s1 = builder._cta_location_summary({"slides": [{"index": 1, "text": long_cover},
+                                                       {"index": 2, "text": body31}, {"index": 3, "text": "문의는 DM"}],
+                                            "caption": "a"})
+        assert "cover_len=41 cover_newline=0 body_words=[31, 2]" in s1
+        assert "가가가" not in s1 and "단어 단어" not in s1
+        s2 = builder._cta_location_summary({"slides": [{"index": 1, "text": two_line_cover}], "caption": "a"})
+        assert "cover_newline=1 body_words=[]" in s2
+        assert "cover_len=0 cover_newline=0 body_words=[]" in builder._cta_location_summary({"slides": [], "caption": "a"})
+
+    # Codex 리뷰 반영 — card_facts 계정은 검증과 같은 strict 규칙('·' 도 단어 경계)으로 센다.
+    def test_summary_body_words_follow_validator_strictness(self):
+        payload = {"slides": [{"index": 1, "text": "표지"}, {"index": 2, "text": "학습·키워드·정리 셋"}], "caption": "a"}
+        assert "body_words=[2]" in builder._cta_location_summary(payload)
+        assert "body_words=[4]" in builder._cta_location_summary(payload, "", ("fact",))
+        assert builder._count_words("학습·키워드·정리 셋", strict=True) == 4
+
     # 261104 — '시청자 댓글'은 설명용 명사구(025 글감 1.1 오탐). 진짜 댓글 요청은 그대로 CTA.
     def test_viewer_comment_phrase_is_not_counted_as_cta(self):
         assert builder._count_cta_sentences("시청자 댓글에 실시간으로 답하는 처리가 함께 있어야 합니다.") == 0

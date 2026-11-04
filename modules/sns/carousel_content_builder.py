@@ -454,7 +454,7 @@ def _log_generation_exception(exc, model, attempt, category, retryable, will_ret
         logger.error("[CarouselContent] Gemini 예외 로그 작성 실패 | error_type=%s", type(exc).__name__)
 
 
-def _cta_location_summary(payload: dict, account_cta: str = "") -> str:
+def _cta_location_summary(payload: dict, account_cta: str = "", card_facts: tuple = ()) -> str:
     """실패 위치 로그용 — 본문 없이 장·줄별 CTA 문장 수, 그리고 261103 022 CAPTION_CTA_NOT_LAST 원인 확인용으로
     줄별로 어떤 고정 CTA 키워드(_CTA_KEYWORDS)가 걸렸는지와 계정 CTA 문구 포함 여부만 덧붙인다(캡션 본문은 기록하지 않는다)."""
     slides = sorted(payload.get("slides") or [], key=lambda s: s.get("index", -1))
@@ -470,9 +470,15 @@ def _cta_location_summary(payload: dict, account_cta: str = "") -> str:
          if sent.strip() and any(k in _without_cta_exempt(sent) for k in _CTA_KEYWORDS)]
         for s in slides
     ]
+    # 261104 036 COVER_TITLE_INVALID / BODY_SLIDE_TOO_LONG 확인용 — 표지 글자 수·줄바꿈 여부와 본문 장별 단어 수만 남긴다(본문 미기록).
+    cover_text = (slides[0].get("text", "") if slides else "").strip()
+    cover_newline = int("\n" in cover_text)
+    # 검증(_validate_short_contract)과 같은 규칙으로 센다 — card_facts 계정은 '·'·'→'도 단어 경계(strict).
+    body_words = [_count_words(s.get("text", ""), strict=bool(card_facts)) for s in slides[1:]]
     return (f"slide_cta={slide_counts} caption_line_cta={[_count_cta_sentences(l) for l in lines]} "
             f"caption_line_kw={line_keywords} caption_line_acct={line_account} "
-            f"slide_kw={slide_keywords} slide_hit_sent={slide_hit_sentences}")
+            f"slide_kw={slide_keywords} slide_hit_sent={slide_hit_sentences} "
+            f"cover_len={len(cover_text)} cover_newline={cover_newline} body_words={body_words}")
 
 
 def _validate_short_contract(payload: dict, slide_count: int, account_cta: str = "",
@@ -1115,7 +1121,7 @@ def generate_carousel_content(
     if contract_error:
         if short:
             logger.warning(f"[CarouselContent] 계약 실패 | {contract_error} | topic_id={topic.topic_id} | "
-                           f"{_cta_location_summary(payload, conversion_cta)}")
+                           f"{_cta_location_summary(payload, conversion_cta, card_facts)}")
         return CarouselResult(success=False, error_code=contract_error)
 
     slides = tuple(
