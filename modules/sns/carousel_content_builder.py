@@ -288,7 +288,9 @@ def _validate_card_facts(payload: dict, card_facts: tuple) -> "str | None":
 # 261103 — CTA 키워드가 일반 명사의 일부일 뿐인 복합어는 행동 요청이 아니다. '저장소'(repository)는 '저장'을 포함하지만
 # 행동 요청이 아니다(022 글감 1.2: "저장소에 push 권한" 설명이 매번 CAPTION_CTA_NOT_LAST 로 걸린 것으로 보임 — 어떤 글감이
 # 쓰였는지 로그에 없어 UNKNOWN). '저장해/저장하세요/저장 공간' 등 다른 쓰임은 기존처럼 CTA 로 센다.
-_CTA_EXEMPT_COMPOUNDS = ("저장소",)
+# 261104 — '시청자 댓글'(025 글감 1.1 핵심 메시지 "시청자 댓글에 실시간으로 답하는 처리")은 설명용 명사구이지 댓글 요청이 아니다
+# (025 09:00 실측: slide_kw=[[], ['댓글'], []] 로 중간 슬라이드만 걸림). '댓글 남겨주세요' 등 다른 쓰임은 그대로 CTA.
+_CTA_EXEMPT_COMPOUNDS = ("저장소", "시청자 댓글")
 
 
 def _without_cta_exempt(text: str) -> str:

@@ -678,7 +678,7 @@ class TestShortCtaNormalization:
     def test_summary_lists_slide_keywords_and_sentence_positions_without_body(self):
         payload = {
             "slides": [{"index": 1, "text": "표지"},
-                       {"index": 2, "text": "방송이 이어집니다. 시청자 댓글에 답하는 처리가 있습니다."},
+                       {"index": 2, "text": "방송이 이어집니다. 댓글에 답하는 처리가 있습니다."},
                        {"index": 3, "text": "문의는 DM"}],
             "caption": "a\nb",
         }
@@ -1266,6 +1266,18 @@ class TestFactLockAndControlledRepair022:
         assert builder._count_cta_sentences("저장소를 저장하세요.") == 1                # 같은 문장에 진짜 '저장하세요'
         assert builder._count_cta_sentences("저장 공간이 부족합니다.") == 1             # 기존 보수 규칙 유지
         assert builder._count_cta_sentences("데이터를 저장해 두면 편합니다.") == 1       # 기존 pinned 동작 유지
+
+    # 261104 — '시청자 댓글'은 설명용 명사구(025 글감 1.1 오탐). 진짜 댓글 요청은 그대로 CTA.
+    def test_viewer_comment_phrase_is_not_counted_as_cta(self):
+        assert builder._count_cta_sentences("시청자 댓글에 실시간으로 답하는 처리가 함께 있어야 합니다.") == 0
+        assert builder._count_cta_sentences("시청자 댓글에 답하는 방식이 궁금하면 댓글로 남겨주세요.") == 1   # 같은 문장의 진짜 댓글 요청
+        assert builder._count_cta_sentences("댓글로 알려주세요.") == 1
+        assert builder._count_cta_sentences("의견은 댓글에 남겨 주세요") == 1
+
+    def test_viewer_comment_phrase_not_reported_as_cta_keyword_in_log(self):
+        summary = builder._cta_location_summary(
+            {"slides": [{"text": "시청자 댓글에 실시간으로 답합니다."}], "caption": "시청자 댓글 설명입니다.\n문의는 DM"}, "문의는 DM")
+        assert "slide_kw=[[]]" in summary and "caption_line_kw=[[], []]" in summary
 
     def test_repository_sentence_in_caption_first_line_passes_without_repair(self, monkeypatch):
         caption = self.CAPTION.replace("정리했습니다.", "정리했습니다. 저장소에 push 권한이 있어야 합니다.")
