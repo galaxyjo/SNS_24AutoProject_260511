@@ -3384,3 +3384,11 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **발견·기록:** ERR-195(035 새 키 403, 무시 결정), ERR-196(022 `저장소` CTA 오탐, 삭제 후처리안 철회), FP-126, INC-073, AdsPower 증거(거부 응답 확정·결제 효과 근거 없음 → 보류). 진단 중 출력 마스킹 실패 2회로 Threads 토큰 일부·025 이전 키가 대화 출력에 노출(회장 판단 항목, 코드 반영 없음).
 - **테스트:** 새 테스트 약 100건 추가(보충기 19·Repository 조회·원장 58·빌더 +21 등), 관련 322~323건 통과. 기존 실패 5건 유지: `tests/test_publish_outcome_unknown.py` 3건, `tests/test_aijomoojin_content_producer.py::TestCarouselFlag::test_style_unset_or_unknown_keeps_template` 2건(변경 전부터 동일 실패).
 - **UNKNOWN:** 022 11/04 10:00·025/036 11/04 05:00 Producer 결과, 크롤 재개 후 신규 행 미생성 이유(필터·학습 큐 여부), 007 보충 생성 e2e, 오류 원장의 첫 실제 기록.
+
+
+### 261104 23:40 ICT — 슬롯 계정 확대(Batch2·3)·키 probe·031 caption 재작성(ff5d0e6)
+- **.env 변경(백업 backup/, 값 비출력):** Batch2 IDN_000017·018·019, Batch3 IDN_000027·028 각 `CONTENT_PRODUCER_ENABLED`·`SLOT_SCHEDULE_ENABLED=true`(총 10줄). 036은 기존 전용 경로(`AIJOMOOJIN_*`)라 슬롯 등록 로그에 없음.
+- **코드 커밋(로컬, 미 Push):** `8d51ed9` 계약 실패 시 키워드 앞뒤 10자 로그(025 오탐 문구 식별용) · `ff5d0e6` card_facts 없는 짧은 캐러셀 caption 길이 재작성 허용. 빌더 테스트 172건 통과.
+- **재시작(관리자):** 18:47, 23:19 — 최종 슬롯 12계정 등록·ERROR 0건.
+- **발견·기록:** ERR-197(키 한도 0), ERR-198(031 caption 길이), FP-127, INC-074. 1토큰 probe는 회장 승인 후 038·023·018 각 1회(키 마스킹).
+- **UNKNOWN:** 038·023·018 한도 해제 여부, 025 CTA 오탐 문구, 031 재작성 효과(11/05 07:00 Producer). 030·024 키 결정은 회장 PASS, 029·035는 프로젝트·키 공유로 제외.

@@ -3392,3 +3392,21 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** 22시 실패가 글감 1.2였는지, 글감 외 원인(예: '공유지'·'구독자'·'링크드인'·정보 문맥 '댓글' 등 다른 부분 문자열 오탐)이 남아 있는지는 11/04 10:00 022 Producer 로그(`caption_line_kw`)로 확인.
 - **Rollback:** `git revert 3210b41` 후 launcher 재시작.
 - **관련:** ERR-192, d7ff2b0(재작성 2회), 419bb68(card_facts 없는 계정 CTA 재작성), FP-126
+
+
+## ERR-197
+- **제목:** 슬롯 계정 038·023·018·030·024 Gemini 키 429(`quota_limit_value 0`)로 Producer 연속 실패 (261104 19~21시)
+- **증상:** 19:00 Producer 038·023, 20:00 018·030·024가 `CAROUSEL_TEXT_FAILED:GENERATION_FAILED`(429 RESOURCE_EXHAUSTED). 20·21시 슬롯은 `ready 후보 없음`으로 스킵. 11/04 신규 슬롯 계정의 새 게시는 이 시간대 0건(IDN-000011 19:06 게시는 기존 폴러 경로).
+- **근거(Evidence):** 1토큰 probe 3회(회장 승인, 키 마스킹, 코드·.env 변경 없음) — 038=project 422277690832, 023=738776510836, 018=812310845973, 전부 HTTP 429 `quota_limit_value 0`(서로 다른 프로젝트라 키 공유 아님). 030·024는 앞서 같은 방식으로 한도 0 확인. 023은 같은 날 13:00 같은 키로 캐러셀 게시 성공이라, 일일 소진인지 영구 0인지 **UNKNOWN**. `tools/check_account_preflight.py`는 Gemini 쿼터를 보지 않아 READY로 표시됨(FP-127).
+- **조치:** 없음(코드·키 변경 금지 규칙 8·11). 030·024 키 결정은 회장 PASS. 038·023·018은 11/05 05:00 전후 probe 1회 재확인 예정.
+- **Rollback:** 해당 없음(변경 없음).
+- **관련:** ERR-192, FP-127, INC-074
+
+## ERR-198
+- **제목:** 031 Producer 첫 실행이 `CAPTION_LENGTH_INVALID`로 실패 — card_facts 없는 짧은 캐러셀은 caption 길이 오류가 재작성 대상 아님 (261104 21:02)
+- **증상:** 031 21:02 `재작성 후에도 계약 실패 — CAPTION_LENGTH_INVALID`, 글감 1.2, `body_words=[20,17]`, 로그에 caption 길이는 없음(초과인지 비어 있는지는 UNKNOWN, 오늘 1회).
+- **근거(Evidence):** `_repair_eligible()`이 card_facts 없는 short 계정에 `_CTA_POSITION_ERRORS`만 허용(419bb68). caption 400자 한도는 전 계정 공통 상수(`_CAPTION_MAX_CHARS=400`)라 031만의 규칙 차이는 아님.
+- **조치:** `_NO_FACTS_REPAIRABLE_ERRORS = _CTA_POSITION_ERRORS | {"CAPTION_LENGTH_INVALID"}` 추가, 테스트 1개(`test_no_card_facts_caption_too_long_is_repaired`). 빌더 테스트 172건 통과, Codex 리뷰 4항목 YES. 커밋 `ff5d0e6`(미 Push), 23:19 재시작으로 반영(슬롯 12계정 등록, ERROR 0건).
+- **UNKNOWN / Risk:** 재작성 후에도 길이 초과면 같은 오류로 최종 실패(재작성 최대 2회). 031 다음 Producer(11/05 07:00 ICT)에서 검증.
+- **Rollback:** `git revert ff5d0e6` 후 launcher 재시작.
+- **관련:** ERR-196, 419bb68, d7ff2b0
