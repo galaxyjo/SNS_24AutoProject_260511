@@ -11,7 +11,7 @@ modules/common/gemini_failure_diag.py — Gemini 호출 실패 진단 1단계 (2
 content_package_builder 를 import 하므로(순환) 여기서 별도로 구현했다.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from modules.common import error_events as _ev
@@ -132,6 +132,58 @@ def record_gemini_failure(
     except Exception as err:  # noqa: BLE001 — 진단 실패가 생성 흐름을 바꾸면 안 된다
         logger.warning("[GeminiDiag] 기록 실패(생성 흐름 무영향) | %s", type(err).__name__)
         return None
+
+
+GEMINI_RECOVERED = "GEMINI_RECOVERED"
+_BROKEN_CLASSES = (GEMINI_QUOTA_ZERO, GEMINI_AUTH)
+_RECOVERY_WINDOW_DAYS = 7
+
+
+def record_gemini_success(
+    *, account: str, model: str = "", stage: str = "carousel_generate",
+    notify: Optional[Callable[[str], None]] = None, db_path=None, now: Optional[datetime] = None,
+    notify_async: bool = True,
+) -> bool:
+    """회복 감지(261106) — 이 계정의 가장 최근 gemini 원장 기록이 한도 0·인증 실패였는데 Gemini 호출이 성공했으면
+    GEMINI_RECOVERED 1행을 남기고 알린다(이후 성공은 최근 기록이 RECOVERED 라 반복 알림 없음). 기록 전용 —
+    어떤 실패도 예외로 전파하지 않고, 원장 파일이 아직 없으면 아무것도 만들지 않는다."""
+    try:
+        path = db_path or _ev._DB_PATH
+        if not account or not path.exists():
+            return False
+        now = now or datetime.now()
+        message = None
+        conn = _ev._connect(path)
+        try:
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")   # Codex 검수: 조회~기록을 한 쓰기 트랜잭션으로(동시 Producer 경합 축소)
+                since = (now - timedelta(days=_RECOVERY_WINDOW_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+                # 장애(한도 0·인증)·회복 이벤트만 비교한다 — 사이에 낀 RATE/TRANSIENT 때문에 회복을 놓치지 않는다.
+                row = conn.execute(
+                    "SELECT error_class FROM events WHERE source='gemini' AND account=? AND ts>=? "
+                    "AND error_class IN (?,?,?) ORDER BY id DESC LIMIT 1",
+                    (account, since, GEMINI_QUOTA_ZERO, GEMINI_AUTH, GEMINI_RECOVERED)).fetchone()
+                if not row or row[0] not in _BROKEN_CLASSES:
+                    return False
+                _ev._insert_event(conn, now, "gemini", account, GEMINI_RECOVERED, 200, None, None, stage, "",
+                                  _ev.safe_text(f"after={row[0]} model={model}"))
+                message = (f"[회복] Gemini — {account} 호출 성공 (직전 상태 {row[0]}). "
+                           f"한도·정지 해제 가능성, 해당 계정 Producer 재개 확인")
+        finally:
+            conn.close()
+        logger.warning("[GeminiDiag] acct=%s class=%s after=%s model=%s", _ev.safe_text(account, limit=60),
+                       GEMINI_RECOVERED, row[0], _ev.safe_text(model, limit=60))
+        if notify and message:
+            _ev._send_alert(notify, message, notify_async)
+        return True
+    except Exception as err:  # noqa: BLE001
+        logger.warning("[GeminiDiag] 회복 감지 실패(생성 흐름 무영향) | %s", type(err).__name__)
+        return False
+
+
+def record_gemini_success_default(**kwargs) -> bool:
+    kwargs.setdefault("notify", _default_notify())
+    return record_gemini_success(**kwargs)
 
 
 def _default_notify() -> Optional[Callable[[str], None]]:

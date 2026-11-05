@@ -137,3 +137,56 @@ def test_builder_hook_only_with_account_and_retry_unchanged(monkeypatch, account
     assert len(calls) == expect_calls * n
     if calls:
         assert [c["final"] for c in calls] == [False] * (n - 1) + [True] and calls[0]["account"] == "PER-018"
+
+
+def test_recovery_detected_once_after_zero_quota(tmp_path):
+    db, sent = tmp_path / "e.db", []
+    # 원장 파일이 없으면 아무것도 만들지 않는다
+    assert diag.record_gemini_success(account="PER-018", db_path=db, notify=sent.append, notify_async=False) is False
+    assert not db.exists()
+    diag.record_gemini_failure(_err(429, "0"), account="PER-018", db_path=db)
+    assert diag.record_gemini_success(account="PER-018", model="m", db_path=db, notify=sent.append,
+                                      notify_async=False) is True
+    assert diag.record_gemini_success(account="PER-018", db_path=db, notify=sent.append, notify_async=False) is False
+    assert [r[2] for r in _rows(db)] == ["GEMINI_QUOTA_ZERO", "GEMINI_RECOVERED"]
+    assert len(sent) == 1 and "PER-018" in sent[0]
+    # 다른 계정·rate 이력만 있는 계정은 회복 대상 아님
+    diag.record_gemini_failure(_err(429, "10"), account="PER-025", db_path=db)
+    assert diag.record_gemini_success(account="PER-025", db_path=db) is False
+    assert diag.record_gemini_success(account="", db_path=db) is False
+
+
+def test_recovery_never_propagates(tmp_path):
+    assert diag.record_gemini_success(account="A", db_path=tmp_path) is False   # 디렉터리 경로 → 내부 오류 삼킴
+
+
+def test_recovery_ignores_rate_in_between_and_old_events(tmp_path):
+    """Codex 261106: 한도 0 뒤에 RATE/TRANSIENT 가 끼어도 회복을 감지, 7일 지난 장애는 회복 대상 아님."""
+    from datetime import datetime, timedelta
+    db = tmp_path / "e.db"
+    diag.record_gemini_failure(_err(429, "0"), account="PER-018", db_path=db)
+    diag.record_gemini_failure(_err(429, "10"), account="PER-018", db_path=db)
+    diag.record_gemini_failure(_err(503), account="PER-018", db_path=db)
+    assert diag.record_gemini_success(account="PER-018", db_path=db) is True
+    old = tmp_path / "old.db"
+    diag.record_gemini_failure(_err(429, "0"), account="PER-019", db_path=old,
+                               now=datetime.now() - timedelta(days=8))
+    assert diag.record_gemini_success(account="PER-019", db_path=old) is False
+
+
+def test_builder_records_recovery_only_after_full_success(monkeypatch):
+    """Codex 261106: 응답만 받고 파싱·계약 검증이 실패하면 회복을 기록하지 않는다."""
+    calls = []
+    monkeypatch.setattr(builder, "record_gemini_success_default", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(builder, "_throttle", lambda: None)
+
+    class _Resp:
+        text = "not json"
+
+    class _M:
+        def generate_content(self, model, contents, config):
+            return _Resp()
+
+    monkeypatch.setattr(builder, "_get_client", lambda: _Client(_M()))
+    result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", diag_account="PER-018")
+    assert result.success is False and calls == []

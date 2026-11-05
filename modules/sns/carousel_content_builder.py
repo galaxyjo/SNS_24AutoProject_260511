@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 
 from google.genai import types as genai_types
 
-from modules.common.gemini_failure_diag import record_gemini_failure_default
+from modules.common.gemini_failure_diag import record_gemini_failure_default, record_gemini_success_default
 from modules.common.log_sanitizer import redact_sensitive
 from modules.common.logger import get_logger
 from modules.sns.caption_generator import (
@@ -1219,6 +1219,9 @@ def generate_carousel_content(
         hashtags=hashtags,
         content_fingerprint=fingerprint,
     )
+    # 261106 회복 감지(기록 전용) — Codex 검수: 파싱·계약 검증까지 통과한 최종 성공에서만 기록한다.
+    if diag_account:
+        record_gemini_success_default(account=diag_account, model=active_model)
     return CarouselResult(success=True, content=content)
 
 
