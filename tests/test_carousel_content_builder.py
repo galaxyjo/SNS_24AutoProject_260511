@@ -1314,6 +1314,12 @@ class TestFactLockAndControlledRepair022:
         assert builder._count_cta_sentences("실시간 댓글 응대가 궁금하면 댓글로 남겨주세요.") == 1
         assert builder._count_cta_sentences("댓글로 알려주세요.") == 1
 
+    def test_incoming_comment_phrase_is_not_counted_as_cta(self):
+        # 261105 025 18:00 실측 — 설명 문맥의 "들어오는 댓글"은 CTA 가 아니다. 실제 댓글 요청은 그대로 CTA.
+        assert builder._count_cta_sentences("방송 중 들어오는 댓글에 실시간으로 대응") == 0
+        assert builder._count_cta_sentences("들어오는 댓글에 대응하는 법이 궁금하면 댓글로 남겨주세요.") == 1
+        assert builder._count_cta_sentences("댓글에 남겨주세요.") == 1
+
     def test_viewer_comment_phrase_not_reported_as_cta_keyword_in_log(self):
         summary = builder._cta_location_summary(
             {"slides": [{"text": "시청자 댓글에 실시간으로 답합니다."}], "caption": "시청자 댓글 설명입니다.\n문의는 DM"}, "문의는 DM")
