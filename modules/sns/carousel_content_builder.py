@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 
 from google.genai import types as genai_types
 
+from modules.common.gemini_failure_diag import record_gemini_failure_default
 from modules.common.log_sanitizer import redact_sensitive
 from modules.common.logger import get_logger
 from modules.sns.caption_generator import (
@@ -1023,6 +1024,7 @@ def generate_carousel_content(
     seo_keywords: str = "",
     conversion_cta: str = "",
     content_theme: str = "",
+    diag_account: str = "",
 ) -> CarouselResult:
     """Sourcebook `topic`(source_selector.SourceTopic 또는 동일 필드를 가진
     객체) + 슬롯 역할 + 문장 템플릿으로 8-Slide 카드뉴스 구조화 콘텐츠 1건을
@@ -1099,6 +1101,11 @@ def generate_carousel_content(
             will_retry = retryable and attempt < _MAX_ATTEMPTS
             delay = _next_retry_delay(attempt - 1, exc) if will_retry else 0.0
             _log_generation_exception(exc, active_model, attempt, category, retryable, will_retry, delay)
+            # 261105 진단 1단계 — 기록·알림만(재시도·반환값 불변). 예외는 내부에서 삼켜진다.
+            # 계정(페르소나) 미지정 호출(테스트·수동)은 운영 원장을 건드리지 않도록 건너뛴다.
+            if diag_account:
+                record_gemini_failure_default(exc, account=diag_account, model=active_model,
+                                              attempt=attempt, final=not will_retry)
             if will_retry:
                 time.sleep(delay)
                 continue

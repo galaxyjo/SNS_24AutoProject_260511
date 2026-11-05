@@ -563,6 +563,7 @@ def _create_carousel_package(
         client=client, throttle_fn=throttle_fn, model=model,
         existing_fingerprints=existing_fingerprints, slide_count=slide_count,
         with_image_scenes=(carousel_style == "note"),
+        **({"diag_account": persona_code} if persona_code else {}),
         **persona_prompt_kwargs,
     )
     if not carousel_result.success:
@@ -861,6 +862,7 @@ def create_content_package(
             topic, slot_role, template_type,
             client=gemini_client, throttle_fn=gemini_throttle, model=gemini_model,
             existing_fingerprints=existing_fingerprints,
+            **({"diag_account": persona_code} if persona_code else {}),
             **persona_prompt_kwargs,
         )
         if carousel_result.success:
