@@ -1412,6 +1412,12 @@ class TestFactLockAndControlledRepair022:
         assert len(models.calls) == 2 and "CAPTION_LENGTH_INVALID" in models.calls[1]["contents"]
         assert len(result.content.caption) <= builder._CAPTION_MAX_CHARS
 
+    def test_no_card_facts_last_slide_cta_missing_is_repaired(self, monkeypatch):
+        no_cta_last = self._payload(last="공개 모델 확인 · 지원 언어 선택")                  # 마지막 장 CTA 0개
+        result, models = self._run(monkeypatch, [no_cta_last, self._payload()], topic=self._no_facts_topic())
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 2 and "LAST_SLIDE_CTA_COUNT_INVALID" in models.calls[1]["contents"]
+
     def test_no_card_facts_non_cta_error_is_not_repaired(self, monkeypatch):
         result, models = self._run(monkeypatch, [self._payload(cover=self.LONG_COVER), self._payload()],
                                    topic=self._no_facts_topic())

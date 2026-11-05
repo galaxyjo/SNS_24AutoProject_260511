@@ -599,7 +599,8 @@ _MAX_REPAIR_ROUNDS = 2
 # 261103 — card_facts 가 없는 계정에도 재작성을 허용하는 오류(CTA 위치만). 나머지 재작성 가능 오류는 card_facts 계정 전용.
 _CTA_POSITION_ERRORS = frozenset({"CTA_NOT_LAST_SLIDE", "CAPTION_CTA_NOT_LAST"})
 # 261104 — 031 21:02 CAPTION_LENGTH_INVALID 실측: 길이 초과는 caption 만 다시 쓰면 되므로 card_facts 없는 짧은 캐러셀도 재작성한다.
-_NO_FACTS_REPAIRABLE_ERRORS = _CTA_POSITION_ERRORS | {"CAPTION_LENGTH_INVALID"}
+# 261105 — 022 10:00 LAST_SLIDE_CTA_COUNT_INVALID 실측(slide_cta=[0,0,0]): 마지막 장 CTA 누락도 마지막 장만 다시 쓰면 된다.
+_NO_FACTS_REPAIRABLE_ERRORS = _CTA_POSITION_ERRORS | {"CAPTION_LENGTH_INVALID", "LAST_SLIDE_CTA_COUNT_INVALID"}
 
 
 def _repair_eligible(error_code, card_facts, short) -> bool:
