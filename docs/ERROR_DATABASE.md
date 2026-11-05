@@ -3457,3 +3457,13 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** 구체적 위반 조항·원인 요청 UNKNOWN(약관 `aistudio.google.com/docs/terms`에는 다중 프로젝트·대량 호출 금지 조항 없음, Google API 약관·금지 사용 정책은 미확인). 프로젝트를 새로 만드는 방식이 사유일 가능성도 배제 못 함. 이의신청 답변 전 8계정 일괄 키 교체·신규 프로젝트 확대 금지. 새 프로젝트 키는 019 1계정 Canary 후 별도 승인.
 - **Rollback:** 해당 없음(변경 없음).
 - **관련:** ERR-197, FP-127, FP-129, INC-076
+
+## ERR-204
+- **제목:** Gemini 429/403 실패 로그에 계정·지역·한도값이 남지 않아 원인 확정이 하루 지연됨 — 진단 장치 1단계 구현 (261106)
+- **증상:** ERR-203 조사 때 운영 로그가 429 본문을 200자에서 잘라 `quota_location`·`quota_limit_value`가 없었고, 로그 줄에 계정 코드도 없었다.
+- **근거(Evidence):** `carousel_content_builder._log_generation_exception` 200자 절단, `generate_carousel_content` 계정 인자 없음, `_classify_retry` 429 전부 재시도 가능. 설계: `docs/design/GEMINI_FAILURE_DIAGNOSTICS_DESIGN_261105.md`.
+- **조치(0c1b09f, 회장 승인 "구현 승인"·"수용커밋"·"재시작·Canary 승인"):** `modules/common/gemini_failure_diag.py` 신규 — Allowlist 필드 추출, 분류 `GEMINI_QUOTA_ZERO/RATE/AUTH/TRANSIENT`, `[GeminiDiag]` 로그, 마지막 시도 때 `db/error_events.db` 기록, 한도 0·인증 실패만 계정당 하루 1회 Slack. `diag_account` optional 인자(persona_code 있을 때만 전달). 재시도·반환값 불변.
+- **검증:** 새 테스트 10건 + 관련 305건 통과, 10개 파일 묶음 실패 24건은 변경 전과 동일 목록. Codex 검수 1~3 YES, 4(한도 0 판정·403 reason)는 수정 후 반영, 5(3초 잠금 시 기록 손실 가능)·6(PER↔IDN 계정 매핑 증거 없음)은 한계로 수용. 018 1토큰 Canary(회장 승인): 429, `GEMINI_QUOTA_ZERO`, `asia-east1`/한도 0/`RATE_LIMIT_EXCEEDED`, 원장 1행 기록 확인 후 테스트 행 삭제.
+- **UNKNOWN / Risk:** Slack 도착, 실제 Producer 경로의 PER 코드↔IDN 계정 대응은 첫 Producer 실패 때 확인. quota_id는 이 429에 비어 있었음(판정은 metric으로 처리).
+- **Rollback:** `git revert 0c1b09f` 후 launcher 재시작. `DELETE FROM events WHERE source='gemini'`.
+- **관련:** ERR-203, FP-127, FP-129, INC-076

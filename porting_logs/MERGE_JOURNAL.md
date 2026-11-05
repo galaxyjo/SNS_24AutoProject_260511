@@ -3408,3 +3408,10 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **변경:** `.env`·Airtable·코드 변경 없음(이번 세션 이전 커밋 bc4ba9e 제외). 이의신청 2건은 회장이 직접 제출.
 - **주의 기록:** 계정 슬롯 확인 중 `myaccount.google.com` 개인정보 페이지 4개가 읽힘(저장·사용 안 함). 신규 로그인 계정의 약관·2SV 팝업은 누르지 않음.
 - **UNKNOWN:** 정지 조항·복구 시점, 나머지 6개 정지 여부, 022 수정 효과, 041 Canary 효과. 로컬 미 Push 커밋: 8d51ed9, ff5d0e6, 8f79b9b, 3715387, bc4ba9e, a8d34d3 및 이번 docs 커밋.
+
+
+### 261106 00:40 — Gemini 실패 진단 장치 1단계 구현·Canary (코드 0c1b09f, 문서 15144d4)
+- **변경:** `modules/common/gemini_failure_diag.py` 신규, `carousel_content_builder.py`(diag_account optional + 호출 1곳), `content_package_builder.py`(호출부 2곳 조건부 전달), `error_events.py`(심각도 4줄), 테스트 10건. 재시도·반환값 불변.
+- **승인 흐름:** 설계 DESIGN ONLY → 회장 "구현 승인" → Codex 검수(4·5·6 NO, 4 수정·5·6 수용) → "수용커밋" → 관리자 재시작(00:22:26, 15144d4) → "018 1토큰 Canary 승인"(429·원장 기록 확인, 테스트 행 삭제).
+- **기록:** ERR-204, VALIDATION_STATUS `gemini_diag_stage1_261106`.
+- **UNKNOWN:** Slack 도착, 실제 Producer 경로 기록, PER↔IDN 매핑. 미 Push 커밋 11개 포함.

@@ -295,3 +295,5 @@
 | `cta_realtime_comment_261105` | **module_verified (Runtime 반영 11:28, 검증 UNKNOWN)** — "실시간 댓글" CTA 예외(3715387), 빌더 테스트 173건, Codex 리뷰 미실시. 025 오늘 18시 Producer 대기. |
 | `caption_repair_031_261105` | **미검증(FAIL 관측)** — ff5d0e6 수리가 07:00에 실행되지 못함(재작성 2회가 다른 오류에 소진, ERR-200). |
 | `slot_round_morning_261105` | **Runtime 확인(부분)** — 05~10시 슬롯 계정 새 게시 0건, 레거시 경로 게시 1건(09:01 확인). 한도 0 해제 증거 없음. production_verified 아님. |
+
+| `gemini_diag_stage1_261106` | **module_verified + Canary(기록 경로)** — 진단 장치 1단계(0c1b09f, launcher 00:22 기동 반영). 테스트 10건·관련 305건 통과, 018 1토큰 Canary로 `[GeminiDiag]` 로그·원장 1행 확인(삭제 완료). Slack 도착·실제 Producer 경로·PER↔IDN 매핑은 UNKNOWN(첫 Producer 실패 대기). production_verified 아님. |
