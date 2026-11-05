@@ -1158,3 +1158,9 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 - **영향:** 19~21시 슬롯(025·023·038·017 등) 공급 없음. 오게시·중복 게시 없음. 신규 ERROR는 Producer 실패 로그뿐(원인 ERR-197·ERR-198, 017·022는 `IMAGE_TEXT_CHECK_FAILED` — 설계된 이미지 글자 검사 게이트, Accept 유지).
 - **조치:** 18:47 재시작(슬롯 12계정 등록)·23:19 재시작(ff5d0e6 반영). 키 probe 3회 결과 기록(ERR-197).
 - **UNKNOWN:** 038·023·018 한도 0의 해제 여부(11/05 05:00 전후 재확인), 025 `CTA_NOT_LAST_SLIDE`의 실제 문구(8d51ed9 진단 로그, 11/05 05·09시 Producer), 030·024 키 결정(PASS).
+
+## INC-075 | 261105 오전 슬롯 라운드 — 신규 슬롯 계정 게시 확인 0건, 12:00 Producer 3건 스킵
+- **영향:** 05~12시 슬롯 계정 새 게시 없음. 09:01 캐러셀 게시 1건(rid=recqkvYs2Ljk1kxrC, media_id=18193344046407337, children=3)은 08:00 레거시 Producer 산출물로 계정 매핑은 036 추정(UNKNOWN). 오게시·중복 게시 없음.
+- **원인(로그):** 038·023(06시)·019·027(07시)·018·024·030(09시)·028(10시) Gemini 429 지속(ERR-197), 025 `CTA_NOT_LAST_SLIDE`(ERR-199), 031 `CAPTION_LENGTH_INVALID`(ERR-200), 017 `IMAGE_TEXT_CHECK_FAILED`(Accept), 신규: 022 10시 `LAST_SLIDE_CTA_COUNT_INVALID`, 036 05시 `IMAGE_PROVIDER_REJECTED`.
+- **조치:** 3715387(025 오탐 수정) 11:28 재시작 반영. 12시 3건 스킵은 ERR-201.
+- **UNKNOWN:** 한도 0 해제 여부(05시 probe는 승인 없어 미실행), 022 CTA 누락·036 이미지 거부의 반복 여부.

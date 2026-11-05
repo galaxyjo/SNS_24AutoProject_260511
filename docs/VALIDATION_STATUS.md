@@ -291,3 +291,7 @@
 | `idn011_reuse_e2e_261103` | **production_verified (011 한정)** — 보충 잡 생성(R041-AUTO) → 폴러 슬롯 Gate → 게시까지 오늘 3건(ig_media_id 3개 서로 다름, 계정 일치, 중복 0). `post_hours=9,15,19` 변경 반영(Airtable). 다른 계정(007)은 보충 생성 e2e 미관측. |
 | `accounts_posting_today_261103` | **Runtime 확인(로그·Airtable 대조)** — 오늘 게시 계정 5개(007 3·011 3·014 2·039 1·048 3, 합계 12건). 036은 별도 경로 집계에서 누락 가능(UNKNOWN). 23계정 전체 자동게시는 미달성. |
 | `adspower_block_release_261103` | **Runtime 확인** — `blocked_until 22:31` 해제 후 22:56부터 크롤 재개. 차단은 AdsPower 거부 응답(`Exceeding open daily limit`)으로 확정, 유료 플랜 한도는 근거 없음(결제 보류). 크롤 결과의 Instagram_Posts 반영은 미확인. |
+
+| `cta_realtime_comment_261105` | **module_verified (Runtime 반영 11:28, 검증 UNKNOWN)** — "실시간 댓글" CTA 예외(3715387), 빌더 테스트 173건, Codex 리뷰 미실시. 025 오늘 18시 Producer 대기. |
+| `caption_repair_031_261105` | **미검증(FAIL 관측)** — ff5d0e6 수리가 07:00에 실행되지 못함(재작성 2회가 다른 오류에 소진, ERR-200). |
+| `slot_round_morning_261105` | **Runtime 확인(부분)** — 05~10시 슬롯 계정 새 게시 0건, 레거시 경로 게시 1건(09:01 확인). 한도 0 해제 증거 없음. production_verified 아님. |

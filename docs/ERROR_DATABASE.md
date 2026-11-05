@@ -3410,3 +3410,30 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** 재작성 후에도 길이 초과면 같은 오류로 최종 실패(재작성 최대 2회). 031 다음 Producer(11/05 07:00 ICT)에서 검증.
 - **Rollback:** `git revert ff5d0e6` 후 launcher 재시작.
 - **관련:** ERR-196, 419bb68, d7ff2b0
+
+## ERR-199
+- **제목:** 025 Producer가 05·09시 연속 `CTA_NOT_LAST_SLIDE` — 설명 문맥의 "실시간 댓글"을 CTA 키워드로 오탐 (261105)
+- **증상:** 025 11/05 05:00·09:00 `CAROUSEL_TEXT_FAILED:CTA_NOT_LAST_SLIDE`, 글감 1.1(이전 261104 "시청자 댓글" 오탐과 동일 글감).
+- **근거(Evidence):** 09:00 진단 로그(8d51ed9) `slide_kw_ctx=[[], [', 그리고 실시간 댓글 응대 처리가 필요'], []]`, `caption_kw_ctx`에 "시청자들의 실시간 댓글에 대응하는" — 둘 다 댓글 요청이 아닌 설명 문장.
+- **조치:** `_CTA_EXEMPT_COMPOUNDS`에 "실시간 댓글" 추가 + 테스트 1개(`test_realtime_comment_phrase_is_not_counted_as_cta`). 빌더 테스트 173건 통과. 커밋 `3715387`(로컬, 미 Push), 11:28 재시작으로 반영. **Codex 리뷰는 미실시**(회장 지시로 바로 커밋).
+- **UNKNOWN / Risk:** 실제 효과는 025 다음 Producer(오늘 18:00 ICT, post_hours 6·10·19의 1시간 전)에서 검증. 다른 설명형 복합어("댓글 응대" 등)가 또 오탐될 수 있음(FP-126 남은 후보).
+- **Rollback:** `git revert 3715387` 후 launcher 재시작.
+- **관련:** ERR-196, FP-126, 8d51ed9
+
+## ERR-200
+- **제목:** 031 Producer 07:00 `CAPTION_LENGTH_INVALID` 재발 — 재작성 2회를 앞선 오류가 모두 소진해 ff5d0e6 수리가 실행되지 못함 (261105)
+- **증상:** 031 11/05 07:00 로그: 재작성 1/2 `COVER_TITLE_INVALID` → 2/2 `BODY_SLIDE_TOO_LONG` → "재작성 후에도 계약 실패 — 중단 `CAPTION_LENGTH_INVALID`" (글감 1.2).
+- **근거(Evidence):** `_MAX_REPAIR_ROUNDS = 2`가 오류 종류와 무관하게 합산 적용(app.log.1 07:00:27~07:00:34).
+- **조치:** 없음(제안만 보류, 코드 변경 없음). ff5d0e6의 caption 길이 재작성은 **검증되지 않음**(실행 기회 자체가 없었음).
+- **UNKNOWN / Risk:** 표지·본문 오류가 매번 먼저 나오는지 이번 1회뿐인지 UNKNOWN. 031 다음 Producer(11/06 07:00 ICT, 또는 오늘 13·21시 슬롯의 1시간 전)에서 재확인.
+- **Rollback:** 해당 없음.
+- **관련:** ERR-198, ff5d0e6, FP-128
+
+## ERR-201
+- **제목:** 12:00 Producer 3건(017·023·038) MissedSlot 스킵 — 스케줄러 지연과 동시에 DNS 해석 오류 관측 (261105)
+- **증상:** 12:03:20 `[MissedSlot] content_producer_IDN-000017/023/038_1200 스킵됨(60초 초과)`, 같은 시각 `_job_dm_dead_monitor` 1:40 지연.
+- **근거(Evidence):** 12:03:03~11 urllib3 `NameResolutionError`·engagement_tracker Airtable 업데이트 실패 로그, 11:28 재시작 직후 `Run time of job ... was missed` 경고 다수(재시작 중 정지 구간).
+- **조치:** 없음(관측만).
+- **UNKNOWN / Risk:** DNS 오류가 스케줄러 지연의 원인인지 우연 일치인지 UNKNOWN(상관만 확인). 017·023·038은 어차피 Gemini 429/이미지 게이트로 실패 중이라 12시 결과 손실은 불명.
+- **Rollback:** 해당 없음.
+- **관련:** FP-128, INC-075
