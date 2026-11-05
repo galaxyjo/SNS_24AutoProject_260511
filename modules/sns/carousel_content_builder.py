@@ -633,6 +633,9 @@ _REPAIRABLE_CONTRACT_ERRORS = {
 }
 
 
+_REPAIR_MAX_ATTEMPTS = 3  # 261105 — 재작성 요청 1회당 최대 호출 수(대기 5s→20s, ±20% jitter)
+
+
 def _repair_contract_fields(payload: dict, error_code: str, card_facts: tuple, account_cta: str, *,
                             client, throttle_fn, model, config, client_factory=None) -> "dict | None":
     """`_repair_forbidden_scenes()`와 같은 1회 재요청 패턴. 실패한 필드 묶음(cover/body/caption/hashtags)만
@@ -664,15 +667,29 @@ def _repair_contract_fields(payload: dict, error_code: str, card_facts: tuple, a
         f"Current JSON: {json.dumps(payload, ensure_ascii=False)}\n\n"
         "Return the full JSON in the exact schema provided."
     )
-    try:
-        throttle_fn()
-        # 261103 Codex 리뷰 — Client(자격증명 해석 포함)는 실제로 호출할 때만 만든다(호출 생략 경로에서는 만들지 않는다).
-        active_client = client or (client_factory() if client_factory else None)
-        response = active_client.models.generate_content(model=model, contents=prompt, config=config)
-        fixed = json.loads(response.text)
-    except Exception as exc:
-        logger.warning(f"[CarouselContent] 계약 재작성 요청 실패 | error_type={type(exc).__name__}")
-        return None
+    # 261105 — 재작성 요청이 Gemini 503 한 번에 곧바로 CONTRACT_REPAIR_FAILED 로 끝나던 문제(031 13:01, 022 16:00·22:00 실측).
+    # 본 생성과 같은 재시도 분류(_classify_retry)·대기(_next_retry_delay)를 재사용하되, 한 번의 수리가 너무 길어지지
+    # 않도록 최대 _REPAIR_MAX_ATTEMPTS 번만 시도한다. 재시도 불가 오류(400·응답 파싱 실패 등)는 기존처럼 즉시 실패.
+    fixed = None
+    for attempt in range(1, _REPAIR_MAX_ATTEMPTS + 1):
+        try:
+            throttle_fn()
+            # 261103 Codex 리뷰 — Client(자격증명 해석 포함)는 실제로 호출할 때만 만든다(호출 생략 경로에서는 만들지 않는다).
+            active_client = client or (client_factory() if client_factory else None)
+            response = active_client.models.generate_content(model=model, contents=prompt, config=config)
+            fixed = json.loads(response.text)
+            break
+        except Exception as exc:
+            retryable, category = _classify_retry(exc)
+            if retryable and attempt < _REPAIR_MAX_ATTEMPTS:
+                delay = _next_retry_delay(attempt - 1, exc)
+                logger.warning(f"[CarouselContent] 계약 재작성 요청 재시도 | attempt={attempt}/{_REPAIR_MAX_ATTEMPTS} | "
+                               f"category={category} | next_delay={delay:.1f}s")
+                time.sleep(delay)
+                continue
+            logger.warning(f"[CarouselContent] 계약 재작성 요청 실패 | error_type={type(exc).__name__} | "
+                           f"attempt={attempt}/{_REPAIR_MAX_ATTEMPTS}")
+            return None
     old_slides = sorted((dict(s) for s in payload.get("slides") or []), key=lambda s: s.get("index", -1))
     new_slides = {s.get("index"): s for s in fixed.get("slides") or [] if isinstance(s, dict)}
     if field in ("cover", "body"):

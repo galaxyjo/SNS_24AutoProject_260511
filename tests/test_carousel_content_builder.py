@@ -1227,6 +1227,45 @@ class TestFactLockAndControlledRepair022:
         result, models = self._run(monkeypatch, [crammed, crammed])
         assert (result.success, result.error_code) == (False, "CARD_FACT_EXTRA") and len(models.calls) == 2
 
+    # 261105 — 재작성 요청이 503 으로 한 번 실패해도 재시도해서 수리를 끝낸다(031 13:01, 022 16:00·22:00 실측).
+    @staticmethod
+    def _scripted(items):
+        class _Scripted:
+            def __init__(self):
+                self.calls = []
+
+            def generate_content(self, model, contents, config):
+                self.calls.append({"model": model, "contents": contents, "config": config})
+                item = items[min(len(self.calls), len(items)) - 1]
+                if isinstance(item, Exception):
+                    raise item
+                return _FakeResponse(item)
+        return _Scripted()
+
+    def _run_scripted(self, monkeypatch, items):
+        models = self._scripted(items)
+        _patch_gemini(monkeypatch, models)
+        monkeypatch.setattr(builder.time, "sleep", lambda s: None)
+        result = builder.generate_carousel_content(self._topic(), "REACH", "HOOK_IMPACT", slide_count=3,
+                                                   conversion_cta=self.CTA)
+        return result, models
+
+    def test_repair_request_retries_on_503_then_succeeds(self, monkeypatch):
+        from google.genai import errors as genai_errors
+        bad = self._payload(cover=self.LONG_COVER)
+        busy = genai_errors.ServerError(503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
+        result, models = self._run_scripted(monkeypatch, [bad, busy, self._payload()])
+        assert result.success is True, result.error_code
+        assert len(models.calls) == 3                       # 첫 생성 + 재작성(503) + 재작성 재시도
+
+    def test_repair_request_gives_up_after_max_attempts_on_503(self, monkeypatch):
+        from google.genai import errors as genai_errors
+        bad = self._payload(cover=self.LONG_COVER)
+        busy = genai_errors.ServerError(503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
+        result, models = self._run_scripted(monkeypatch, [bad, busy])
+        assert (result.success, result.error_code) == (False, "CONTRACT_REPAIR_FAILED")
+        assert len(models.calls) == 1 + builder._REPAIR_MAX_ATTEMPTS   # 첫 생성 + 재작성 3번(전부 503)
+
     # 261103 — 표지 오류에 가려진 캡션 CTA 오류(022 16:00 실측)는 재작성 2회째에 고친다.
     LONG_COVER = "가" * 45                                                   # COVER_TITLE_INVALID(40자 초과)
     MID_LINE_CTA_CAPTION = CAPTION.replace("정리했습니다.", "정리했습니다. 저장해 두면 비교가 쉽습니다.")
