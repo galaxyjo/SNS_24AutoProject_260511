@@ -290,7 +290,7 @@ def _validate_card_facts(payload: dict, card_facts: tuple) -> "str | None":
 # 쓰였는지 로그에 없어 UNKNOWN). '저장해/저장하세요/저장 공간' 등 다른 쓰임은 기존처럼 CTA 로 센다.
 # 261104 — '시청자 댓글'(025 글감 1.1 핵심 메시지 "시청자 댓글에 실시간으로 답하는 처리")은 설명용 명사구이지 댓글 요청이 아니다
 # (025 09:00 실측: slide_kw=[[], ['댓글'], []] 로 중간 슬라이드만 걸림). '댓글 남겨주세요' 등 다른 쓰임은 그대로 CTA.
-_CTA_EXEMPT_COMPOUNDS = ("저장소", "시청자 댓글")
+_CTA_EXEMPT_COMPOUNDS = ("저장소", "시청자 댓글", "실시간 댓글")  # 261105 — 025 09:00 실측: "실시간 댓글 응대" 설명 문맥 오탐
 
 
 def _without_cta_exempt(text: str) -> str:
