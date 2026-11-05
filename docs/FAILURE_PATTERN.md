@@ -1466,3 +1466,8 @@ ERR-053/FP-040이 지적한 `WakeToRun=False` 취약점이 heartbeat_monitor.py 
 - **관측(261105):** 031이 07:00에 표지 제목 오류 → 본문 길이 오류로 재작성 2회를 쓰고, 최종 `CAPTION_LENGTH_INVALID`는 수리 기회 없이 실패(ERR-200). 전날 추가한 caption 길이 수리(ff5d0e6)가 실제로 실행된 적이 없다.
 - **방어:** 수리 코드를 추가했으면 그 경로가 실제로 호출됐다는 로그가 나올 때까지 "검증됨"으로 쓰지 않는다. 재작성 횟수 구조(오류별 한도 vs 합산)는 별도 승인으로 검토한다.
 - **관련:** FP-126, ERR-198, ERR-200
+
+## FP-129 | 429 원본 본문을 남기지 않으면 "한도 0"의 항목·지역을 알 수 없어, 화면 값과 모순된 채 원인이 추측으로 흐른다
+- **관측(261105):** 운영 로그는 429 본문을 약 200자에서 잘라 `quota_limit_value`·지역이 남지 않았고, 이전 probe는 `limit0`를 정규식 일치 여부만 기록했다. AI Studio 화면(RPM 15/RPD 500, 사용량 5%)과 429(한도 0)가 모순돼 오탐·키 불일치·소진 가설이 돌았고, 1토큰 probe로 `quota_limit`·`quota_location=asia-east1`을 직접 읽어서야 지역 한도임이 확정됐다. 이어 Cloud 콘솔 재검토 요청 페이지에서 정지가 확인됐다.
+- **방어:** 429 probe는 `quota_metric`·`quota_limit`·`quota_location`·`quota_limit_value`·`consumer`를 항상 같이 기록한다(키 마스킹). 한도 해석은 AI Studio 모델별 화면(RPM/TPM/RPD)과 지역 한도를 별개로 본다. Cloud 콘솔 배너·팝업 상태를 정지 판단 근거로 쓰지 않고 실제 API 응답으로 판단한다.
+- **관련:** FP-127, ERR-203

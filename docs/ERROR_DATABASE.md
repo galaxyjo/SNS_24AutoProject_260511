@@ -3437,3 +3437,23 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** DNS 오류가 스케줄러 지연의 원인인지 우연 일치인지 UNKNOWN(상관만 확인). 017·023·038은 어차피 Gemini 429/이미지 게이트로 실패 중이라 12시 결과 손실은 불명.
 - **Rollback:** 해당 없음.
 - **관련:** FP-128, INC-075
+
+## ERR-202
+- **제목:** 022 10:00 Producer `LAST_SLIDE_CTA_COUNT_INVALID` — card_facts 없는 짧은 캐러셀의 마지막 장 CTA 누락이 재작성 대상이 아니었음 (261105)
+- **증상:** 022 10:00:37 `재작성 후에도 계약 실패 — LAST_SLIDE_CTA_COUNT_INVALID`, 글감 1.3, `slide_cta=[0,0,0]`.
+- **근거(Evidence):** `_repair_eligible()`이 card_facts 없는 계정에 CTA 위치·caption 길이 오류만 허용(`_NO_FACTS_REPAIRABLE_ERRORS`). Codex 리뷰 YES(재작성 루프 `_MAX_REPAIR_ROUNDS=2` 변경 없음).
+- **조치:** `_NO_FACTS_REPAIRABLE_ERRORS`에 `LAST_SLIDE_CTA_COUNT_INVALID` 추가 + 테스트 1개. 빌더 테스트 174건 통과. 커밋 `bc4ba9e`(로컬, 미 Push), 재시작으로 반영.
+- **UNKNOWN / Risk:** 실제 효과는 **미검증**. 261105 Dry-run 2회는 Gemini 503(`UNAVAILABLE`) 4/4로 실패(제공자 과부하, CTA 검증 단계 미도달). 오늘 22시 정기 Producer에서 확인 필요. 16:00 022은 `CONTRACT_REPAIR_FAILED`로 실패(원인 별도 확인 필요).
+- **Rollback:** `git revert bc4ba9e` 후 launcher 재시작.
+- **관련:** ERR-198, ERR-199, FP-128
+
+## ERR-203
+- **제목:** 슬롯 계정 8개(018·019·023·024·027·028·030·038) Gemini 429 — 프로젝트의 `asia-east1` 지역 분당 한도가 0, 일부 프로젝트는 Google이 약관 위반 의심으로 리소스 정지 (261105)
+- **증상:** 8계정 Producer가 `CAROUSEL_TEXT_FAILED:GENERATION_FAILED`(HTTP 429)로 반복 실패. AI Studio 모델별 한도는 정상(RPM 15/TPM 250K/RPD 500, 23번 28일 최대 사용량 RPM 4·RPD 5)인데 429는 한도 0.
+- **근거(Evidence, 1토큰 probe, 회장 승인, 키 마스킹):** 8프로젝트 전부 `quota_location=asia-east1`, `quota_limit_value=0`. 한도 항목은 018·019·023·024·028·030이 `GenerateContentRequestsPerMinutePerProjectPerRegion`, 027·038이 `ApiRequestsPerMinutePerProjectPerRegion`. Cloud 콘솔 이의신청(재검토 요청) 페이지로 **018(`gen-lang-client-0011489154`)과 023(`gen-lang-client-0267888150`)은 "Gemini API 추가 서비스 약관 위반, 리소스 정지"가 CONFIRMED**. `.env` 키 끝자리와 AI Studio 화면 대조로 키-프로젝트 일치 확인(018 `KS8Q`, 023 `JENw`).
+- **비교(정상 계정):** 025(`24auto261103`, 11/03 생성)·022(`261104`, 11/04)·031(Default Gemini Project, 10/25)은 응답까지 도달. 018·023은 Default Gemini Project(10/24~25). 모두 무료 등급·한도 동일 → "10월 Default 프로젝트라서"는 031이 반례라 **기각**. 정지 원인 차이는 **UNKNOWN**.
+- **정정:** Cloud 콘솔 상단 빨간 배너("서비스 이용 정책 위반 가능성")는 정상 계정에도 떠 있어 정지 증거가 아님. "이의신청 페이지가 대시보드로 이동 = 정지 아님" 판단은 신규 로그인 계정이 약관·2SV 팝업 상태라 **무효**(정상 판단 기준은 실제 API 응답).
+- **조치:** 코드·.env·키 변경 없음. 이의신청 2건(018·023)은 회장이 직접 제출(문구는 사실만, 정지 사유 문의·복구 요청). 나머지 6개(019·024·027·028·030·038)는 프로젝트별 정지 여부 미확인(같은 `asia-east1` 0이지만 정지 문구는 미확인=HYPOTHESIS).
+- **UNKNOWN / Risk:** 구체적 위반 조항·원인 요청 UNKNOWN(약관 `aistudio.google.com/docs/terms`에는 다중 프로젝트·대량 호출 금지 조항 없음, Google API 약관·금지 사용 정책은 미확인). 프로젝트를 새로 만드는 방식이 사유일 가능성도 배제 못 함. 이의신청 답변 전 8계정 일괄 키 교체·신규 프로젝트 확대 금지. 새 프로젝트 키는 019 1계정 Canary 후 별도 승인.
+- **Rollback:** 해당 없음(변경 없음).
+- **관련:** ERR-197, FP-127, FP-129, INC-076
