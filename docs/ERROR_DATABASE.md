@@ -3505,3 +3505,14 @@ S1` 정상, `gemma-4-26b-a4b-it` 글 생성은 2회 모두 `finish_reason=length
 - **UNKNOWN / Risk:** 운영 미반영. 개별 시도 실패(GPT 실패→Claude 성공)·Safety·이미지 판독 실패는 원장에 안 남음(`[TextAI]` 로그만). 원장 계정 키가 PER 코드라 IDN 매핑은 Persona 연결표 필요. 별개 결함: `launcher/main.py:2348` Producer 실패 경보는 계정 코드가 없고 일 1회 제한도 없다(2026-11-06 5건).
 - **Rollback:** `git revert e1e41e0`, 원장 정리는 `DELETE FROM events WHERE source='text_ai'`.
 - **관련:** ERR-204, ERR-205, ERR-206
+
+## ERR-208
+- **제목:** Workers AI 8계정 실시험에서 글 생성 8/8 실패 — `max_tokens` 미지정(256토큰 절단) 수정, 재시험 2/8 통과, 슬라이드 번호 규칙 누락 가설 수정 (261106)
+- **증상:** 8계정 읽기 전용 시험(23:41)에서 Workers AI 글 생성이 8/8 `GENERATION_FAILED`였다(이미지 판독은 8/8 성공, 입력 2,386토큰·약 63 neurons). 글 생성 호출의 출력 토큰이 8건 모두 정확히 256이었다.
+- **근거(Evidence):** ① `TextAIFallbackClient._call_gpt`가 `max_tokens`를 넘기지 않았고 Workers AI OpenAI 호환 엔드포인트는 생략 시 256토큰에서 응답을 끊어 JSON이 미완성 → `TextAIError` → Claude 400(잔액 없음) → `GENERATION_FAILED`. 앞선 수동 검증은 `max_tokens=1500`을 직접 넘겨 성공했다. ② 수정 후 재시험(23:46~23:48): 글 완성(출력 450~536토큰), **2/8 통과(028·038)**, 실패 6건 = `SLIDE_INDEX_INVALID` 3(019·023·027), `COVER_TITLE_INVALID` 1(018), `IMAGE_SCENE_REPAIR_FAILED` 1(024), `POSSIBLE_FABRICATION` 1(030). 계약 검증이 의도대로 막았고 게시된 것은 없다. 재시험 소모 약 1.46k neurons(usage 환산).
+- **조치(코드, 6a12ffa·미 재시작):** `modules/sns/caption_generator.py` — Cloudflare 모드에서만 `max_tokens=2048` 명시(OpenAI 모드 불변). `_cf_slide_index_rule` — `slides` 스키마일 때 Workers AI 호출 프롬프트에만 "index는 1부터 연속(3장이면 정확히 1, 2, 3)" 규칙 추가. Claude 전환·GPT·Gemini 프롬프트는 불변(테스트가 규칙이 Claude 호출에 섞이는 버그 1건을 잡아 수정). 새 재시도·모델 변경 없음.
+- **검증:** Target Test 77건 통과(`tests/test_text_ai_fallback.py` +87줄: max_tokens 2건, 번호 규칙 7건 — 기존 프롬프트·스키마 유지, 다른 스키마 불변, OpenAI 모드 불변, Claude 프롬프트 불변). 실제 API 효과는 재시험 전까지 미검증.
+- **Root Cause:** `max_tokens` 누락 CONFIRMED(출력 256 고정·수동 검증 대조). 슬라이드 번호 3건은 HYPOTHESIS — 프롬프트에 `index` 규칙이 없는 것은 확인(정적)했지만 019·023·027이 실제로 낸 `index` 값은 기록 없음(UNKNOWN).
+- **UNKNOWN / Risk:** ① 번호 외 실패 3건(`COVER_TITLE_INVALID`·`IMAGE_SCENE_REPAIR_FAILED`·`POSSIBLE_FABRICATION`)은 미수정이라 첫 시도 계약 통과율이 낮을 수 있다(2/8) ② 가짜 응답 단위 테스트는 공급자 기본값(256 절단)을 잡지 못했다 — 새 공급자 연결 시 실호출 1회 점검 필요 ③ 재시험은 UTC 풀 사정상 261107 07:00 ICT 이후.
+- **Rollback:** `git revert 6a12ffa`(위 수정만 되돌림) 후 launcher 재시작. 긴급 차단은 `.env` 8줄 삭제 또는 `TEXT_AI_FALLBACK_DISABLED=true` + 재시작.
+- **관련:** ERR-206, ERR-207

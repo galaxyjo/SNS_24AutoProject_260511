@@ -3437,3 +3437,9 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **현장 적용:** `.env`에 IDN-000018·019·023·024·027·028·030·038 `*_TEXT_AI_PROVIDER=cloudflare` 8줄 추가(값은 비밀 아님, 롤백은 줄 삭제 또는 `TEXT_AI_FALLBACK_DISABLED=true`). 래퍼 해석 확인(네트워크 없음): 8계정 workers_ai, 036·025는 기존 Gemini.
 - **승인 흐름:** Scout 재검증 5회 승인 → 설계 승인 → 구현 승인 → 현재 상태 확인 → "커밋하고 현장적용하라".
 - **UNKNOWN:** launcher 재시작은 관리자 실행 필요(Claude Code 권한 없음), 첫 Producer 실측 neurons·판독 정확도·Safety 오탐, DAILY_IMAGE_CAP=50(작업 B에서 조정).
+
+### 261106 23:58 — Workers AI 글 생성 출력 오류 수정(max_tokens·슬라이드 번호 규칙) (코드 6a12ffa)
+- **변경(코드, Commit 완료 6a12ffa·미 Push·미 재시작):** `modules/sns/caption_generator.py`(Cloudflare 전용 `max_tokens=2048`, `_cf_slide_index_rule` 번호 규칙을 Workers AI 호출에만), `tests/test_text_ai_fallback.py`(+87줄). 제외: 기존 사용자 변경 `docs/design/SNS_AI_SHOWHOST_SOURCEBOOK_IDN025_261101.md`, 미추적 `docs/design/SOURCE_SITES_MASTER_261102.md`, `db/*.json`, `.pytest_tmp_*`.
+- **계기:** 8계정 시험에서 글 생성 8/8 실패(출력 256 절단) → 수정 후 2/8 통과 → 실패 6건 중 3건이 슬라이드 번호 규칙 누락(가설).
+- **검증:** Target Test 77건 통과(로컬 모킹). 실호출 효과는 261107 07:00 ICT 이후 재시험, 운영 재시작은 별도 승인.
+- **기록:** ERR-208. (FAILURE_PATTERN·INCIDENT·VALIDATION_STATUS는 이번 최소 기록에 포함하지 않음)
