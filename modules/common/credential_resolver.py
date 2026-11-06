@@ -136,20 +136,35 @@ def resolve_gemini_credential(credential_key: str) -> GeminiCredential:
 # 전환 client를 쓰고, 없으면 None을 돌려줘 기존 Gemini 경로가 그대로 유지된다(opt-in).
 # Claude 키(`{credential_key}_ANTHROPIC_API_KEY`)는 선택 — 없으면 GPT 실패 시 바로 Fail-closed.
 class TextAICredentials:
-    __slots__ = ("openai_key", "anthropic_key")
+    __slots__ = ("openai_key", "anthropic_key", "base_url")
 
-    def __init__(self, openai_key: str, anthropic_key: str):
+    def __init__(self, openai_key: str, anthropic_key: str, base_url: str = ""):
         self.openai_key = openai_key
         self.anthropic_key = anthropic_key
+        self.base_url = base_url   # 값이 있으면 Cloudflare Workers AI(OpenAI 호환) 모드
 
 
 def resolve_text_ai_credentials(credential_key: str) -> "TextAICredentials | None":
-    """GPT/Claude 텍스트 AI 키를 조회한다. 전환 대상이 아니면 None(기존 Gemini 경로 유지).
-    킬 스위치 `TEXT_AI_FALLBACK_DISABLED=true`면 항상 None. 반환값·로그에 키 원문을 남기지 않는다."""
+    """GPT/Claude/Workers AI 텍스트 AI 자격증명을 조회한다. 전환 대상이 아니면 None(기존 Gemini 경로 유지).
+    킬 스위치 `TEXT_AI_FALLBACK_DISABLED=true`면 항상 None. 반환값·로그에 키 원문을 남기지 않는다.
+
+    261107 — `{credential_key}_TEXT_AI_PROVIDER=cloudflare`인 계정은 전역 `CLOUDFLARE_API_TOKEN`·`CLOUDFLARE_ACCOUNT_ID`로
+    Workers AI를 1순위로 쓴다(OpenAI 키 불필요). Cloudflare 자격증명이 없으면 None(기존 경로 유지, 경고 로그)."""
     if os.getenv("TEXT_AI_FALLBACK_DISABLED", "").strip().lower() == "true":
         return None
     if not credential_key or not _KEY_PATTERN.fullmatch(credential_key):
         return None
+    if os.getenv(f"{credential_key}_TEXT_AI_PROVIDER", "").strip().lower() == "cloudflare":
+        cf_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+        cf_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+        if not cf_token or not cf_account:
+            logger.warning(f"[credential_resolver] Cloudflare 자격증명 미설정 — 텍스트 AI 전환 안 함 | credential_key={credential_key}")
+            return None
+        return TextAICredentials(
+            openai_key=cf_token,
+            anthropic_key=os.getenv(f"{credential_key}_ANTHROPIC_API_KEY", "").strip(),
+            base_url=f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/v1",
+        )
     openai_key = os.getenv(f"{credential_key}_OPENAI_API_KEY", "").strip()
     if not openai_key:
         return None

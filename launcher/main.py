@@ -1857,7 +1857,7 @@ def _wrap_text_ai_client(acct: ContentAccount, gemini_client):
     logger.info(f"[TextAI] 텍스트 생성 GPT→Claude 전환 사용 | account_code={acct.account_code}")
     return TextAIFallbackClient(
         openai_key=creds.openai_key, anthropic_key=creds.anthropic_key,
-        gemini_client=gemini_client, account=acct.account_code,
+        gemini_client=gemini_client, account=acct.account_code, base_url=creds.base_url,
     )
 
 

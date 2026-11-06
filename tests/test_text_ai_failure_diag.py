@@ -232,3 +232,15 @@ class TestEndToEndCarouselRecording:
         assert diag.classify(f) == diag.GEMINI_QUOTA_ZERO
         assert diag.classify({"http_code": 503}) == diag.GEMINI_TRANSIENT
         assert diag.classify({"http_code": 401}) == diag.GEMINI_AUTH
+
+
+class TestWorkersAiProvider:
+    def test_workers_ai_neurons_exhausted_recorded_as_credit(self, tmp_path):
+        db = tmp_path / "e.db"
+        exc = TextAIError("TEXT_AI_ALL_PROVIDERS_FAILED", providers=[
+            _attempt(provider="workers_ai", status=429, code="credit_exhausted", tin=1700, tout=0),
+            _attempt("claude", None, "TEXT_AI_NO_CLAUDE_KEY", etype="TextAIError")])
+        got = diag.record_gemini_failure(exc, account="PER-018", db_path=db, notify_async=False)
+        assert got == diag.TEXT_AI_CREDIT
+        rows = _rows(db)
+        assert len(rows) == 1 and "workers_ai:" in rows[0][6] and rows[0][3] == "P1"

@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import random
@@ -278,9 +279,12 @@ def _provider_error_code(exc: Exception) -> str:
         return "invalid_json"
     body = getattr(exc, "body", None)
     err = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), dict) else body
+    if isinstance(body, dict) and isinstance(body.get("errors"), list) and body["errors"] and isinstance(body["errors"][0], dict):
+        err = body["errors"][0]   # Cloudflare Workers AI 오류 형식({"errors":[{"code":…,"message":…}]})
     if isinstance(err, dict):
         message = str(err.get("message", "")).lower()
-        if "credit balance" in message or "no credits" in message or "insufficient_quota" in message:
+        if ("credit balance" in message or "no credits" in message or "insufficient_quota" in message
+                or "daily free allocation" in message):
             return "credit_exhausted"
         for key in ("code", "type"):
             if err.get(key):
@@ -291,6 +295,8 @@ def _provider_error_code(exc: Exception) -> str:
 
 _TEXT_AI_DEFAULT_GPT_MODEL = "gpt-5.4-mini"
 _TEXT_AI_DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
+_TEXT_AI_DEFAULT_CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+_TEXT_AI_DEFAULT_CF_SAFETY_MODEL = "@cf/meta/llama-guard-3-8b"
 
 
 def _extract_json_text(raw: str) -> str:
@@ -331,12 +337,22 @@ class TextAIFallbackClient:
     콘텐츠 형식·검증·중복 방지는 호출부 그대로이며 이 client는 텍스트 한 덩어리만 돌려준다."""
 
     def __init__(self, *, openai_key: str, anthropic_key: str = "", gemini_client=None, account: str = "",
-                 gpt_model: str = "", claude_model: str = "", openai_factory=None, anthropic_factory=None):
+                 gpt_model: str = "", claude_model: str = "", openai_factory=None, anthropic_factory=None,
+                 base_url: str = "", provider_name: str = "", safety_model: str = ""):
         self._openai_key = openai_key
         self._anthropic_key = anthropic_key
         self._gemini = gemini_client
         self.account = account
-        self.gpt_model = gpt_model or os.getenv("TEXT_AI_GPT_MODEL", "").strip() or _TEXT_AI_DEFAULT_GPT_MODEL
+        # 261107 — base_url이 있으면 OpenAI 호환 공급자(Cloudflare Workers AI)를 1순위로 쓴다: 글 생성·이미지 판독·Safety(llama-guard).
+        self._base_url = base_url
+        self.provider_name = provider_name or ("workers_ai" if base_url else "gpt")
+        self.vision_enabled = bool(base_url)
+        self.safety_model = (safety_model or os.getenv("TEXT_AI_CF_SAFETY_MODEL", "").strip()
+                             or _TEXT_AI_DEFAULT_CF_SAFETY_MODEL)
+        if base_url:
+            self.gpt_model = gpt_model or os.getenv("TEXT_AI_CF_MODEL", "").strip() or _TEXT_AI_DEFAULT_CF_MODEL
+        else:
+            self.gpt_model = gpt_model or os.getenv("TEXT_AI_GPT_MODEL", "").strip() or _TEXT_AI_DEFAULT_GPT_MODEL
         self.claude_model = (claude_model or os.getenv("TEXT_AI_CLAUDE_MODEL", "").strip()
                              or _TEXT_AI_DEFAULT_CLAUDE_MODEL)
         self._openai_factory = openai_factory
@@ -364,7 +380,10 @@ class TextAIFallbackClient:
                 self._openai = self._openai_factory(self._openai_key)
             else:
                 import openai
-                self._openai = openai.OpenAI(api_key=self._openai_key)
+                kwargs = {"api_key": self._openai_key}
+                if self._base_url:
+                    kwargs["base_url"] = self._base_url
+                self._openai = openai.OpenAI(**kwargs)
         return self._openai
 
     def _claude(self):
@@ -445,13 +464,14 @@ class TextAIFallbackClient:
             text = self._call_gpt(full_prompt, wants_json)
             if wants_json:
                 text = _extract_json_text(text)
-            self.last_provider = "gpt"
-            logger.info("[TextAI] provider=gpt model=%s account=%s", self.gpt_model, self.account)
+            self.last_provider = self.provider_name
+            logger.info("[TextAI] provider=%s model=%s account=%s", self.provider_name, self.gpt_model, self.account)
             return _TextResponse(text)
         except Exception as exc:  # 한도 초과·인증 오류·일시 장애·응답 형식 오류 전부 Claude 전환 사유
             gpt_error = exc
-            attempts.append(self._attempt_meta("gpt", self.gpt_model, exc, started))
-            logger.warning("[TextAI] GPT 실패 → Claude 전환 | account=%s | %s", self.account, self._err_meta(exc))
+            attempts.append(self._attempt_meta(self.provider_name, self.gpt_model, exc, started))
+            logger.warning("[TextAI] %s 실패 → Claude 전환 | account=%s | %s", self.provider_name, self.account,
+                           self._err_meta(exc))
         self._meta = {}
         started = time.time()
         try:
@@ -459,18 +479,74 @@ class TextAIFallbackClient:
             if wants_json:
                 text = _extract_json_text(text)
             self.last_provider = "claude"
-            logger.info("[TextAI] provider=claude model=%s account=%s (GPT 실패 후 전환)", self.claude_model, self.account)
+            logger.info("[TextAI] provider=claude model=%s account=%s (%s 실패 후 전환)", self.claude_model, self.account,
+                        self.provider_name)
             return _TextResponse(text)
         except Exception as exc:
             attempts.append(self._attempt_meta("claude", self.claude_model, exc, started))
-            logger.error("[TextAI] GPT·Claude 모두 실패 — 게시 차단 | account=%s | gpt:%s | claude:%s",
-                         self.account, self._err_meta(gpt_error), self._err_meta(exc))
+            logger.error("[TextAI] %s·Claude 모두 실패 — 게시 차단 | account=%s | %s:%s | claude:%s",
+                         self.provider_name, self.account, self.provider_name, self._err_meta(gpt_error),
+                         self._err_meta(exc))
             raise TextAIError("TEXT_AI_ALL_PROVIDERS_FAILED", providers=attempts) from exc
 
-    # ── 게시 직전/글감 Safety (Gemini의 finish_reason 신호를 대체) ──────────
-    def check_text_safety(self, text: str) -> "tuple[SafetyStatus, str]":
-        """GPT는 OpenAI Moderation(무료·토큰 소모 없음), 실패 시 Claude 분류. 둘 다 실패하면 RETRY_EXHAUSTED."""
+    # ── 이미지 판독(OpenAI 호환 공급자 전용) ───────────────────────────────
+    def generate_vision(self, prompt: str, images_png: "list[bytes]", config=None) -> _TextResponse:
+        """PNG 여러 장 + 프롬프트를 한 번에 보내 JSON 본문을 받는다(Cloudflare Workers AI 모드 전용). 실패는 TextAIError."""
+        if not self.vision_enabled:
+            raise TextAIError("TEXT_AI_VISION_DISABLED")
+        full_prompt, wants_json = self._json_prompt(prompt, config)
+        parts = [{"type": "text", "text": full_prompt}] + [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(data).decode("ascii")}}
+            for data in images_png
+        ]
+        self._meta = {}
+        started = time.time()
         try:
+            kwargs = {"model": self.gpt_model, "messages": [{"role": "user", "content": parts}], "max_tokens": 400}
+            if wants_json:
+                kwargs["response_format"] = {"type": "json_object"}
+            resp = self._gpt().chat.completions.create(**kwargs)
+            choice = resp.choices[0]
+            usage = getattr(resp, "usage", None)
+            self._meta = {"finish": _safe_code(getattr(choice, "finish_reason", "")),
+                          "tin": getattr(usage, "prompt_tokens", None), "tout": getattr(usage, "completion_tokens", None)}
+            if getattr(choice, "finish_reason", "stop") != "stop":
+                raise TextAIError("TEXT_AI_VISION_INCOMPLETE")
+            text = (choice.message.content or "").strip()
+            if not text:
+                raise TextAIError("TEXT_AI_VISION_EMPTY")
+            logger.info("[TextAI] vision provider=%s model=%s account=%s images=%d", self.provider_name, self.gpt_model,
+                        self.account, len(images_png))
+            return _TextResponse(_extract_json_text(text) if wants_json else text)
+        except Exception as exc:
+            logger.warning("[TextAI] vision 실패 | account=%s | %s", self.account, self._err_meta(exc))
+            raise TextAIError("TEXT_AI_VISION_FAILED",
+                              providers=[self._attempt_meta(self.provider_name, self.gpt_model, exc, started)]) from exc
+
+    # ── 게시 직전/글감 Safety (Gemini의 finish_reason 신호를 대체) ──────────
+    def _check_safety_with_guard(self, text: str) -> "tuple[SafetyStatus, str]":
+        """Workers AI llama-guard 채팅 판정: 'safe' 또는 'unsafe' 다음 줄에 카테고리(S1 등)."""
+        resp = self._gpt().chat.completions.create(
+            model=self.safety_model, messages=[{"role": "user", "content": text}], max_tokens=30)
+        answer = (resp.choices[0].message.content or "").strip().lower()
+        if answer.startswith("unsafe"):
+            parts = answer.split()
+            return "UNSAFE", "GUARD:" + _safe_code(parts[1] if len(parts) > 1 else "FLAGGED", 10)
+        if answer.startswith("safe"):
+            return "SAFE", "GUARD_OK"
+        return "PERMANENT", "GUARD_UNPARSEABLE"
+
+    def check_text_safety(self, text: str) -> "tuple[SafetyStatus, str]":
+        """OpenAI 모드는 Moderation(무료), Cloudflare 모드는 llama-guard. 실패하면 Claude 분류로 넘어가고, 둘 다 실패하면
+        RETRY_EXHAUSTED(차단)."""
+        try:
+            if self._base_url:
+                status, reason = self._check_safety_with_guard(text)
+                if status != "PERMANENT":
+                    self.last_provider = self.provider_name
+                logger.info("[TextAI] safety provider=%s-guard result=%s account=%s", self.provider_name, status,
+                            self.account)
+                return status, reason
             result = self._gpt().moderations.create(model="omni-moderation-latest", input=text).results[0]
             if result.flagged:
                 cats = result.categories
@@ -480,7 +556,8 @@ class TextAIFallbackClient:
             self.last_provider = "gpt"
             return "SAFE", "MODERATION_OK"
         except Exception as exc:
-            logger.warning("[TextAI] Safety GPT 실패 → Claude 전환 | account=%s | %s", self.account, self._err_meta(exc))
+            logger.warning("[TextAI] Safety %s 실패 → Claude 전환 | account=%s | %s", self.provider_name, self.account,
+                           self._err_meta(exc))
         try:
             answer = self._call_claude(
                 "Classify whether the following Instagram post text is safe to publish (no hate, harassment, "
