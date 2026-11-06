@@ -3482,3 +3482,25 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** ① Gemini 한도 0 경보의 실제 Telegram 도착은 다음 새 발생 때 확인(오늘 8건 표시는 소진) ② 회복 감지 실증 0건 ③ Meta 게시 실패·DM SLA 등 다른 경보는 코드·테스트로만 확인, 해당 상황 발생 시 실증 ④ Slack 워크스페이스의 소유자·생성 경위는 UNKNOWN. `.env`의 `SLACK_WEBHOOK_URL`은 더 이상 쓰이지 않으나 삭제하지 않음. 시각 표기: Python 경보 푸터는 `KST`(한국), watchdog 경보 푸터는 지역 미표기 PC 로컬(ICT) — 오류 아님(회장 확인), 필요 시 `ICT` 표기 추가.
 - **Rollback:** `git revert 5ec6d29 f6171b6 f2caa65`(역순) 후 `Restart-Service SNS_Watchdog`. `alert_log` 정리는 `DELETE FROM alert_log WHERE day='2026-11-06'`.
 - **관련:** ERR-204, FP-130, ERR-203
+
+## ERR-206
+- **제목:** Gemini 한도 0 우회 — 텍스트 생성 GPT→Claude 자동전환을 구현했으나 8계정 GPT·Claude 키가 모두 잔액 없음, 이미지 판독은 Gemini 의존이 남음 (261106)
+- **증상:** ERR-203의 8계정(018·019·023·024·027·028·030·038)은 Gemini 텍스트 호출뿐 아니라 이미지 판독 호출도 429(`asia-east1`, 한도 0)다. 8계정 모두 텍스트·비전 각 1회 probe 결과 동일(261106 22:xx).
+- **근거(Evidence):** ① OpenAI 8키 chat 호출 429 "no credits remaining", Anthropic 8키 400 "credit balance too low"(1토큰 probe, 비용 0) — 앞서의 모델 목록 200은 잔액과 무관했음(정정). OpenAI Moderation도 429. ② 노트 캐러셀 기본 경로는 `image_text_checker`가 Gemini 비전을 필수 호출하고 실패 시 `IMAGE_CHECK_ERROR`로 게시 차단. ③ Workers AI(Cloudflare) 무료 호출 5회(약 220 neurons, usage 토큰×카탈로그 단가 환산): `llama-guard-3-8b`는 `safe`/`unsafe
+S1` 정상, `gemma-4-26b-a4b-it` 글 생성은 2회 모두 `finish_reason=length`·본문 빔(HYPOTHESIS: 내부 추론이 토큰 소모), 이미지 판독은 3장 중 1개만 응답·오판.
+- **조치(코드, c494f8c·미 재시작):** `modules/sns/caption_generator.py` `TextAIFallbackClient`(GPT 1순위, 실패 시 Claude, 둘 다 실패하면 `TextAIError`→기존 Fail-closed), `modules/common/credential_resolver.py` `resolve_text_ai_credentials`(`{credential_key}_OPENAI_API_KEY`가 있는 계정만 전환 대상, 킬 스위치 `TEXT_AI_FALLBACK_DISABLED=true`), `launcher/main.py` `_wrap_text_ai_client`(client 생성 2곳), `requirements.txt`(openai·anthropic). 이미지·비전 호출은 기존 Gemini로 위임 유지. Safety는 Gemini `finish_reason` 신호 대신 OpenAI Moderation→Claude 분류로 대체(기준이 기존과 다름 — 오탐률 미측정).
+- **검증:** Target Test 24건 통과(GPT 성공 시 Claude 호출 0건, GPT 실패 시 Claude 전환, 둘 다 실패 시 `GENERATION_FAILED`, 계약 검증·중복 fingerprint 유지) + 관련 회귀 통과. 실제 API 생성 호출은 0회.
+- **Root Cause:** Gemini 한도 0의 근본 원인은 UNKNOWN(ERR-203 그대로). 전환 코드는 키 잔액이 있어야 의미가 있다.
+- **UNKNOWN / Risk:** ① 운영 미반영(재시작 전) ② GPT·Claude 잔액 없음 — 충전은 회장 결정(자동 결제·충전 금지) ③ 이미지 판독은 Gemini 한도 0이면 계속 차단(Workers AI 대체는 미검증, 재검증 승인 대기) ④ Safety 기준 변경의 오탐·누락 미측정. `test_aijomoojin_content_producer.py`·`test_aijomoojin_slot_upload_job.py` 실행이 변경 전 코드에서도 멈추는 기존 문제는 DEFER.
+- **Rollback:** `git revert c494f8c`(진단 e1e41e0이 의존하므로 e1e41e0을 먼저 revert). 반영 후 긴급 차단은 `.env`에 `TEXT_AI_FALLBACK_DISABLED=true` + launcher 재시작.
+- **관련:** ERR-203, ERR-204, ERR-207
+
+## ERR-207
+- **제목:** AI 실패 진단이 Gemini 예외만 분류 — GPT·Claude 최종 실패가 원장·경보에 남지 않음 (261106)
+- **증상:** 로컬에서 OpenAI 429(`insufficient_quota`)·Anthropic 400·`TextAIError`·`TimeoutError`를 `gemini_failure_diag`에 넣으면 모두 `classify=None`이라 진단 로그·원장·경보가 0건이다.
+- **근거(Evidence):** `classify()`는 정수 `exc.code`만 읽는다(openai는 문자열 code, anthropic은 `status_code`). 호출부 `carousel_content_builder.py:1099~1108`의 `except Exception`은 예외 종류와 무관하게 진단기를 호출하므로 호출부 단절은 없음(Codex "전달되지 않는다" 주장 반박, 코드 확인).
+- **조치(코드, e1e41e0·미 재시작):** `TextAIError.providers`(공급자별 provider·model·status·code·etype·finish·tokens·ms 허용 필드만, 키·본문 미포함), `gemini_failure_diag.py` `_record_text_ai_failure`(source=`text_ai`, 분류 `TEXT_AI_CREDIT/AUTH/EMPTY/SCHEMA/RATE/TIMEOUT/TRANSIENT/UNKNOWN`, 최종 실패 1건당 원장 1행, CREDIT·AUTH만 계정·일 1회 알림, 기존 `alert_log` 재사용), 새 분류 심각도 8개를 `_ev._SEVERITY.update`로 등록(기존 키 변경 0, 읽기 확인). 원장 스키마·기존 Gemini 분류 불변.
+- **검증:** 새 테스트(`tests/test_text_ai_failure_diag.py`)와 관련 회귀 298건 통과 — 기존 Gemini 분류 불변, 실패 1건당 1행, 경보 일 1회·발송 실패 시 재발송 가능, 비밀 문자열 미저장, 진단 실패 시 예외 없음. 실제 `db/error_events.db`는 변화 없음(gemini 15행).
+- **UNKNOWN / Risk:** 운영 미반영. 개별 시도 실패(GPT 실패→Claude 성공)·Safety·이미지 판독 실패는 원장에 안 남음(`[TextAI]` 로그만). 원장 계정 키가 PER 코드라 IDN 매핑은 Persona 연결표 필요. 별개 결함: `launcher/main.py:2348` Producer 실패 경보는 계정 코드가 없고 일 1회 제한도 없다(2026-11-06 5건).
+- **Rollback:** `git revert e1e41e0`, 원장 정리는 `DELETE FROM events WHERE source='text_ai'`.
+- **관련:** ERR-204, ERR-205, ERR-206

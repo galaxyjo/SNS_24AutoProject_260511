@@ -3424,3 +3424,10 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **Slack 경위:** 2026-05-13 02:03 `afbef47`(운영 알림 구현, 16단계 운영 안정화 시기, Claude Sonnet 4.6 세션). 도입 이유는 기록 없음.
 - **기록:** ERR-205, FP-130, ERR-204 후속 줄, VALIDATION_STATUS `alert_telegram_switch_261106`.
 - **UNKNOWN:** Gemini 경보·회복 알림의 실제 도착(다음 발생 때), Slack 워크스페이스 소유자. 한도 0 8계정의 근본 원인(ERR-203)은 미해결. `.env`의 `SLACK_WEBHOOK_URL` 유지(미사용). 미 Push 커밋 16개 + 이번 docs 커밋.
+
+### 261106 23:10 — Gemini 한도 0 우회 GPT→Claude 텍스트 전환 + AI 오류 진단 확장 (코드 c494f8c·e1e41e0)
+- **변경(코드, Commit 완료·미 Push·미 재시작):** Commit 1(전환, c494f8c) — `launcher/main.py`, `modules/common/credential_resolver.py`, `modules/sns/caption_generator.py`(진단용 `providers` 메타 포함), `requirements.txt`, `tests/test_text_ai_fallback.py`. Commit 2(진단, e1e41e0) — `modules/common/gemini_failure_diag.py`, `tests/test_text_ai_failure_diag.py`. 제외: 기존 사용자 변경 `docs/design/SNS_AI_SHOWHOST_SOURCEBOOK_IDN025_261101.md`, 미추적 `docs/design/SOURCE_SITES_MASTER_261102.md`, `db/*.json`, `.pytest_tmp_*`.
+- **승인 흐름:** 회장 "승인"(GPT→Claude 구현) → GPT 검수 HOLD(Safety·잔액·Gemini 의존) → Workers AI 무료 호출 5회 승인(Safety만 성공) → 진단 장치 읽기 검수 → Codex 호출부 지적 일부 반박·일부 수용 → "2파일 수정 승인"(조건부) → 심각도·Commit 범위 읽기 검수 → 이 기록 준비.
+- **검증:** Target Test 24건 + 진단 Target·관련 회귀 298건 통과(로컬 모킹). 실제 API 생성 호출 0회, 운영 재시작·실게시 없음, 실제 원장 불변.
+- **기록:** ERR-206, ERR-207, FP-131, INC-076 후속 줄, VALIDATION_STATUS `text_ai_fallback_diag_261106`(module_verified).
+- **UNKNOWN:** GPT·Claude 8계정 잔액 없음(충전 결정 대기), 이미지 판독 Gemini 의존, Safety 기준 변경 영향, Workers AI 재검증. 문서는 별도 docs Commit(3).

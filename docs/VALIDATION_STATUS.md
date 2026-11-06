@@ -299,3 +299,5 @@
 | `gemini_diag_stage1_261106` | **module_verified + Canary(기록 경로)** — 진단 장치 1단계(0c1b09f, launcher 00:22 기동 반영). 테스트 10건·관련 305건 통과, 018 1토큰 Canary로 `[GeminiDiag]` 로그·원장 1행 확인(삭제 완료). Slack 도착·실제 Producer 경로·PER↔IDN 매핑은 UNKNOWN(첫 Producer 실패 대기). production_verified 아님. |
 
 | `alert_telegram_switch_261106` | **production_verified(전환·watchdog 경보)** — 운영 알림 전체를 Telegram으로 전환(f2caa65·f6171b6·5ec6d29, launcher 13:02:30 기동). 회장 Telegram에서 테스트 메시지 2건과 watchdog 실경보 7건 수신 확인(스크린샷 13:20). Gemini 한도 0 경보 실도달·회복 감지·Meta 게시 실패 등 기타 경보 실발생은 미실증. 알림 관련 테스트 266건 통과, 실패 2건은 변경 전부터 존재. |
+
+| `text_ai_fallback_diag_261106` | **module_verified (production_verified 아님)** — 텍스트 생성 GPT→Claude 전환 + AI 최종 실패 진단 확장(코드 미 Commit·미 재시작). 로컬 모킹 테스트 24건 + 관련 회귀 298건 통과, 실제 API 생성 호출 0회·실게시 없음. 8계정 GPT·Claude 잔액 없음, 이미지 판독은 Gemini 한도 0, Safety 기준 변경 영향 미측정(ERR-206·207). |
