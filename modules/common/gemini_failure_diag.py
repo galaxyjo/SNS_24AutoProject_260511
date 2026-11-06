@@ -190,7 +190,7 @@ def record_gemini_success_default(**kwargs) -> bool:
 
 def _default_notify() -> Optional[Callable[[str], None]]:
     try:
-        from services.slack_notifier import get_notify_fn
+        from services.telegram_notifier import get_notify_fn   # 261106 회장 확정: 운영 알림은 Telegram
         return get_notify_fn()
     except Exception:  # noqa: BLE001
         return None
