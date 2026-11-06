@@ -3467,3 +3467,18 @@ launcher(Python)는 **ICT**로 기록하고 watchdog(PowerShell)은 **KST**로 �
 - **UNKNOWN / Risk:** Slack 도착, 실제 Producer 경로의 PER 코드↔IDN 계정 대응은 첫 Producer 실패 때 확인. quota_id는 이 429에 비어 있었음(판정은 metric으로 처리).
 - **Rollback:** `git revert 0c1b09f` 후 launcher 재시작. `DELETE FROM events WHERE source='gemini'`.
 - **관련:** ERR-203, FP-127, FP-129, INC-076
+- **후속(261106 13:30):** 회복 감지(`GEMINI_RECOVERED`, 5e91d02)를 같은 장치에 추가(Codex 검수 2회 반영). 알림 도착 검증은 ERR-205로 분리 — 아래 참조. 회복 이벤트는 운영에서 아직 0건(미실증).
+
+## ERR-205
+- **제목:** Gemini 한도 0 경보 8건이 회장에게 한 건도 도착하지 않음 — 알림이 회장이 쓰지 않는 Slack으로만 연결돼 있었고, 발송 전에 "하루 1회" 표시를 확정했음 (261106)
+- **증상:** 06:01~10:01 슬롯에서 PER-022·036·019·026·052·018·023·027이 `GEMINI_QUOTA_ZERO`(asia-east1, limit 0, P1)로 원장에 8건 기록되고 `alert_log`에도 8행이 남았으나, 회장은 경보를 받지 못했다. 회장 확인: "경보벨은 울리지 않음", Slack 앱은 처음 본다.
+- **근거(Evidence):** `error_events.db` events id 2~9·alert_log 8행(2026-11-06). `gemini_failure_diag._default_notify()`가 `services.slack_notifier`만 호출(Telegram 경로 없음). Slack 코드는 2026-05-13 02:03 커밋 `afbef47`(Claude Sonnet 4.6 세션)로 추가, 도입 사유는 기록 없음(UNKNOWN). 오늘 Slack 발송 성공 로그는 없었고(성공 시 로그가 없던 구조) 실패 로그도 0건 — 도착 여부를 사후에 알 수 없었다. 발송 직전에 `_claim_alert_conn`이 `alert_log`를 확정해, 발송이 실패해도 그날 재알림이 막히는 구조였다.
+- **Root Cause:** CONFIRMED(구조) — ① 운영 알림 수신처(Slack)가 회장이 실제로 보는 채널(Telegram)과 달랐다 ② 발송 결과를 기록·반영하지 않았다. 알림이 Slack 워크스페이스에 닿았는지는 UNKNOWN(기록 없음).
+- **조치(회장 승인 "2파일 승인"·"텔레그램으로 바꿔"·"모두 telegram으로 옮겨라"·"커밋+재시작"):**
+  · `f2caa65` — Slack 발송 성공 로그(상태코드만), `get_notify_fn`이 발송 성공 여부 반환, 발송 실패·예외 시 `alert_log` 하루 1회 표시 되돌리기(`error_events._release_alert`, `gemini_failure_diag` 호출부 `claim` 전달). 승인은 "2파일"이었으나 실제 변경은 3파일(`slack_notifier`, `error_events`, `gemini_failure_diag`)이었음을 보고함.
+  · `f6171b6` — `services/telegram_notifier.py` 신규(응답 `ok=true`일 때만 성공, 토큰 URL·예외 문구 비기록), Gemini 경보·회복 알림을 Telegram으로 연결.
+  · `5ec6d29` — `slack_notifier` 함수 이름은 유지하고 전송을 Telegram으로 위임(Python 호출부 20여 곳 일괄), `watchdog.ps1`·`tools/adspower_autorecover.ps1`의 Slack 호출을 Telegram으로 교체.
+- **검증:** Telegram 테스트 메시지 2건(12:46·13:03)과 watchdog 실경보 7건(13:02~13:03)이 회장 Telegram에 도착(회장 스크린샷, 261106 13:20). 런처 `5ec6d29` 13:02:30 기동, watchdog 정상 기동·Flask 복구 확인. 알림 관련 13개 파일 테스트 통과 266건 + 실패 2건(`test_state_write_failure_does_not_break_job`, `test_full_failure_sends_one_slack_alert`)은 변경 전 코드에서도 동일하게 실패(기존 문제, 신규 회귀 아님).
+- **UNKNOWN / Risk:** ① Gemini 한도 0 경보의 실제 Telegram 도착은 다음 새 발생 때 확인(오늘 8건 표시는 소진) ② 회복 감지 실증 0건 ③ Meta 게시 실패·DM SLA 등 다른 경보는 코드·테스트로만 확인, 해당 상황 발생 시 실증 ④ Slack 워크스페이스의 소유자·생성 경위는 UNKNOWN. `.env`의 `SLACK_WEBHOOK_URL`은 더 이상 쓰이지 않으나 삭제하지 않음. 시각 표기: Python 경보 푸터는 `KST`(한국), watchdog 경보 푸터는 지역 미표기 PC 로컬(ICT) — 오류 아님(회장 확인), 필요 시 `ICT` 표기 추가.
+- **Rollback:** `git revert 5ec6d29 f6171b6 f2caa65`(역순) 후 `Restart-Service SNS_Watchdog`. `alert_log` 정리는 `DELETE FROM alert_log WHERE day='2026-11-06'`.
+- **관련:** ERR-204, FP-130, ERR-203

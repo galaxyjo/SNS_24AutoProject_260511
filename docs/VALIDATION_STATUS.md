@@ -297,3 +297,5 @@
 | `slot_round_morning_261105` | **Runtime 확인(부분)** — 05~10시 슬롯 계정 새 게시 0건, 레거시 경로 게시 1건(09:01 확인). 한도 0 해제 증거 없음. production_verified 아님. |
 
 | `gemini_diag_stage1_261106` | **module_verified + Canary(기록 경로)** — 진단 장치 1단계(0c1b09f, launcher 00:22 기동 반영). 테스트 10건·관련 305건 통과, 018 1토큰 Canary로 `[GeminiDiag]` 로그·원장 1행 확인(삭제 완료). Slack 도착·실제 Producer 경로·PER↔IDN 매핑은 UNKNOWN(첫 Producer 실패 대기). production_verified 아님. |
+
+| `alert_telegram_switch_261106` | **production_verified(전환·watchdog 경보)** — 운영 알림 전체를 Telegram으로 전환(f2caa65·f6171b6·5ec6d29, launcher 13:02:30 기동). 회장 Telegram에서 테스트 메시지 2건과 watchdog 실경보 7건 수신 확인(스크린샷 13:20). Gemini 한도 0 경보 실도달·회복 감지·Meta 게시 실패 등 기타 경보 실발생은 미실증. 알림 관련 테스트 266건 통과, 실패 2건은 변경 전부터 존재. |

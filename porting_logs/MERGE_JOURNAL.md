@@ -3415,3 +3415,12 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **승인 흐름:** 설계 DESIGN ONLY → 회장 "구현 승인" → Codex 검수(4·5·6 NO, 4 수정·5·6 수용) → "수용커밋" → 관리자 재시작(00:22:26, 15144d4) → "018 1토큰 Canary 승인"(429·원장 기록 확인, 테스트 행 삭제).
 - **기록:** ERR-204, VALIDATION_STATUS `gemini_diag_stage1_261106`.
 - **UNKNOWN:** Slack 도착, 실제 Producer 경로 기록, PER↔IDN 매핑. 미 Push 커밋 11개 포함.
+
+
+### 261106 13:35 — Gemini 경보 미도달 복구 + 운영 알림 Telegram 전환 (f2caa65, f6171b6, 5ec6d29)
+- **계기:** 06~10시 한도 0 8건이 원장에 기록됐으나 경보가 오지 않음(회장 확인). 알림이 Slack에만 연결돼 있었고 Slack은 회장이 쓰지 않음.
+- **변경(코드):** `services/telegram_notifier.py` 신규, `services/slack_notifier.py`(전송을 Telegram으로 위임, 이름 유지), `modules/common/error_events.py`(`_release_alert`, `_send_alert(claim=)`), `modules/common/gemini_failure_diag.py`(Telegram 연결·claim 전달), `watchdog.ps1`·`tools/adspower_autorecover.ps1`(Telegram 호출), 테스트 `tests/test_telegram_notifier.py` 및 `tests/test_gemini_failure_diag.py` 1건.
+- **승인 흐름:** 조사(STEP 1 읽기전용) → "2파일 승인"(실제 3파일 변경, 보고함) → "텔레그램으로 바꿔" → "승인 한다" 커밋·재시작 → "모두 telegram으로 옮겨라"(+Slack 도입 경위 조사) → "커밋+재시작". 재시작은 회장이 관리자 PowerShell에서 3회 수행.
+- **Slack 경위:** 2026-05-13 02:03 `afbef47`(운영 알림 구현, 16단계 운영 안정화 시기, Claude Sonnet 4.6 세션). 도입 이유는 기록 없음.
+- **기록:** ERR-205, FP-130, ERR-204 후속 줄, VALIDATION_STATUS `alert_telegram_switch_261106`.
+- **UNKNOWN:** Gemini 경보·회복 알림의 실제 도착(다음 발생 때), Slack 워크스페이스 소유자. 한도 0 8계정의 근본 원인(ERR-203)은 미해결. `.env`의 `SLACK_WEBHOOK_URL` 유지(미사용). 미 Push 커밋 16개 + 이번 docs 커밋.
