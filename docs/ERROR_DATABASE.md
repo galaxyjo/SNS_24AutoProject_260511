@@ -3494,6 +3494,7 @@ S1` 정상, `gemma-4-26b-a4b-it` 글 생성은 2회 모두 `finish_reason=length
 - **UNKNOWN / Risk:** ① 운영 미반영(재시작 전) ② GPT·Claude 잔액 없음 — 충전은 회장 결정(자동 결제·충전 금지) ③ 이미지 판독은 Gemini 한도 0이면 계속 차단(Workers AI 대체는 미검증, 재검증 승인 대기) ④ Safety 기준 변경의 오탐·누락 미측정. `test_aijomoojin_content_producer.py`·`test_aijomoojin_slot_upload_job.py` 실행이 변경 전 코드에서도 멈추는 기존 문제는 DEFER.
 - **Rollback:** `git revert c494f8c`(진단 e1e41e0이 의존하므로 e1e41e0을 먼저 revert). 반영 후 긴급 차단은 `.env`에 `TEXT_AI_FALLBACK_DISABLED=true` + launcher 재시작.
 - **관련:** ERR-203, ERR-204, ERR-207
+- **후속(261107 23:31):** Workers AI(Cloudflare) 연결 구현·Commit `d92e3ee` — `{credential_key}_TEXT_AI_PROVIDER=cloudflare` 계정은 글 생성 llama-4-scout, 이미지 판독 512px 축소(46% 절감, 표본 결과 동일), Safety llama-guard(실패 시 Claude 분류, 차단). 무료 호출 5회로 Scout 한국어 JSON 2/2·판독 6/6 글자 유무 일치 확인(약 432 neurons 환산). `.env`에 8계정 opt-in 추가, launcher 재시작 후 첫 Producer 실행에서 실측 예정(production_verified 아님). 하루 22건 예상 약 8.9k neurons(한도 89%, 추정).
 
 ## ERR-207
 - **제목:** AI 실패 진단이 Gemini 예외만 분류 — GPT·Claude 최종 실패가 원장·경보에 남지 않음 (261106)
