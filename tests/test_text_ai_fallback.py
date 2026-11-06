@@ -449,3 +449,90 @@ class TestCloudflareFailureClassification:
         exc = openai.RateLimitError("m", response=httpx.Response(
             429, request=httpx.Request("POST", "https://x")), body=body)
         assert cg._provider_error_code(exc) == "credit_exhausted"
+
+
+class TestCloudflareMaxTokens:
+    """261107 — Workers AI는 max_tokens 생략 시 256토큰에서 응답을 끊는다(8계정 시험 실측). 전환 모드에서만 명시한다."""
+
+    def test_cloudflare_text_call_sets_max_tokens(self):
+        o = _CfOpenAI(content=GOOD)
+        _cf_client(o).models.generate_content(model="m", contents="hi", config=_json_config())
+        assert o.calls[0]["max_tokens"] == 2048
+
+    def test_openai_mode_does_not_set_max_tokens(self):
+        o = _FakeOpenAI(content=GOOD)
+        _client(o, None).models.generate_content(model="m", contents="hi", config=_json_config())
+        assert "max_tokens" not in o.last_kwargs
+
+
+class TestCloudflareSlideIndexRule:
+    """261107 — 8계정 시험의 SLIDE_INDEX_INVALID(019·023·027): 번호 규칙을 Workers AI 프롬프트에만 추가한다."""
+
+    @staticmethod
+    def _slides_config():
+        return SimpleNamespace(response_mime_type="application/json", response_json_schema={
+            "type": "object", "properties": {"slides": {"type": "array", "items": {"type": "object", "properties": {
+                "index": {"type": "integer"}, "role": {"type": "string"}, "text": {"type": "string"}}}}}})
+
+    @staticmethod
+    def _sent(o):
+        return o.calls[0]["messages"][0]["content"]
+
+    def test_rule_added_with_exact_numbers_for_three_slides(self):
+        o = _CfOpenAI(content=GOOD)
+        _cf_client(o).models.generate_content(model="m", contents="Produce exactly 3 slides. Write it.",
+                                              config=self._slides_config())
+        sent = self._sent(o)
+        assert '"index": 1' in sent and "no 0 and no gaps" in sent and "exactly 1, 2, 3." in sent
+
+    def test_rule_without_count_is_generic(self):
+        o = _CfOpenAI(content=GOOD)
+        _cf_client(o).models.generate_content(model="m", contents="Write a carousel.", config=self._slides_config())
+        sent = self._sent(o)
+        assert '"index": 1' in sent and "exactly 1, 2" not in sent
+
+    def test_schema_and_existing_instructions_kept(self):
+        o = _CfOpenAI(content=GOOD)
+        cfg = self._slides_config()
+        _cf_client(o).models.generate_content(model="m", contents="Produce exactly 3 slides.", config=cfg)
+        base, _ = TextAIFallbackClient._json_prompt("Produce exactly 3 slides.", cfg)
+        assert self._sent(o).startswith(base)                 # 기존 프롬프트·JSON 스키마는 그대로, 뒤에 규칙만 추가
+        assert o.calls[0]["max_tokens"] == 2048               # max_tokens 수정 보존
+
+    def test_other_schemas_untouched(self):
+        scenes = SimpleNamespace(response_mime_type="application/json", response_json_schema={
+            "type": "object", "properties": {"scenes": {"type": "array", "items": {"properties": {
+                "index": {"type": "integer"}}}}}})
+        o = _CfOpenAI(content=GOOD)
+        _cf_client(o).models.generate_content(model="m", contents="Rewrite slide 2 only.", config=scenes)
+        base, _ = TextAIFallbackClient._json_prompt("Rewrite slide 2 only.", scenes)
+        assert self._sent(o) == base                          # scenes(장 번호 지정) 스키마에는 규칙을 붙이지 않는다
+
+    def test_no_json_config_untouched(self):
+        o = _CfOpenAI(content="hello")
+        _cf_client(o).models.generate_content(model="m", contents="Produce exactly 3 slides.", config=None)
+        assert self._sent(o) == "Produce exactly 3 slides."
+
+    def test_openai_mode_prompt_unchanged(self):
+        o = _FakeOpenAI(content=GOOD)
+        cfg = self._slides_config()
+        _client(o, None).models.generate_content(model="m", contents="Produce exactly 3 slides.", config=cfg)
+        base, _ = TextAIFallbackClient._json_prompt("Produce exactly 3 slides.", cfg)
+        assert o.last_kwargs["messages"][0]["content"] == base   # GPT 경로 프롬프트 불변
+
+    def test_claude_fallback_prompt_unchanged(self):
+        sent = {}
+        a = _FakeAnthropic(text=GOOD)
+        orig = a.messages.create
+
+        def spy(**kw):
+            sent["p"] = kw["messages"][0]["content"]
+            return orig(**kw)
+
+        a.messages.create = spy
+        o = _CfOpenAI(exc=_ApiError(429))
+        cfg = self._slides_config()
+        _cf_client(o, a).models.generate_content(model="m", contents="Produce exactly 3 slides.", config=cfg)
+        base, _ = TextAIFallbackClient._json_prompt("Produce exactly 3 slides.", cfg)
+        assert "no 0 and no gaps" in o.calls[0]["messages"][0]["content"]   # Workers AI 호출에는 규칙이 있고
+        assert sent["p"] == base                                            # Claude 전환 호출에는 규칙이 없다

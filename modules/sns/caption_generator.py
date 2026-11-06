@@ -297,6 +297,7 @@ _TEXT_AI_DEFAULT_GPT_MODEL = "gpt-5.4-mini"
 _TEXT_AI_DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
 _TEXT_AI_DEFAULT_CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
 _TEXT_AI_DEFAULT_CF_SAFETY_MODEL = "@cf/meta/llama-guard-3-8b"
+_TEXT_AI_CF_MAX_TOKENS = 2048
 
 
 def _extract_json_text(raw: str) -> str:
@@ -310,6 +311,22 @@ def _extract_json_text(raw: str) -> str:
     body = text[start:end + 1]
     json.loads(body)  # 유효성 확인(파싱 실패는 ValueError)
     return body
+
+
+def _cf_slide_index_rule(prompt: str, config) -> str:
+    """261107 — Workers AI 전용 프롬프트 보강. 8계정 시험(019·023·027)에서 스키마가 프롬프트 글로만 전달돼 `index`가
+    1부터 연속하지 않아 `SLIDE_INDEX_INVALID`가 났다(번호 규칙이 프롬프트에 없었음). `slides` 배열이 있는 스키마에만 붙이며,
+    "exactly N slides"가 프롬프트에 있으면 N장의 정확한 번호도 적는다. `scenes`·`images` 같은 다른 스키마는 건드리지 않는다."""
+    schema = getattr(config, "response_json_schema", None) if config is not None else None
+    if not isinstance(schema, dict) or "slides" not in (schema.get("properties") or {}):
+        return ""
+    rule = (' Every item in "slides" must have an integer "index": the first slide has "index": 1, then 2, 3, ... '
+            'in order, with no 0 and no gaps.')
+    match = re.search(r"exactly (\d+) slides", prompt)
+    if match and 1 <= int(match.group(1)) <= 8:
+        count = int(match.group(1))
+        rule += f' For {count} slides use exactly {", ".join(str(i) for i in range(1, count + 1))}.'
+    return rule
 
 
 class _TextResponse:
@@ -414,6 +431,10 @@ class TextAIFallbackClient:
         kwargs = {"model": self.gpt_model, "messages": [{"role": "user", "content": prompt}]}
         if wants_json:
             kwargs["response_format"] = {"type": "json_object"}
+        if self._base_url:
+            # 261107 — Workers AI OpenAI 호환 엔드포인트는 max_tokens를 생략하면 256토큰에서 응답을 끊는다(8계정 시험 실측:
+            # 출력 256 고정 → JSON 미완성 → GENERATION_FAILED). 캐러셀 JSON(실측 250~400토큰)과 재작성에 충분한 값을 명시한다.
+            kwargs["max_tokens"] = _TEXT_AI_CF_MAX_TOKENS
         resp = self._gpt().chat.completions.create(**kwargs)
         choice = resp.choices[0]
         usage = getattr(resp, "usage", None)
@@ -456,12 +477,14 @@ class TextAIFallbackClient:
 
     def _generate_text(self, prompt: str, config) -> _TextResponse:
         full_prompt, wants_json = self._json_prompt(prompt, config)
+        # Workers AI 호출에만 번호 규칙을 더한다. Claude 전환 호출은 규칙 없는 원래 프롬프트(full_prompt)를 그대로 쓴다.
+        primary_prompt = full_prompt + (_cf_slide_index_rule(prompt, config) if self._base_url and wants_json else "")
         gpt_error = None
         attempts: list = []
         self._meta = {}
         started = time.time()
         try:
-            text = self._call_gpt(full_prompt, wants_json)
+            text = self._call_gpt(primary_prompt, wants_json)
             if wants_json:
                 text = _extract_json_text(text)
             self.last_provider = self.provider_name
