@@ -92,6 +92,9 @@ def record_gemini_failure(
 ) -> Optional[str]:
     """진단 로그 1줄(매 시도) + 원장 기록·알림(final=True 일 때만). 분류명을 돌려주고, 예외는 전파하지 않는다."""
     try:
+        if getattr(exc, "providers", None) is not None:   # 261107 — TextAIError(GPT·Claude 최종 실패). Gemini 경로는 아래 그대로.
+            return _record_text_ai_failure(exc, account=account, stage=stage, attempt=attempt, final=final,
+                                           notify=notify, db_path=db_path, now=now, notify_async=notify_async)
         fields = extract_fields(exc)
         error_class = classify(fields)
         if error_class is None:
@@ -134,6 +137,90 @@ def record_gemini_failure(
     except Exception as err:  # noqa: BLE001 — 진단 실패가 생성 흐름을 바꾸면 안 된다
         logger.warning("[GeminiDiag] 기록 실패(생성 흐름 무영향) | %s", type(err).__name__)
         return None
+
+
+# ── 261107 텍스트 AI(GPT→Claude) 최종 실패 진단 ──────────────────────────────
+# `TextAIError`(두 공급자 모두 실패)가 생성 호출부의 `except Exception`을 거쳐 이 모듈로 들어온다. 최종 실패 1건당
+# 원장 1행(source="text_ai", 공급자별 상태는 detail_head)만 남기고, 잔액·인증 계열만 계정당 하루 1회 알린다(기존 alert_log 재사용).
+# 개별 시도 실패(GPT 실패 후 Claude 성공)는 기록하지 않는다 — `[TextAI]` 중앙 로그에만 남는다.
+TEXT_AI_CREDIT = "TEXT_AI_CREDIT"
+TEXT_AI_AUTH = "TEXT_AI_AUTH"
+TEXT_AI_EMPTY = "TEXT_AI_EMPTY"
+TEXT_AI_SCHEMA = "TEXT_AI_SCHEMA"
+TEXT_AI_RATE = "TEXT_AI_RATE"
+TEXT_AI_TIMEOUT = "TEXT_AI_TIMEOUT"
+TEXT_AI_TRANSIENT = "TEXT_AI_TRANSIENT"
+TEXT_AI_UNKNOWN = "TEXT_AI_UNKNOWN"
+_TEXT_AI_ORDER = (TEXT_AI_CREDIT, TEXT_AI_AUTH, TEXT_AI_EMPTY, TEXT_AI_SCHEMA, TEXT_AI_RATE, TEXT_AI_TIMEOUT,
+                  TEXT_AI_TRANSIENT, TEXT_AI_UNKNOWN)
+_TEXT_AI_ALERT_CLASSES = frozenset({TEXT_AI_CREDIT, TEXT_AI_AUTH})
+# 심각도 표는 error_events 모듈 소유라, 이 파일에서 새 분류만 등록한다(기존 항목 불변).
+_ev._SEVERITY.update({
+    TEXT_AI_CREDIT: "P1", TEXT_AI_AUTH: "P1", TEXT_AI_EMPTY: "P2", TEXT_AI_SCHEMA: "P2", TEXT_AI_RATE: "P3",
+    TEXT_AI_TIMEOUT: "P3", TEXT_AI_TRANSIENT: "P3", TEXT_AI_UNKNOWN: "P2",
+})
+
+
+def _classify_text_ai_attempt(attempt: dict) -> str:
+    code = str(attempt.get("code") or "").lower()
+    status = attempt.get("status")
+    etype = str(attempt.get("etype") or "")
+    finish = str(attempt.get("finish") or "").lower()
+    if code in ("credit_exhausted", "insufficient_quota", "billing_hard_limit_reached"):
+        return TEXT_AI_CREDIT
+    if status in (401, 403) or code in ("invalid_api_key", "authentication_error", "permission_error"):
+        return TEXT_AI_AUTH
+    if finish == "length" or code in ("text_ai_gpt_incomplete", "text_ai_gpt_empty", "text_ai_claude_empty"):
+        return TEXT_AI_EMPTY
+    if etype == "ValueError" or code == "invalid_json":
+        return TEXT_AI_SCHEMA
+    if status == 429:
+        return TEXT_AI_RATE
+    if "timeout" in etype.lower() or "connection" in etype.lower():
+        return TEXT_AI_TIMEOUT
+    if isinstance(status, int) and status >= 500:
+        return TEXT_AI_TRANSIENT
+    return TEXT_AI_UNKNOWN
+
+
+def _record_text_ai_failure(
+    exc, *, account: str, stage: str, attempt: int, final: bool, notify, db_path, now, notify_async: bool,
+) -> Optional[str]:
+    attempts = [a for a in (getattr(exc, "providers", None) or []) if isinstance(a, dict)]
+    classes = [_classify_text_ai_attempt(a) for a in attempts]
+    error_class = min(classes, key=_TEXT_AI_ORDER.index) if classes else TEXT_AI_UNKNOWN
+    decisive = next((a for a in attempts if _classify_text_ai_attempt(a) == error_class), {})
+    parts = [
+        f"{_ev.safe_text(str(a.get('provider', '')), limit=10)}:model={_ev.safe_text(str(a.get('model', '')), limit=40)} "
+        f"status={a.get('status')} code={_ev.safe_text(str(a.get('code', '')), limit=40)} "
+        f"etype={_ev.safe_text(str(a.get('etype', '')), limit=40)} fr={_ev.safe_text(str(a.get('finish', '')), limit=20)} "
+        f"tok={a.get('tin')}/{a.get('tout')} ms={a.get('ms')}"
+        for a in attempts
+    ]
+    detail = " | ".join(parts)
+    logger.warning("[TextAIDiag] acct=%s class=%s attempt=%s final=%s %s", _ev.safe_text(account, limit=60) or "-",
+                   error_class, attempt, final, detail)
+    if not final:
+        return error_class
+    now = now or datetime.now()
+    alert_message = None
+    conn = _ev._connect(db_path or _ev._DB_PATH)
+    try:
+        with conn:
+            status = decisive.get("status")
+            _ev._insert_event(conn, now, "text_ai", account, error_class, status if isinstance(status, int) else None,
+                              None, None, stage, "", _ev.safe_text(detail, limit=300))
+            if notify and error_class in _TEXT_AI_ALERT_CLASSES and _ev._claim_alert_conn(conn, account, error_class, now):
+                alert_message = (
+                    f"[긴급] 텍스트 AI {error_class} — {account or 'unknown'} status={status}\n"
+                    f"GPT·Claude 키·잔액 확인 필요 (기록·알림만 적용, 게시 로직 불변)")
+    finally:
+        conn.close()
+    if alert_message:
+        _ev._send_alert(notify, alert_message, notify_async,
+                        claim=(now.strftime("%Y-%m-%d"), account or "", error_class),
+                        db_path=db_path or _ev._DB_PATH)
+    return error_class
 
 
 GEMINI_RECOVERED = "GEMINI_RECOVERED"
