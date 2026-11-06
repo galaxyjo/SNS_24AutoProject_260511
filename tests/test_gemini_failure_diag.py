@@ -190,3 +190,27 @@ def test_builder_records_recovery_only_after_full_success(monkeypatch):
     monkeypatch.setattr(builder, "_get_client", lambda: _Client(_M()))
     result = builder.generate_carousel_content(_topic(), "REACH", "HOOK_IMPACT", diag_account="PER-018")
     assert result.success is False and calls == []
+
+
+def test_failed_delivery_releases_daily_claim_and_allows_retry(tmp_path):
+    """261106: 발송 실패(False 반환·예외)면 하루 1회 표시를 되돌려 다음 실패 때 다시 알린다. 성공이면 유지."""
+    db, calls = tmp_path / "e.db", []
+
+    def fail(msg):
+        calls.append(msg)
+        return False
+
+    def ok(msg):
+        calls.append(msg)
+        return True
+
+    def boom(msg):
+        calls.append(msg)
+        raise RuntimeError("down")
+
+    for notify in (fail, boom):
+        diag.record_gemini_failure(_err(429, "0"), account="PER-018", notify=notify, db_path=db, notify_async=False)
+    assert len(calls) == 2                       # 실패한 발송은 다음 실패에서 재시도됨
+    diag.record_gemini_failure(_err(429, "0"), account="PER-018", notify=ok, db_path=db, notify_async=False)
+    diag.record_gemini_failure(_err(429, "0"), account="PER-018", notify=ok, db_path=db, notify_async=False)
+    assert len(calls) == 3                       # 성공 후에는 하루 1회 유지

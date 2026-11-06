@@ -56,6 +56,7 @@ def _post(payload: dict) -> bool:
         if resp.status_code != 200:
             logger.warning(f"[Slack] 발송 실패 | status_code={resp.status_code}")
             return False
+        logger.info(f"[Slack] 발송 성공 | status_code={resp.status_code}")   # 261106: 도착 여부를 사후 확인할 수 있게(URL·본문은 기록 안 함)
         return True
     except Exception as exc:
         logger.warning(f"[Slack] 발송 예외 | exception_type={type(exc).__name__}")
@@ -116,8 +117,9 @@ def get_notify_fn():
     if not os.getenv("SLACK_WEBHOOK_URL"):
         return None
 
-    def _fn(msg: str) -> None:
-        send_alert(title="오류 발생", body=msg, level="error")
+    def _fn(msg: str) -> bool:
+        # 261106: 발송 성공 여부를 돌려준다(기존 호출자는 반환값을 쓰지 않아 영향 없음)
+        return send_alert(title="오류 발생", body=msg, level="error")
 
     return _fn
 

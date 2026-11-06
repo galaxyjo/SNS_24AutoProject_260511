@@ -127,7 +127,9 @@ def record_gemini_failure(
         finally:
             conn.close()
         if alert_message:
-            _ev._send_alert(notify, alert_message, notify_async)
+            _ev._send_alert(notify, alert_message, notify_async,
+                            claim=(now.strftime("%Y-%m-%d"), account or "", error_class),
+                            db_path=db_path or _ev._DB_PATH)
         return error_class
     except Exception as err:  # noqa: BLE001 — 진단 실패가 생성 흐름을 바꾸면 안 된다
         logger.warning("[GeminiDiag] 기록 실패(생성 흐름 무영향) | %s", type(err).__name__)

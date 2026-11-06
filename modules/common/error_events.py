@@ -217,13 +217,33 @@ def _claim_alert_conn(conn, account: str, error_class: str, now: datetime) -> bo
     return cur.rowcount == 1
 
 
-def _send_alert(notify: Callable[[str], None], message: str, run_async: bool) -> None:
-    """알림은 게시 실패 처리 경로를 늦추지 않도록 기본적으로 별도 데몬 스레드에서 보낸다(Codex 리뷰 261103)."""
+def _release_alert(claim: tuple, db_path: Optional[Path]) -> None:
+    """발송이 실패했으면 '하루 1회' 표시를 되돌려 다음 실패 때 다시 알릴 수 있게 한다(261106). 실패해도 전파하지 않는다."""
+    try:
+        conn = _connect(db_path or _DB_PATH)
+        try:
+            with conn:
+                conn.execute("DELETE FROM alert_log WHERE day=? AND account=? AND error_class=?", claim)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ErrEvt] 알림 표시 되돌리기 실패 | %s", type(exc).__name__)
+
+
+def _send_alert(notify: Callable[[str], None], message: str, run_async: bool,
+                claim: Optional[tuple] = None, db_path: Optional[Path] = None) -> None:
+    """알림은 게시 실패 처리 경로를 늦추지 않도록 기본적으로 별도 데몬 스레드에서 보낸다(Codex 리뷰 261103).
+    claim=(day, account, error_class) 이 주어지고 발송이 실패(False 반환 또는 예외)하면 하루 1회 표시를 되돌린다."""
     def _run() -> None:
         try:
-            notify(message)
+            if notify(message) is False:
+                logger.warning("[ErrEvt] 알림 미전달(발송 실패 보고) | 다음 실패 때 재시도")
+                if claim:
+                    _release_alert(claim, db_path)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[ErrEvt] 알림 실패(게시 흐름 무영향) | %s", type(exc).__name__)
+            if claim:
+                _release_alert(claim, db_path)
 
     if run_async:
         threading.Thread(target=_run, name="errevt-notify", daemon=True).start()
@@ -263,7 +283,8 @@ def record_publish_failure(
         logger.info("[ErrEvt] src=meta_publish acct=%s class=%s code=%s subcode=%s http=%s stage=%s",
                     account_code or "-", parsed["error_class"], parsed["code"], parsed["subcode"], parsed["http"], stage)
         if alert_message:
-            _send_alert(notify, alert_message, notify_async)
+            _send_alert(notify, alert_message, notify_async,
+                        claim=(now.strftime("%Y-%m-%d"), account_code or "", parsed["error_class"]), db_path=db_path)
         return parsed["error_class"]
     except Exception as exc:  # noqa: BLE001 — 기록 실패가 게시 흐름을 바꾸면 안 된다
         logger.warning("[ErrEvt] 기록 실패(게시 흐름 무영향) | %s", type(exc).__name__)
