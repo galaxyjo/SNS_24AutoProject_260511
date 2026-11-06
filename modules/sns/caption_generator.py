@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import re
@@ -9,6 +10,10 @@ import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
+
+from modules.common.logger import get_logger
+
+logger = get_logger(__name__)
 
 _client = None
 
@@ -243,6 +248,254 @@ def _throttle():
     if wait > 0:
         time.sleep(wait)
     _last_call_ts = time.time()
+
+
+class TextAIError(Exception):
+    """GPT·Claude가 모두 실패했을 때 발생. 메시지에 상태코드(예: 429)를 싣지 않는다 —
+    `_classify_retry`가 재시도 불가로 분류해 기존 실패 경로(Fail-closed)로 곧바로 넘어가게 한다.
+
+    261107 — `providers`: 공급자별 시도 요약 목록(진단용). 각 항목은 provider·model·status·code·etype·finish·tin·tout·ms
+    허용 필드만 담는다(키·프롬프트·응답 본문·오류 문구 원문은 담지 않는다)."""
+
+    def __init__(self, message: str = "", providers: "list | None" = None):
+        super().__init__(message)
+        self.providers = list(providers or [])
+
+
+_SAFE_CODE_CHARS = re.compile(r"[^A-Za-z0-9_.\-]")
+
+
+def _safe_code(value, limit: int = 40) -> str:
+    return _SAFE_CODE_CHARS.sub("", str(value or ""))[:limit]
+
+
+def _provider_error_code(exc: Exception) -> str:
+    """공급자 예외에서 진단용 짧은 코드만 뽑는다(허용 문자·40자 제한). 오류 문구 원문은 저장하지 않고,
+    잔액 부족을 뜻하는 알려진 문구만 `credit_exhausted`로 정규화한다."""
+    if isinstance(exc, TextAIError):
+        return _safe_code(str(exc))
+    if isinstance(exc, ValueError):
+        return "invalid_json"
+    body = getattr(exc, "body", None)
+    err = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), dict) else body
+    if isinstance(err, dict):
+        message = str(err.get("message", "")).lower()
+        if "credit balance" in message or "no credits" in message or "insufficient_quota" in message:
+            return "credit_exhausted"
+        for key in ("code", "type"):
+            if err.get(key):
+                return _safe_code(err[key])
+    code = getattr(exc, "code", None)
+    return _safe_code(code) if isinstance(code, str) else ""
+
+
+_TEXT_AI_DEFAULT_GPT_MODEL = "gpt-5.4-mini"
+_TEXT_AI_DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
+
+
+def _extract_json_text(raw: str) -> str:
+    """모델 응답에서 JSON 객체 본문만 꺼낸다(코드펜스·앞뒤 설명 제거). 유효한 JSON이 아니면 ValueError."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("JSON object not found")
+    body = text[start:end + 1]
+    json.loads(body)  # 유효성 확인(파싱 실패는 ValueError)
+    return body
+
+
+class _TextResponse:
+    """genai 응답 호환 최소 객체 — 호출부는 `.text`만 쓴다."""
+    __slots__ = ("text",)
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _TextAIModels:
+    def __init__(self, owner: "TextAIFallbackClient"):
+        self._owner = owner
+
+    def generate_content(self, *, model=None, contents=None, config=None):
+        # 문자열 프롬프트(순수 텍스트 생성)만 GPT/Claude가 처리한다. 이미지 포함 등 그 밖의 요청은 기존 Gemini로 그대로 위임.
+        if isinstance(contents, str):
+            return self._owner._generate_text(contents, config)
+        return self._owner._delegate().models.generate_content(model=model, contents=contents, config=config)
+
+
+class TextAIFallbackClient:
+    """261106 — genai.Client 호환 텍스트 생성 client. GPT(1순위) 정상이면 GPT 결과만 쓰고(Claude 호출 0건),
+    GPT가 어떤 이유로든 실패하면 Claude로 자동 전환한다. 둘 다 실패하면 TextAIError(→ 기존 Fail-closed 실패 경로).
+    콘텐츠 형식·검증·중복 방지는 호출부 그대로이며 이 client는 텍스트 한 덩어리만 돌려준다."""
+
+    def __init__(self, *, openai_key: str, anthropic_key: str = "", gemini_client=None, account: str = "",
+                 gpt_model: str = "", claude_model: str = "", openai_factory=None, anthropic_factory=None):
+        self._openai_key = openai_key
+        self._anthropic_key = anthropic_key
+        self._gemini = gemini_client
+        self.account = account
+        self.gpt_model = gpt_model or os.getenv("TEXT_AI_GPT_MODEL", "").strip() or _TEXT_AI_DEFAULT_GPT_MODEL
+        self.claude_model = (claude_model or os.getenv("TEXT_AI_CLAUDE_MODEL", "").strip()
+                             or _TEXT_AI_DEFAULT_CLAUDE_MODEL)
+        self._openai_factory = openai_factory
+        self._anthropic_factory = anthropic_factory
+        self._openai = None
+        self._anthropic = None
+        self.models = _TextAIModels(self)
+        self.last_provider = ""
+
+    def _delegate(self):
+        if self._gemini is None:
+            raise TextAIError("TEXT_AI_NO_GEMINI_DELEGATE")
+        return self._gemini
+
+    def __getattr__(self, name):
+        # 그 밖의 속성(이미지 등)은 기존 Gemini client로 위임한다.
+        if name.startswith("_") or self.__dict__.get("_gemini") is None:
+            raise AttributeError(name)
+        return getattr(self._gemini, name)
+
+    # ── 공급자 client(지연 생성) ─────────────────────────────────────
+    def _gpt(self):
+        if self._openai is None:
+            if self._openai_factory:
+                self._openai = self._openai_factory(self._openai_key)
+            else:
+                import openai
+                self._openai = openai.OpenAI(api_key=self._openai_key)
+        return self._openai
+
+    def _claude(self):
+        if not self._anthropic_key:
+            raise TextAIError("TEXT_AI_NO_CLAUDE_KEY")
+        if self._anthropic is None:
+            if self._anthropic_factory:
+                self._anthropic = self._anthropic_factory(self._anthropic_key)
+            else:
+                import anthropic
+                self._anthropic = anthropic.Anthropic(api_key=self._anthropic_key)
+        return self._anthropic
+
+    # ── 공급자 호출 ───────────────────────────────────────────────────
+    @staticmethod
+    def _json_prompt(prompt: str, config) -> "tuple[str, bool]":
+        schema = getattr(config, "response_json_schema", None) if config is not None else None
+        mime = getattr(config, "response_mime_type", "") if config is not None else ""
+        wants_json = schema is not None or mime == "application/json"
+        if not wants_json:
+            return prompt, False
+        text = prompt + "\n\nRespond with a single valid JSON object only (no markdown, no commentary)."
+        if schema is not None:
+            text += " It must follow this JSON schema exactly:\n" + json.dumps(schema, ensure_ascii=False)
+        return text, True
+
+    def _call_gpt(self, prompt: str, wants_json: bool) -> str:
+        kwargs = {"model": self.gpt_model, "messages": [{"role": "user", "content": prompt}]}
+        if wants_json:
+            kwargs["response_format"] = {"type": "json_object"}
+        resp = self._gpt().chat.completions.create(**kwargs)
+        choice = resp.choices[0]
+        usage = getattr(resp, "usage", None)
+        self._meta = {"finish": _safe_code(getattr(choice, "finish_reason", "")),
+                      "tin": getattr(usage, "prompt_tokens", None), "tout": getattr(usage, "completion_tokens", None)}
+        if getattr(choice, "finish_reason", "stop") != "stop":
+            raise TextAIError("TEXT_AI_GPT_INCOMPLETE")
+        text = (choice.message.content or "").strip()
+        if not text:
+            raise TextAIError("TEXT_AI_GPT_EMPTY")
+        return text
+
+    def _call_claude(self, prompt: str, wants_json: bool) -> str:
+        resp = self._claude().messages.create(
+            model=self.claude_model, max_tokens=4096, messages=[{"role": "user", "content": prompt}],
+        )
+        usage = getattr(resp, "usage", None)
+        self._meta = {"finish": _safe_code(getattr(resp, "stop_reason", "")),
+                      "tin": getattr(usage, "input_tokens", None), "tout": getattr(usage, "output_tokens", None)}
+        text = "".join(getattr(b, "text", "") for b in (resp.content or [])).strip()
+        if not text:
+            raise TextAIError("TEXT_AI_CLAUDE_EMPTY")
+        return text
+
+    @staticmethod
+    def _err_meta(exc: Exception) -> str:
+        return f"error_type={type(exc).__name__} status={getattr(exc, 'status_code', None)}"
+
+    def _attempt_meta(self, provider: str, model: str, exc: Exception, started: float) -> dict:
+        """진단용 공급자 시도 요약(허용 필드만). 키·프롬프트·응답 본문·오류 문구 원문은 담지 않는다."""
+        meta = getattr(self, "_meta", None) or {}
+        status = getattr(exc, "status_code", None)
+        return {
+            "provider": provider, "model": _safe_code(model, 60),
+            "status": status if isinstance(status, int) else None,
+            "code": _provider_error_code(exc), "etype": type(exc).__name__,
+            "finish": meta.get("finish", ""), "tin": meta.get("tin"), "tout": meta.get("tout"),
+            "ms": int((time.time() - started) * 1000),
+        }
+
+    def _generate_text(self, prompt: str, config) -> _TextResponse:
+        full_prompt, wants_json = self._json_prompt(prompt, config)
+        gpt_error = None
+        attempts: list = []
+        self._meta = {}
+        started = time.time()
+        try:
+            text = self._call_gpt(full_prompt, wants_json)
+            if wants_json:
+                text = _extract_json_text(text)
+            self.last_provider = "gpt"
+            logger.info("[TextAI] provider=gpt model=%s account=%s", self.gpt_model, self.account)
+            return _TextResponse(text)
+        except Exception as exc:  # 한도 초과·인증 오류·일시 장애·응답 형식 오류 전부 Claude 전환 사유
+            gpt_error = exc
+            attempts.append(self._attempt_meta("gpt", self.gpt_model, exc, started))
+            logger.warning("[TextAI] GPT 실패 → Claude 전환 | account=%s | %s", self.account, self._err_meta(exc))
+        self._meta = {}
+        started = time.time()
+        try:
+            text = self._call_claude(full_prompt, wants_json)
+            if wants_json:
+                text = _extract_json_text(text)
+            self.last_provider = "claude"
+            logger.info("[TextAI] provider=claude model=%s account=%s (GPT 실패 후 전환)", self.claude_model, self.account)
+            return _TextResponse(text)
+        except Exception as exc:
+            attempts.append(self._attempt_meta("claude", self.claude_model, exc, started))
+            logger.error("[TextAI] GPT·Claude 모두 실패 — 게시 차단 | account=%s | gpt:%s | claude:%s",
+                         self.account, self._err_meta(gpt_error), self._err_meta(exc))
+            raise TextAIError("TEXT_AI_ALL_PROVIDERS_FAILED", providers=attempts) from exc
+
+    # ── 게시 직전/글감 Safety (Gemini의 finish_reason 신호를 대체) ──────────
+    def check_text_safety(self, text: str) -> "tuple[SafetyStatus, str]":
+        """GPT는 OpenAI Moderation(무료·토큰 소모 없음), 실패 시 Claude 분류. 둘 다 실패하면 RETRY_EXHAUSTED."""
+        try:
+            result = self._gpt().moderations.create(model="omni-moderation-latest", input=text).results[0]
+            if result.flagged:
+                cats = result.categories
+                names = [k for k, v in (cats.model_dump() if hasattr(cats, "model_dump") else dict(cats)).items() if v]
+                logger.info("[TextAI] safety provider=gpt-moderation flagged account=%s", self.account)
+                return "UNSAFE", "MODERATION:" + (names[0] if names else "FLAGGED")
+            self.last_provider = "gpt"
+            return "SAFE", "MODERATION_OK"
+        except Exception as exc:
+            logger.warning("[TextAI] Safety GPT 실패 → Claude 전환 | account=%s | %s", self.account, self._err_meta(exc))
+        try:
+            answer = self._call_claude(
+                "Classify whether the following Instagram post text is safe to publish (no hate, harassment, "
+                "sexual content, violence, self-harm, illegal activity or scams). Reply with exactly one word: "
+                "SAFE or UNSAFE.\n\n" + text, False).strip().upper()
+            self.last_provider = "claude"
+            if answer.startswith("UNSAFE"):
+                return "UNSAFE", "CLAUDE_UNSAFE"
+            if answer.startswith("SAFE"):
+                return "SAFE", "CLAUDE_SAFE"
+            return "PERMANENT", "CLAUDE_UNPARSEABLE"
+        except Exception as exc:
+            logger.error("[TextAI] Safety GPT·Claude 모두 실패 — 게시 차단 | account=%s | %s",
+                         self.account, self._err_meta(exc))
+            return "RETRY_EXHAUSTED", "TEXT_AI_ALL_PROVIDERS_FAILED"
 
 
 def _seo_prompt_rules(seo_keywords: str) -> str:
@@ -602,6 +855,9 @@ def check_caption_safety(
         try:
             active_throttle()
             active_client = client or _get_client()
+            if isinstance(active_client, TextAIFallbackClient):
+                # 261106 — GPT/Claude 전환 client는 Gemini의 finish_reason 신호가 없으므로 자체 Safety 판정을 쓴다.
+                return active_client.check_text_safety(caption)
             response = active_client.models.generate_content(
                 model=active_model,
                 contents=caption,

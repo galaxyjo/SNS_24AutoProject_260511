@@ -1280,8 +1280,8 @@ def _job_aijomoojin_scheduled_post(account_code: str = AIJOMOOJIN_SLOT_ACCOUNT_C
                 from google import genai as _genai
                 from modules.common.credential_resolver import resolve_gemini_credential
                 try:
-                    _safety_client = _genai.Client(
-                        api_key=resolve_gemini_credential(acct.credential_key).api_key)
+                    _safety_client = _wrap_text_ai_client(
+                        acct, _genai.Client(api_key=resolve_gemini_credential(acct.credential_key).api_key))
                 except CredentialResolutionError as exc:
                     raise RuntimeError(str(exc)) from exc
         except RuntimeError as e:
@@ -1845,6 +1845,22 @@ def _content_persona_kwargs(repo, acct: ContentAccount) -> "dict | None":
     }
 
 
+def _wrap_text_ai_client(acct: ContentAccount, gemini_client):
+    """261106 — Gemini 한도 0(ERR-203) 계정용 텍스트 생성 자동전환(GPT 1순위 → Claude 2순위).
+    `.env`에 `{credential_key}_OPENAI_API_KEY`가 있는 계정만 전환 client로 감싼다(없으면 기존 Gemini client 그대로).
+    이미지·비전 호출은 감싼 client가 기존 Gemini로 위임한다. 전환 후에도 Gemini 키 검사는 그대로 유지된다."""
+    from modules.common.credential_resolver import resolve_text_ai_credentials
+    creds = resolve_text_ai_credentials(acct.credential_key)
+    if creds is None:
+        return gemini_client
+    from modules.sns.caption_generator import TextAIFallbackClient
+    logger.info(f"[TextAI] 텍스트 생성 GPT→Claude 전환 사용 | account_code={acct.account_code}")
+    return TextAIFallbackClient(
+        openai_key=creds.openai_key, anthropic_key=creds.anthropic_key,
+        gemini_client=gemini_client, account=acct.account_code,
+    )
+
+
 def _require_own_gemini_key(acct: ContentAccount, tag: str) -> bool:
     """261024 STEP 2(Codex P1) — 새 계정은 pending 재개·게시 Gate 여부와 무관하게 전용 Gemini Key가
     있어야만 진행한다(aijomoojin은 기존 흐름 그대로라 True). 없으면 로그·Slack 1회 후 False."""
@@ -2241,7 +2257,7 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
                         "대체하지 않고 이번 실행을 중단합니다(MISSING_PERSONA_GEMINI_CREDENTIAL)."
                     )
                 return
-            aijomoojin_gemini_client = genai.Client(api_key=gemini_cred.api_key)
+            aijomoojin_gemini_client = _wrap_text_ai_client(acct, genai.Client(api_key=gemini_cred.api_key))
 
             # 260811 Visual Type Wiring — 기본 false(off), 켜지면 원본 Flux
             # 단일 이미지 대신 AI배경+Pillow텍스트 하이브리드 히어로카드를 쓴다

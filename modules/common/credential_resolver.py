@@ -128,3 +128,32 @@ def resolve_gemini_credential(credential_key: str) -> GeminiCredential:
         )
 
     return GeminiCredential(api_key=api_key, account_email=account_email)
+
+
+# ── 261106 텍스트 생성 AI 자동전환(GPT 1순위 → Claude 2순위) ──────────────────
+#
+# Gemini 프로젝트 한도 0(ERR-203) 계정용. `.env`에 `{credential_key}_OPENAI_API_KEY`가 있는 계정만
+# 전환 client를 쓰고, 없으면 None을 돌려줘 기존 Gemini 경로가 그대로 유지된다(opt-in).
+# Claude 키(`{credential_key}_ANTHROPIC_API_KEY`)는 선택 — 없으면 GPT 실패 시 바로 Fail-closed.
+class TextAICredentials:
+    __slots__ = ("openai_key", "anthropic_key")
+
+    def __init__(self, openai_key: str, anthropic_key: str):
+        self.openai_key = openai_key
+        self.anthropic_key = anthropic_key
+
+
+def resolve_text_ai_credentials(credential_key: str) -> "TextAICredentials | None":
+    """GPT/Claude 텍스트 AI 키를 조회한다. 전환 대상이 아니면 None(기존 Gemini 경로 유지).
+    킬 스위치 `TEXT_AI_FALLBACK_DISABLED=true`면 항상 None. 반환값·로그에 키 원문을 남기지 않는다."""
+    if os.getenv("TEXT_AI_FALLBACK_DISABLED", "").strip().lower() == "true":
+        return None
+    if not credential_key or not _KEY_PATTERN.fullmatch(credential_key):
+        return None
+    openai_key = os.getenv(f"{credential_key}_OPENAI_API_KEY", "").strip()
+    if not openai_key:
+        return None
+    return TextAICredentials(
+        openai_key=openai_key,
+        anthropic_key=os.getenv(f"{credential_key}_ANTHROPIC_API_KEY", "").strip(),
+    )
