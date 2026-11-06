@@ -3432,7 +3432,7 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **기록:** ERR-206, ERR-207, FP-131, INC-076 후속 줄, VALIDATION_STATUS `text_ai_fallback_diag_261106`(module_verified).
 - **UNKNOWN:** GPT·Claude 8계정 잔액 없음(충전 결정 대기), 이미지 판독 Gemini 의존, Safety 기준 변경 영향, Workers AI 재검증. 문서는 별도 docs Commit(3).
 
-### 261107 23:31 — Cloudflare Workers AI 연결 + 8계정 현장 적용 (코드 d92e3ee)
+### 261106 23:31 — Cloudflare Workers AI 연결 + 8계정 현장 적용 (코드 d92e3ee)
 - **변경:** `modules/sns/caption_generator.py`(Cloudflare 모드·generate_vision·llama-guard), `modules/sns/image_text_checker.py`(512px 축소 판독), `modules/common/credential_resolver.py`(`*_TEXT_AI_PROVIDER=cloudflare` opt-in), `launcher/main.py`(base_url 1줄), 테스트 2파일. 로컬 모킹 468건 통과.
 - **현장 적용:** `.env`에 IDN-000018·019·023·024·027·028·030·038 `*_TEXT_AI_PROVIDER=cloudflare` 8줄 추가(값은 비밀 아님, 롤백은 줄 삭제 또는 `TEXT_AI_FALLBACK_DISABLED=true`). 래퍼 해석 확인(네트워크 없음): 8계정 workers_ai, 036·025는 기존 Gemini.
 - **승인 흐름:** Scout 재검증 5회 승인 → 설계 승인 → 구현 승인 → 현재 상태 확인 → "커밋하고 현장적용하라".
