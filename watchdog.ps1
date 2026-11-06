@@ -13,11 +13,12 @@ Set-Location $PSScriptRoot
 
 $envFile = Join-Path $PSScriptRoot ".env"
 
-# .env에서 SLACK_WEBHOOK_URL 로드 (시스템 환경변수 미설정 시 폴백)
-if (-not $env:SLACK_WEBHOOK_URL) {
-    if (Test-Path $envFile) {
-        Get-Content $envFile | Where-Object { $_ -match '^SLACK_WEBHOOK_URL\s*=' } | ForEach-Object {
-            $env:SLACK_WEBHOOK_URL = ($_ -split '=', 2)[1].Trim()
+# .env에서 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 로드 (시스템 환경변수 미설정 시 폴백)
+# 261106 회장 확정: 운영 알림은 무조건 Telegram (함수 이름 Send-SlackAlert 는 호출부 호환을 위해 유지)
+foreach ($tgKey in 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID') {
+    if (-not [Environment]::GetEnvironmentVariable($tgKey) -and (Test-Path $envFile)) {
+        Get-Content $envFile | Where-Object { $_ -match "^$tgKey\s*=" } | Select-Object -First 1 | ForEach-Object {
+            [Environment]::SetEnvironmentVariable($tgKey, ($_ -split '=', 2)[1].Trim().Trim('"'))
         }
     }
 }
@@ -72,20 +73,15 @@ function Write-Log {
 
 function Send-SlackAlert {
     param([string]$message, [string]$level = "warning")
-    $webhookUrl = $env:SLACK_WEBHOOK_URL
-    if (-not $webhookUrl) { return }
-    $emoji = if ($level -eq "error") { ":red_circle:" } elseif ($level -eq "success") { ":white_check_mark:" } else { ":warning:" }
-    $color = if ($level -eq "error") { "#cc0000" } elseif ($level -eq "success") { "#2eb886" } else { "#ffcc00" }
-    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss KST"
-    $body = @{
-        attachments = @(@{
-            color  = $color
-            title  = "$emoji [Watchdog] $message"
-            footer = "SNS_24AutoProject | $ts"
-        })
-    } | ConvertTo-Json -Depth 4
+    $tgToken = $env:TELEGRAM_BOT_TOKEN
+    $tgChat = $env:TELEGRAM_CHAT_ID
+    if (-not $tgToken -or -not $tgChat) { return }
+    $emoji = if ($level -eq "error") { [char]::ConvertFromUtf32(0x1F534) } elseif ($level -eq "success") { [char]0x2705 } else { [char]0x26A0 }
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $text = "$emoji [Watchdog] $message`nSNS_24AutoProject | $ts"
     try {
-        Invoke-RestMethod -Uri $webhookUrl -Method Post -Body $body -ContentType "application/json" | Out-Null
+        $body = [Text.Encoding]::UTF8.GetBytes((@{ chat_id = $tgChat; text = $text } | ConvertTo-Json -Compress))
+        Invoke-RestMethod -Uri "https://api.telegram.org/bot$tgToken/sendMessage" -Method Post -Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 8 | Out-Null
     } catch {}
 }
 

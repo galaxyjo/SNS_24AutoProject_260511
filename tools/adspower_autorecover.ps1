@@ -118,21 +118,26 @@ function Test-InternetConnected {
 
 function Send-RecoverSlack {
     param([string]$Text)
-    $url = $env:SLACK_WEBHOOK_URL
-    if (-not $url) {
-        $envFile = Join-Path $ProjectRoot ".env"
-        if (Test-Path $envFile) {
-            $line = Get-Content -Path $envFile -Encoding UTF8 | Where-Object { $_ -match '^SLACK_WEBHOOK_URL\s*=' } | Select-Object -First 1
-            if ($line) { $url = ($line -split '=', 2)[1].Trim().Trim('"') }
+    # 261106 회장 확정: 운영 알림은 무조건 Telegram (함수 이름은 호출부 호환을 위해 유지)
+    $vals = @{}
+    foreach ($k in 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID') {
+        $v = [Environment]::GetEnvironmentVariable($k)
+        if (-not $v) {
+            $envFile = Join-Path $ProjectRoot ".env"
+            if (Test-Path $envFile) {
+                $line = Get-Content -Path $envFile -Encoding UTF8 | Where-Object { $_ -match "^$k\s*=" } | Select-Object -First 1
+                if ($line) { $v = ($line -split '=', 2)[1].Trim().Trim('"') }
+            }
         }
+        $vals[$k] = $v
     }
-    if (-not $url) { return $false }
+    if (-not $vals['TELEGRAM_BOT_TOKEN'] -or -not $vals['TELEGRAM_CHAT_ID']) { return $false }
     try {
-        $body = [Text.Encoding]::UTF8.GetBytes((@{ text = $Text } | ConvertTo-Json -Compress))
-        Invoke-RestMethod -Uri $url -Method Post -Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 10 | Out-Null
+        $body = [Text.Encoding]::UTF8.GetBytes((@{ chat_id = $vals['TELEGRAM_CHAT_ID']; text = $Text } | ConvertTo-Json -Compress))
+        Invoke-RestMethod -Uri "https://api.telegram.org/bot$($vals['TELEGRAM_BOT_TOKEN'])/sendMessage" -Method Post -Body $body -ContentType "application/json; charset=utf-8" -TimeoutSec 10 | Out-Null
         return $true
     } catch {
-        Write-RecoverLog "Slack 발송 실패: $($_.Exception.GetType().Name)"
+        Write-RecoverLog "Telegram 발송 실패: $($_.Exception.GetType().Name)"
         return $false
     }
 }

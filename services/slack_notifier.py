@@ -1,6 +1,11 @@
 """
-services/slack_notifier.py — Slack Incoming Webhook 기반 운영 알림
+services/slack_notifier.py — 운영 알림 호환 계층 (261106: 전송은 Telegram, 아래 Slack 설명은 과거 이력)
 
+261106 회장 확정으로 모든 운영 알림은 Telegram(services/telegram_notifier)으로 간다. 이 모듈은 기존 호출부와
+테스트가 쓰는 함수 이름(send_alert/notify_*/get_notify_fn)을 유지하는 얇은 계층이며 Slack 으로는 보내지 않는다.
+환경변수: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (SLACK_WEBHOOK_URL 은 더 이상 사용하지 않음)
+
+[이전 설명 — 2026-05-13 최초 구현 당시]
 환경변수:
   SLACK_WEBHOOK_URL  — Slack Incoming Webhook URL (필수)
 
@@ -46,21 +51,32 @@ def _kst_now() -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S KST")
 
 
+_EMOJI_MAP = {
+    ":red_circle:": "🔴", ":warning:": "⚠️", ":white_check_mark:": "✅", ":information_source:": "ℹ️",
+    ":fire:": "🔥", ":partly_sunny:": "⛅", ":snowflake:": "❄️",
+}
+
+
+def _payload_to_text(payload: dict) -> str:
+    """Slack 형식 payload(text 또는 attachments)를 Telegram 평문으로 바꾼다."""
+    parts = []
+    if payload.get("text"):
+        parts.append(str(payload["text"]))
+    for att in payload.get("attachments") or []:
+        for key in ("title", "text", "footer"):
+            if att.get(key):
+                parts.append(str(att[key]))
+    text = "\n".join(parts)
+    for code, emoji in _EMOJI_MAP.items():
+        text = text.replace(code, emoji)
+    return text.replace("*", "").strip()
+
+
 def _post(payload: dict) -> bool:
-    url = os.getenv("SLACK_WEBHOOK_URL", "")
-    if not url:
-        logger.debug("[Slack] SLACK_WEBHOOK_URL 미설정 — 알림 생략")
-        return False
-    try:
-        resp = requests.post(url, json=payload, timeout=5)
-        if resp.status_code != 200:
-            logger.warning(f"[Slack] 발송 실패 | status_code={resp.status_code}")
-            return False
-        logger.info(f"[Slack] 발송 성공 | status_code={resp.status_code}")   # 261106: 도착 여부를 사후 확인할 수 있게(URL·본문은 기록 안 함)
-        return True
-    except Exception as exc:
-        logger.warning(f"[Slack] 발송 예외 | exception_type={type(exc).__name__}")
-        return False
+    """261106 회장 확정: 운영 알림은 무조건 Telegram. 모듈·함수 이름(slack_*)은 호출부·테스트 호환을 위해 유지하고
+    전송만 Telegram 으로 보낸다(Slack Webhook 은 더 이상 쓰지 않는다)."""
+    from services import telegram_notifier
+    return telegram_notifier.send_message(_payload_to_text(payload))
 
 
 # ── 기본 발송 함수 ─────────────────────────────────────────────────────────────
@@ -114,7 +130,8 @@ def get_notify_fn():
 
     error_handler는 notify_fn(single_string) 형태로 호출한다.
     """
-    if not os.getenv("SLACK_WEBHOOK_URL"):
+    from services import telegram_notifier
+    if telegram_notifier.get_notify_fn() is None:   # TELEGRAM_BOT_TOKEN/CHAT_ID 미설정
         return None
 
     def _fn(msg: str) -> bool:

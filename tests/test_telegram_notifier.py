@@ -45,3 +45,17 @@ def test_failure_variants_return_false(monkeypatch, caplog):
     with caplog.at_level("DEBUG", logger=tg.logger.name):
         assert tg.send_message("x") is False
     assert "SECRETTOKEN" not in caplog.text
+
+
+def test_legacy_slack_functions_route_to_telegram(monkeypatch):
+    """261106: slack_notifier 의 기존 함수 이름은 유지하되 전송은 Telegram 으로만 간다(Slack 주소로는 가지 않는다)."""
+    import services.slack_notifier as sn
+    _env(monkeypatch)
+    posted = []
+    monkeypatch.setattr(tg.requests, "post", lambda url, json, timeout: posted.append((url, json)) or _Resp(200, {"ok": True}))
+    assert sn.send_alert("제목", "*Hot*: 3", level="error") is True and sn.send_message("본문", level="info") is True
+    assert all(u.startswith("https://api.telegram.org/bot") for u, _ in posted) and len(posted) == 2
+    assert "제목" in posted[0][1]["text"] and "Hot: 3" in posted[0][1]["text"] and "*" not in posted[0][1]["text"]
+    assert sn.get_notify_fn() is not None
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN")
+    assert sn.get_notify_fn() is None
