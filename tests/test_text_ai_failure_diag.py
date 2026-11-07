@@ -85,6 +85,8 @@ class TestClassification:
     @pytest.mark.parametrize("attempts,expected", [
         ([_attempt(status=429, code="credit_exhausted"), _attempt("claude", 400, "credit_exhausted")], diag.TEXT_AI_CREDIT),
         ([_attempt(status=429, code="insufficient_quota")], diag.TEXT_AI_CREDIT),
+        ([_attempt(status=429, code="daily_quota"), _attempt("claude", 429)], diag.TEXT_AI_CREDIT),   # 기존 분류 유지
+        ([_attempt(status=429, code="rate_limited"), _attempt("claude", 429)], diag.TEXT_AI_RATE),
         ([_attempt(status=401, code="invalid_api_key"), _attempt("claude", 500)], diag.TEXT_AI_AUTH),
         ([_attempt(finish="length", code="text_ai_gpt_incomplete"), _attempt("claude", 503)], diag.TEXT_AI_EMPTY),
         ([_attempt(etype="ValueError", code="invalid_json"), _attempt("claude", etype="ValueError")], diag.TEXT_AI_SCHEMA),
@@ -113,6 +115,27 @@ class TestLedgerAndAlerts:
         assert (source, account, klass, severity, http, stage) == (
             "text_ai", "PER-018", "TEXT_AI_CREDIT", "P1", 429, "carousel_generate")
         assert "gpt:" in detail and "claude:" in detail and "tok=1830/0" in detail and "ms=12" in detail
+
+    def test_detail_carries_retry_after_and_ray_within_300_chars(self, tmp_path):
+        db = tmp_path / "e.db"
+        first = _attempt(status=429, code="daily_quota", etype="RateLimitError")
+        first.update({"model": "cfmetallama-4-scout-17b-16e-instruct", "ra": "3600", "ray": "8a1b2c3d4e5f6789-SIN"})
+        second = _attempt("claude", 400, "credit_exhausted", etype="BadRequestError")
+        second["model"] = "claude-haiku-5-5"
+        diag.record_gemini_failure(TextAIError("X", providers=[first, second]), account="PER-027", db_path=db,
+                                   notify_async=False)
+        detail = _rows(db)[0][6]
+        assert len(detail) <= 300
+        assert "ra=3600" in detail and "ray=8a1b2c3d4e5f6789-SIN" in detail
+        assert "code=daily_quota" in detail and "claude:" in detail      # 두 공급자 모두 잘리지 않음
+        assert "fr=" not in detail and "tok=" not in detail              # 빈 필드는 생략
+
+    def test_detail_without_headers_has_no_ra_ray(self, tmp_path):
+        db = tmp_path / "e.db"
+        diag.record_gemini_failure(TextAIError("X", providers=[_attempt(status=429, code="rate_limited")]),
+                                   account="PER-027", db_path=db, notify_async=False)
+        detail = _rows(db)[0][6]
+        assert "ra=" not in detail and "ray=" not in detail
 
     def test_non_final_logs_only(self, tmp_path):
         db = tmp_path / "e.db"

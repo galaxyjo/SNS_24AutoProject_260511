@@ -166,7 +166,7 @@ def _classify_text_ai_attempt(attempt: dict) -> str:
     status = attempt.get("status")
     etype = str(attempt.get("etype") or "")
     finish = str(attempt.get("finish") or "").lower()
-    if code in ("credit_exhausted", "insufficient_quota", "billing_hard_limit_reached"):
+    if code in ("credit_exhausted", "daily_quota", "insufficient_quota", "billing_hard_limit_reached"):
         return TEXT_AI_CREDIT
     if status in (401, 403) or code in ("invalid_api_key", "authentication_error", "permission_error"):
         return TEXT_AI_AUTH
@@ -183,6 +183,24 @@ def _classify_text_ai_attempt(attempt: dict) -> str:
     return TEXT_AI_UNKNOWN
 
 
+def _text_ai_attempt_part(a: dict) -> str:
+    """원장 detail_head(300자) 안에 두 공급자가 모두 들어가도록 빈 필드(fr·tok)는 생략하고, 첫 공급자 몫에
+    Retry-After(ra)·cf-ray(ray)를 싣는다(없으면 생략 = UNKNOWN). 본문·키·프롬프트는 담지 않는다."""
+    text = (f"{_ev.safe_text(str(a.get('provider', '')), limit=10)}:model={_ev.safe_text(str(a.get('model', '')), limit=40)} "
+            f"status={a.get('status')} code={_ev.safe_text(str(a.get('code', '')), limit=40)} "
+            f"etype={_ev.safe_text(str(a.get('etype', '')), limit=40)}")
+    if a.get("finish"):
+        text += f" fr={_ev.safe_text(str(a.get('finish')), limit=20)}"
+    if a.get("tin") is not None or a.get("tout") is not None:
+        text += f" tok={a.get('tin')}/{a.get('tout')}"
+    text += f" ms={a.get('ms')}"
+    if a.get("ra"):
+        text += f" ra={_ev.safe_text(str(a.get('ra')), limit=12)}"
+    if a.get("ray"):
+        text += f" ray={_ev.safe_text(str(a.get('ray')), limit=30)}"
+    return text
+
+
 def _record_text_ai_failure(
     exc, *, account: str, stage: str, attempt: int, final: bool, notify, db_path, now, notify_async: bool,
 ) -> Optional[str]:
@@ -190,13 +208,7 @@ def _record_text_ai_failure(
     classes = [_classify_text_ai_attempt(a) for a in attempts]
     error_class = min(classes, key=_TEXT_AI_ORDER.index) if classes else TEXT_AI_UNKNOWN
     decisive = next((a for a in attempts if _classify_text_ai_attempt(a) == error_class), {})
-    parts = [
-        f"{_ev.safe_text(str(a.get('provider', '')), limit=10)}:model={_ev.safe_text(str(a.get('model', '')), limit=40)} "
-        f"status={a.get('status')} code={_ev.safe_text(str(a.get('code', '')), limit=40)} "
-        f"etype={_ev.safe_text(str(a.get('etype', '')), limit=40)} fr={_ev.safe_text(str(a.get('finish', '')), limit=20)} "
-        f"tok={a.get('tin')}/{a.get('tout')} ms={a.get('ms')}"
-        for a in attempts
-    ]
+    parts = [_text_ai_attempt_part(a) for a in attempts]
     detail = " | ".join(parts)
     logger.warning("[TextAIDiag] acct=%s class=%s attempt=%s final=%s %s", _ev.safe_text(account, limit=60) or "-",
                    error_class, attempt, final, detail)

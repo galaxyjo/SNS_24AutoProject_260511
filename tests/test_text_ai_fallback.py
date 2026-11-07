@@ -4,6 +4,7 @@
 """
 
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -444,11 +445,61 @@ class TestCloudflareResolver:
 
 
 class TestCloudflareFailureClassification:
-    def test_daily_neurons_exhausted_maps_to_credit(self):
+    @staticmethod
+    def _rl(body, headers=None):
+        return openai.RateLimitError("m", response=httpx.Response(
+            429, request=httpx.Request("POST", "https://x"), headers=headers or {}), body=body)
+
+    def test_daily_neurons_exhausted_maps_to_daily_quota(self):
+        # 261107 — 일일 무료 한도 소진은 credit_exhausted(잔액 부족)와 별도 코드. 분류기는 둘 다 TEXT_AI_CREDIT 로 묶는다.
         body = {"errors": [{"code": 4006, "message": "you have used up your daily free allocation of 10,000 neurons"}]}
+        assert cg._provider_error_code(self._rl(body)) == "daily_quota"
+
+    def test_credit_balance_message_stays_credit_exhausted(self):
+        body = {"error": {"message": "Your credit balance is too low", "type": "invalid_request_error"}}
+        assert cg._provider_error_code(self._rl(body)) == "credit_exhausted"
+
+    def test_rate_limit_message_without_string_code_maps_to_rate_limited(self):
+        body = {"errors": [{"code": 3040, "message": "Rate limit exceeded, too many requests per minute"}]}
+        assert cg._provider_error_code(self._rl(body)) == "rate_limited"
+
+    def test_rate_limit_message_keeps_provider_string_code(self):
+        body = {"error": {"code": "rate_limit_exceeded", "message": "Rate limit reached for requests"}}
+        assert cg._provider_error_code(self._rl(body)) == "rate_limit_exceeded"
+
+    def test_unrecognised_429_keeps_numeric_code(self):
+        body = {"errors": [{"code": 3036, "message": "something else"}]}
+        assert cg._provider_error_code(self._rl(body)) == "3036"
+
+
+class TestAttemptHeaderMeta:
+    """261107 — 429 원인 구분용 응답 헤더(Retry-After·cf-ray)만 기록. 없으면 "" (= UNKNOWN), 본문·키는 읽지 않는다."""
+
+    @staticmethod
+    def _meta(exc):
+        client = cg.TextAIFallbackClient(openai_key="o", anthropic_key="a", account="IDN-T",
+                                         openai_factory=lambda k: None, anthropic_factory=lambda k: None)
+        return client._attempt_meta("gpt", "m", exc, time.time())
+
+    def test_headers_extracted(self):
         exc = openai.RateLimitError("m", response=httpx.Response(
-            429, request=httpx.Request("POST", "https://x")), body=body)
-        assert cg._provider_error_code(exc) == "credit_exhausted"
+            429, request=httpx.Request("POST", "https://x"),
+            headers={"Retry-After": "37", "CF-Ray": "8a1b2c3d4e5f6789-SIN"}), body=None)
+        meta = self._meta(exc)
+        assert meta["ra"] == "37" and meta["ray"] == "8a1b2c3d4e5f6789-SIN"
+
+    def test_missing_or_unreadable_headers_are_empty(self):
+        assert self._meta(ValueError("x"))["ra"] == "" and self._meta(ValueError("x"))["ray"] == ""
+        bad = SimpleNamespace(response=SimpleNamespace(headers=object()))   # .get 없음
+        assert self._meta(bad)["ra"] == ""
+
+    def test_header_values_are_sanitised(self):
+        exc = openai.RateLimitError("m", response=httpx.Response(
+            429, request=httpx.Request("POST", "https://x"),
+            headers={"Retry-After": "Wed, 07 Nov 2026 01:00:00 GMT sk-SECRET", "CF-Ray": "ab cd;ef"}), body=None)
+        meta = self._meta(exc)
+        assert len(meta["ra"]) <= 12 and " " not in meta["ra"] and "," not in meta["ra"]
+        assert meta["ray"] == "abcdef"
 
 
 class TestCloudflareMaxTokens:

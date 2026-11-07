@@ -270,6 +270,16 @@ def _safe_code(value, limit: int = 40) -> str:
     return _SAFE_CODE_CHARS.sub("", str(value or ""))[:limit]
 
 
+def _resp_header(exc: Exception, name: str, limit: int) -> str:
+    """261107 — 오류 응답 헤더 1개를 허용 문자로만 뽑는다(없거나 읽을 수 없으면 "" = UNKNOWN). 본문·키는 읽지 않는다."""
+    try:
+        headers = getattr(getattr(exc, "response", None), "headers", None)
+        value = headers.get(name) if headers is not None else None
+    except Exception:  # noqa: BLE001 — 진단 보조 필드일 뿐, 실패해도 생성 흐름·기존 필드에 영향 없음
+        return ""
+    return _safe_code(value, limit)
+
+
 def _provider_error_code(exc: Exception) -> str:
     """공급자 예외에서 진단용 짧은 코드만 뽑는다(허용 문자·40자 제한). 오류 문구 원문은 저장하지 않고,
     잔액 부족을 뜻하는 알려진 문구만 `credit_exhausted`로 정규화한다."""
@@ -283,9 +293,13 @@ def _provider_error_code(exc: Exception) -> str:
         err = body["errors"][0]   # Cloudflare Workers AI 오류 형식({"errors":[{"code":…,"message":…}]})
     if isinstance(err, dict):
         message = str(err.get("message", "")).lower()
-        if ("credit balance" in message or "no credits" in message or "insufficient_quota" in message
-                or "daily free allocation" in message):
+        if "daily free allocation" in message:
+            return "daily_quota"      # 261107 — Workers AI 일일 무료 한도 소진(잔액 부족 credit_exhausted 와 구분)
+        if "credit balance" in message or "no credits" in message or "insufficient_quota" in message:
             return "credit_exhausted"
+        if (("rate limit" in message or "too many requests" in message)
+                and not any(isinstance(err.get(k), str) and err.get(k) for k in ("code", "type"))):
+            return "rate_limited"     # 261107 — 문자열 code/type 이 없을 때만(있으면 공급자 원본 코드 유지)
         for key in ("code", "type"):
             if err.get(key):
                 return _safe_code(err[key])
@@ -473,6 +487,7 @@ class TextAIFallbackClient:
             "code": _provider_error_code(exc), "etype": type(exc).__name__,
             "finish": meta.get("finish", ""), "tin": meta.get("tin"), "tout": meta.get("tout"),
             "ms": int((time.time() - started) * 1000),
+            "ra": _resp_header(exc, "retry-after", 12), "ray": _resp_header(exc, "cf-ray", 30),
         }
 
     def _generate_text(self, prompt: str, config) -> _TextResponse:
