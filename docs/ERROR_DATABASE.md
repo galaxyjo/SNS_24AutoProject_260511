@@ -3516,3 +3516,11 @@ S1` 정상, `gemma-4-26b-a4b-it` 글 생성은 2회 모두 `finish_reason=length
 - **UNKNOWN / Risk:** ① 번호 외 실패 3건(`COVER_TITLE_INVALID`·`IMAGE_SCENE_REPAIR_FAILED`·`POSSIBLE_FABRICATION`)은 미수정이라 첫 시도 계약 통과율이 낮을 수 있다(2/8) ② 가짜 응답 단위 테스트는 공급자 기본값(256 절단)을 잡지 못했다 — 새 공급자 연결 시 실호출 1회 점검 필요 ③ 재시험은 UTC 풀 사정상 261107 07:00 ICT 이후.
 - **Rollback:** `git revert 6a12ffa`(위 수정만 되돌림) 후 launcher 재시작. 긴급 차단은 `.env` 8줄 삭제 또는 `TEXT_AI_FALLBACK_DISABLED=true` + 재시작.
 - **관련:** ERR-206, ERR-207
+
+## ERR-209
+- **일시/증상:** 261107 07:07 ICT 018 단일 Canary 실패(`CAROUSEL_TEXT_FAILED:COVER_TITLE_INVALID`, 표지 제목 43자 > 40자 제한, 재작성 1회 후에도 동일). 10:00 ICT 자동 슬롯: IDN-000028 Workers AI HTTP 429 + Claude 400(잔액 0)으로 fail-closed(`CAROUSEL_TEXT_FAILED:GENERATION_FAILED`), IDN-000022 `IMAGE_GENERATION_FAILED` 3/3. 게시 0건, Telegram 알림 3건 발송 성공.
+- **Root Cause:** 018 제목 길이 CONFIRMED(`cover_len=43`). 028 429는 일일 무료 한도 소진 HYPOTHESIS(`credit_exhausted`는 본문이 "daily free allocation" 등 4개 문구와 일치할 때만 생성, 일치 문구 미기록), 분당 속도 제한 UNKNOWN. 022 이미지 실패 UNKNOWN(원인 필드 없음).
+- **진단 한계:** 공급자 오류 요약에 응답 헤더(Retry-After·RateLimit)·요청 ID(cf-ray) 없음. 원장 `TEXT_AI_CREDIT` 분류가 Claude 400(잔액 0)에 의해 결정될 수 있어 속도 제한도 "잔액 문제"로 알림될 위험.
+- **조치:** 코드·설정 변경 없음(읽기 전용 조사). 대시보드(Billable usage) 사용량은 확인 못 함. 보완안(`caption_generator.py`·`gemini_failure_diag.py` + 테스트 2개) 승인 대기.
+- **운영 상태:** launcher는 261106 23:38 구 코드·구 `.env`(8계정 Workers AI ON)로 실행 중, 6a12ffa와 `.env` 018-only 미반영(재시작 승인 대기).
+- **관련:** ERR-206, ERR-207, ERR-208

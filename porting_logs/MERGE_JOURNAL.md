@@ -3443,3 +3443,8 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **계기:** 8계정 시험에서 글 생성 8/8 실패(출력 256 절단) → 수정 후 2/8 통과 → 실패 6건 중 3건이 슬라이드 번호 규칙 누락(가설).
 - **검증:** Target Test 77건 통과(로컬 모킹). 실호출 효과는 261107 07:00 ICT 이후 재시험, 운영 재시작은 별도 승인.
 - **기록:** ERR-208. (FAILURE_PATTERN·INCIDENT·VALIDATION_STATUS는 이번 최소 기록에 포함하지 않음)
+
+## 261107 11:50 ICT — 018 Canary·10:00 슬롯 결과 기록 (문서만)
+- **변경:** `docs/ERROR_DATABASE.md`(ERR-209), `docs/INCIDENT_TIMELINE.md`(INC-076 후속), `docs/VALIDATION_STATUS.md`(workers_ai_canary_261107). 코드·`.env`·운영 변경 없음.
+- **계기:** 07:07 018 Canary 실패, 10:00 자동 슬롯 028·022 실패, 429 원인 UNKNOWN.
+- **검증:** 읽기 전용 조사(원장·로그), API 호출은 Canary 1회(Neurons 149.8)뿐. 재시작·보완 코드는 승인 대기.

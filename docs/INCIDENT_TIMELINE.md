@@ -1172,3 +1172,5 @@ Note 1에서 "1차 다운(20:09:40)의 실제 원인"으로 UNKNOWN 남겼던 �
 - **UNKNOWN:** 구글 답변·복구 시점, 나머지 6개 정지 여부, 022 CTA 수정(bc4ba9e) 효과, 041 FB 크롤 focus-emulation Canary 효과(23:21 이후 기준: posts=3·EMPTY 12/16).
 - **관련:** ERR-203, FP-129, ERR-197
 - **후속(23:12 261106):** 복구 경로 점검 — GPT·Claude 8키 모두 잔액 없음(chat 429/400), 이미지 판독도 8계정 Gemini 한도 0 확인, Workers AI 무료 호출 5회는 Safety만 성공. GPT→Claude 전환·AI 진단 확장 코드는 미 Commit·미 반영(ERR-206·207)이라 새 게시 복구 아님.
+
+- **후속(11:50 261107):** 07:07 018 단일 Canary 실패(제목 43자, Neurons 149.8, 이미지 판독·Safety 미실행). 10:00 자동 슬롯 028 Workers AI 429·Claude 400, 022 이미지 생성 3회 실패 — 게시 0건·오게시 없음, Telegram 3건 발송. 429 원인(일일 한도 vs 속도 제한) UNKNOWN. 코드·설정 변경 없음. 관련: ERR-209
