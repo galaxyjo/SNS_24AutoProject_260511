@@ -3524,3 +3524,23 @@ S1` 정상, `gemma-4-26b-a4b-it` 글 생성은 2회 모두 `finish_reason=length
 - **조치:** 코드·설정 변경 없음(읽기 전용 조사). 대시보드(Billable usage) 사용량은 확인 못 함. 보완안(`caption_generator.py`·`gemini_failure_diag.py` + 테스트 2개) 승인 대기.
 - **운영 상태:** launcher는 261106 23:38 구 코드·구 `.env`(8계정 Workers AI ON)로 실행 중, 6a12ffa와 `.env` 018-only 미반영(재시작 승인 대기).
 - **관련:** ERR-206, ERR-207, ERR-208
+
+
+## ERR-210
+- **제목:** 025 18:00 Producer `CAPTION_CTA_NOT_LAST` — 설명 문맥의 "들어오는 댓글"을 CTA 키워드로 오탐 (261105)
+- **증상:** 025 11/05 18:00 `CAROUSEL_TEXT_FAILED:CAPTION_CTA_NOT_LAST`, 글감 1.1. 09:00의 "실시간 댓글" 오탐(ERR-199) 수정 이후 같은 계열 새 표현.
+- **근거(Evidence):** 18:00 진단 로그 `caption_kw_ctx=['방송 중 들어오는 댓글에 실시간으로 대응']` — 댓글 요청이 아닌 기능 설명 문장.
+- **조치:** `_CTA_EXEMPT_COMPOUNDS`에 "들어오는 댓글" 추가 + 테스트 1개(`test_incoming_comment_phrase_is_not_counted_as_cta`). 빌더 테스트 175건 통과. 커밋 `2ad18b6`(Codex 검수 후), 261105 20:22 재시작으로 반영.
+- **UNKNOWN / Risk:** 같은 방식의 오탐이 세 번째(저장소·시청자 댓글·실시간 댓글·들어오는 댓글). Codex D: 명령형 판정 전환은 회귀 범위가 넓어 보류가 맞다고 판정. 025 다음 Producer에서 효과 확인 필요(261105 22시 라운드에는 025 실행 없음).
+- **Rollback:** `git revert 2ad18b6` 후 launcher 재시작.
+- **관련:** ERR-199, FP-126, FP-128
+
+## ERR-211
+- **제목:** 계약 재작성 요청이 Gemini 503 한 번에 `CONTRACT_REPAIR_FAILED` — 재작성 호출에 재시도 없음 (261105)
+- **증상:** 031 13:01, 022 16:00·22:00(+1건)이 `계약 재작성 요청 실패 | ServerError`로 종료. 본 생성은 4회 재시도, 재작성은 단발 호출.
+- **근거(Evidence):** `_repair_contract_fields`의 `try/except` 단발 호출(수정 전 `carousel_content_builder.py:667-675`), 오늘 로그 4건. 호출처는 1곳.
+- **조치:** 재작성 요청에 `_classify_retry`/`_next_retry_delay` 재사용, 최대 `_REPAIR_MAX_ATTEMPTS=3`. 테스트 2개(503 후 성공/전부 503이면 기존 실패). 빌더 테스트 177건 통과. 커밋 `833dc03`. 확대 테스트의 기존 실패 8건(운영 `.env`·실 Airtable 의존)은 수정 전후 동일함을 비교로 확인(변경과 무관, 별도 과제).
+- **Codex 검수(261105):** A·E·F YES, C·D NO(현행 유지), **B NO** — `Retry-After`가 최대 120초까지 적용되어 최악 대기가 약 480초(2회×2번×120초)로 늘 수 있음. 수정안(재작성 대기 상한 예: 30초)은 **승인 대기, 미적용**. Codex의 "재시작 불필요" 판정은 launcher 기동 커밋 기준으로 부정확(Runtime은 push가 아니라 작업 폴더 코드를 읽음)해 정정.
+- **UNKNOWN / Risk:** 재시도 실제 효과는 503 발생 시에만 검증됨. 대기 상한 미적용 상태의 Producer 점유 시간.
+- **Rollback:** `git revert 833dc03` 후 launcher 재시작.
+- **관련:** ERR-198, ERR-200, FP-128, INC-076

@@ -3448,3 +3448,9 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **변경:** `docs/ERROR_DATABASE.md`(ERR-209), `docs/INCIDENT_TIMELINE.md`(INC-076 후속), `docs/VALIDATION_STATUS.md`(workers_ai_canary_261107). 코드·`.env`·운영 변경 없음.
 - **계기:** 07:07 018 Canary 실패, 10:00 자동 슬롯 028·022 실패, 429 원인 UNKNOWN.
 - **검증:** 읽기 전용 조사(원장·로그), API 호출은 Canary 1회(Neurons 149.8)뿐. 재시작·보완 코드는 승인 대기.
+
+
+### 261107 11:55 ICT — 261105 세션 코드 커밋 2건 문서 보강 (코드 변경 없음)
+- **기록:** ERR-210(025 18:00 오탐, 2ad18b6), ERR-211(재작성 재시도 833dc03, Codex 검수 B 반려로 대기 상한 수정안 승인 대기).
+- **상태:** 두 커밋 모두 launcher 현재 기동 커밋(bc02057) 이전 이력에 포함됨을 `git merge-base --is-ancestor`로 확인. 변경·재시작·push 없음.
+- **UNKNOWN:** 재작성 대기 상한 미적용, 025·022 실제 효과(다음 Producer 로그).
