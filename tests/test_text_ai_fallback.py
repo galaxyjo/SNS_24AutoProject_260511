@@ -516,6 +516,42 @@ class TestCloudflareMaxTokens:
         assert "max_tokens" not in o.last_kwargs
 
 
+class TestCloudflareCoverTitleRule:
+    """261107 — 018 COVER_TITLE_INVALID(43자): 40자 제한이 든 프롬프트에만, Workers AI 호출에만 32자 여유 규칙."""
+    P = "Slide 1: one line headline (never more than 40). Write it."
+
+    @staticmethod
+    def _sent(o):
+        return o.calls[0]["messages"][0]["content"]
+
+    def test_rule_added_when_prompt_has_40_limit(self):
+        o = _CfOpenAI(content=GOOD)
+        _cf_client(o).models.generate_content(model="m", contents=self.P, config=_json_config())
+        assert "at most 32 characters" in self._sent(o)
+
+    def test_no_rule_without_40_limit(self):
+        o = _CfOpenAI(content=GOOD)
+        _cf_client(o).models.generate_content(model="m", contents="Write a caption.", config=_json_config())
+        assert "32 characters" not in self._sent(o)
+
+    def test_openai_mode_and_claude_fallback_unchanged(self):
+        o = _FakeOpenAI(content=GOOD)
+        _client(o, None).models.generate_content(model="m", contents=self.P, config=_json_config())
+        assert "32 characters" not in o.last_kwargs["messages"][0]["content"]
+        sent = {}
+        a = _FakeAnthropic(text=GOOD)
+        orig = a.messages.create
+
+        def spy(**kw):
+            sent["p"] = kw["messages"][0]["content"]
+            return orig(**kw)
+
+        a.messages.create = spy
+        _cf_client(_CfOpenAI(exc=_ApiError(429)), a).models.generate_content(model="m", contents=self.P,
+                                                                            config=_json_config())
+        assert "32 characters" not in sent["p"]
+
+
 class TestCloudflareSlideIndexRule:
     """261107 — 8계정 시험의 SLIDE_INDEX_INVALID(019·023·027): 번호 규칙을 Workers AI 프롬프트에만 추가한다."""
 

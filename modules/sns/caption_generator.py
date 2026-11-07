@@ -343,6 +343,18 @@ def _cf_slide_index_rule(prompt: str, config) -> str:
     return rule
 
 
+_CF_COVER_TITLE_TRIGGERS = ("never more than 40", "at most 40 characters")
+
+
+def _cf_cover_title_rule(prompt: str) -> str:
+    """261107 — Workers AI 전용 프롬프트 보강. 018 시험에서 표지 제목이 43자로 40자 제한을 넘었고 재작성 후에도 같았다
+    (llama-4-scout가 글자 수를 못 셈). 프롬프트에 40자 제한이 있을 때만 32자 여유 규칙을 덧붙인다(검증 기준 40자는 불변)."""
+    if not any(t in prompt for t in _CF_COVER_TITLE_TRIGGERS):
+        return ""
+    return (' Keep the slide 1 (cover) title to at most 32 characters in one line, counting every space, letter, '
+            'digit and punctuation mark; shorten it if unsure.')
+
+
 class _TextResponse:
     """genai 응답 호환 최소 객체 — 호출부는 `.text`만 쓴다."""
     __slots__ = ("text",)
@@ -493,7 +505,8 @@ class TextAIFallbackClient:
     def _generate_text(self, prompt: str, config) -> _TextResponse:
         full_prompt, wants_json = self._json_prompt(prompt, config)
         # Workers AI 호출에만 번호 규칙을 더한다. Claude 전환 호출은 규칙 없는 원래 프롬프트(full_prompt)를 그대로 쓴다.
-        primary_prompt = full_prompt + (_cf_slide_index_rule(prompt, config) if self._base_url and wants_json else "")
+        primary_prompt = full_prompt + (
+            _cf_slide_index_rule(prompt, config) + _cf_cover_title_rule(prompt) if self._base_url and wants_json else "")
         gpt_error = None
         attempts: list = []
         self._meta = {}
