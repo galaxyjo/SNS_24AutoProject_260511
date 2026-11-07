@@ -502,6 +502,17 @@ class TextAIFallbackClient:
             "ra": _resp_header(exc, "retry-after", 12), "ray": _resp_header(exc, "cf-ray", 30),
         }
 
+    def _ledger(self, outcome: str, provider: str, model: str, started: float, attempt=None, stage: str = "text") -> None:
+        """261107 AI 호출 장부(가시성 전용, 플래그 AI_USAGE_LEDGER_ENABLED OFF면 무동작). 어떤 실패도 호출 흐름에 전파하지 않는다."""
+        try:
+            from modules.common.ai_usage_ledger import record_ai_call
+            meta = attempt or getattr(self, "_meta", None) or {}
+            ms = attempt.get("ms") if attempt else int((time.time() - started) * 1000)
+            record_ai_call(account=self.account, provider=provider, model=model, stage=stage, outcome=outcome,
+                           status=(attempt or {}).get("status"), tin=meta.get("tin"), tout=meta.get("tout"), ms=ms)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[AiLedger] 장부 호출 실패(호출 흐름 무영향) | %s", type(exc).__name__)
+
     def _generate_text(self, prompt: str, config) -> _TextResponse:
         full_prompt, wants_json = self._json_prompt(prompt, config)
         # Workers AI 호출에만 번호 규칙을 더한다. Claude 전환 호출은 규칙 없는 원래 프롬프트(full_prompt)를 그대로 쓴다.
@@ -516,11 +527,13 @@ class TextAIFallbackClient:
             if wants_json:
                 text = _extract_json_text(text)
             self.last_provider = self.provider_name
+            self._ledger("ok", self.provider_name, self.gpt_model, started)
             logger.info("[TextAI] provider=%s model=%s account=%s", self.provider_name, self.gpt_model, self.account)
             return _TextResponse(text)
         except Exception as exc:  # 한도 초과·인증 오류·일시 장애·응답 형식 오류 전부 Claude 전환 사유
             gpt_error = exc
             attempts.append(self._attempt_meta(self.provider_name, self.gpt_model, exc, started))
+            self._ledger("fail", self.provider_name, self.gpt_model, started, attempts[-1])
             logger.warning("[TextAI] %s 실패 → Claude 전환 | account=%s | %s", self.provider_name, self.account,
                            self._err_meta(exc))
         self._meta = {}
@@ -530,11 +543,13 @@ class TextAIFallbackClient:
             if wants_json:
                 text = _extract_json_text(text)
             self.last_provider = "claude"
+            self._ledger("ok", "claude", self.claude_model, started)
             logger.info("[TextAI] provider=claude model=%s account=%s (%s 실패 후 전환)", self.claude_model, self.account,
                         self.provider_name)
             return _TextResponse(text)
         except Exception as exc:
             attempts.append(self._attempt_meta("claude", self.claude_model, exc, started))
+            self._ledger("fail", "claude", self.claude_model, started, attempts[-1])
             logger.error("[TextAI] %s·Claude 모두 실패 — 게시 차단 | account=%s | %s:%s | claude:%s",
                          self.provider_name, self.account, self.provider_name, self._err_meta(gpt_error),
                          self._err_meta(exc))
@@ -566,11 +581,14 @@ class TextAIFallbackClient:
             text = (choice.message.content or "").strip()
             if not text:
                 raise TextAIError("TEXT_AI_VISION_EMPTY")
+            self._ledger("ok", self.provider_name, self.gpt_model, started, stage="vision")
             logger.info("[TextAI] vision provider=%s model=%s account=%s images=%d", self.provider_name, self.gpt_model,
                         self.account, len(images_png))
             return _TextResponse(_extract_json_text(text) if wants_json else text)
         except Exception as exc:
             logger.warning("[TextAI] vision 실패 | account=%s | %s", self.account, self._err_meta(exc))
+            self._ledger("fail", self.provider_name, self.gpt_model, started,
+                         self._attempt_meta(self.provider_name, self.gpt_model, exc, started), stage="vision")
             raise TextAIError("TEXT_AI_VISION_FAILED",
                               providers=[self._attempt_meta(self.provider_name, self.gpt_model, exc, started)]) from exc
 

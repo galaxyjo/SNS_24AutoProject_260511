@@ -1849,6 +1849,9 @@ def _wrap_text_ai_client(acct: ContentAccount, gemini_client):
     """261106 — Gemini 한도 0(ERR-203) 계정용 텍스트 생성 자동전환(GPT 1순위 → Claude 2순위).
     `.env`에 `{credential_key}_OPENAI_API_KEY`가 있는 계정만 전환 client로 감싼다(없으면 기존 Gemini client 그대로).
     이미지·비전 호출은 감싼 client가 기존 Gemini로 위임한다. 전환 후에도 Gemini 키 검사는 그대로 유지된다."""
+    from modules.common.ai_usage_ledger import wrap_gemini_client
+    # 261107 AI 호출 장부 — AI_USAGE_LEDGER_ENABLED가 true가 아니면 동일 객체를 돌려줘 기존 동작과 같다.
+    gemini_client = wrap_gemini_client(gemini_client, acct.account_code)
     from modules.common.credential_resolver import resolve_text_ai_credentials
     creds = resolve_text_ai_credentials(acct.credential_key)
     if creds is None:
