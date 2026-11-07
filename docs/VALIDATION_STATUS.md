@@ -305,3 +305,5 @@
 | `workers_ai_provider_261107` | **module_verified (production_verified 아님)** — Workers AI 연결(d92e3ee), 8계정 `.env` opt-in 적용, launcher 재시작·첫 Producer 실측 대기. Scout 한국어 JSON 2/2, 판독 6/6(글자 유무), 512px 축소 시 결과 동일·토큰 46% 절감(실측). 하루 22건 한도 여유 약 11%(추정). |
 
 | `workers_ai_canary_261107` | **FAILED (module_verified 유지, e2e 미달)** — 018 단일 Canary 07:07 ICT 글 생성 계약 실패(COVER_TITLE_INVALID), 10:00 자동 슬롯 028 429·022 이미지 실패. 이미지 판독·Safety·게시 직전 Safety 실모델 미검증, 운영 재시작·8계정 확대 대기(ERR-209). |
+
+| `ai_usage_ledger_261107` | **module_verified (production_verified 아님)** — AI 호출 장부 1단계(7d05f05, 기본 OFF·미 Push·미 재시작). Target Test 19건 통과(로컬 모킹), 호출 흐름·게시 판정 불변. 플래그 ON 후 실제 기록, Gemini usage_metadata 토큰 제공 여부, Codex 검수는 UNKNOWN/미실시. |

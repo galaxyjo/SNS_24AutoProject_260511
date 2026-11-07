@@ -3454,3 +3454,11 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **기록:** ERR-210(025 18:00 오탐, 2ad18b6), ERR-211(재작성 재시도 833dc03, Codex 검수 B 반려로 대기 상한 수정안 승인 대기).
 - **상태:** 두 커밋 모두 launcher 현재 기동 커밋(bc02057) 이전 이력에 포함됨을 `git merge-base --is-ancestor`로 확인. 변경·재시작·push 없음.
 - **UNKNOWN:** 재작성 대기 상한 미적용, 025·022 실제 효과(다음 Producer 로그).
+
+### 261107 14:40 ICT — AI 호출 장부 1단계 (코드 7d05f05, 기본 OFF)
+- **변경(코드, Commit 완료 7d05f05·미 Push·미 재시작):** `modules/common/ai_usage_ledger.py`(신규: `record_ai_call`, `UsageRecordingClient`, `wrap_gemini_client`, 조회 CLI), `modules/sns/caption_generator.py`(+18줄, `TextAIFallbackClient._ledger` 호출 — GPT/Workers AI/Claude/비전 성공·실패), `launcher/main.py`(+3줄, `_wrap_text_ai_client`에서 Gemini 래핑), `tests/test_ai_usage_ledger.py`(19건). 저장은 기존 `db/error_events.db`의 새 테이블 `ai_calls`(기존 `events`·`alert_log` 불변). 제외: 기존 사용자 변경 `docs/design/SNS_AI_SHOWHOST_SOURCEBOOK_IDN025_261101.md`, 미추적 `docs/design/SOURCE_SITES_MASTER_261102.md`, `db/*.json`, `.pytest_tmp_*`.
+- **목적:** 22계정의 AI 호출을 계정·공급자·모델·성공/실패별로 한곳에서 볼 수 있게 함(가시성 전용). 호출 순서·재시도·대체·게시 판정은 불변. `AI_USAGE_LEDGER_ENABLED=true`일 때만 기록, 기본 OFF에서는 래퍼가 동일 객체를 반환. 기록 실패는 호출자에게 전파하지 않음(fail-open), 프롬프트·응답·키·오류 원문은 저장하지 않음.
+- **승인 흐름:** Read-only 중앙관리 가능성 조사 → Gate 6(내부 래퍼 확장 vs 외부 AI Gateway) → Gate 7 최소 변경 설계 → "구현 승인" → 커밋 요청.
+- **검증:** Target Test 19건 통과(로컬 모킹, 운영 DB 격리). 변경 전 baseline은 3 failed·381 passed·4 errors였고 이번 변경과 무관한 기존 항목(문서의 "알려진 5건"과 일치 여부는 UNKNOWN). 실제 AI 호출·운영 재시작·실게시 0회.
+- **기록:** VALIDATION_STATUS `ai_usage_ledger_261107`(module_verified). ERR/FP/INC는 오류가 아닌 기능 추가라 해당 없음.
+- **UNKNOWN:** 실제 Gemini 응답의 `usage_metadata` 토큰 제공 여부, High-Risk(Runtime 동작 변경) Codex 검수 미실시, 플래그 ON·재시작·025 Canary·Push는 별도 승인 대기. 한도 0 8계정의 근본 원인(ERR-203)은 이 변경으로 해결되지 않음.
