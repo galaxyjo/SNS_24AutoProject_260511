@@ -1,3 +1,13 @@
+# (261107_14:58 ICT) | 인수인계 갱신 — AI 호출 장부 1단계 추가 (이 항목이 아래 261103 항목보다 최신) | 담당: Claude Code | 문서 갱신
+
+- **코드 커밋(미 Push):** `7d05f05` AI 호출 장부 1단계(`modules/common/ai_usage_ledger.py` 등 4파일), `703a0d6` 그 기록(MERGE_JOURNAL·VALIDATION_STATUS). **기본 OFF** — `.env`에 `AI_USAGE_LEDGER_ENABLED=true`를 넣고 launcher를 재시작해야 기록이 시작된다. 재시작·플래그 ON은 아직 하지 않았다(실행 중 launcher는 이 코드를 아직 로드하지 않았을 가능성이 높으나 기동 시각·커밋은 이번 갱신에서 확인하지 않음 = UNKNOWN).
+- **무엇인가:** 계정·공급자(gemini/gpt/workers_ai/claude)·모델·성공/실패·토큰·지연을 `db/error_events.db`의 `ai_calls` 표에 남기는 가시성 장치. 호출 순서·재시도·대체·게시 판정은 바꾸지 않는다. 조회: `.venv/Scripts/python.exe -m modules.common.ai_usage_ledger --since 24h --by account,provider,outcome`.
+- **다음(각각 별도 승인):** ① Codex 검수(Runtime 동작 변경이라 High-Risk) ② 플래그 ON + 관리자 `Restart-Service SNS_Watchdog` ③ 025 한 계정 Canary 후 `ai_calls` 행·토큰(`usage_metadata`) 실제 기록 확인 ④ Push(미 Push 로컬 커밋 다수). 이후 단계(DM·caption 전역 키·research_to_topic·이미지 공급자 포함)는 설계만 있고 미착수.
+- **미해결(이번 변경과 무관):** 한도 0 8계정(ERR-203) 근본 원인은 그대로다. 구글 쪽 프로젝트 한도라 코드로 풀리지 않으며, 036·025 프로젝트와 실패 프로젝트의 AI Studio/Cloud 콘솔 상태 비교와 019 새 프로젝트 키 Canary가 후속 후보다.
+- **UNKNOWN:** 실제 Gemini 응답의 `usage_metadata` 토큰 제공 여부, 변경 전 baseline(3 failed·4 errors)과 문서상 "알려진 5건"의 일치 여부.
+- **건드리지 말 것(기존 사용자 변경):** `docs/design/SNS_AI_SHOWHOST_SOURCEBOOK_IDN025_261101.md`(수정), `docs/design/SOURCE_SITES_MASTER_261102.md`(미추적).
+
+---
 # (261103_23:10 ICT) | 세션 마감 인수인계 — 이 문서가 20:40 항목보다 최신 | 담당: Claude Code | 문서 갱신
 
 - **Runtime(launcher):** 22:24:11 기동, 커밋 `3210b41`, `/health` 200. 코드 커밋 6개와 문서 커밋을 Push 완료(origin/master 동기). 재시작은 매번 관리자 `Restart-Service SNS_Watchdog`.
