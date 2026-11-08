@@ -43,6 +43,8 @@ $POLL_SEC       = 30   # 감시 주기 (초)
 $RESTART_WAIT   = 5    # 재시작 후 대기 (초)
 $HTTP_TIMEOUT   = 5    # HTTP 헬스체크 타임아웃 (초)
 $FAIL_ALERT_TH  = 3    # 연속 실패 Slack 알림 임계값
+$BOOT_GRACE_SEC = 120  # 261108 — watchdog 시작·launcher 재시작 직후 Flask/Heartbeat 감시 유예(초): 기동 중 거짓 경보 방지
+$graceUntil     = (Get-Date).AddSeconds($BOOT_GRACE_SEC)
 
 $FLASK_URL      = "http://localhost:5000/health"
 $STREAMLIT_URL  = "http://localhost:8501"
@@ -123,7 +125,8 @@ function Test-SchedulerHeartbeat {
 function Register-Failure {
     param([string]$service)
     $failCount[$service]++
-    if ($failCount[$service] -ge $FAIL_ALERT_TH) {
+    # 261108 — 임계값 도달 시 알림 후 20회(약 10분)마다 재알림(-ge는 매 30초 반복 발송, 단순 -eq는 영구 침묵)
+    if (($failCount[$service] -ge $FAIL_ALERT_TH) -and ((($failCount[$service] - $FAIL_ALERT_TH) % 20) -eq 0)) {
         $msg = "$service 연속 $($failCount[$service])회 실패 — 수동 점검 필요"
         Write-Log "[ALERT] $msg"
         Send-SlackAlert $msg "error"
@@ -134,6 +137,7 @@ function Register-Success {
     param([string]$service)
     if ($failCount[$service] -gt 0) {
         Write-Log "[RECOVER] $service 복구 (이전 연속 실패: $($failCount[$service])회)"
+        if ($failCount[$service] -ge $FAIL_ALERT_TH) { Send-SlackAlert "$service 복구됨" "success" }   # 261108 — 경보를 보냈던 경우에만 복구 1회 알림
     }
     $failCount[$service] = 0
 }
@@ -266,25 +270,26 @@ try {
             # 위험이 있다(Start-Launcher는 기존 프로세스를 죽이지 않음, 260730 Gate 확인).
             # 그래서 자동 재시작 없이 로그+Slack 알림만 남긴다.
             # --- Flask 응답성 감시(Alert-only, 재시작 없음) ---
-            if (-not (Test-Http $FLASK_URL)) {
+            if ((Get-Date) -lt $graceUntil) {
+                # 261108 — 기동 유예 중: 감시 보류(실패 카운트·알림 없음)
+            } elseif (-not (Test-Http $FLASK_URL)) {
                 Write-Log "[WARN] Flask 응답 없음(launcher 내부 무응답 가능성) — 자동 재시작 없음, 수동 확인 필요"
-                Send-SlackAlert "[ERR-089] Flask 응답 없음 — 자동 재시작 안 함, 수동 확인 필요" "warning"
                 Register-Failure "Flask"
             } else {
                 Register-Success "Flask"
             }
 
             # --- Scheduler Heartbeat 감시(Alert-only, ERR-089, 재시작 없음) ---
-            if (-not (Test-SchedulerHeartbeat -tag "[SchedulerHeartbeat][main]")) {
+            if ((Get-Date) -lt $graceUntil) {
+            } elseif (-not (Test-SchedulerHeartbeat -tag "[SchedulerHeartbeat][main]")) {
                 Write-Log "[WARN] Scheduler(main) Heartbeat 끊김(${HEARTBEAT_STALE_MIN}분 초과) — 자동 재시작 없음, 수동 확인 필요"
-                Send-SlackAlert "[ERR-089] Scheduler(main) Heartbeat 끊김 — 수동 확인 필요" "warning"
                 Register-Failure "SchedulerHeartbeatMain"
             } else {
                 Register-Success "SchedulerHeartbeatMain"
             }
-            if (-not (Test-SchedulerHeartbeat -tag "[SchedulerHeartbeat][dm]")) {
+            if ((Get-Date) -lt $graceUntil) {
+            } elseif (-not (Test-SchedulerHeartbeat -tag "[SchedulerHeartbeat][dm]")) {
                 Write-Log "[WARN] Scheduler(dm) Heartbeat 끊김(${HEARTBEAT_STALE_MIN}분 초과) — 자동 재시작 없음, 수동 확인 필요"
-                Send-SlackAlert "[ERR-089] Scheduler(dm) Heartbeat 끊김 — 수동 확인 필요" "warning"
                 Register-Failure "SchedulerHeartbeatDm"
             } else {
                 Register-Success "SchedulerHeartbeatDm"
@@ -336,6 +341,7 @@ try {
                     Register-Failure "Launcher"
                 } elseif (Test-Launcher) {
                     Write-Log "[OK]   launcher/main.py 재시작 성공"
+                    $graceUntil = (Get-Date).AddSeconds($BOOT_GRACE_SEC)   # 261108 — 재시작 직후 유예
                     Send-SlackAlert "launcher/main.py 재시작 성공" "success"
                     Register-Success "Launcher"
                 } else {

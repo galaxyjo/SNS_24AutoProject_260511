@@ -1728,6 +1728,8 @@ watchdog.log(같은 구간):
 
 **관련:** 계정별 Kill Switch(§WORKFLOW_ARCHITECTURE_STATUS.md §10-20) Runtime Canary 도중 발견
 
+**[261108 정정 — watchdog 알림 정리]** 위 검증 설명의 "Flask·Heartbeat 즉시 Alert"는 현재 코드와 다르다. `watchdog.ps1`이 Flask/Scheduler(main)/Scheduler(dm) 이상을 감지해도 즉시 Telegram을 보내지 않고, 연속 3회 실패 시 1회 알림 후 20회(약 10분)마다 재알림하며, 경보를 보냈던 경우에만 복구 알림을 1회 보낸다. watchdog 시작·launcher 재시작 직후 120초는 Flask/Heartbeat 감시를 유예한다. 근거: 261108 watchdog.log에서 재시작 직후 거짓 경보와 로그 공백(08:36→08:53, 09:08→09:16, 원인 UNKNOWN) 후 stale 판정을 확인. 실제 정지 탐지는 약 8.5분(7분 stale + 3회 확인)으로 늦춰진 것이 알려진 트레이드오프다. Mock(함수 단위)만 검증했고 Runtime 발송은 미검증.
+
 ---
 
 ## ERR-090 | Claude Code가 `.env` grep 중 YUNA_INSTA_ACCESS_TOKEN·AI_INSTA_ACCESS_TOKEN 원문을 tool 출력에 노출(대화 기록에 잔존) (OPEN, 토큰 교체 대기)
