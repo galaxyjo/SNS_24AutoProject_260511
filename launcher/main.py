@@ -1678,6 +1678,16 @@ _PRODUCER_TRANSIENT_ERROR_CODES = frozenset({
     "IMAGE_GENERATION_FAILED", "IMAGE_CHECK_ERROR", "CAPTION_GENERATION_FAILED",
     "CAROUSEL_TEXT_FAILED:COVER_TITLE_INVALID",
 })
+# 261108 — Producer 생성 실패 알림: 계정 코드를 문구에 넣고 (날짜, 계정, 오류코드)당 하루 1회만 보낸다(프로세스 메모리, 재시작 시 초기화).
+_PRODUCER_FAIL_ALERTED: set = set()
+
+
+def _producer_fail_alert_first(account_code: str, error_code: str) -> bool:
+    key = (_ict_now().date().isoformat(), account_code, error_code)
+    if key in _PRODUCER_FAIL_ALERTED:
+        return False
+    _PRODUCER_FAIL_ALERTED.add(key)
+    return True
 
 
 # 261024 STEP 2 — 공통 콘텐츠 엔진의 계정별 설정. aijomoojin(IDN-000036)은 기존 상수·Flag 이름·
@@ -2347,8 +2357,8 @@ def _job_aijomoojin_content_producer(producer_hour: "int | None" = None,
                     f"[AijomoojinProducer] 콘텐츠 생성 실패 | account_code={account_code} | "
                     f"max_attempts={_PRODUCER_MAX_ATTEMPTS} | error_code={result.error_code}"
                 )
-                if _slack:
-                    _slack(f"[알림] aijomoojin Producer 콘텐츠 생성 실패 | error_code={result.error_code}")
+                if _slack and _producer_fail_alert_first(account_code, result.error_code):
+                    _slack(f"[알림] Producer 콘텐츠 생성 실패 | account_code={account_code} | error_code={result.error_code}")
                 return
             content_id = result.content_id
             logger.info(f"[AijomoojinProducer] 신규 패키지 생성 | content_id={content_id}")
