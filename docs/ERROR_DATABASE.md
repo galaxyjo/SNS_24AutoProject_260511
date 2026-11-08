@@ -3546,3 +3546,21 @@ S1` 정상, `gemma-4-26b-a4b-it` 글 생성은 2회 모두 `finish_reason=length
 - **UNKNOWN / Risk:** 재시도 실제 효과는 503 발생 시에만 검증됨. 대기 상한 미적용 상태의 Producer 점유 시간.
 - **Rollback:** `git revert 833dc03` 후 launcher 재시작.
 - **관련:** ERR-198, ERR-200, FP-128, INC-076
+
+## ERR-212
+- **제목:** Producer 생성 실패 Telegram 알림이 모든 계정에서 "aijomoojin"으로 표시되고 계정 코드가 없음 (261108)
+- **증상:** 11-08 09:00 Telegram에 aijomoojin 이름의 오류만 계속 도착. 실제 실패는 IDN-000024·IDN-000030 등 다른 계정(app.log `account_code=IDN-000024` 등).
+- **근거(Evidence):** `launcher/main.py:2351` 알림 문구에 "aijomoojin Producer"가 고정되고 `account_code`가 없었음. 공통 Producer 함수가 여러 계정에서 공용으로 호출됨. error_events에는 7개 계정이 정상 기록됨 — 계정 미등록이 아니라 표시 문제.
+- **조치:** 문구에 `account_code` 포함 + (ICT 날짜·계정·오류코드)당 하루 1회(프로세스 메모리, 재시작 시 초기화). 커밋 `73e00d8`, Target Test 2건.
+- **UNKNOWN / Risk:** 실제 Telegram 문구는 다음 실패 시점에 확인 필요. NEWS_QUOTA·"선택 가능한 Topic 없음" 알림(`launcher/main.py` 2305·2339행 부근)은 여전히 "aijomoojin" 문구 — 이번 범위 밖.
+- **Rollback:** `git revert 73e00d8` 후 launcher 재시작.
+- **관련:** FP-132, ERR-209
+
+## ERR-213
+- **제목:** watchdog Telegram 알림이 1회 감지에도 즉시·반복 발송되고 재시작 직후 거짓 경보를 냄 (261108)
+- **증상:** Flask/Heartbeat 경고가 하루 16건(Heartbeat 12·Flask 4). watchdog 시작·launcher 재시작 직후 약 1분간 Flask 무응답 알림(07:59, 09:19). watchdog 자체 로그가 08:36→08:53(17분), 09:08→09:16(7분) 끊긴 뒤 복귀하며 Heartbeat 7분 초과로 판정.
+- **근거(Evidence):** `watchdog.ps1` 269~290행이 연속 3회 임계값과 무관하게 즉시 `Send-SlackAlert` 호출, `Register-Failure`는 `-ge`라 임계값 이후 30초마다 반복. `logs/watchdog.log` 11-08. 로그 공백의 원인(PC 절전 vs 루프 정지)은 UNKNOWN.
+- **조치:** 즉시 발송 3건 제거, 연속 3회 시 1회 + 20회마다 재알림, 경보를 보냈던 경우만 복구 알림 1회, watchdog 시작·launcher 재시작 후 120초 유예. 커밋 `14bfb51`. Codex 검토에서 "-eq 단독은 장기 장애 후 영구 침묵"을 지적받아 재알림으로 보정. 재시작(09:30) 이후 거짓 경보 0건.
+- **UNKNOWN / Risk:** 실제 정지 탐지가 약 8.5분(7분 stale + 3회 확인)으로 늦어짐(수용). 유예 중 로그 태그 갱신 확인 없음(DEFER). 로그 공백 원인 미조사.
+- **Rollback:** `git revert 14bfb51` 후 `Restart-Service SNS_Watchdog`(관리자).
+- **관련:** ERR-089, ERR-141, FP-132

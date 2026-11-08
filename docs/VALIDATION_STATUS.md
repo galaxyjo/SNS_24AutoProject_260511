@@ -307,3 +307,11 @@
 | `workers_ai_canary_261107` | **FAILED (module_verified 유지, e2e 미달)** — 018 단일 Canary 07:07 ICT 글 생성 계약 실패(COVER_TITLE_INVALID), 10:00 자동 슬롯 028 429·022 이미지 실패. 이미지 판독·Safety·게시 직전 Safety 실모델 미검증, 운영 재시작·8계정 확대 대기(ERR-209). |
 
 | `ai_usage_ledger_261107` | **module_verified (production_verified 아님)** — AI 호출 장부 1단계(7d05f05, 기본 OFF·미 Push·미 재시작). Target Test 19건 통과(로컬 모킹), 호출 흐름·게시 판정 불변. 플래그 ON 후 실제 기록, Gemini usage_metadata 토큰 제공 여부, Codex 검수는 UNKNOWN/미실시. |
+
+| `text_ai_429_diag_261107` | **module_verified (production_verified 아님)** — Workers AI 429를 `daily_quota`/`rate_limited`로 분리하고 `Retry-After`·`cf-ray`를 원장 detail_head에 기록(34b797c). Target Test 88건 통과(로컬 모킹, API 호출 없음). 018 운영 실패(11-07 15:00)에서 `code=daily_quota`·ray 기록은 확인됐으나 `ra`는 응답에 없어 UNKNOWN. Claude 400(credit)이 분류를 덮는 문제는 미해결. |
+
+| `cover_title_32_rule_261107` | **module_verified (효과 UNKNOWN)** — Workers AI 프롬프트에만 표지 제목 32자 여유 규칙 추가(bc02057, 검증 한도 40자 불변). Target Test 91건 통과. 실제 표지 길이 개선은 018 단독 Canary 전이라 확인되지 않음. |
+
+| `producer_alert_account_261108` | **module_verified (production_verified 아님)** — Producer 실패 알림에 `account_code` 포함 + (날짜·계정·오류코드)당 1회(73e00d8, launcher 11-08 09:20 기동 반영). Target Test 2건 통과, 재시작 후 신규 ERROR 0건. 실제 알림 문구는 다음 Producer 실패 시점에 확인 필요. |
+
+| `watchdog_alert_throttle_261108` | **module_verified + 재시작 후 거짓 경보 0건 (production_verified 아님)** — 연속 3회 실패 알림·20회마다 재알림·복구 알림·120초 유예(14bfb51, watchdog 11-08 09:30 재시작 반영). 함수 단위 Mock 테스트와 파서 검사 통과, Codex 검토(재알림 보정 반영). 실제 장애 시 알림 동작과 로그 공백 원인은 미검증. |

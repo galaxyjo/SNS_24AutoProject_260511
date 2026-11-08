@@ -3462,3 +3462,9 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **검증:** Target Test 19건 통과(로컬 모킹, 운영 DB 격리). 변경 전 baseline은 3 failed·381 passed·4 errors였고 이번 변경과 무관한 기존 항목(문서의 "알려진 5건"과 일치 여부는 UNKNOWN). 실제 AI 호출·운영 재시작·실게시 0회.
 - **기록:** VALIDATION_STATUS `ai_usage_ledger_261107`(module_verified). ERR/FP/INC는 오류가 아닌 기능 추가라 해당 없음.
 - **UNKNOWN:** 실제 Gemini 응답의 `usage_metadata` 토큰 제공 여부, High-Risk(Runtime 동작 변경) Codex 검수 미실시, 플래그 ON·재시작·025 Canary·Push는 별도 승인 대기. 한도 0 8계정의 근본 원인(ERR-203)은 이 변경으로 해결되지 않음.
+
+### 261108 10:10 ICT — 261107~08 세션 코드 Commit 5건 문서 기록 (문서만, 코드 변경 없음)
+- **기록 대상(Commit 완료):** 34b797c(Workers AI 429를 `daily_quota`/`rate_limited`로 분리, `Retry-After`·`cf-ray` 기록, 4파일, Target Test 88 PASS) · 8c75f47(CLAUDE.md OUTPUT LOCK 보강) · bc02057(Workers AI 프롬프트에만 표지 제목 32자 여유 규칙, +3 테스트, 91 PASS) · 73e00d8(Producer 실패 알림에 `account_code` 포함 + (날짜·계정·오류코드)당 하루 1회, `tests/test_producer_fail_alert.py` 2건) · 14bfb51(watchdog 연속 3회 알림·20회(약 10분)마다 재알림·복구 알림·시작/재시작 후 120초 유예, ERR-089 정정 메모).
+- **반영 상태:** 73e00d8은 11-08 launcher 재시작(09:20 기동)으로, 14bfb51은 11-08 09:30 watchdog 재시작으로 로드됨. 이후 거짓 경보(Flask/Heartbeat) 0건, 앱 Telegram 0건 확인.
+- **기록:** ERR-212·ERR-213, FP-132, VALIDATION_STATUS 4행(`text_ai_429_diag_261107`, `cover_title_32_rule_261107`, `producer_alert_account_261108`, `watchdog_alert_throttle_261108`). INC는 운영 중단 없는 알림 품질 문제라 해당 없음.
+- **UNKNOWN:** 32자 규칙의 실제 표지 길이 효과(018 Canary 전), 새 Producer 알림·watchdog 연속 3회/재알림/복구 알림의 실제 장애 시 동작, watchdog 로그 공백(08:36→08:53, 09:08→09:16) 원인, 018 429가 이후에도 `daily_quota`인지. 현재 미 Push Commit은 `git rev-list --count @{u}..HEAD` 기준 31개(문서 기록 Commit 전).
