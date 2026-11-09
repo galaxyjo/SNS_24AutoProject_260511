@@ -3468,3 +3468,12 @@ _261026 12:2x ICT 소급 기록 — 회장 제공 GPT·Codex 작업 기록과 �
 - **반영 상태:** 73e00d8은 11-08 launcher 재시작(09:20 기동)으로, 14bfb51은 11-08 09:30 watchdog 재시작으로 로드됨. 이후 거짓 경보(Flask/Heartbeat) 0건, 앱 Telegram 0건 확인.
 - **기록:** ERR-212·ERR-213, FP-132, VALIDATION_STATUS 4행(`text_ai_429_diag_261107`, `cover_title_32_rule_261107`, `producer_alert_account_261108`, `watchdog_alert_throttle_261108`). INC는 운영 중단 없는 알림 품질 문제라 해당 없음.
 - **UNKNOWN:** 32자 규칙의 실제 표지 길이 효과(018 Canary 전), 새 Producer 알림·watchdog 연속 3회/재알림/복구 알림의 실제 장애 시 동작, watchdog 로그 공백(08:36→08:53, 09:08→09:16) 원인, 018 429가 이후에도 `daily_quota`인지. 현재 미 Push Commit은 `git rev-list --count @{u}..HEAD` 기준 31개(문서 기록 Commit 전).
+
+### 261109 14:19 ICT — "한도 8계정 중 2개 성공" 정정 기록 (회장 검수 반영, 문서만·코드 변경 없음)
+- **검수 결론(회장 지시 261109 13:56 ICT 원문 요지):** "2계정 성공"이 아니라 **기존 036 계정의 콘텐츠 생성 2건**이다. 036은 이미 성공한 기준 계정이며, 이를 바탕으로 다른 계정으로 확장 중이다. 장애 8계정(IDN-000018·019·023·024·027·028·030·038)의 콘텐츠 생성 복구는 **아직 성공 확인 없음**.
+- **FACT(로컬 Evidence, 261109 확인):** 2026-11-07 11:01:30 `content_id=3-6-261107-54dbc154`(완료 11:01:46, Airtable `record_id=rechBOcOULbDnkQOV`)와 14:01:59 `content_id=3-2-261107-ad9458e9`(완료 14:02:14, `record_id=recp6nf5LfZU0GBB5`) — 두 건 모두 Airtable `Instagram_Posts.account_code_ref=IDN-000036`. `Account_Registry`의 `account_email`과 `recovery_email`은 동일 값이며 문서에는 마스킹해 `nguyen***15@gmail.com`으로 표기(원문은 Airtable). IDN-000036은 한도 8계정에 **속하지 않음**.
+- **회장 검수 판단(Claude Code 미검증):** 036을 "JOMOOJIN" 기준 계정으로 지칭, 확장 기준 계정이라는 설명은 회장 검수 내용이며 이 기록의 Evidence로 확인한 것은 위 account_code·record_id·시각까지다.
+- **Root Cause(회장 검수 판정):** '콘텐츠 2건 성공'을 '계정 2개 성공'과 혼동(건수와 계정 수의 단위 혼동). 다만 "한도 8개 중 2개 성공"이라는 최초 진술의 출처는 현재 세션 기록과 문서에서 찾지 못했으며, 261109 조회 시 Claude Code는 출처 UNKNOWN으로 답한 뒤 위 2건을 036으로 특정했다.
+- **상태 정정:** 8계정 복구 현황은 변함없이 "018 단독 Canary 미실행, 나머지 7계정 미옵트인(.env 주석), 복구 성공 확인 없음". `workers_ai_canary_261107`(FAILED)·`workers_ai_provider_261107`(module_verified) 판정은 유지.
+- **ACTION(회장 지시):** 036은 기존 성공으로 유지하고, STEP 3에서는 장애 8계정의 콘텐츠 생성 복구 여부만 확인한다.
+- **미 Commit:** 이 기록은 작업 트리에만 있음(Commit·Push 별도 승인).
